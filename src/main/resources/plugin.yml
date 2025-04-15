@@ -1,0 +1,275 @@
+name: YakRealms
+version: 1.0.0
+main: com.rednetty.server.YakRealms
+api-version: 1.20
+description: YakRealms MMORPG Server Core
+authors: [ RedNetty, YakDeveloper ]
+website: https://rednetty.com
+
+commands:
+  # Economy Commands
+  balance:
+    description: Check your gem balance
+    aliases: [ bal, money, gems ]
+    usage: /balance
+  pay:
+    description: Send gems to another player
+    usage: /pay <player> <amount>
+  bank:
+    description: Access your gem bank
+    usage: /bank
+  gems:
+    description: Gem management commands
+    usage: /gems <subcommand>
+  gempouch:
+    description: Open a gem pouch
+    usage: /gempouch
+  eco:
+    description: Economy admin commands
+    usage: /eco <give|take|set> <player> <amount>
+    permission: yakrealms.admin
+  vendor:
+    description: Vendor management commands
+    usage: /vendor <subcommand>
+    permission: yakrealms.admin
+
+  # Mob Commands
+  spawner:
+    description: Manage mob spawners
+    usage: /spawner <subcommand>
+    permission: yakrealms.admin
+  spawnmob:
+    description: Spawn a mob
+    usage: /spawnmob <type> [level]
+    permission: yakrealms.admin
+  mobinfo:
+    description: Get information about a mob
+    usage: /mobinfo
+  togglespawners:
+    description: Toggle mob spawners on/off
+    usage: /togglespawners
+    permission: yakrealms.admin
+  boss:
+    description: Spawn a boss
+    usage: /boss <type>
+    permission: yakrealms.admin
+
+  # Drop Commands
+  droprate:
+    description: Manage drop rates
+    usage: /droprate <tier> <rate>
+    permission: yakrealms.admin
+  lootbuff:
+    description: Apply a loot buff
+    usage: /lootbuff <type> <duration>
+  elitedrop:
+    description: Create elite drops
+    usage: /elitedrop <subcommand>
+    permission: yakrealms.admin
+
+  # Teleport Commands
+  teleportbook:
+    description: Manage teleport books
+    usage: /teleportbook <subcommand>
+  teleport:
+    description: Teleport to a location or player
+    usage: /teleport <location|player>
+    aliases: [ tp ]
+
+  # Player Commands
+  mount:
+    description: Manage mounts
+    usage: /mount <subcommand>
+  toggles:
+    description: Toggle player settings
+    usage: /toggles <setting>
+  invsee:
+    description: View a player's inventory
+    usage: /invsee <player>
+    permission: yakrealms.admin
+  alignment:
+    description: Manage player alignment
+    usage: /alignment <subcommand>
+    permission: yakrealms.admin
+
+  # Item Commands
+  item:
+    description: Item management commands
+    usage: /item <subcommand>
+    permission: yakrealms.admin
+  journal:
+    description: Access your quest journal
+    usage: /journal
+  scroll:
+    description: Manage scrolls
+    usage: /scroll <subcommand>
+  speedfish:
+    description: Use a speedfish
+    usage: /speedfish
+  orb:
+    description: Manage orbs
+    usage: /orb <subcommand>
+
+  # Chat Commands
+  buddy:
+    description: Manage your buddies list
+    usage: /buddy <add|remove|list>
+    aliases: [ add, buddies, friend, friends ]
+  msg:
+    description: Send a private message to a player
+    usage: /msg <player> <message>
+    aliases: [ m, w, whisper, tell ]
+  r:
+    description: Reply to the last person who messaged you
+    usage: /r <message>
+    aliases: [ reply ]
+  global:
+    description: Send a message to global chat
+    usage: /global <message>
+    aliases: [ gl, g ]
+  staffchat:
+    description: Send a message to staff chat
+    usage: /staffchat <message>
+    aliases: [ sc, s ]
+    permission: yakrealms.staff.chat
+  chattag:
+    description: Manage your chat tag
+    usage: /chattag <set|list>
+
+  # Party Commands
+  p:
+    description: Send a message to your party members
+    usage: /p <message>
+    aliases: [ partychat ]
+  paccept:
+    description: Accept a party invitation
+    usage: /paccept
+  pdecline:
+    description: Decline a party invitation
+    usage: /pdecline
+  pinvite:
+    description: Invite a player to your party
+    usage: /pinvite <player>
+  pkick:
+    description: Kick a player from your party
+    usage: /pkick <player>
+  pquit:
+    description: Leave your current party
+    usage: /pquit
+    aliases: [ pleave ]
+
+  # Moderation Commands
+  kick:
+    description: Kick a player from the server
+    usage: /kick <player> [reason]
+    permission: yakrealms.staff.kick
+  ban:
+    description: Ban a player from the server
+    usage: /ban <player> <duration> [reason]
+    permission: yakrealms.staff.ban
+  unban:
+    description: Unban a player from the server
+    usage: /unban <player>
+    permission: yakrealms.staff.ban
+  mute:
+    description: Mute a player
+    usage: /mute <player> <duration> [reason]
+    permission: yakrealms.staff.mute
+  unmute:
+    description: Unmute a player
+    usage: /unmute <player>
+    permission: yakrealms.staff.mute
+  vanish:
+    description: Toggle visibility to other players
+    usage: /vanish
+    permission: yakrealms.staff.vanish
+  setrank:
+    description: Set a player's rank
+    usage: /setrank <player> <rank>
+    permission: yakrealms.staff.setrank
+
+  # Navigation Commands
+  trail:
+    description: Create a navigation trail to a destination
+    usage: /trail <to|click|cancel|style>
+  nodemap:
+    description: Manage navigation node mapping
+    usage: /nodemap <generate|progress|pause|cancel|help>
+    permission: yakrealms.admin.nodemap
+
+permissions:
+  yakrealms.admin:
+    description: Grants access to all YakRealms administrator commands
+    default: op
+    children:
+      yakrealms.admin.economy: true
+      yakrealms.admin.mobs: true
+      yakrealms.admin.items: true
+      yakrealms.admin.teleport: true
+      yakrealms.admin.nodemap: true
+
+  yakrealms.admin.economy:
+    description: Grants access to economy admin commands
+    default: op
+
+  yakrealms.admin.mobs:
+    description: Grants access to mob management commands
+    default: op
+
+  yakrealms.admin.items:
+    description: Grants access to item admin commands
+    default: op
+
+  yakrealms.admin.teleport:
+    description: Grants access to teleport admin commands
+    default: op
+
+  yakrealms.admin.nodemap:
+    description: Grants access to navigation system admin commands
+    default: op
+
+  yakrealms.moderator:
+    description: Grants access to moderation commands
+    default: op
+    children:
+      yakrealms.staff.kick: true
+      yakrealms.staff.ban: true
+      yakrealms.staff.mute: true
+      yakrealms.staff.chat: true
+      yakrealms.staff.vanish: true
+      yakrealms.staff.setrank: true
+
+  yakrealms.staff.setrank:
+    description: Grants access to set player ranks
+    default: op
+    children:
+      yakrealms.setrank.premium: true
+      yakrealms.setrank.staff: true
+
+  yakrealms.setrank.premium:
+    description: Allows setting subscriber ranks
+    default: op
+
+  yakrealms.setrank.staff:
+    description: Allows setting staff ranks
+    default: op
+
+  yakrealms.setrank.mod:
+    description: Allows setting moderator ranks
+    default: op
+
+  yakrealms.setrank.admin:
+    description: Allows setting admin ranks
+    default: op
+
+  yakrealms.setrank.dev:
+    description: Allows setting developer rank
+    default: op
+
+  yakrealms.builder:
+    description: Grants access to building commands
+    default: op
+
+  yakrealms.player:
+    description: Basic player permissions
+    default: true

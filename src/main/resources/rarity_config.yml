@@ -1,0 +1,50 @@
+# Configuration for different item rarities in the drop system
+# rarity: The rarity level (1-4)
+# name: Display name of the rarity
+# color: ChatColor constant for the rarity's color
+# dropChance: Percentage chance to drop this rarity
+# statMultipliers: Stat multipliers based on rarity
+
+1:
+  name: Common
+  color: GRAY
+  dropChance: 62
+  statMultipliers:
+    damage: 1.0
+    armor: 1.0
+    health: 1.0
+    energyRegen: 1.0
+    hpRegen: 1.0
+
+2:
+  name: Uncommon
+  color: GREEN
+  dropChance: 26
+  statMultipliers:
+    damage: 1.2
+    armor: 1.3
+    health: 1.3
+    energyRegen: 1.2
+    hpRegen: 1.25
+
+3:
+  name: Rare
+  color: AQUA
+  dropChance: 10
+  statMultipliers:
+    damage: 1.5
+    armor: 1.7
+    health: 1.6
+    energyRegen: 1.4
+    hpRegen: 1.5
+
+4:
+  name: Unique
+  color: YELLOW
+  dropChance: 2
+  statMultipliers:
+    damage: 2.0
+    armor: 2.2
+    health: 2.0
+    energyRegen: 1.8
+    hpRegen: 2.0

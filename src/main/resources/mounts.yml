@@ -1,0 +1,72 @@
+# Mount System Configuration
+
+# Horse mount settings
+horse:
+  # Time to summon a horse (in seconds)
+  summon_time: 5
+
+  # Time to summon a horse for chaotic players (in seconds)
+  chaotic_summon_time: 8
+
+  # Whether horses can be summoned instantly in safe zones
+  instant_mount_in_safe_zone: true
+
+  # Horse tiers and their stats
+  tiers:
+    # Tier 2 - Old Horse Mount
+    2:
+      speed: 0.30
+      jump: 0.5
+      name: "Old Horse Mount"
+      color: "GREEN"
+      description: "An old brown starter horse."
+      price: 1000
+      armor: "NONE"
+
+    # Tier 3 - Traveler's Horse Mount
+    3:
+      speed: 0.42
+      jump: 0.85
+      name: "Traveler's Horse Mount"
+      color: "AQUA"
+      description: "A standard healthy horse."
+      price: 1500
+      armor: "IRON"
+
+    # Tier 4 - Knight's Horse Mount
+    4:
+      speed: 0.48
+      jump: 0.95
+      name: "Knight's Horse Mount"
+      color: "LIGHT_PURPLE"
+      description: "A fast well-bred horse."
+      price: 2500
+      armor: "DIAMOND"
+
+    # Tier 5 - War Stallion Mount
+    5:
+      speed: 0.55
+      jump: 1.05
+      name: "War Stallion Mount"
+      color: "YELLOW"
+      description: "A trusty powerful steed."
+      price: 4000
+      armor: "GOLD"
+
+# Elytra mount settings
+elytra:
+  # Time to summon an elytra (in seconds)
+  summon_time: 5
+
+  # Duration of elytra flight (in seconds)
+  duration: 30
+
+  # Whether to disable damage while gliding
+  disable_damage: true
+
+  # Height limits for each region
+  height_limits:
+    frostfall: 195.0
+    deadpeaks: 70.0
+    avalon: 130.0
+    default: 100.0

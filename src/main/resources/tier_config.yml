@@ -1,0 +1,61 @@
+# Configuration for different item tiers in the drop system
+# tier: The tier level (1-6)
+# color: ChatColor constant for the tier's color
+# dropRate: Base drop rate percentage for this tier
+# eliteDropRate: Drop rate percentage for elite mobs of this tier
+# crateDropRate: Drop rate percentage for crates of this tier
+# materials: Material prefixes for weapons and armor of this tier
+
+1:
+  color: WHITE
+  dropRate: 85
+  eliteDropRate: 90
+  crateDropRate: 10
+  materials:
+    weapon: WOODEN
+    armor: LEATHER
+
+2:
+  color: GREEN
+  dropRate: 55
+  eliteDropRate: 60
+  crateDropRate: 7
+  materials:
+    weapon: STONE
+    armor: CHAINMAIL
+
+3:
+  color: AQUA
+  dropRate: 40
+  eliteDropRate: 45
+  crateDropRate: 5
+  materials:
+    weapon: IRON
+    armor: IRON
+
+4:
+  color: LIGHT_PURPLE
+  dropRate: 24
+  eliteDropRate: 28
+  crateDropRate: 3
+  materials:
+    weapon: DIAMOND
+    armor: DIAMOND
+
+5:
+  color: YELLOW
+  dropRate: 18
+  eliteDropRate: 22
+  crateDropRate: 1
+  materials:
+    weapon: GOLDEN
+    armor: GOLDEN
+
+6:
+  color: BLUE
+  dropRate: 15
+  eliteDropRate: 18
+  crateDropRate: 1
+  materials:
+    weapon: DIAMOND
+    armor: LEATHER

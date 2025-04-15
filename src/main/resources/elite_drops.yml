@@ -1,0 +1,2058 @@
+# Configuration for elite mob drops
+# mobType: Type identifier for the elite mob
+# tier: Base tier level for drops
+# rarity: Base rarity level for drops
+# stats: Common stat ranges for all items
+# weaponStats: Stat ranges specific to weapons
+# armorStats: Stat ranges specific to armor
+# items: Specific item configurations
+
+# Tier 1 Elites
+mitsuki:
+  tier: 1
+  rarity: 2
+  stats:
+    damage:
+      min: 18
+      max: 28
+    vitality:
+      min: 20
+      max: 40
+    blockChance:
+      min: 4
+      max: 8
+  weaponStats:
+    fireDamage:
+      min: 8
+      max: 12
+    lifeSteal:
+      min: 5
+      max: 10
+  armorStats:
+    energyRegen:
+      min: 4
+      max: 8
+    armor:
+      min: 2
+      max: 7
+    hp:
+      helmet:
+        min: 100
+        max: 150
+      chestplate:
+        min: 225
+        max: 275
+      leggings:
+        min: 225
+        max: 275
+      boots:
+        min: 100
+        max: 150
+  items:
+    1:
+      name: "Mitsuki's Bloodthirst Blade"
+      material: WOODEN_SWORD
+      lore: "The Master of Ruins' blood-stained ridged Sword."
+    5:
+      name: "Mitsuki's Torn Leather Coif"
+      material: LEATHER_HELMET
+      lore: "A ripped remains of a Leather Coif far from industry standards."
+    6:
+      name: "Mitsuki's Filthy Leather Rags"
+      material: LEATHER_CHESTPLATE
+      lore: "Blood-stained rags that reek of Zombie flesh."
+    7:
+      name: "Mitsuki's Ripped Leather Pants"
+      material: LEATHER_LEGGINGS
+      lore: "Can be referred to as 'shorts' due to intensive ripping."
+    8:
+      name: "Mitsuki's Bloodstained Leather Sandals"
+      material: LEATHER_BOOTS
+      lore: "Blood-stained sandals. Not very comfortable."
+
+thura:
+  tier: 1
+  rarity: 2
+  stats:
+    damage:
+      min: 18
+      max: 30
+    strength:
+      min: 20
+      max: 40
+    criticalHit:
+      min: 8
+      max: 12
+  weaponStats:
+    poisonDamage:
+      min: 8
+      max: 12
+  armorStats:
+    dodgeChance:
+      min: 4
+      max: 7
+    dps:
+      min: 2
+      max: 7
+    hp:
+      helmet:
+        min: 100
+        max: 150
+      chestplate:
+        min: 225
+        max: 275
+      leggings:
+        min: 225
+        max: 275
+      boots:
+        min: 100
+        max: 150
+  items:
+    1:
+      name: "Thura's Vicious Axe"
+      material: WOODEN_AXE
+      lore: "The Master of Ruins' blood-stained vicious axe."
+    5:
+      name: "Thura's Torn Leather Coif"
+      material: LEATHER_HELMET
+      lore: "A ripped remains of a Leather Coif far from industry standards."
+    6:
+      name: "Thura's Grimy Leather Rags"
+      material: LEATHER_CHESTPLATE
+      lore: "Blood-stained rags that reek of Zombie flesh."
+    7:
+      name: "Thura's Tattered Leather Pants"
+      material: LEATHER_LEGGINGS
+      lore: "Can be referred to as 'shorts' due to intensive ripping."
+    8:
+      name: "Thura's Bloodied Leather Sandals"
+      material: LEATHER_BOOTS
+      lore: "Blood-stained sandals. Not very comfortable."
+
+plaguebearer:
+  tier: 1
+  rarity: 2
+  stats:
+    damage:
+      min: 20
+      max: 32
+    vitality:
+      min: 25
+      max: 60
+  weaponStats:
+    poisonDamage:
+      min: 7
+      max: 17
+  armorStats:
+    dps:
+      min: 2
+      max: 4
+    energyRegen:
+      min: 5
+      max: 11
+    hp:
+      helmet:
+        min: 120
+        max: 170
+      chestplate:
+        min: 240
+        max: 290
+      leggings:
+        min: 240
+        max: 290
+      boots:
+        min: 120
+        max: 170
+  items:
+    1:
+      name: "Miasma Scepter"
+      material: WOODEN_HOE
+      lore: "A crude scepter that exudes a sickly green mist."
+    5:
+      name: "Contaminated Cowl"
+      material: LEATHER_HELMET
+      lore: "A hood that reeks of decay and disease."
+    6:
+      name: "Pestilence Shroud"
+      material: LEATHER_CHESTPLATE
+      lore: "A robe covered in mysterious stains and plague residue."
+    7:
+      name: "Leggings of Decay"
+      material: LEATHER_LEGGINGS
+      lore: "These pants seem to be slowly decomposing."
+    8:
+      name: "Boots of Contagion"
+      material: LEATHER_BOOTS
+      lore: "Each step leaves behind a trail of infectious material."
+
+# Tier 2 Elites
+copjak:
+  tier: 2
+  rarity: 2
+  stats:
+    damage:
+      min: 40
+      max: 55
+    vitality:
+      min: 30
+      max: 60
+    criticalHit:
+      min: 10
+      max: 15
+  weaponStats:
+    poisonDamage:
+      min: 16
+      max: 20
+  armorStats:
+    energyRegen:
+      min: 5
+      max: 9
+    armor:
+      min: 4
+      max: 12
+    hp:
+      helmet:
+        min: 250
+        max: 300
+      chestplate:
+        min: 450
+        max: 550
+      leggings:
+        min: 450
+        max: 550
+      boots:
+        min: 250
+        max: 300
+  items:
+    1:
+      name: "Cop'Jak's Wicked Blade"
+      material: STONE_SWORD
+      lore: "A long wicked sword of Trollish design, crafted by Cop'Jak."
+    5:
+      name: "Cop'Jak's Shamanistic Headgear"
+      material: CHAINMAIL_HELMET
+      lore: "A standard Shaman's headgear consisting of a bear's head, worn by Cop'Jak."
+    6:
+      name: "Cop'Jak's Greased Chainmail Chestpiece"
+      material: CHAINMAIL_CHESTPLATE
+      lore: "A bad fit made for the broad chests of Trolls, worn by Cop'Jak."
+    7:
+      name: "Cop'Jak's Chainlinked Pants"
+      material: CHAINMAIL_LEGGINGS
+      lore: "Large greased and ready for action, worn by Cop'Jak."
+    8:
+      name: "Cop'Jak's Spiked Chainmail Boots"
+      material: CHAINMAIL_BOOTS
+      lore: "Spiked Chainmail boots, worn by Cop'Jak."
+
+risk_elite:
+  tier: 2
+  rarity: 3
+  stats:
+    damage:
+      min: 40
+      max: 65
+    strength:
+      min: 60
+      max: 120
+    intellect:
+      min: 40
+      max: 90
+  weaponStats:
+    iceDamage:
+      min: 18
+      max: 22
+    pureDamage:
+      min: 15
+      max: 20
+    lifeSteal:
+      min: 5
+      max: 7
+  armorStats:
+    energyRegen:
+      min: 5
+      max: 8
+    dps:
+      min: 4
+      max: 8
+    hp:
+      helmet:
+        min: 250
+        max: 300
+      chestplate:
+        min: 450
+        max: 550
+      leggings:
+        min: 450
+        max: 550
+      boots:
+        min: 250
+        max: 300
+  items:
+    1:
+      name: "Riskan's Fury Battle Axe"
+      material: STONE_AXE
+      lore: "Riskan's battle axe of fury, capable of unleashing devastating strikes."
+    5:
+      name: "Riskan's Glorious Chainlinked Headgear"
+      material: CHAINMAIL_HELMET
+      lore: "A lustrous helmchen that embodies the glory of Riskan."
+    6:
+      name: "Riskan's Glimmering Lapus Chest Piece"
+      material: CHAINMAIL_CHESTPLATE
+      lore: "The breastplate of the lapis lord, adorned with precious lapus gems."
+    7:
+      name: "Riskan's Tightly Fastened Belted Trousers"
+      material: CHAINMAIL_LEGGINGS
+      lore: "The tightly fastened leggings of Riskan himself, providing unmatched agility."
+    8:
+      name: "Riskan's Crowned Bejeweled Boots"
+      material: CHAINMAIL_BOOTS
+      lore: "Riskan's boots of fire, adorned with precious jewels and crowned with power."
+
+bonereaver:
+  tier: 2
+  rarity: 2
+  stats:
+    damage:
+      min: 40
+      max: 55
+    strength:
+      min: 60
+      max: 120
+    criticalHit:
+      min: 10
+      max: 17
+  weaponStats:
+    pureDamage:
+      min: 10
+      max: 15
+    criticalHit:
+      min: 7
+      max: 10
+  armorStats:
+    energyRegen:
+      min: 3
+      max: 7
+    dps:
+      min: 4
+      max: 8
+    hp:
+      helmet:
+        min: 250
+        max: 300
+      chestplate:
+        min: 500
+        max: 600
+      leggings:
+        min: 500
+        max: 600
+      boots:
+        min: 250
+        max: 300
+  items:
+    1:
+      name: "Osseous Cleaver"
+      material: STONE_SWORD
+      lore: "A jagged blade fashioned from sharpened bones."
+    5:
+      name: "Skull Visage"
+      material: CHAINMAIL_HELMET
+      lore: "A helm carved from the skull of a fearsome beast."
+    6:
+      name: "Ribcage Hauberk"
+      material: CHAINMAIL_CHESTPLATE
+      lore: "Armor fashioned from the ribcage of a great monster."
+    7:
+      name: "Femur Greaves"
+      material: CHAINMAIL_LEGGINGS
+      lore: "Leg armor crafted from massive bones."
+    8:
+      name: "Tarsus Sabatons"
+      material: CHAINMAIL_BOOTS
+      lore: "Boots fashioned from hardened bone fragments."
+
+# Tier 3 Elites
+impa:
+  tier: 3
+  rarity: 2
+  stats:
+    damage:
+      min: 60
+      max: 100
+    strength:
+      min: 80
+      max: 190
+    blockChance:
+      min: 6
+      max: 14
+  weaponStats:
+    poisonDamage:
+      min: 18
+      max: 22
+    lifeSteal:
+      min: 10
+      max: 15
+    criticalHit:
+      min: 9
+      max: 14
+  armorStats:
+    energyRegen:
+      min: 6
+      max: 9
+    dps:
+      min: 6
+      max: 12
+    hp:
+      helmet:
+        min: 500
+        max: 600
+      chestplate:
+        min: 1000
+        max: 1200
+      leggings:
+        min: 1000
+        max: 1200
+      boots:
+        min: 500
+        max: 600
+  items:
+    1:
+      name: "Impa's Dreaded Polearm"
+      material: IRON_SHOVEL
+      lore: "The spearhead of the initial attack on Avalon."
+    5:
+      name: "Crooked Battle Mask"
+      material: IRON_HELMET
+      lore: "A skeleton general's black mask"
+    6:
+      name: "Haunting Platemail of Fright"
+      material: IRON_CHESTPLATE
+      lore: "A breastplate with the symbol of Impas army carved into it."
+    7:
+      name: "Warding Skeletal Leggings"
+      material: IRON_LEGGINGS
+      lore: "Spiked bone leggings of greater skeleton invaders."
+    8:
+      name: "Skeletal Death Walkers"
+      material: IRON_BOOTS
+      lore: "The boots with which Impa treaded into this land."
+
+kingofgreed:
+  tier: 3
+  rarity: 3
+  stats:
+    damage:
+      min: 75
+      max: 110
+    strength:
+      min: 80
+      max: 160
+    blockChance:
+      min: 8
+      max: 16
+  weaponStats:
+    fireDamage:
+      min: 18
+      max: 22
+    lifeSteal:
+      min: 8
+      max: 12
+  armorStats:
+    energyRegen:
+      min: 7
+      max: 13
+    dps:
+      min: 6
+      max: 12
+    hp:
+      helmet:
+        min: 500
+        max: 600
+      chestplate:
+        min: 1000
+        max: 1200
+      leggings:
+        min: 1000
+        max: 1200
+      boots:
+        min: 500
+        max: 600
+  items:
+    1:
+      name: "The Thieving Axe of the Greed King"
+      material: IRON_AXE
+      lore: "Extremely sharp with a hilt encrusted with gems."
+    5:
+      name: "The King of Greeds Golden Helm"
+      material: IRON_HELMET
+      lore: "Iron helm plated with gold"
+    6:
+      name: "The Gem Encrusted Plate of the Greed King"
+      material: IRON_CHESTPLATE
+      lore: "A broad chestplate fit with rubies and diamonds."
+    7:
+      name: "The Gem Encrusted Legs of the Greed King"
+      material: IRON_LEGGINGS
+      lore: "Iron leggings fit with emeralds and amethysts."
+    8:
+      name: "The King of Greeds Golden Boots"
+      material: IRON_BOOTS
+      lore: "Golden boots that are completely covered in mud."
+
+skeletonking:
+  tier: 3
+  rarity: 2
+  stats:
+    damage:
+      min: 70
+      max: 110
+    vitality:
+      min: 80
+      max: 160
+    accuracy:
+      min: 30
+      max: 40
+  weaponStats:
+    pureDamage:
+      min: 15
+      max: 20
+  armorStats:
+    energyRegen:
+      min: 7
+      max: 12
+    dps:
+      min: 5
+      max: 9
+    hp:
+      helmet:
+        min: 500
+        max: 600
+      chestplate:
+        min: 1000
+        max: 1200
+      leggings:
+        min: 1000
+        max: 1200
+      boots:
+        min: 500
+        max: 600
+  items:
+    1:
+      name: "The Skeleton Kings Sword of Banishment"
+      material: IRON_SWORD
+      lore: "A powerful sword enhanced with the soul of the Skeleton King."
+    5:
+      name: "The Skeleton Kings Soul Helmet"
+      material: IRON_HELMET
+      lore: "A shadowy transparent helmet."
+    6:
+      name: "The Skeleton Kings Soul Armour"
+      material: IRON_CHESTPLATE
+      lore: "Armor imbued with the power of the Skeleton king."
+    7:
+      name: "The Skeleton Kings Soul Leggings"
+      material: IRON_LEGGINGS
+      lore: "Resistant to the most powerful of Physical Damage."
+    8:
+      name: "The Skeleton Kings Soul Boots"
+      material: IRON_BOOTS
+      lore: "The shining boots of a king."
+
+soulreaper:
+  tier: 3
+  rarity: 3
+  stats:
+    damage:
+      min: 70
+      max: 100
+    intellect:
+      min: 125
+      max: 200
+  weaponStats:
+    lifeSteal:
+      min: 10
+      max: 17
+  armorStats:
+    hpsregen:
+      min: 40
+      max: 90
+    dps:
+      min: 8
+      max: 16
+    hp:
+      helmet:
+        min: 550
+        max: 650
+      chestplate:
+        min: 1100
+        max: 1300
+      leggings:
+        min: 1100
+        max: 1300
+      boots:
+        min: 550
+        max: 650
+  items:
+    1:
+      name: "Soulharvester"
+      material: IRON_HOE
+      lore: "A scythe that severs the connection between body and soul."
+    5:
+      name: "Hood of the Damned"
+      material: IRON_HELMET
+      lore: "A cowl that obscures the wearer's face in shadow."
+    6:
+      name: "Vestments of the Grave"
+      material: IRON_CHESTPLATE
+      lore: "Robes woven from the essence of departed spirits."
+    7:
+      name: "Leggings of Purgatory"
+      material: IRON_LEGGINGS
+      lore: "The fabric of these leggings seems to shift between planes."
+    8:
+      name: "Treads of Torment"
+      material: IRON_BOOTS
+      lore: "These boots leave no footprints as they walk between worlds."
+
+spiderqueen:
+  tier: 3
+  rarity: 2
+  stats:
+    damage:
+      min: 90
+      max: 200
+    intellect:
+      min: 60
+      max: 90
+    dodge:
+      min: 7
+      max: 12
+  weaponStats:
+    poisonDamage:
+      min: 40
+      max: 60
+    accuracy:
+      min: 12
+      max: 18
+  armorStats:
+    hpsregen:
+      min: 60
+      max: 80
+    dps:
+      min: 4
+      max: 8
+    hp:
+      helmet:
+        min: 1000
+        max: 1100
+      chestplate:
+        min: 2200
+        max: 2600
+      leggings:
+        min: 2200
+        max: 2600
+      boots:
+        min: 1000
+        max: 1100
+  items:
+    1:
+      name: "The Spider Queen's Fang"
+      material: IRON_SWORD
+      lore: "A fang still dripping with poison."
+    5:
+      name: "The Spider Queen's Cowl"
+      material: IRON_HELMET
+      lore: "A Cowl protected by carapace"
+    6:
+      name: "Spider Queen's Carapace Chestplate"
+      material: IRON_CHESTPLATE
+      lore: "A Chestplate protected by thick carapace."
+    7:
+      name: "Spider Queen's Carapce Leggings"
+      material: IRON_LEGGINGS
+      lore: "Legs protected by thick carapace."
+    8:
+      name: "Spider Queens Carapace Boots"
+      material: IRON_BOOTS
+      lore: "Boots protected by thick carapace."
+
+# Tier 4 Elites
+bloodbutcher:
+  tier: 4
+  rarity: 3
+  stats:
+    damage:
+      min: 200
+      max: 250
+    vitality:
+      min: 60
+      max: 180
+  weaponStats:
+    iceDamage:
+      min: 25
+      max: 60
+    criticalHit:
+      min: 12
+      max: 18
+    lifeSteal:
+      min: 10
+      max: 16
+  armorStats:
+    energyRegen:
+      min: 7
+      max: 12
+    dps:
+      min: 6
+      max: 12
+    hp:
+      helmet:
+        min: 1000
+        max: 1100
+      chestplate:
+        min: 2100
+        max: 2500
+      leggings:
+        min: 2100
+        max: 2500
+      boots:
+        min: 1000
+        max: 1100
+  items:
+    1:
+      name: "The Butchers Bloody Cleaver"
+      material: DIAMOND_SWORD
+      lore: "This cleaver was used for much more than cutting beef."
+    5:
+      name: "The Butchers Bloody Helm"
+      material: DIAMOND_HELMET
+      lore: "The bloody dented headpiece of the butcher."
+    6:
+      name: "The Butchers Tattered Apron"
+      material: DIAMOND_CHESTPLATE
+      lore: "An apron covered in bits of gut and flesh."
+    7:
+      name: "The Butchers Bloody Chaps"
+      material: DIAMOND_LEGGINGS
+      lore: "Covered in streaks of blood from wiping his blade."
+    8:
+      name: "The Butchers Blood Soaked Boots"
+      material: DIAMOND_BOOTS
+      lore: "Boots soaked in the blood of his enemies."
+
+duranor:
+  tier: 4
+  rarity: 2
+  stats:
+    damage:
+      min: 110
+      max: 190
+    strength:
+      min: 80
+      max: 160
+    blockChance:
+      min: 6
+      max: 12
+  weaponStats:
+    poisonDamage:
+      min: 20
+      max: 35
+    pureDamage:
+      min: 15
+      max: 30
+    criticalHit:
+      min: 5
+      max: 12
+  armorStats:
+    hpsregen:
+      min: 90
+      max: 120
+    dps:
+      min: 10
+      max: 16
+    hp:
+      helmet:
+        min: 1400
+        max: 1600
+      chestplate:
+        min: 3000
+        max: 3200
+      leggings:
+        min: 3000
+        max: 3200
+      boots:
+        min: 1400
+        max: 1600
+  items:
+    1:
+      name: "Duranor's Cruel Staff"
+      material: DIAMOND_SHOVEL
+      lore: "The cruel Staff of an ancient warrior."
+    5:
+      name: "Duranor's Melted Mask"
+      material: DIAMOND_HELMET
+      lore: "An ancient helmet forged from the remains of kings."
+    6:
+      name: "Duranor's Chestguard of Ancient Power"
+      material: DIAMOND_CHESTPLATE
+      lore: "A chestguard imbued with unsettling power."
+    7:
+      name: "Duranor's Gore-Soaked Platelegs"
+      material: DIAMOND_LEGGINGS
+      lore: "Platelegs soaked in the blood of the infidels."
+    8:
+      name: "Duranor's Warboots of Absolute Eradication"
+      material: DIAMOND_BOOTS
+      lore: "Sabatons passed down through generations of ancient warriors."
+
+blayshan:
+  tier: 4
+  rarity: 3
+  stats:
+    damage:
+      min: 160
+      max: 285
+    strength:
+      min: 100
+      max: 200
+    criticalHit:
+      min: 8
+      max: 16
+  weaponStats:
+    iceDamage:
+      min: 30
+      max: 95
+    criticalHit:
+      min: 10
+      max: 16
+  armorStats:
+    energyRegen:
+      min: 3
+      max: 8
+    dps:
+      min: 4
+      max: 13
+    hp:
+      helmet:
+        min: 1000
+        max: 1100
+      chestplate:
+        min: 2100
+        max: 2500
+      leggings:
+        min: 2100
+        max: 2500
+      boots:
+        min: 1000
+        max: 1100
+  items:
+    1:
+      name: "Blayshans Wicked Axe"
+      material: DIAMOND_AXE
+      lore: "An Axe with the face of the cursed Blayshan carved into it."
+    5:
+      name: "Blayshans Accursed Helmet"
+      material: DIAMOND_HELMET
+      lore: "A weirdly shaped aqua blue helmet."
+    6:
+      name: "Blayshans Wicked Horned Platemail"
+      material: DIAMOND_CHESTPLATE
+      lore: "Not well made but light with studded mail fists."
+    7:
+      name: "Blayshans Wicked Horned Leggings"
+      material: DIAMOND_LEGGINGS
+      lore: "Glistening with the blood of fallen enemies."
+    8:
+      name: "Blayshans Platemail Boots"
+      material: DIAMOND_BOOTS
+      lore: "A pair of boots shaped to fit a Naga."
+
+spectralKnight:
+  tier: 4
+  rarity: 2
+  stats:
+    damage:
+      min: 145
+      max: 205
+    blockChance:
+      min: 6
+      max: 12
+    accuracy:
+      min: 25
+      max: 35
+    criticalHit:
+      min: 12
+      max: 17
+  weaponStats:
+    pureDamage:
+      min: 15
+      max: 30
+  armorStats:
+    energyRegen:
+      min: 3
+      max: 7
+    dps:
+      min: 6
+      max: 15
+    hp:
+      helmet:
+        min: 1000
+        max: 1100
+      chestplate:
+        min: 2100
+        max: 2500
+      leggings:
+        min: 2100
+        max: 2500
+      boots:
+        min: 1000
+        max: 1100
+  items:
+    1:
+      name: "Spectral Rapier"
+      material: DIAMOND_SWORD
+      lore: "A Rapier that can pierce through the thickest of armor with ease."
+    5:
+      name: "Spectral Helmet"
+      material: DIAMOND_HELMET
+      lore: "A Helmet that can fade in and out of reality in the blink of an eye."
+    6:
+      name: "Spectral Platemail"
+      material: DIAMOND_CHESTPLATE
+      lore: "A large Platemail that can fade in and out of reality in the blink of an eye."
+    7:
+      name: "Spectral Leggings"
+      material: DIAMOND_LEGGINGS
+      lore: "A Pair of Pants that fade in and out of reality in the blink of an eye."
+    8:
+      name: "Spectral Boots"
+      material: DIAMOND_BOOTS
+      lore: "A Pair of Boots that fade in and out of reality in the blink of an eye."
+
+watchMaster:
+  tier: 4
+  rarity: 2
+  stats:
+    damage:
+      min: 110
+      max: 150
+    intellect:
+      min: 100
+      max: 180
+    blockChance:
+      min: 10
+      max: 15
+  weaponStats:
+    iceDamage:
+      min: 25
+      max: 55
+    criticalHit:
+      min: 10
+      max: 13
+  armorStats:
+    energyRegen:
+      min: 5
+      max: 8
+    dps:
+      min: 10
+      max: 17
+    hp:
+      helmet:
+        min: 1000
+        max: 1100
+      chestplate:
+        min: 2100
+        max: 2500
+      leggings:
+        min: 2100
+        max: 2500
+      boots:
+        min: 1000
+        max: 1100
+  items:
+    1:
+      name: "Watchmaster's Poleaxe"
+      material: DIAMOND_SHOVEL
+      lore: "The Watchmaster's massive poleaxe."
+    5:
+      name: "Watchmaster's Greathelm"
+      material: DIAMOND_HELMET
+      lore: "The Watchmaster's large helmet."
+    6:
+      name: "Watchmaster's Pride"
+      material: DIAMOND_CHESTPLATE
+      lore: "The Watchmaster's decorated chestplate."
+    7:
+      name: "Watchmaster's Platelegs"
+      material: DIAMOND_LEGGINGS
+      lore: "The Watchmaster's platemail leggings."
+    8:
+      name: "Watchmaster's Boots"
+      material: DIAMOND_BOOTS
+      lore: "The Watchmaster's large boots."
+
+doomherald:
+  tier: 4
+  rarity: 3
+  stats:
+    damage:
+      min: 160
+      max: 220
+    strength:
+      min: 175
+      max: 275
+    blockChance:
+      min: 12
+      max: 19
+  weaponStats:
+    fireDamage:
+      min: 30
+      max: 75
+  armorStats:
+    energyRegen:
+      min: 3
+      max: 6
+    dps:
+      min: 6
+      max: 12
+    hp:
+      helmet:
+        min: 1200
+        max: 1400
+      chestplate:
+        min: 2400
+        max: 2800
+      leggings:
+        min: 2400
+        max: 2800
+      boots:
+        min: 1200
+        max: 1400
+  items:
+    1:
+      name: "Apocalypse Bringer"
+      material: DIAMOND_SWORD
+      lore: "A sword that heralds the end of days."
+    5:
+      name: "Crown of Calamity"
+      material: DIAMOND_HELMET
+      lore: "This helm is etched with symbols of destruction."
+    6:
+      name: "Breastplate of Ruin"
+      material: DIAMOND_CHESTPLATE
+      lore: "Wearing this armor, one feels the weight of impending doom."
+    7:
+      name: "Legplates of Devastation"
+      material: DIAMOND_LEGGINGS
+      lore: "These plates were forged in the fires of a dying world."
+    8:
+      name: "Boots of Cataclysm"
+      material: DIAMOND_BOOTS
+      lore: "Every step in these boots creates tiny fractures in reality."
+
+# Tier 5 Elites
+frostking:
+  tier: 5
+  rarity: 3
+  stats:
+    damage:
+      min: 460
+      max: 540
+    vitality:
+      min: 275
+      max: 375
+    dodgeChance:
+      min: 12
+      max: 15
+  weaponStats:
+    iceDamage:
+      min: 30
+      max: 65
+    criticalHit:
+      min: 7
+      max: 12
+    pureDamage:
+      min: 30
+      max: 65
+  armorStats:
+    energyRegen:
+      min: 4
+      max: 9
+    dps:
+      min: 9
+      max: 15
+    hp:
+      helmet:
+        min: 2500
+        max: 3000
+      chestplate:
+        min: 5600
+        max: 6000
+      leggings:
+        min: 5600
+        max: 6000
+      boots:
+        min: 2500
+        max: 3000
+  items:
+    1:
+      name: "Axe of the Frost Dominion"
+      material: GOLDEN_AXE
+      lore: "The axe wielded by only the strongest of champions."
+    5:
+      name: "The King's Crown"
+      material: GOLDEN_HELMET
+      lore: "The king's icy crown."
+    6:
+      name: "The King's Chestplate of Frost"
+      material: GOLDEN_CHESTPLATE
+      lore: "The king's legendary chestplate."
+    7:
+      name: "The King's Platelegs of Frost"
+      material: GOLDEN_LEGGINGS
+      lore: "The king's armored platelegs."
+    8:
+      name: "The King's Boots of Frost"
+      material: GOLDEN_BOOTS
+      lore: "The king's large boots."
+
+jayden:
+  tier: 5
+  rarity: 3
+  stats:
+    damage:
+      min: 300
+      max: 395
+    vitality:
+      min: 200
+      max: 250
+    dodgeChance:
+      min: 6
+      max: 13
+  weaponStats:
+    iceDamage:
+      min: 25
+      max: 55
+  armorStats:
+    energyRegen:
+      min: 2
+      max: 9
+    dps:
+      min: 3
+      max: 13
+    hp:
+      helmet:
+        min: 2200
+        max: 2600
+      chestplate:
+        min: 4200
+        max: 5000
+      leggings:
+        min: 4200
+        max: 5000
+      boots:
+        min: 2200
+        max: 2600
+  items:
+    1:
+      name: "Jayden's Swift War Axe"
+      material: GOLDEN_AXE
+      lore: "King Jayden's sturdy axe encrusted with diamonds."
+    5:
+      name: "Jayden's Beautiful Crown"
+      material: GOLDEN_HELMET
+      lore: "A golden crown forged by Maltai's great smith."
+    6:
+      name: "Jayden's Stolen Chest Guard"
+      material: GOLDEN_CHESTPLATE
+      lore: "The protection from the last blow of the fallen knight."
+    7:
+      name: "Jayden's Godlike Leggings"
+      material: GOLDEN_LEGGINGS
+      lore: "The legendary leggings of a fallen lord."
+    8:
+      name: "Jayden's Legendary Footwear"
+      material: GOLDEN_BOOTS
+      lore: "Sturdy golden footwear owner by the king himself."
+
+kilatan:
+  tier: 5
+  rarity: 3
+  stats:
+    damage:
+      min: 350
+      max: 475
+    intellect:
+      min: 150
+      max: 330
+    criticalHit:
+      min: 6
+      max: 12
+    dodgeChance:
+      min: 6
+      max: 9
+  weaponStats:
+    fireDamage:
+      min: 50
+      max: 100
+    pureDamage:
+      min: 30
+      max: 65
+  armorStats:
+    energyRegen:
+      min: 3
+      max: 10
+    dps:
+      min: 3
+      max: 13
+    hp:
+      helmet:
+        min: 2200
+        max: 2600
+      chestplate:
+        min: 4200
+        max: 5000
+      leggings:
+        min: 4200
+        max: 5000
+      boots:
+        min: 2200
+        max: 2600
+  items:
+    1:
+      name: "Kilatans Axe of Destruction"
+      material: GOLDEN_AXE
+      lore: "A powerful staff imbued with the magics of Kilatan"
+    5:
+      name: "Kilatans Crown of Death"
+      material: GOLDEN_HELMET
+      lore: "A golden crown of tyranny and power."
+    6:
+      name: "Kilatans Legendary Platemail"
+      material: GOLDEN_CHESTPLATE
+      lore: "The Legendary platemail piece of the Demon Lord Kilatan."
+    7:
+      name: "Kilatans Legendary Leggings"
+      material: GOLDEN_LEGGINGS
+      lore: "You can feel the power emanating from this armor piece."
+    8:
+      name: "Kilatans Legendary Boots"
+      material: GOLDEN_BOOTS
+      lore: "Boots that carried the weight of the underworld."
+
+grandwizard:
+  tier: 5
+  rarity: 3
+  stats:
+    damage:
+      min: 290
+      max: 390
+    intellect:
+      min: 300
+      max: 400
+    criticalHit:
+      min: 8
+      max: 13
+    dodgeChance:
+      min: 10
+      max: 14
+  weaponStats:
+    iceDamage:
+      min: 25
+      max: 55
+    pureDamage:
+      min: 15
+      max: 40
+    lifeSteal:
+      min: 3
+      max: 8
+  armorStats:
+    energyRegen:
+      min: 2
+      max: 9
+    dps:
+      min: 3
+      max: 13
+    hp:
+      helmet:
+        min: 2200
+        max: 2550
+      chestplate:
+        min: 4100
+        max: 4900
+      leggings:
+        min: 4100
+        max: 4900
+      boots:
+        min: 2200
+        max: 2550
+  items:
+    1:
+      name: "Staff of Psychedelic Visions"
+      material: GOLDEN_HOE
+      lore: "A mystical staff that bends reality with each wave."
+    5:
+      name: "Mushroom Cap of Enlightenment"
+      material: GOLDEN_HELMET
+      lore: "A cap that grants visions of other dimensions."
+    6:
+      name: "Robe of Kaleidoscopic Dreams"
+      material: GOLDEN_CHESTPLATE
+      lore: "A robe woven from the fabric of dreams and illusions."
+    7:
+      name: "Leggings of Cosmic Understanding"
+      material: GOLDEN_LEGGINGS
+      lore: "These leggings allow the wearer to perceive hidden truths."
+    8:
+      name: "Sandals of Astral Projection"
+      material: GOLDEN_BOOTS
+      lore: "Footwear that allows the mind to wander beyond the physical realm."
+
+nethermancer:
+  tier: 5
+  rarity: 3
+  stats:
+    damage:
+      min: 300
+      max: 380
+    intellect:
+      min: 300
+      max: 450
+    pureDamage:
+      min: 25
+      max: 45
+  weaponStats:
+    fireDamage:
+      min: 50
+      max: 70
+  armorStats:
+    hpsregen:
+      min: 175
+      max: 450
+    dps:
+      min: 6
+      max: 10
+    hp:
+      helmet:
+        min: 2500
+        max: 2800
+      chestplate:
+        min: 5000
+        max: 5600
+      leggings:
+        min: 5000
+        max: 5600
+      boots:
+        min: 2500
+        max: 2800
+  items:
+    1:
+      name: "Scepter of the Nether"
+      material: GOLDEN_HOE
+      lore: "A staff pulsing with otherworldly energies."
+    5:
+      name: "Circlet of Infernal Wisdom"
+      material: GOLDEN_HELMET
+      lore: "Adorned with gems that glow with inner fire."
+    6:
+      name: "Robes of the Abyssal Flame"
+      material: GOLDEN_CHESTPLATE
+      lore: "These robes burn with the eternal fires of the abyss."
+    7:
+      name: "Leggings of Eternal Burning"
+      material: GOLDEN_LEGGINGS
+      lore: "The fabric of these leggings is ever-warm to the touch."
+    8:
+      name: "Sandals of Brimstone"
+      material: GOLDEN_BOOTS
+      lore: "These sandals leave scorch marks with every step."
+
+warden:
+  tier: 5  # Changed from 4 to 5
+  rarity: 3
+  stats:
+    damage:
+      min: 340
+      max: 630
+    strength:
+      min: 175
+      max: 250
+    blockChance:
+      min: 12
+      max: 18
+  weaponStats:
+    fireDamage:
+      min: 30
+      max: 49
+    criticalHit:
+      min: 10
+      max: 15
+    accuracy:
+      min: 20
+      max: 35
+  armorStats:
+    energyRegen:
+      min: 6
+      max: 10
+    dps:
+      min: 14
+      max: 20
+    hp:
+      helmet:
+        min: 2500
+        max: 2570
+      chestplate:
+        min: 4750
+        max: 5500
+      leggings:
+        min: 4750
+        max: 5500
+      boots:
+        min: 2500
+        max: 2570
+  items:
+    1:
+      name: "Tortmenting Axe of Slaughter"
+      material: GOLDEN_AXE
+      lore: "The Warden's great axe."
+    3:
+      name: "Tortmenting Sword of Slaughter"
+      material: GOLDEN_SWORD
+      lore: "The Warden's great sword."
+    5:
+      name: "The Warden's Mask"
+      material: GOLDEN_HELMET
+      lore: "The mask of a demonic warden."
+    6:
+      name: "The Warden's Chestplate"
+      material: GOLDEN_CHESTPLATE
+      lore: "The breastplate worn by The Warden himself."
+    7:
+      name: "The Warden's Leggings"
+      material: GOLDEN_LEGGINGS
+      lore: "The leggings worn by The Warden himself."
+    8:
+      name: "The Warden's Boots"
+      material: GOLDEN_BOOTS
+      lore: "The boots worn by The Warden himself."
+
+krampus:
+  tier: 5
+  rarity: 3
+  stats:
+    damage:
+      min: 300
+      max: 515
+    strength:
+      min: 250
+      max: 300
+    accuracy:
+      min: 25
+      max: 35
+  weaponStats:
+    iceDamage:
+      min: 20
+      max: 40
+  armorStats:
+    energyRegen:
+      min: 4
+      max: 8
+    dps:
+      min: 9
+      max: 19
+    hp:
+      helmet:
+        min: 2250
+        max: 2650
+      chestplate:
+        min: 4250
+        max: 4800
+      leggings:
+        min: 4250
+        max: 4800
+      boots:
+        min: 2250
+        max: 2650
+  items:
+    3:
+      name: "Krampus' Accurate Sword of Ice"
+      material: GOLDEN_SWORD
+      lore: "Forged out of pure gold, used by Krampus himself."
+    5:
+      name: "Krampus' Forged Helmet"
+      material: GOLDEN_HELMET
+      lore: "Forged out of pure gold, worn by Krampus himself."
+    6:
+      name: "Krampus' Forged Chestplate"
+      material: GOLDEN_CHESTPLATE
+      lore: "Forged out of pure gold, worn by Krampus himself."
+    7:
+      name: "Krampus' Forged Leggings"
+      material: GOLDEN_LEGGINGS
+      lore: "Forged out of pure gold, worn by Krampus himself."
+    8:
+      name: "Krampus' Forged Boots"
+      material: GOLDEN_BOOTS
+      lore: "Forged out of pure gold, worn by Krampus himself."
+
+weakskeletonentity:
+  tier: 5
+  rarity: 2
+  stats:
+    damage:
+      min: 250
+      max: 450
+    vitality:
+      min: 250
+      max: 300
+    dodgeChance:
+      min: 10
+      max: 15
+  weaponStats:
+    fireDamage:
+      min: 25
+      max: 45
+    lifeSteal:
+      min: 5
+      max: 8
+    pureDamage:
+      min: 20
+      max: 40
+  armorStats:
+    hpsregen:
+      min: 210
+      max: 250
+    dps:
+      min: 10
+      max: 12
+    hp:
+      helmet:
+        min: 2100
+        max: 3100
+      chestplate:
+        min: 4200
+        max: 6300
+      leggings:
+        min: 4200
+        max: 6300
+      boots:
+        min: 2100
+        max: 3100
+  items:
+    1:
+      name: "Infernal Spear of the Death"
+      material: GOLDEN_SHOVEL
+      lore: "Mythical weapon forged out of an unknown material."
+    2:
+      name: "Skeletal Keeper's Polearm"
+      material: GOLDEN_SHOVEL
+      lore: "An ancient polearm used by the keepers of skeletal remains."
+    5:
+      name: "Infernal Keeper's Helmet"
+      material: GOLDEN_HELMET
+      lore: "Mythical helmet forged out of an unknown material."
+    6:
+      name: "Infernal Keeper's Chestpiece"
+      material: GOLDEN_CHESTPLATE
+      lore: "Mythical chestpiece forged out of an unknown material."
+    7:
+      name: "Infernal Keeper's Leggings"
+      material: GOLDEN_LEGGINGS
+      lore: "Mythical leggings forged out of an unknown material."
+    8:
+      name: "Infernal Keeper's Boots"
+      material: GOLDEN_BOOTS
+      lore: "Mythical boots forged out of an unknown material."
+
+bossskeletondungeon:
+  tier: 5
+  rarity: 3
+  stats:
+    damage:
+      min: 390
+      max: 550
+    vitality:
+      min: 230
+      max: 300
+    dodgeChance:
+      min: 9
+      max: 15
+  weaponStats:
+    poisonDamage:
+      min: 30
+      max: 60
+    lifeSteal:
+      min: 10
+      max: 12
+    pureDamage:
+      min: 60
+      max: 90
+  armorStats:
+    hpsregen:
+      min: 210
+      max: 250
+    energyRegen:
+      min: 5
+      max: 10
+    dps:
+      min: 10
+      max: 24
+    hp:
+      helmet:
+        min: 2900
+        max: 3500
+      chestplate:
+        min: 5800
+        max: 7000
+      leggings:
+        min: 5800
+        max: 7000
+      boots:
+        min: 2900
+        max: 3500
+  items:
+    1:
+      name: "Skeletal Death Bringer"
+      material: GOLDEN_SWORD
+      lore: "Mythical weapon forged out of an unknown material."
+    2:
+      name: "Skeletal Soul Harvester"
+      material: GOLDEN_SWORD
+      lore: "Reaper of souls from the skeletal realm."
+    5:
+      name: "Helmet Of The Death"
+      material: GOLDEN_HELMET
+      lore: "Worn by The Restless Skeleton Deathlord himself.."
+    6:
+      name: "Skeletal Soul Protector"
+      material: GOLDEN_CHESTPLATE
+      lore: "Worn by The Restless Skeleton Deathlord himself.."
+    7:
+      name: "Skeletal Death Leggings"
+      material: GOLDEN_LEGGINGS
+      lore: "Worn by The Restless Skeleton Deathlord himself.."
+    8:
+      name: "Skeletal Boots of Intellect"
+      material: GOLDEN_BOOTS
+      lore: "Worn by The Restless Skeleton Deathlord himself.."
+
+frozenelite:
+  tier: 5
+  rarity: 2
+  stats:
+    damage:
+      min: 200
+      max: 275
+    strength:
+      min: 200
+      max: 300
+    intellect:
+      min: 300
+      max: 400
+    blockChance:
+      min: 10
+      max: 14
+  weaponStats:
+    iceDamage:
+      min: 30
+      max: 60
+    pureDamage:
+      min: 20
+      max: 30
+    lifeSteal:
+      min: 3
+      max: 8
+  armorStats:
+    hpsregen:
+      min: 150
+      max: 250
+    dps:
+      min: 12
+      max: 20
+    hp:
+      helmet:
+        min: 2250
+        max: 3000
+      chestplate:
+        min: 4500
+        max: 6000
+      leggings:
+        min: 4500
+        max: 6000
+      boots:
+        min: 2250
+        max: 3000
+  items:
+    1:
+      name: "Frozen Hammer Of The Exiled King"
+      material: GOLDEN_SHOVEL
+      lore: "A Frozen Hammer Forged In The Ice Lakes Of The Crystal Summit."
+    5:
+      name: "Frozen Crown of The Exiled King"
+      material: GOLDEN_HELMET
+      lore: "A blood stained crown made of crystalline ice."
+    6:
+      name: "Frozen Platemail of The Exiled King"
+      material: GOLDEN_CHESTPLATE
+      lore: "A large platemail made of pure crystalline ice."
+    7:
+      name: "Frozen Greaves Of The Exiled King"
+      material: GOLDEN_LEGGINGS
+      lore: "Shattered greaves made of pure ice."
+    8:
+      name: "Frozen Snow Boots Of The Exiled King"
+      material: GOLDEN_BOOTS
+      lore: "King Frost's presh frozen Yeezys."
+
+frozenboss:
+  tier: 5
+  rarity: 2
+  stats:
+    damage:
+      min: 400
+      max: 525
+    strength:
+      min: 250
+      max: 350
+    intellect:
+      min: 250
+      max: 350
+    blockChance:
+      min: 6
+      max: 12
+    criticalHit:
+      min: 9
+      max: 15
+  weaponStats:
+    iceDamage:
+      min: 60
+      max: 80
+  armorStats:
+    energyRegen:
+      min: 4
+      max: 7
+    dps:
+      min: 11
+      max: 18
+    hp:
+      helmet:
+        min: 2500
+        max: 3250
+      chestplate:
+        min: 5000
+        max: 6500
+      leggings:
+        min: 5000
+        max: 6500
+      boots:
+        min: 2500
+        max: 3250
+  items:
+    1:
+      name: "The Conquerer's Frozen Greataxe"
+      material: GOLDEN_AXE
+      lore: "A large blade made of solid ice."
+    5:
+      name: "The Conquerer's Icy Crown"
+      material: GOLDEN_HELMET
+      lore: "A frozen crown forged by The Conquerer himself."
+    6:
+      name: "Breastplate of The Conquerer"
+      material: GOLDEN_CHESTPLATE
+      lore: "A platemail made of solid ice."
+    7:
+      name: "Frosted Platelegs of The Conquerer"
+      material: GOLDEN_LEGGINGS
+      lore: "A pair of leggings carved from ice."
+    8:
+      name: "Spiked Boots of The Conquerer"
+      material: GOLDEN_BOOTS
+      lore: "A pair of spiked boots worn by The Conquerer."
+
+frozengolem:
+  tier: 5
+  rarity: 3
+  stats:
+    damage:
+      min: 400
+      max: 525
+    strength:
+      min: 150
+      max: 250
+    intellect:
+      min: 200
+      max: 300
+    vitality:
+      min: 200
+      max: 300
+    blockChance:
+      min: 10
+      max: 14
+    criticalHit:
+      min: 8
+      max: 14
+    accuracy:
+      min: 25
+      max: 35
+  weaponStats:
+    iceDamage:
+      min: 40
+      max: 90
+    lifeSteal:
+      min: 3
+      max: 8
+    pureDamage:
+      min: 30
+      max: 50
+  armorStats:
+    energyRegen:
+      min: 5
+      max: 9
+    dps:
+      min: 11
+      max: 20
+    hp:
+      helmet:
+        min: 3001
+        max: 3751
+      chestplate:
+        min: 6001
+        max: 7501
+      leggings:
+        min: 6001
+        max: 7501
+      boots:
+        min: 3001
+        max: 3751
+  items:
+    1:
+      name: "Frostfalls Demise"
+      material: GOLDEN_SWORD
+      lore: "A Legendary Sword forged in the deepest depths of the Frozen Heart."
+    5:
+      name: "Frost-Forged Crown"
+      material: GOLDEN_HELMET
+      lore: "A Legendary Helmet made of the purest of ice from the North."
+    6:
+      name: "Treasure of the Crypt"
+      material: GOLDEN_CHESTPLATE
+      lore: "A heavily armored chestpiece adorned with beautiful blue jewels."
+    7:
+      name: "Unbroken Greaves"
+      material: GOLDEN_LEGGINGS
+      lore: "Greaves made from the strongest ice imaginable."
+    8:
+      name: "Celeritas, Perpetuous Frost"
+      material: GOLDEN_BOOTS
+      lore: "Icy cold boots leaving a trail of frost with every step."
+
+# Tier 6 Elites - Only enabled when t6-enabled is true in config
+frozengolemt6:
+  tier: 6
+  rarity: 3
+  stats:
+    damage:
+      min: 750
+      max: 950
+    strength:
+      min: 250
+      max: 300
+    intellect:
+      min: 300
+      max: 400
+    vitality:
+      min: 300
+      max: 400
+    blockChance:
+      min: 10
+      max: 14
+    criticalHit:
+      min: 8
+      max: 14
+    accuracy:
+      min: 25
+      max: 35
+  weaponStats:
+    iceDamage:
+      min: 60
+      max: 100
+    lifeSteal:
+      min: 4
+      max: 9
+    pureDamage:
+      min: 30
+      max: 60
+  armorStats:
+    energyRegen:
+      min: 6
+      max: 10
+    dps:
+      min: 12
+      max: 22
+    hp:
+      helmet:
+        min: 6000
+        max: 6200
+      chestplate:
+        min: 12500
+        max: 13500
+      leggings:
+        min: 12500
+        max: 13500
+      boots:
+        min: 6000
+        max: 6200
+  items:
+    1:
+      name: "Frostfalls Demise"
+      material: DIAMOND_SWORD
+      lore: "A Legendary Sword forged in the deepest depths of the Frozen Heart."
+    5:
+      name: "Frost-Forged Crown"
+      material: LEATHER_HELMET
+      lore: "A Legendary Helmet made of the purest of ice from the North."
+    6:
+      name: "Treasure of the Crypt"
+      material: LEATHER_CHESTPLATE
+      lore: "A heavily armored chestpiece adorned with beautiful blue jewels."
+    7:
+      name: "Unbroken Greaves"
+      material: LEATHER_LEGGINGS
+      lore: "Greaves made from the strongest ice imaginable."
+    8:
+      name: "Celeritas, Perpetuous Frost"
+      material: LEATHER_BOOTS
+      lore: "Icy cold boots leaving a trail of frost with every step."
+
+frozenelitet6:
+  tier: 6
+  rarity: 2
+  stats:
+    damage:
+      min: 670
+      max: 820
+    strength:
+      min: 400
+      max: 500
+    intellect:
+      min: 500
+      max: 600
+    blockChance:
+      min: 10
+      max: 14
+  weaponStats:
+    iceDamage:
+      min: 90
+      max: 130
+    pureDamage:
+      min: 30
+      max: 50
+    lifeSteal:
+      min: 3
+      max: 8
+  armorStats:
+    hpsregen:
+      min: 250
+      max: 450
+    dps:
+      min: 12
+      max: 20
+    hp:
+      helmet:
+        min: 4200
+        max: 5000
+      chestplate:
+        min: 9000
+        max: 10000
+      leggings:
+        min: 9000
+        max: 10000
+      boots:
+        min: 4200
+        max: 5000
+  items:
+    1:
+      name: "Frozen Hammer Of The Exiled King"
+      material: DIAMOND_SHOVEL
+      lore: "A Frozen Hammer Forged In The Ice Lakes Of The Crystal Summit."
+    5:
+      name: "Frozen Crown of The Exiled King"
+      material: LEATHER_HELMET
+      lore: "A blood stained crown made of crystalline ice."
+    6:
+      name: "Frozen Platemail of The Exiled King"
+      material: LEATHER_CHESTPLATE
+      lore: "A large platemail made of pure crystalline ice."
+    7:
+      name: "Frozen Greaves Of The Exiled King"
+      material: LEATHER_LEGGINGS
+      lore: "Shattered greaves made of pure ice."
+    8:
+      name: "Frozen Snow Boots Of The Exiled King"
+      material: LEATHER_BOOTS
+      lore: "King Frost's presh frozen Yeezys."
+
+frozenbosst6:
+  tier: 6
+  rarity: 2
+  stats:
+    damage:
+      min: 600
+      max: 850
+    strength:
+      min: 350
+      max: 450
+    intellect:
+      min: 350
+      max: 450
+    blockChance:
+      min: 6
+      max: 12
+    criticalHit:
+      min: 9
+      max: 15
+  weaponStats:
+    iceDamage:
+      min: 70
+      max: 100
+  armorStats:
+    energyRegen:
+      min: 4
+      max: 7
+    dps:
+      min: 15
+      max: 22
+    hp:
+      helmet:
+        min: 5000
+        max: 5900
+      chestplate:
+        min: 10000
+        max: 11500
+      leggings:
+        min: 10000
+        max: 11500
+      boots:
+        min: 5000
+        max: 5900
+  items:
+    1:
+      name: "The Conquerer's Frozen Greataxe"
+      material: DIAMOND_AXE
+      lore: "A large blade made of solid ice."
+    5:
+      name: "The Conquerer's Icy Crown"
+      material: LEATHER_HELMET
+      lore: "A frozen crown forged by The Conquerer himself."
+    6:
+      name: "Breastplate of The Conquerer"
+      material: LEATHER_CHESTPLATE
+      lore: "A platemail made of solid ice."
+    7:
+      name: "Frosted Platelegs of The Conquerer"
+      material: LEATHER_LEGGINGS
+      lore: "A pair of leggings carved from ice."
+    8:
+      name: "Spiked Boots of The Conquerer"
+      material: LEATHER_BOOTS
+      lore: "A pair of spiked boots worn by The Conquerer."

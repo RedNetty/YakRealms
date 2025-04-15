@@ -1,0 +1,42 @@
+# Teleport Destinations Configuration
+# Each destination has the following properties:
+#   display-name: The display name shown to players
+#   world: The world name
+#   x, y, z: Coordinates
+#   yaw, pitch: View direction (optional, defaults to 0)
+#   cost: Cost in gems to teleport (optional, defaults to 50)
+#   premium: Whether this is a premium destination (optional, defaults to false)
+
+destinations:
+  deadpeaks:
+    display-name: Dead Peaks
+    world: world
+    x: 603.0
+    y: 35.0
+    z: -281.0
+    yaw: 0.0
+    pitch: 0.0
+    cost: 50
+    premium: false
+
+  tripoli:
+    display-name: Tripoli
+    world: world
+    x: 817.0
+    y: 9.0
+    z: -80.0
+    yaw: 0.0
+    pitch: 0.0
+    cost: 50
+    premium: false
+
+  avalon:
+    display-name: Avalon
+    world: world
+    x: 636.0
+    y: 97.0
+    z: 243.0
+    yaw: 0.0
+    pitch: 0.0
+    cost: 100
+    premium: true

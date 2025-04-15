@@ -1,0 +1,38 @@
+# Configuration for different item types in the drop system
+# typeId: The unique identifier for the item type
+# name: Display name of the item type
+# materialSuffix: Suffix used to compose the material name
+# isWeapon: Whether this item type is a weapon (true) or armor (false)
+
+1:
+  name: Staff
+  materialSuffix: HOE
+  isWeapon: true
+2:
+  name: Spear
+  materialSuffix: SHOVEL
+  isWeapon: true
+3:
+  name: Sword
+  materialSuffix: SWORD
+  isWeapon: true
+4:
+  name: Axe
+  materialSuffix: AXE
+  isWeapon: true
+5:
+  name: Helmet
+  materialSuffix: HELMET
+  isWeapon: false
+6:
+  name: Chestplate
+  materialSuffix: CHESTPLATE
+  isWeapon: false
+7:
+  name: Leggings
+  materialSuffix: LEGGINGS
+  isWeapon: false
+8:
+  name: Boots
+  materialSuffix: BOOTS
+  isWeapon: false

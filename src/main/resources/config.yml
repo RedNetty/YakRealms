@@ -1,0 +1,56 @@
+# YakRealms Configuration
+
+# MongoDB Configuration
+mongodb:
+  connection_string: "mongodb://205.209.114.118:27017"
+  database: "yakrealms"
+
+# Player Configuration
+player:
+  auto_save_interval: 300  # in seconds (5 minutes)
+
+# Game Settings
+game:
+  t6-enabled: false  # Whether Tier 6 content is enabled
+
+# Game Mechanics
+mechanics:
+  pvp:
+    enabled: true
+    safe_zones: true
+
+  # Mob System Settings
+  mobs:
+    enabled: true  # Global toggle for mob spawning
+    cleanup_interval: 3600  # seconds (1 hour) - How often to clean up all mobs
+
+  # World Boss Settings
+  world_boss:
+    enabled: true
+    kill_threshold: 450  # Number of mob kills before boss can spawn
+    spawn_interval: 3600  # seconds (1 hour) - Minimum time between world boss spawns
+    despawn_time: 6600  # seconds (1 hour 50 minutes) - Time until boss despawns
+# Vendor system configuration
+vendors:
+  # Aura visual effects settings
+  aura-render-distance: 48
+  enable-particle-effects: true
+  enable-armor-stand-effects: true
+  enable-sound-effects: true
+  # Particle density: 1=low, 2=medium, 3=high
+  particle-density: 2
+
+  # Performance settings
+  debug-mode: false
+  auto-fix-behaviors: true
+
+  # Hologram settings
+  hologram-height: 2.5
+  hologram-line-spacing: 0.3
+
+  # Default settings
+  default-behavior-class: "com.rednetty.server.mechanics.economy.vendors.behaviors.ShopBehavior"
+  default-hologram-text:
+    - "&6&oVendor"
+# Development Options
+debug: false
