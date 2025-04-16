@@ -34,8 +34,6 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
     private static final int MAX_RETRY_ATTEMPTS = 3;
     private static final long RETRY_DELAY_MS = 1000; // 1 second
 
-    private MongoCollection<Document> collection;
-    private MongoCollection<Document> backupCollection;
     private final Logger logger;
     private final Plugin plugin;
     private final File backupDir;
@@ -102,13 +100,8 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
         }
 
         try {
-            MongoDBManager mongoDBManager = MongoDBManager.getInstance();
-            if (mongoDBManager.isConnected()) {
-                this.collection = mongoDBManager.getCollection(COLLECTION_NAME);
-                this.backupCollection = mongoDBManager.getCollection(BACKUP_COLLECTION_NAME);
-                // Create indexes for better performance
-                createIndexes();
-            }
+            // Create indexes for better performance
+            createIndexes();
         } catch (Exception e) {
             logger.log(Level.SEVERE, "Failed to initialize repository: " + e.getMessage(), e);
         }
@@ -184,41 +177,30 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
     }
 
     /**
-     * Ensures the collection reference is valid
-     */
-    private boolean ensureCollection() {
-        if (collection != null) {
-            return true;
-        }
-
-        try {
-            MongoDBManager mongoDBManager = MongoDBManager.getInstance();
-            if (mongoDBManager.isConnected()) {
-                this.collection = mongoDBManager.getCollection(COLLECTION_NAME);
-                this.backupCollection = mongoDBManager.getCollection(BACKUP_COLLECTION_NAME);
-                return true;
-            }
-        } catch (Exception e) {
-            logger.log(Level.WARNING, "Could not get collection: " + e.getMessage());
-        }
-
-        return false;
-    }
-
-    /**
      * Creates MongoDB indexes for better performance
      */
     private void createIndexes() {
         try {
+            MongoDBManager mongoDBManager = MongoDBManager.getInstance();
+
             // Create index on username for faster lookups by name
-            collection.createIndex(new Document("username", 1));
+            mongoDBManager.performSafeOperation(database -> {
+                database.getCollection(COLLECTION_NAME).createIndex(new Document("username", 1));
+                return null;
+            });
 
             // Create index on uuid for faster lookups by ID
-            collection.createIndex(new Document("uuid", 1));
+            mongoDBManager.performSafeOperation(database -> {
+                database.getCollection(COLLECTION_NAME).createIndex(new Document("uuid", 1));
+                return null;
+            });
 
             // Create indexes on backup collection
-            backupCollection.createIndex(new Document("uuid", 1));
-            backupCollection.createIndex(new Document("timestamp", -1));
+            mongoDBManager.performSafeOperation(database -> {
+                database.getCollection(BACKUP_COLLECTION_NAME).createIndex(new Document("uuid", 1));
+                database.getCollection(BACKUP_COLLECTION_NAME).createIndex(new Document("timestamp", -1));
+                return null;
+            });
 
             logger.info("Created indexes for player collections");
         } catch (Exception e) {
@@ -227,7 +209,7 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
     }
 
     /**
-     * Find a player by UUID with retry mechanism
+     * Find a player by UUID
      *
      * @param id The player UUID
      * @return A CompletableFuture containing the player, or empty if not found
@@ -241,69 +223,45 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
                 return Optional.of(cachedPlayer.getPlayer());
             }
 
-            if (!ensureCollection()) {
-                return Optional.empty();
-            }
+            try {
+                // Try to fetch from main collection
+                Optional<Document> docOpt = MongoDBManager.getInstance().performSafeOperation(database ->
+                        database.getCollection(COLLECTION_NAME).find(Filters.eq("uuid", id.toString())).first()
+                );
 
-            for (int attempt = 0; attempt < MAX_RETRY_ATTEMPTS; attempt++) {
-                try {
-                    Document doc = MongoDBManager.getInstance().performSafeOperation(() ->
-                            collection.find(Filters.eq("uuid", id.toString())).first()
-                    );
-
-                    if (doc != null) {
-                        YakPlayer player = documentToPlayer(doc);
-
-                        // Cache the player if successfully loaded
-                        if (player != null) {
-                            cachePlayer(player);
-                        }
-
-                        return Optional.ofNullable(player);
-                    }
-
-                    // Try backup collection if not found in main collection and it's not the first attempt
-                    if (attempt > 0) {
-                        Document backupDoc = MongoDBManager.getInstance().performSafeOperation(() ->
-                                backupCollection.find(Filters.eq("uuid", id.toString()))
-                                        .sort(new Document("timestamp", -1))
-                                        .first()
-                        );
-
-                        if (backupDoc != null) {
-                            logger.info("Recovered player data for " + id + " from backup collection");
-
-                            // Remove the backup timestamp field
-                            backupDoc.remove("timestamp");
-
-                            YakPlayer player = documentToPlayer(backupDoc);
-                            if (player != null) {
-                                // Save to main collection
-                                savePlayerToDatabase(player);
-                                cachePlayer(player);
-
-                                return Optional.of(player);
-                            }
-                        }
-                    }
-
-                    break; // Break the loop if the document was not found
-
-                } catch (Exception e) {
-                    logger.log(Level.SEVERE, "Error finding player by UUID: " + id + " (attempt " + (attempt + 1) + ")", e);
-
-                    if (attempt < MAX_RETRY_ATTEMPTS - 1) {
-                        try {
-                            Thread.sleep(RETRY_DELAY_MS);
-                        } catch (InterruptedException ie) {
-                            Thread.currentThread().interrupt();
-                        }
+                if (docOpt.isPresent()) {
+                    YakPlayer player = documentToPlayer(docOpt.get());
+                    if (player != null) {
+                        cachePlayer(player);
+                        return Optional.of(player);
                     }
                 }
-            }
 
-            // Try local backup files as last resort
-            try {
+                // Try backup collection if not found in main collection
+                Optional<Document> backupDocOpt = MongoDBManager.getInstance().performSafeOperation(database ->
+                        database.getCollection(BACKUP_COLLECTION_NAME)
+                                .find(Filters.eq("uuid", id.toString()))
+                                .sort(new Document("timestamp", -1))
+                                .first()
+                );
+
+                if (backupDocOpt.isPresent()) {
+                    logger.info("Recovering player data for " + id + " from backup collection");
+                    Document backupDoc = backupDocOpt.get();
+
+                    // Remove the backup timestamp field
+                    backupDoc.remove("timestamp");
+
+                    YakPlayer player = documentToPlayer(backupDoc);
+                    if (player != null) {
+                        // Save to main collection
+                        savePlayerToDatabase(player);
+                        cachePlayer(player);
+                        return Optional.of(player);
+                    }
+                }
+
+                // Try local backup files as last resort
                 YakPlayer player = loadFromLocalBackup(id);
                 if (player != null) {
                     logger.info("Recovered player data for " + id + " from local backup");
@@ -311,11 +269,25 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
                     savePlayerToDatabase(player);
                     return Optional.of(player);
                 }
-            } catch (Exception e) {
-                logger.log(Level.WARNING, "Failed to load player from local backup: " + id, e);
-            }
 
-            return Optional.empty();
+                return Optional.empty();
+            } catch (Exception e) {
+                logger.log(Level.SEVERE, "Error finding player by UUID: " + id, e);
+
+                // Try local backup as a fallback if database operation failed
+                try {
+                    YakPlayer player = loadFromLocalBackup(id);
+                    if (player != null) {
+                        logger.info("Found player " + id + " in local backup after database error");
+                        cachePlayer(player);
+                        return Optional.of(player);
+                    }
+                } catch (Exception localEx) {
+                    logger.log(Level.WARNING, "Failed to load from local backup for " + id, localEx);
+                }
+
+                return Optional.empty();
+            }
         });
     }
 
@@ -345,7 +317,7 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
     }
 
     /**
-     * Find a player by name with retry mechanism
+     * Find a player by name
      *
      * @param name The player name
      * @return A CompletableFuture containing the player, or empty if not found
@@ -361,43 +333,24 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
                 }
             }
 
-            if (!ensureCollection()) {
-                return Optional.empty();
-            }
+            try {
+                Optional<Document> docOpt = MongoDBManager.getInstance().performSafeOperation(database ->
+                        database.getCollection(COLLECTION_NAME).find(Filters.eq("username", name)).first()
+                );
 
-            for (int attempt = 0; attempt < MAX_RETRY_ATTEMPTS; attempt++) {
-                try {
-                    Document doc = MongoDBManager.getInstance().performSafeOperation(() ->
-                            collection.find(Filters.eq("username", name)).first()
-                    );
-
-                    if (doc != null) {
-                        YakPlayer player = documentToPlayer(doc);
-
-                        // Cache the player
-                        if (player != null) {
-                            cachePlayer(player);
-                        }
-
-                        return Optional.ofNullable(player);
-                    }
-
-                    break; // Break the loop if the document was not found
-
-                } catch (Exception e) {
-                    logger.log(Level.SEVERE, "Error finding player by name: " + name + " (attempt " + (attempt + 1) + ")", e);
-
-                    if (attempt < MAX_RETRY_ATTEMPTS - 1) {
-                        try {
-                            Thread.sleep(RETRY_DELAY_MS);
-                        } catch (InterruptedException ie) {
-                            Thread.currentThread().interrupt();
-                        }
+                if (docOpt.isPresent()) {
+                    YakPlayer player = documentToPlayer(docOpt.get());
+                    if (player != null) {
+                        cachePlayer(player);
+                        return Optional.of(player);
                     }
                 }
-            }
 
-            return Optional.empty();
+                return Optional.empty();
+            } catch (Exception e) {
+                logger.log(Level.SEVERE, "Error finding player by name: " + name, e);
+                return Optional.empty();
+            }
         });
     }
 
@@ -411,23 +364,19 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
         return CompletableFuture.supplyAsync(() -> {
             List<YakPlayer> players = new ArrayList<>();
 
-            if (!ensureCollection()) {
-                return players;
-            }
-
             try {
                 performingBatchOperation.set(true);
 
-                FindIterable<Document> docs = MongoDBManager.getInstance().performSafeOperation(() ->
-                        collection.find()
+                Optional<FindIterable<Document>> docsOpt = MongoDBManager.getInstance().performSafeOperation(database ->
+                        database.getCollection(COLLECTION_NAME).find()
                 );
 
-                if (docs != null) {
+                if (docsOpt.isPresent()) {
+                    FindIterable<Document> docs = docsOpt.get();
                     for (Document doc : docs) {
                         YakPlayer player = documentToPlayer(doc);
                         if (player != null) {
                             players.add(player);
-
                             // Update cache
                             cachePlayer(player);
                         }
@@ -470,7 +419,7 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
                 return player;
             }
 
-            if (!ensureCollection()) {
+            if (!mongoDBManager.isConnected()) {
                 logger.warning("Could not save player " + player.getUsername() + " - MongoDB not connected");
                 // Create local backup if database is not available
                 createLocalBackup(player);
@@ -482,56 +431,44 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
     }
 
     /**
-     * Save player to database with retries
+     * Save player to database
      *
      * @param player The player to save
      * @return The saved player
      */
     private YakPlayer savePlayerToDatabase(YakPlayer player) {
-        for (int attempt = 0; attempt < MAX_RETRY_ATTEMPTS; attempt++) {
-            try {
-                Document doc = playerToDocument(player);
+        try {
+            Document doc = playerToDocument(player);
 
-                // Create backup in the backup collection first
-                boolean backupSuccess = createDatabaseBackup(player);
-                if (!backupSuccess && attempt == 0) {
-                    logger.warning("Failed to create database backup for " + player.getUsername() + ", will retry");
-                }
-
-                // Use replace with upsert to insert if not exists, update if exists
-                MongoDBManager.getInstance().performSafeOperation(() -> {
-                    collection.replaceOne(
-                            Filters.eq("uuid", player.getUUID().toString()),
-                            doc,
-                            new ReplaceOptions().upsert(true)
-                    );
-                    return null;
-                });
-
-                // Clear dirty flag if successful
-                CachedPlayer cachedPlayer = playerCache.get(player.getUUID());
-                if (cachedPlayer != null) {
-                    cachedPlayer.clearDirty();
-                }
-
-                return player;
-            } catch (Exception e) {
-                logger.log(Level.SEVERE, "Error saving player: " + player.getUUID() + " (attempt " + (attempt + 1) + ")", e);
-
-                if (attempt < MAX_RETRY_ATTEMPTS - 1) {
-                    try {
-                        Thread.sleep(RETRY_DELAY_MS);
-                    } catch (InterruptedException ie) {
-                        Thread.currentThread().interrupt();
-                    }
-                } else {
-                    // Create local backup on final failure
-                    createLocalBackup(player);
-                }
+            // Create backup in the backup collection first
+            boolean backupSuccess = createDatabaseBackup(player);
+            if (!backupSuccess) {
+                logger.warning("Failed to create database backup for " + player.getUsername());
             }
-        }
 
-        return player;
+            // Use replace with upsert to insert if not exists, update if exists
+            MongoDBManager.getInstance().performSafeOperation(database -> {
+                database.getCollection(COLLECTION_NAME).replaceOne(
+                        Filters.eq("uuid", player.getUUID().toString()),
+                        doc,
+                        new ReplaceOptions().upsert(true)
+                );
+                return null;
+            });
+
+            // Clear dirty flag if successful
+            CachedPlayer cachedPlayer = playerCache.get(player.getUUID());
+            if (cachedPlayer != null) {
+                cachedPlayer.clearDirty();
+            }
+
+            return player;
+        } catch (Exception e) {
+            logger.log(Level.SEVERE, "Error saving player: " + player.getUUID(), e);
+            // Create local backup on failure
+            createLocalBackup(player);
+            return player;
+        }
     }
 
     /**
@@ -542,18 +479,14 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
      */
     private boolean createDatabaseBackup(YakPlayer player) {
         try {
-            if (!ensureCollection() || backupCollection == null) {
-                return false;
-            }
-
             Document doc = playerToDocument(player);
 
             // Add timestamp
             doc.append("timestamp", System.currentTimeMillis());
 
             // Insert into backup collection
-            MongoDBManager.getInstance().performSafeOperation(() -> {
-                backupCollection.insertOne(doc);
+            MongoDBManager.getInstance().performSafeOperation(database -> {
+                database.getCollection(BACKUP_COLLECTION_NAME).insertOne(doc);
                 return null;
             });
 
@@ -574,43 +507,43 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
      */
     private void cleanOldDatabaseBackups(UUID playerId) {
         try {
-            if (!ensureCollection() || backupCollection == null) {
-                return;
-            }
-
             // Get count of backups for this player
-            long count = MongoDBManager.getInstance().performSafeOperation(() ->
-                    backupCollection.countDocuments(Filters.eq("uuid", playerId.toString()))
+            Optional<Long> countOpt = MongoDBManager.getInstance().performSafeOperation(database ->
+                    database.getCollection(BACKUP_COLLECTION_NAME).countDocuments(Filters.eq("uuid", playerId.toString()))
             );
 
+            long count = countOpt.orElse(0L);
             if (count <= 5) {
                 return; // Keep at most 5 backups
             }
 
             // Find oldest backups to delete
-            List<Document> oldBackups = MongoDBManager.getInstance().performSafeOperation(() -> {
+            Optional<List<Document>> oldBackupsOpt = MongoDBManager.getInstance().performSafeOperation(database -> {
                 List<Document> result = new ArrayList<>();
-                backupCollection.find(Filters.eq("uuid", playerId.toString()))
+                database.getCollection(BACKUP_COLLECTION_NAME)
+                        .find(Filters.eq("uuid", playerId.toString()))
                         .sort(new Document("timestamp", 1))
                         .limit((int) (count - 5))
                         .into(result);
                 return result;
             });
 
-            if (oldBackups != null && !oldBackups.isEmpty()) {
-                List<Bson> idsToDelete = new ArrayList<>();
-                for (Document doc : oldBackups) {
-                    idsToDelete.add(Filters.eq("_id", doc.getObjectId("_id")));
-                }
+            if (oldBackupsOpt.isPresent()) {
+                List<Document> oldBackups = oldBackupsOpt.get();
+                if (!oldBackups.isEmpty()) {
+                    List<Bson> idsToDelete = new ArrayList<>();
+                    for (Document doc : oldBackups) {
+                        idsToDelete.add(Filters.eq("_id", doc.getObjectId("_id")));
+                    }
 
-                if (!idsToDelete.isEmpty()) {
-                    MongoDBManager.getInstance().performSafeOperation(() -> {
-                        backupCollection.deleteMany(Filters.or(idsToDelete));
-                        return null;
-                    });
+                    if (!idsToDelete.isEmpty()) {
+                        MongoDBManager.getInstance().performSafeOperation(database -> {
+                            database.getCollection(BACKUP_COLLECTION_NAME).deleteMany(Filters.or(idsToDelete));
+                            return null;
+                        });
+                    }
                 }
             }
-
         } catch (Exception e) {
             logger.log(Level.WARNING, "Error cleaning old database backups for player: " + playerId, e);
         }
@@ -742,6 +675,9 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
             // Try to create database backup
             createDatabaseBackup(player);
 
+            // Get collection directly for synchronous operation
+            MongoCollection<Document> collection = mongoDBManager.getCollection(COLLECTION_NAME);
+
             // Use replace with upsert to insert if not exists, update if exists
             collection.replaceOne(
                     Filters.eq("uuid", player.getUUID().toString()),
@@ -824,16 +760,12 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
                 }
             }
 
-            if (!ensureCollection()) {
-                return false;
-            }
-
             try {
-                DeleteResult result = MongoDBManager.getInstance().performSafeOperation(() ->
-                        collection.deleteOne(Filters.eq("uuid", id.toString()))
+                Optional<DeleteResult> resultOpt = MongoDBManager.getInstance().performSafeOperation(database ->
+                        database.getCollection(COLLECTION_NAME).deleteOne(Filters.eq("uuid", id.toString()))
                 );
 
-                return result != null && result.getDeletedCount() > 0;
+                return resultOpt.isPresent() && resultOpt.get().getDeletedCount() > 0;
             } catch (Exception e) {
                 logger.log(Level.SEVERE, "Error deleting player: " + id, e);
                 return false;
@@ -855,16 +787,12 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
                 return true;
             }
 
-            if (!ensureCollection()) {
-                return false;
-            }
-
             try {
-                Long count = MongoDBManager.getInstance().performSafeOperation(() ->
-                        collection.countDocuments(Filters.eq("uuid", id.toString()))
+                Optional<Long> countOpt = MongoDBManager.getInstance().performSafeOperation(database ->
+                        database.getCollection(COLLECTION_NAME).countDocuments(Filters.eq("uuid", id.toString()))
                 );
 
-                return count != null && count > 0;
+                return countOpt.isPresent() && countOpt.get() > 0;
             } catch (Exception e) {
                 logger.log(Level.SEVERE, "Error checking if player exists: " + id, e);
                 return false;
@@ -885,16 +813,12 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
                 return true;
             }
 
-            if (!ensureCollection()) {
-                return false;
-            }
-
             try {
-                Long count = MongoDBManager.getInstance().performSafeOperation(() ->
-                        collection.countDocuments(Filters.eq("username", name))
+                Optional<Long> countOpt = MongoDBManager.getInstance().performSafeOperation(database ->
+                        database.getCollection(COLLECTION_NAME).countDocuments(Filters.eq("username", name))
                 );
 
-                return count != null && count > 0;
+                return countOpt.isPresent() && countOpt.get() > 0;
             } catch (Exception e) {
                 logger.log(Level.SEVERE, "Error checking if player exists by name: " + name, e);
                 return false;
