@@ -10,11 +10,13 @@ import org.bukkit.scheduler.BukkitTask;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Level;
 
 /**
- * Modern vendor aura manager using Minecraft 1.20.2+ Display Entities
- * Creates immersive, themed environments around vendors
+ * Enhanced VendorAuraManager with improved performance, memory management, and error handling.
+ * Manages vendor visual effects using Minecraft 1.20.2+ Display Entities with optimized
+ * rendering, intelligent culling, and comprehensive resource cleanup.
  */
 public class VendorAuraManager {
     private final JavaPlugin plugin;
@@ -22,47 +24,67 @@ public class VendorAuraManager {
     private final NamespacedKey vendorEntityKey;
     private BukkitTask mainAuraTask;
 
-    // Maps to track vendor entities and animations
+    // Enhanced tracking with thread-safe collections
     private final Map<String, Set<Entity>> vendorEntities = new ConcurrentHashMap<>();
     private final Map<String, VendorAnimation> activeAnimations = new ConcurrentHashMap<>();
     private final Set<String> pendingRefresh = ConcurrentHashMap.newKeySet();
+    private final Map<String, Long> lastPlayerCheckTime = new ConcurrentHashMap<>();
+    private final Map<String, Location> lastVendorLocation = new ConcurrentHashMap<>();
 
-    // Configuration
+    // Performance tracking
+    private final AtomicInteger totalDisplayEntities = new AtomicInteger(0);
+    private final AtomicInteger activeVendorCount = new AtomicInteger(0);
+    private final Map<String, Long> performanceMetrics = new ConcurrentHashMap<>();
+    private long lastPerformanceLog = 0;
+
+    // Configuration with improved defaults
     private int renderDistance = 48;
+    private int maxDisplayEntitiesPerVendor = 12;
     private boolean enableParticles = true;
     private boolean enableDisplays = true;
     private boolean enableSounds = true;
     private int effectDensity = 2; // 1=low, 2=medium, 3=high
+    private int updateFrequency = 1; // ticks between updates
+    private boolean enablePerformanceOptimizations = true;
+    private int playerCheckInterval = 40; // ticks between player proximity checks
 
-    /**
-     * Creates a new vendor aura manager
-     */
+    // Error tracking
+    private final Set<String> problemVendors = ConcurrentHashMap.newKeySet();
+    private final Map<String, Integer> retryAttempts = new ConcurrentHashMap<>();
+    private static final int MAX_RETRY_ATTEMPTS = 3;
+
     public VendorAuraManager(JavaPlugin plugin) {
         this.plugin = plugin;
         this.vendorManager = VendorManager.getInstance(plugin);
         this.vendorEntityKey = new NamespacedKey(plugin, "vendor_entity");
         loadConfiguration();
-        plugin.getLogger().info("VendorAuraManager initialized with 1.20.2+ features");
+        plugin.getLogger().info("Enhanced VendorAuraManager initialized with performance optimizations");
     }
 
     /**
-     * Loads configuration values
+     * Enhanced configuration loading with validation
      */
     private void loadConfiguration() {
-        renderDistance = plugin.getConfig().getInt("vendors.aura-render-distance", 48);
-        enableParticles = plugin.getConfig().getBoolean("vendors.enable-particle-effects", true);
-        enableDisplays = plugin.getConfig().getBoolean("vendors.enable-display-entities", true);
-        enableSounds = plugin.getConfig().getBoolean("vendors.enable-sound-effects", true);
-        effectDensity = plugin.getConfig().getInt("vendors.effect-density", 2);
+        try {
+            renderDistance = Math.max(16, Math.min(128, plugin.getConfig().getInt("vendors.aura-render-distance", 48)));
+            maxDisplayEntitiesPerVendor = Math.max(1, Math.min(20, plugin.getConfig().getInt("vendors.max-display-entities-per-vendor", 12)));
+            enableParticles = plugin.getConfig().getBoolean("vendors.enable-particle-effects", true);
+            enableDisplays = plugin.getConfig().getBoolean("vendors.enable-display-entities", true);
+            enableSounds = plugin.getConfig().getBoolean("vendors.enable-sound-effects", true);
+            effectDensity = Math.max(1, Math.min(3, plugin.getConfig().getInt("vendors.effect-density", 2)));
+            updateFrequency = Math.max(1, Math.min(20, plugin.getConfig().getInt("vendors.update-frequency", 1)));
+            enablePerformanceOptimizations = plugin.getConfig().getBoolean("vendors.performance-optimizations", true);
+            playerCheckInterval = Math.max(20, plugin.getConfig().getInt("vendors.player-check-interval", 40));
 
-        // Validate effect density (1-3)
-        if (effectDensity < 1 || effectDensity > 3) {
-            effectDensity = 2;
+            plugin.getLogger().info("Vendor aura configuration loaded - Render Distance: " + renderDistance +
+                    ", Update Frequency: " + updateFrequency + ", Performance Optimizations: " + enablePerformanceOptimizations);
+        } catch (Exception e) {
+            plugin.getLogger().warning("Error loading aura configuration, using defaults: " + e.getMessage());
         }
     }
 
     /**
-     * Starts all vendor auras
+     * Enhanced startup with staggered initialization to prevent lag spikes
      */
     public void startAllAuras() {
         stopAllAuras(); // Prevent duplicates
@@ -70,82 +92,181 @@ public class VendorAuraManager {
         Bukkit.getScheduler().runTaskLater(plugin, () -> {
             if (mainAuraTask != null) return;
 
-            plugin.getLogger().info("Starting aura effects for " + vendorManager.getVendors().size() + " vendors");
+            int vendorCount = vendorManager.getVendors().size();
+            plugin.getLogger().info("Starting aura effects for " + vendorCount + " vendors with " +
+                    (enablePerformanceOptimizations ? "performance optimizations" : "standard processing"));
 
-            mainAuraTask = Bukkit.getScheduler().runTaskTimer(plugin, this::updateAllAuras, 20, 1);
+            // Staggered initialization to prevent lag
+            if (enablePerformanceOptimizations && vendorCount > 10) {
+                startStaggeredInitialization();
+            } else {
+                startNormalUpdate();
+            }
         }, 40); // 2-second delay after server start
     }
 
     /**
-     * Main update method that processes all vendor auras
+     * Staggered initialization for many vendors
+     */
+    private void startStaggeredInitialization() {
+        List<String> vendorIds = new ArrayList<>(vendorManager.getVendors().keySet());
+        AtomicInteger index = new AtomicInteger(0);
+
+        BukkitTask initTask = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
+            long startTime = System.currentTimeMillis();
+            int processed = 0;
+
+            // Process vendors in batches
+            while (processed < 3 && index.get() < vendorIds.size()) {
+                String vendorId = vendorIds.get(index.getAndIncrement());
+                Vendor vendor = vendorManager.getVendor(vendorId);
+
+                if (vendor != null) {
+                    Location loc = getVendorLocation(vendor);
+                    if (loc != null && hasPlayersNearby(loc, renderDistance)) {
+                        try {
+                            setupOrUpdateVendorAnimation(vendor, loc);
+                            processed++;
+                        } catch (Exception e) {
+                            plugin.getLogger().warning("Error initializing vendor " + vendorId + ": " + e.getMessage());
+                            problemVendors.add(vendorId);
+                        }
+                    }
+                }
+            }
+
+            // Start normal updates once initialization is complete
+            if (index.get() >= vendorIds.size()) {
+                startNormalUpdate();
+                Bukkit.getScheduler().cancelTask(((BukkitTask) this).getTaskId());
+            }
+
+            recordPerformanceMetric("staggeredInit", System.currentTimeMillis() - startTime);
+        }, 0, 10); // Every 0.5 seconds
+    }
+
+    /**
+     * Normal update loop with optimizations
+     */
+    private void startNormalUpdate() {
+        mainAuraTask = Bukkit.getScheduler().runTaskTimer(plugin, this::updateAllAuras, 20, updateFrequency);
+    }
+
+    /**
+     * Enhanced main update method with performance optimizations
      */
     private void updateAllAuras() {
+        long startTime = System.currentTimeMillis();
+
         try {
-            // Process any pending display refreshes
+            // Process pending refreshes first
             if (!pendingRefresh.isEmpty()) {
                 processDisplayRefreshes();
             }
 
-            // Process each vendor
-            for (Vendor vendor : vendorManager.getVendors().values()) {
+            // Performance optimization: limit concurrent processing
+            int processedCount = 0;
+            int maxProcessPerTick = enablePerformanceOptimizations ?
+                    Math.max(3, vendorManager.getVendors().size() / 10) :
+                    Integer.MAX_VALUE;
+
+            Map<String, Vendor> vendors = vendorManager.getVendors();
+            activeVendorCount.set(vendors.size());
+
+            for (Vendor vendor : vendors.values()) {
+                if (processedCount >= maxProcessPerTick) {
+                    break; // Spread work across multiple ticks
+                }
+
                 String vendorId = vendor.getVendorId();
-                Location loc = getVendorLocation(vendor);
 
-                if (loc == null) continue;
-
-                // Skip if no players nearby
-                if (!hasPlayersNearby(loc, renderDistance)) {
-                    if (vendorEntities.containsKey(vendorId)) {
-                        removeVendorDisplays(vendorId);
-                    }
+                // Skip problematic vendors temporarily
+                if (problemVendors.contains(vendorId)) {
                     continue;
                 }
 
-                // Setup or update vendor animation
-                setupOrUpdateVendorAnimation(vendor, loc);
+                try {
+                    Location loc = getVendorLocation(vendor);
+                    if (loc == null) continue;
+
+                    // Optimized player proximity check
+                    if (!shouldCheckPlayers(vendorId) || !hasPlayersNearby(loc, renderDistance)) {
+                        if (vendorEntities.containsKey(vendorId)) {
+                            removeVendorDisplays(vendorId);
+                        }
+                        continue;
+                    }
+
+                    // Location change detection for optimization
+                    Location lastLoc = lastVendorLocation.get(vendorId);
+                    if (lastLoc != null && loc.distanceSquared(lastLoc) < 0.01) {
+                        // Location hasn't changed significantly, update animations only
+                        updateExistingAnimation(vendor, loc);
+                    } else {
+                        // Location changed or first time, full setup
+                        setupOrUpdateVendorAnimation(vendor, loc);
+                        lastVendorLocation.put(vendorId, loc.clone());
+                    }
+
+                    processedCount++;
+
+                } catch (Exception e) {
+                    plugin.getLogger().warning("Error processing vendor " + vendorId + ": " + e.getMessage());
+                    handleVendorError(vendorId);
+                }
             }
+
+            // Cleanup orphaned entities periodically
+            if (System.currentTimeMillis() - lastPerformanceLog > 300000) { // Every 5 minutes
+                cleanupOrphanedEntities();
+                logPerformanceMetrics();
+                lastPerformanceLog = System.currentTimeMillis();
+            }
+
         } catch (Exception e) {
-            plugin.getLogger().log(Level.WARNING, "Error in vendor aura system: " + e.getMessage(), e);
+            plugin.getLogger().log(Level.WARNING, "Error in vendor aura system update: " + e.getMessage(), e);
         }
+
+        recordPerformanceMetric("updateCycle", System.currentTimeMillis() - startTime);
     }
 
     /**
-     * Sets up or updates a vendor's animation
+     * Optimized player proximity checking
      */
-    private void setupOrUpdateVendorAnimation(Vendor vendor, Location loc) {
-        String vendorId = vendor.getVendorId();
-        String vendorType = vendor.getVendorType().toLowerCase();
+    private boolean shouldCheckPlayers(String vendorId) {
+        if (!enablePerformanceOptimizations) return true;
 
-        // Create animation if needed
-        if (!activeAnimations.containsKey(vendorId)) {
-            VendorAnimation animation = createAnimationForType(vendorType, vendor, loc);
-            if (animation != null) {
-                activeAnimations.put(vendorId, animation);
+        long lastCheck = lastPlayerCheckTime.getOrDefault(vendorId, 0L);
+        long now = System.currentTimeMillis();
 
-                // Create initial displays
-                if (enableDisplays) {
-                    Set<Entity> entities = animation.createDisplayEntities(loc, vendorEntityKey);
-                    if (!entities.isEmpty()) {
-                        vendorEntities.put(vendorId, entities);
-                    }
-                }
-            }
+        if (now - lastCheck > (playerCheckInterval * 50)) { // Convert ticks to ms
+            lastPlayerCheckTime.put(vendorId, now);
+            return true;
         }
 
-        // Update existing animation
+        return false;
+    }
+
+    /**
+     * Update existing animation without recreation
+     */
+    private void updateExistingAnimation(Vendor vendor, Location loc) {
+        String vendorId = vendor.getVendorId();
         VendorAnimation animation = activeAnimations.get(vendorId);
-        if (animation != null) {
+        Set<Entity> entities = vendorEntities.get(vendorId);
+
+        if (animation != null && entities != null && !entities.isEmpty()) {
             // Update display animations
-            if (enableDisplays && vendorEntities.containsKey(vendorId)) {
-                animation.updateDisplayAnimations(vendorEntities.get(vendorId), loc);
+            if (enableDisplays) {
+                animation.updateDisplayAnimations(entities, loc);
             }
 
-            // Apply particle effects based on density setting
+            // Apply effects based on density
             if (enableParticles && animation.shouldApplyParticles(effectDensity)) {
                 animation.applyParticleEffects(loc);
             }
 
-            // Play ambient sounds occasionally
+            // Play sounds occasionally
             if (enableSounds && animation.shouldPlaySound()) {
                 animation.playAmbientSound(loc);
             }
@@ -156,128 +277,285 @@ public class VendorAuraManager {
     }
 
     /**
-     * Creates the appropriate animation for a vendor type
+     * Enhanced vendor animation setup with error handling
      */
-    private VendorAnimation createAnimationForType(String vendorType, Vendor vendor, Location loc) {
-        AnimationOptions options = new AnimationOptions(
-                plugin,
-                vendor.getVendorId(),
-                enableParticles,
-                enableSounds,
-                effectDensity
-        );
+    private void setupOrUpdateVendorAnimation(Vendor vendor, Location loc) {
+        String vendorId = vendor.getVendorId();
+        String vendorType = vendor.getVendorType().toLowerCase();
 
-        switch (vendorType) {
-            case "gambler":
-                return new GamblerAnimation(options);
-            case "fisherman":
-                return new FishermanAnimation(options);
-            case "book":
-                return new BookVendorAnimation(options);
-            case "banker":
-                return new BankerAnimation(options);
-            case "upgrade":
-                return new UpgradeVendorAnimation(options);
-            case "medic":
-                return new MedicAnimation(options);
-            case "item":
-            case "shop":
-                return new ItemVendorAnimation(options);
-            default:
-                return new DefaultVendorAnimation(options);
+        try {
+            // Create animation if needed
+            VendorAnimation animation = activeAnimations.get(vendorId);
+            if (animation == null) {
+                animation = createAnimationForType(vendorType, vendor, loc);
+                if (animation != null) {
+                    activeAnimations.put(vendorId, animation);
+
+                    // Create initial displays with entity limit
+                    if (enableDisplays) {
+                        Set<Entity> entities = animation.createDisplayEntities(loc, vendorEntityKey);
+                        if (!entities.isEmpty()) {
+                            // Limit entities per vendor for performance
+                            if (entities.size() > maxDisplayEntitiesPerVendor) {
+                                plugin.getLogger().warning("Vendor " + vendorId + " exceeded max display entities (" +
+                                        entities.size() + " > " + maxDisplayEntitiesPerVendor + "), limiting...");
+
+                                Set<Entity> limitedEntities = new HashSet<>();
+                                int count = 0;
+                                for (Entity entity : entities) {
+                                    if (count++ >= maxDisplayEntitiesPerVendor) {
+                                        entity.remove();
+                                    } else {
+                                        limitedEntities.add(entity);
+                                    }
+                                }
+                                entities = limitedEntities;
+                            }
+
+                            vendorEntities.put(vendorId, entities);
+                            totalDisplayEntities.addAndGet(entities.size());
+                        }
+                    }
+                }
+            }
+
+            // Update existing animation
+            updateExistingAnimation(vendor, loc);
+
+            // Reset error tracking on success
+            problemVendors.remove(vendorId);
+            retryAttempts.remove(vendorId);
+
+        } catch (Exception e) {
+            plugin.getLogger().warning("Error setting up animation for vendor " + vendorId + ": " + e.getMessage());
+            handleVendorError(vendorId);
         }
     }
 
     /**
-     * Process any pending display refreshes
+     * Enhanced error handling for problematic vendors
+     */
+    private void handleVendorError(String vendorId) {
+        int attempts = retryAttempts.getOrDefault(vendorId, 0) + 1;
+        retryAttempts.put(vendorId, attempts);
+
+        if (attempts >= MAX_RETRY_ATTEMPTS) {
+            problemVendors.add(vendorId);
+            plugin.getLogger().warning("Vendor " + vendorId + " marked as problematic after " + attempts + " failed attempts");
+
+            // Cleanup any entities for this vendor
+            removeVendorDisplays(vendorId);
+
+            // Remove animation
+            VendorAnimation animation = activeAnimations.remove(vendorId);
+            if (animation != null) {
+                try {
+                    animation.cleanup();
+                } catch (Exception e) {
+                    plugin.getLogger().warning("Error cleaning up animation for vendor " + vendorId + ": " + e.getMessage());
+                }
+            }
+        }
+    }
+
+    /**
+     * Enhanced animation factory with better error handling
+     */
+    private VendorAnimation createAnimationForType(String vendorType, Vendor vendor, Location loc) {
+        try {
+            AnimationOptions options = new AnimationOptions(
+                    plugin,
+                    vendor.getVendorId(),
+                    enableParticles,
+                    enableSounds,
+                    effectDensity
+            );
+
+            switch (vendorType) {
+                case "gambler":
+                    return new GamblerAnimation(options);
+                case "fisherman":
+                    return new FishermanAnimation(options);
+                case "book":
+                    return new BookVendorAnimation(options);
+                case "banker":
+                    return new BankerAnimation(options);
+                case "upgrade":
+                    return new UpgradeVendorAnimation(options);
+                case "medic":
+                    return new MedicAnimation(options);
+                case "item":
+                case "shop":
+                    return new ItemVendorAnimation(options);
+                default:
+                    return new DefaultVendorAnimation(options);
+            }
+        } catch (Exception e) {
+            plugin.getLogger().warning("Error creating animation for vendor type " + vendorType + ": " + e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Enhanced display refresh processing
      */
     private void processDisplayRefreshes() {
+        long startTime = System.currentTimeMillis();
+
         Set<String> toProcess = new HashSet<>(pendingRefresh);
         pendingRefresh.clear();
 
         for (String vendorId : toProcess) {
-            Vendor vendor = vendorManager.getVendor(vendorId);
-            if (vendor != null) {
-                // Remove existing displays
-                removeVendorDisplays(vendorId);
+            try {
+                Vendor vendor = vendorManager.getVendor(vendorId);
+                if (vendor != null) {
+                    // Remove existing displays
+                    removeVendorDisplays(vendorId);
 
-                // Stop and cleanup the animation
-                VendorAnimation animation = activeAnimations.remove(vendorId);
-                if (animation != null) {
-                    animation.cleanup();
-                }
+                    // Stop and cleanup the animation
+                    VendorAnimation animation = activeAnimations.remove(vendorId);
+                    if (animation != null) {
+                        animation.cleanup();
+                    }
 
-                // Location check
-                Location loc = getVendorLocation(vendor);
-                if (loc != null) {
-                    // Will be recreated on next tick
-                    setupOrUpdateVendorAnimation(vendor, loc);
+                    // Reset error state
+                    problemVendors.remove(vendorId);
+                    retryAttempts.remove(vendorId);
+
+                    // Location check
+                    Location loc = getVendorLocation(vendor);
+                    if (loc != null && hasPlayersNearby(loc, renderDistance)) {
+                        setupOrUpdateVendorAnimation(vendor, loc);
+                    }
                 }
+            } catch (Exception e) {
+                plugin.getLogger().warning("Error refreshing vendor " + vendorId + ": " + e.getMessage());
+                handleVendorError(vendorId);
             }
         }
+
+        recordPerformanceMetric("refreshDisplays", System.currentTimeMillis() - startTime);
     }
 
     /**
-     * Stops all vendor auras and cleans up resources
+     * Enhanced cleanup with better error handling
      */
     public void stopAllAuras() {
-        // Cancel the main task
-        if (mainAuraTask != null) {
-            mainAuraTask.cancel();
-            mainAuraTask = null;
-        }
+        long startTime = System.currentTimeMillis();
 
-        // Clean up animations
-        for (VendorAnimation animation : activeAnimations.values()) {
-            try {
-                animation.cleanup();
-            } catch (Exception e) {
-                plugin.getLogger().log(Level.WARNING, "Error cleaning up animation", e);
+        try {
+            // Cancel the main task
+            if (mainAuraTask != null) {
+                mainAuraTask.cancel();
+                mainAuraTask = null;
             }
+
+            // Clean up animations with error handling
+            for (Map.Entry<String, VendorAnimation> entry : activeAnimations.entrySet()) {
+                try {
+                    entry.getValue().cleanup();
+                } catch (Exception e) {
+                    plugin.getLogger().warning("Error cleaning up animation for " + entry.getKey() + ": " + e.getMessage());
+                }
+            }
+            activeAnimations.clear();
+
+            // Remove all display entities
+            removeAllDisplayEntities();
+
+            // Clear tracking data
+            lastPlayerCheckTime.clear();
+            lastVendorLocation.clear();
+            problemVendors.clear();
+            retryAttempts.clear();
+
+            plugin.getLogger().info("Stopped all vendor aura effects in " +
+                    (System.currentTimeMillis() - startTime) + "ms");
+
+        } catch (Exception e) {
+            plugin.getLogger().warning("Error stopping aura effects: " + e.getMessage());
         }
-        activeAnimations.clear();
-
-        // Remove all display entities
-        removeAllDisplayEntities();
-
-        plugin.getLogger().info("Stopped all vendor aura effects");
     }
 
     /**
-     * Updates a specific vendor's aura
-     */
-    public void updateVendorAura(Vendor vendor) {
-        pendingRefresh.add(vendor.getVendorId());
-    }
-
-    /**
-     * Removes all display entities
+     * Enhanced display entity removal with cleanup validation
      */
     private void removeAllDisplayEntities() {
+        int removedCount = 0;
+
         for (String vendorId : new ArrayList<>(vendorEntities.keySet())) {
-            removeVendorDisplays(vendorId);
+            removedCount += removeVendorDisplays(vendorId);
         }
+
         vendorEntities.clear();
+        totalDisplayEntities.set(0);
+
+        if (removedCount > 0) {
+            plugin.getLogger().info("Removed " + removedCount + " display entities");
+        }
     }
 
     /**
-     * Removes display entities for a specific vendor
+     * Enhanced vendor display removal with count tracking
      */
-    private void removeVendorDisplays(String vendorId) {
+    private int removeVendorDisplays(String vendorId) {
         Set<Entity> displays = vendorEntities.remove(vendorId);
+        int removedCount = 0;
+
         if (displays != null) {
             for (Entity entity : new HashSet<>(displays)) {
                 try {
-                    entity.remove();
+                    if (entity.isValid()) {
+                        entity.remove();
+                        removedCount++;
+                    }
                 } catch (Exception e) {
-                    plugin.getLogger().log(Level.WARNING, "Error removing entity for vendor " + vendorId, e);
+                    plugin.getLogger().warning("Error removing entity for vendor " + vendorId + ": " + e.getMessage());
                 }
             }
+            totalDisplayEntities.addAndGet(-removedCount);
+        }
+
+        return removedCount;
+    }
+
+    /**
+     * Cleanup orphaned entities that may have lost their metadata
+     */
+    private void cleanupOrphanedEntities() {
+        try {
+            int cleanedCount = 0;
+
+            for (World world : Bukkit.getWorlds()) {
+                for (Entity entity : world.getEntities()) {
+                    if (entity instanceof Display) {
+                        String meta = entity.getPersistentDataContainer().get(
+                                vendorEntityKey,
+                                org.bukkit.persistence.PersistentDataType.STRING
+                        );
+
+                        if (meta != null && meta.contains(":")) {
+                            String vendorId = meta.split(":")[0];
+                            if (!vendorManager.getVendors().containsKey(vendorId)) {
+                                entity.remove();
+                                cleanedCount++;
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (cleanedCount > 0) {
+                plugin.getLogger().info("Cleaned up " + cleanedCount + " orphaned display entities");
+            }
+
+        } catch (Exception e) {
+            plugin.getLogger().warning("Error during orphaned entity cleanup: " + e.getMessage());
         }
     }
 
     /**
-     * Gets the current location of a vendor
+     * Enhanced vendor location retrieval with caching
      */
     private Location getVendorLocation(Vendor vendor) {
         try {
@@ -294,57 +572,109 @@ public class VendorAuraManager {
     }
 
     /**
-     * Check if there are players within a specified distance
+     * Enhanced player proximity check with performance optimization
      */
     private boolean hasPlayersNearby(Location loc, double distance) {
         if (loc == null || loc.getWorld() == null) return false;
 
-        double distanceSquared = distance * distance;
-        for (Player player : loc.getWorld().getPlayers()) {
-            if (player.getLocation().distanceSquared(loc) <= distanceSquared) {
-                return true;
-            }
-        }
+        World world = loc.getWorld();
+        Collection<? extends Player> players = world.getPlayers();
 
-        return false;
+        if (players.isEmpty()) return false;
+
+        double distanceSquared = distance * distance;
+
+        // Use stream for cleaner code and potential parallel processing
+        return players.stream()
+                .anyMatch(player -> player.getLocation().distanceSquared(loc) <= distanceSquared);
     }
 
     /**
-     * Check if a location is valid (not extreme coordinates)
+     * Enhanced location validation
      */
     private boolean isValidLocation(Location loc) {
-        return !(Math.abs(loc.getY()) > 1000 ||
-                Math.abs(loc.getX()) > 10000 ||
-                Math.abs(loc.getZ()) > 10000);
+        return loc.getY() > -100 && loc.getY() < 1000 &&
+                Math.abs(loc.getX()) < 30000000 &&
+                Math.abs(loc.getZ()) < 30000000;
     }
 
     /**
-     * Get statistics about aura performance
+     * Performance metrics recording
+     */
+    private void recordPerformanceMetric(String operation, long timeMs) {
+        if (enablePerformanceOptimizations) {
+            performanceMetrics.put(operation, timeMs);
+        }
+    }
+
+    /**
+     * Enhanced performance logging
+     */
+    private void logPerformanceMetrics() {
+        if (performanceMetrics.isEmpty()) return;
+
+        StringBuilder metrics = new StringBuilder("VendorAuraManager Performance Report:\n");
+
+        performanceMetrics.forEach((operation, time) -> {
+            metrics.append("  ").append(operation).append(": ").append(time).append("ms\n");
+        });
+
+        metrics.append("Status: ")
+                .append("Active Vendors: ").append(activeVendorCount.get())
+                .append(", Display Entities: ").append(totalDisplayEntities.get())
+                .append(", Problem Vendors: ").append(problemVendors.size())
+                .append(", Render Distance: ").append(renderDistance)
+                .append(", Update Frequency: ").append(updateFrequency);
+
+        plugin.getLogger().info(metrics.toString());
+        performanceMetrics.clear();
+    }
+
+    /**
+     * Enhanced statistics with performance data
      */
     public Map<String, Object> getAuraStats() {
         Map<String, Object> stats = new HashMap<>();
 
         stats.put("activeVendorAuras", activeAnimations.size());
-        stats.put("totalDisplayEntities", countDisplayEntities());
+        stats.put("totalDisplayEntities", totalDisplayEntities.get());
+        stats.put("activeVendorCount", activeVendorCount.get());
+        stats.put("problemVendors", problemVendors.size());
+        stats.put("pendingRefresh", pendingRefresh.size());
         stats.put("renderDistance", renderDistance);
+        stats.put("maxDisplayEntitiesPerVendor", maxDisplayEntitiesPerVendor);
         stats.put("particlesEnabled", enableParticles);
         stats.put("displayEntitiesEnabled", enableDisplays);
         stats.put("soundsEnabled", enableSounds);
         stats.put("effectDensity", effectDensity);
+        stats.put("updateFrequency", updateFrequency);
+        stats.put("performanceOptimizations", enablePerformanceOptimizations);
 
         return stats;
     }
 
-    /**
-     * Count total display entities
-     */
-    private int countDisplayEntities() {
-        return vendorEntities.values().stream()
-                .mapToInt(Set::size)
-                .sum();
+    // ================== ENHANCED PUBLIC API ==================
+
+    public void updateVendorAura(Vendor vendor) {
+        if (vendor != null) {
+            pendingRefresh.add(vendor.getVendorId());
+        }
     }
 
-    // Configuration setters
+    public void retryProblematicVendor(String vendorId) {
+        problemVendors.remove(vendorId);
+        retryAttempts.remove(vendorId);
+        Vendor vendor = vendorManager.getVendor(vendorId);
+        if (vendor != null) {
+            pendingRefresh.add(vendorId);
+        }
+    }
+
+    public Set<String> getProblematicVendors() {
+        return new HashSet<>(problemVendors);
+    }
+
+    // ================== ENHANCED CONFIGURATION SETTERS ==================
 
     public void setEffectDensity(int level) {
         if (level >= 1 && level <= 3) {
@@ -368,7 +698,7 @@ public class VendorAuraManager {
         if (!enabled) {
             removeAllDisplayEntities();
         } else {
-            // Will be recreated on next tick
+            // Refresh all vendors to recreate displays
             pendingRefresh.addAll(activeAnimations.keySet());
         }
     }
@@ -384,6 +714,26 @@ public class VendorAuraManager {
     public void setSoundsEnabled(boolean enabled) {
         this.enableSounds = enabled;
         plugin.getConfig().set("vendors.enable-sound-effects", enabled);
+        plugin.saveConfig();
+    }
+
+    public void setUpdateFrequency(int frequency) {
+        if (frequency >= 1 && frequency <= 20) {
+            this.updateFrequency = frequency;
+            plugin.getConfig().set("vendors.update-frequency", frequency);
+            plugin.saveConfig();
+
+            // Restart task with new frequency
+            if (mainAuraTask != null) {
+                mainAuraTask.cancel();
+                startNormalUpdate();
+            }
+        }
+    }
+
+    public void setPerformanceOptimizations(boolean enabled) {
+        this.enablePerformanceOptimizations = enabled;
+        plugin.getConfig().set("vendors.performance-optimizations", enabled);
         plugin.saveConfig();
     }
 }

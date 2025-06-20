@@ -16,112 +16,120 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.plugin.Plugin;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.bukkit.scheduler.BukkitTask;
 
 import java.io.File;
 import java.io.IOException;
 import java.text.SimpleDateFormat;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Level;
 import java.util.stream.Collectors;
 
 /**
- * Manages the loading, saving, and runtime control of Vendors.
- * Integrates with Citizens NPCs, HologramManager for floating text, and
- * VendorAuraManager for visual and sound effects.
- * Enhanced with validation, auto-repair, and backup capabilities.
+ * Enhanced VendorManager with improved thread safety, error handling, and performance.
+ * Manages the loading, saving, and runtime control of Vendors with comprehensive
+ * validation, auto-repair, backup capabilities, and performance monitoring.
  */
 public class VendorManager implements Listener {
 
-    private static VendorManager instance;
+    private static volatile VendorManager instance;
+    private static final Object INSTANCE_LOCK = new Object();
 
     private final JavaPlugin plugin;
     private final File configFile;
-    private FileConfiguration config;
+    private volatile FileConfiguration config;
 
-    // vendorId -> Vendor
+    // Thread-safe vendor storage with read-write lock for performance
     private final Map<String, Vendor> vendors = new ConcurrentHashMap<>();
-    private boolean citizensAvailable = false;
+    private final ReadWriteLock vendorLock = new ReentrantReadWriteLock();
+
+    private volatile boolean citizensAvailable = false;
+    private volatile boolean isShuttingDown = false;
 
     // Configuration data
     private VendorConfiguration vendorConfig;
 
-    // Metrics and debugging
-    private int vendorsLoaded = 0;
-    private int vendorsFixed = 0;
-    private int totalSaves = 0;
-    private long lastSaveTime = 0;
-    private final List<String> recentErrors = new ArrayList<>();
+    // Enhanced metrics and debugging with atomic counters
+    private final AtomicInteger vendorsLoaded = new AtomicInteger(0);
+    private final AtomicInteger vendorsFixed = new AtomicInteger(0);
+    private final AtomicInteger totalSaves = new AtomicInteger(0);
+    private volatile long lastSaveTime = 0;
+    private final List<String> recentErrors = Collections.synchronizedList(new ArrayList<>());
+    private static final int MAX_RECENT_ERRORS = 50;
+
+    // Performance monitoring
+    private final Map<String, Long> operationTimings = new ConcurrentHashMap<>();
+    private BukkitTask performanceMonitorTask;
+
+    // Enhanced error recovery
+    private final Set<String> failedVendors = ConcurrentHashMap.newKeySet();
+    private BukkitTask retryTask;
 
     private VendorManager(JavaPlugin plugin) {
         this.plugin = plugin;
-        // We'll store data in {pluginFolder}/vendors.yml
         this.configFile = new File(plugin.getDataFolder(), "vendors.yml");
     }
 
     /**
-     * Get (or create) the singleton VendorManager instance.
+     * Get the singleton VendorManager instance with thread-safe double-checked locking.
      */
     public static VendorManager getInstance(JavaPlugin plugin) {
         if (instance == null) {
-            instance = new VendorManager(plugin);
+            synchronized (INSTANCE_LOCK) {
+                if (instance == null) {
+                    instance = new VendorManager(plugin);
+                }
+            }
         }
         return instance;
     }
 
     /**
-     * Check if Citizens API is available and functioning
-     *
-     * @return true if Citizens API is available
+     * Check if Citizens API is available and functioning with enhanced validation
      */
     private boolean isCitizensAvailable() {
         try {
-            // First check if the Citizens plugin is present and enabled
             Plugin citizensPlugin = Bukkit.getPluginManager().getPlugin("Citizens");
             if (citizensPlugin == null || !citizensPlugin.isEnabled()) {
                 return false;
             }
 
-            // Then try accessing a public method of CitizensAPI to check functionality
+            // Enhanced Citizens API validation
             CitizensAPI.getNPCRegistry();
+            CitizensAPI.getTraitFactory();
             return true;
         } catch (Exception e) {
-            // Log the specific error if debug mode is enabled
             if (isDebugMode()) {
-                plugin.getLogger().warning("Citizens API check failed: " + e.getMessage());
+                plugin.getLogger().warning("Citizens API validation failed: " + e.getMessage());
             }
             return false;
         }
     }
 
     /**
-     * Check if debug mode is enabled
-     *
-     * @return true if debug mode is enabled
-     */
-    private boolean isDebugMode() {
-        return vendorConfig != null && vendorConfig.getBoolean("debug-mode");
-    }
-
-    /**
-     * Initialize the manager: load config, register events, etc.
-     * Call this in your plugin's onEnable().
+     * Enhanced initialization with better error handling and performance monitoring
      */
     public void initialize() {
-        // Load vendor configuration
-        vendorConfig = VendorConfiguration.getInstance(YakRealms.getInstance());
+        long startTime = System.currentTimeMillis();
 
-        // Check if Citizens is available
-        citizensAvailable = isCitizensAvailable();
+        try {
+            // Load vendor configuration
+            vendorConfig = VendorConfiguration.getInstance(YakRealms.getInstance());
 
-        if (!citizensAvailable) {
-            plugin.getLogger().warning("Citizens API not available. Vendor NPCs will not be functional.");
-        }
+            // Check Citizens availability
+            citizensAvailable = isCitizensAvailable();
 
-        loadConfigFile();
+            if (!citizensAvailable) {
+                plugin.getLogger().warning("Citizens API not available. Vendor NPCs will not be functional.");
+            }
 
-        if (citizensAvailable) {
-            try {
+            loadConfigFile();
+
+            if (citizensAvailable) {
                 loadVendorsFromConfig();
 
                 // Run auto validation if enabled
@@ -131,57 +139,111 @@ public class VendorManager implements Listener {
                         plugin.getLogger().info("Auto-repaired " + issuesFixed + " vendor issues on startup");
                     }
                 }
-            } catch (Exception e) {
-                plugin.getLogger().severe("Error loading vendors: " + e.getMessage());
-                e.printStackTrace();
-                // Add to recent errors
-                recentErrors.add("Loading error: " + e.getMessage());
+            } else {
+                plugin.getLogger().info("Deferring vendor loading until Citizens is available");
+                scheduleRetryTask();
             }
-        } else {
-            plugin.getLogger().info("Deferring vendor loading until Citizens is available");
+
+            plugin.getServer().getPluginManager().registerEvents(this, plugin);
+            new VendorInteractionHandler(plugin);
+
+            // Start performance monitoring
+            startPerformanceMonitoring();
+
+            operationTimings.put("initialization", System.currentTimeMillis() - startTime);
+            plugin.getLogger().info("VendorManager initialized successfully in " +
+                    (System.currentTimeMillis() - startTime) + "ms");
+
+        } catch (Exception e) {
+            plugin.getLogger().severe("Critical error during VendorManager initialization: " + e.getMessage());
+            e.printStackTrace();
+            addError("Initialization failed: " + e.getMessage());
         }
-
-        plugin.getServer().getPluginManager().registerEvents(this, plugin);
-
-        // Register the interaction handler
-        new VendorInteractionHandler(plugin);
     }
 
     /**
-     * Attempt to load vendors when Citizens becomes available
+     * Enhanced retry mechanism for Citizens availability
      */
-    public void retryInitialization() {
-        if (!citizensAvailable && isCitizensAvailable()) {
-            citizensAvailable = true;
-            plugin.getLogger().info("Citizens API now available. Loading vendors...");
-
-            try {
-                loadVendorsFromConfig();
-
-                // Validate vendors after loading
-                if (vendorConfig.getBoolean("auto-fix-behaviors")) {
-                    int issuesFixed = validateAndFixVendors();
-                    if (issuesFixed > 0) {
-                        plugin.getLogger().info("Fixed " + issuesFixed + " vendor issues during retry initialization");
-                    }
-                }
-            } catch (Exception e) {
-                plugin.getLogger().severe("Error during retry initialization: " + e.getMessage());
-                e.printStackTrace();
-                // Add to recent errors
-                recentErrors.add("Retry init error: " + e.getMessage());
-            }
+    private void scheduleRetryTask() {
+        if (retryTask != null) {
+            retryTask.cancel();
         }
+
+        retryTask = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
+            if (!citizensAvailable && isCitizensAvailable()) {
+                citizensAvailable = true;
+                plugin.getLogger().info("Citizens API now available. Loading vendors...");
+
+                try {
+                    loadVendorsFromConfig();
+
+                    if (vendorConfig.getBoolean("auto-fix-behaviors")) {
+                        int issuesFixed = validateAndFixVendors();
+                        if (issuesFixed > 0) {
+                            plugin.getLogger().info("Fixed " + issuesFixed + " vendor issues during retry initialization");
+                        }
+                    }
+
+                    if (retryTask != null) {
+                        retryTask.cancel();
+                        retryTask = null;
+                    }
+                } catch (Exception e) {
+                    plugin.getLogger().severe("Error during retry initialization: " + e.getMessage());
+                    addError("Retry init error: " + e.getMessage());
+                }
+            }
+        }, 100L, 100L); // Check every 5 seconds
     }
 
     /**
-     * Called in plugin onDisable() to save vendor data and clean up.
+     * Performance monitoring for optimization
+     */
+    private void startPerformanceMonitoring() {
+        if (performanceMonitorTask != null) {
+            performanceMonitorTask.cancel();
+        }
+
+        performanceMonitorTask = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
+            if (isDebugMode()) {
+                logPerformanceMetrics();
+            }
+            cleanupOldErrors();
+        }, 6000L, 6000L); // Every 5 minutes
+    }
+
+    /**
+     * Enhanced shutdown with proper cleanup
      */
     public void shutdown() {
+        isShuttingDown = true;
+
         try {
+            // Cancel all tasks
+            if (performanceMonitorTask != null) {
+                performanceMonitorTask.cancel();
+                performanceMonitorTask = null;
+            }
+
+            if (retryTask != null) {
+                retryTask.cancel();
+                retryTask = null;
+            }
+
+            // Save vendors
             saveVendorsToConfig();
-            HologramManager.cleanup(); // remove all holograms
-            vendors.clear();
+
+            // Clean up holograms
+            HologramManager.cleanup();
+
+            // Clear vendors with lock
+            vendorLock.writeLock().lock();
+            try {
+                vendors.clear();
+            } finally {
+                vendorLock.writeLock().unlock();
+            }
+
             plugin.getLogger().info("Vendor system shutdown complete");
         } catch (Exception e) {
             plugin.getLogger().severe("Error during vendor system shutdown: " + e.getMessage());
@@ -190,11 +252,21 @@ public class VendorManager implements Listener {
     }
 
     /**
-     * Reload vendors from config
+     * Enhanced reload with better error recovery
      */
     public void reload() {
+        long startTime = System.currentTimeMillis();
+
         try {
-            vendors.clear();
+            // Clear existing vendors
+            vendorLock.writeLock().lock();
+            try {
+                vendors.clear();
+                failedVendors.clear();
+            } finally {
+                vendorLock.writeLock().unlock();
+            }
+
             loadConfigFile();
             loadVendorsFromConfig();
 
@@ -213,28 +285,31 @@ public class VendorManager implements Listener {
                 auraManager.startAllAuras();
             }
 
-            plugin.getLogger().info("Vendor system reloaded successfully");
+            operationTimings.put("reload", System.currentTimeMillis() - startTime);
+            plugin.getLogger().info("Vendor system reloaded successfully in " +
+                    (System.currentTimeMillis() - startTime) + "ms");
+
         } catch (Exception e) {
             plugin.getLogger().severe("Error reloading vendor system: " + e.getMessage());
             e.printStackTrace();
-            // Add to recent errors
-            recentErrors.add("Reload error: " + e.getMessage());
+            addError("Reload error: " + e.getMessage());
         }
     }
 
-    // ================== CITIZENS EVENTS ==================
+    // ================== ENHANCED CITIZENS EVENTS ==================
 
-    /**
-     * When a Citizens NPC is spawned, if it matches one of our vendors, we create/update the hologram.
-     */
     @EventHandler
     public void onNPCSpawn(NPCSpawnEvent event) {
-        if (!citizensAvailable) return;
+        if (!citizensAvailable || isShuttingDown) return;
 
         try {
             NPC npc = event.getNPC();
             Vendor vendor = getVendorByNpcId(npc.getId());
+
             if (vendor != null) {
+                // Remove from failed vendors set
+                failedVendors.remove(vendor.getVendorId());
+
                 // Update vendor location
                 vendor.setLocation(npc.getStoredLocation());
 
@@ -252,108 +327,94 @@ public class VendorManager implements Listener {
                 }
             }
         } catch (Exception e) {
-            if (isDebugMode()) {
-                plugin.getLogger().warning("Error in NPC spawn event: " + e.getMessage());
-            }
+            plugin.getLogger().warning("Error in NPC spawn event: " + e.getMessage());
+            addError("NPC spawn error: " + e.getMessage());
         }
     }
 
-    /**
-     * When a Citizens NPC is removed, if it matches one of our vendors, remove the hologram.
-     */
     @EventHandler
     public void onNPCRemove(NPCRemoveEvent event) {
-        if (!citizensAvailable) return;
+        if (!citizensAvailable || isShuttingDown) return;
 
         try {
             NPC npc = event.getNPC();
             Vendor vendor = getVendorByNpcId(npc.getId());
+
             if (vendor != null) {
                 HologramManager.removeHologram(vendor.getVendorId());
-
 
                 if (isDebugMode()) {
                     plugin.getLogger().info("NPC removed for vendor " + vendor.getVendorId());
                 }
             }
         } catch (Exception e) {
-            if (isDebugMode()) {
-                plugin.getLogger().warning("Error in NPC remove event: " + e.getMessage());
-            }
+            plugin.getLogger().warning("Error in NPC remove event: " + e.getMessage());
+            addError("NPC remove error: " + e.getMessage());
         }
     }
 
-    // ================== HOLOGRAM UTILS ==================
+    // ================== ENHANCED HOLOGRAM UTILS ==================
 
     private void createOrUpdateHologram(Vendor vendor) {
-        if (!citizensAvailable) return;
+        if (!citizensAvailable || isShuttingDown) return;
 
         try {
             NPC npc = CitizensAPI.getNPCRegistry().getById(vendor.getNpcId());
+            Location hologramLocation = null;
+
             if (npc != null && npc.isSpawned()) {
                 double hologramHeight = vendorConfig.getDouble("hologram-height");
                 if (hologramHeight <= 0) hologramHeight = 2.8;
+                hologramLocation = npc.getStoredLocation().clone().add(0, hologramHeight, 0);
+            } else {
+                // Fallback to stored location
+                Location fallback = vendor.getLocation();
+                if (fallback != null) {
+                    double hologramHeight = vendorConfig.getDouble("hologram-height");
+                    if (hologramHeight <= 0) hologramHeight = 2.8;
+                    hologramLocation = fallback.clone().add(0, hologramHeight, 0);
+                }
+            }
 
-                Location loc = npc.getStoredLocation().clone().add(0, hologramHeight, 0);
-
+            if (hologramLocation != null) {
                 double lineSpacing = vendorConfig.getDouble("hologram-line-spacing");
                 if (lineSpacing <= 0) lineSpacing = 0.3;
 
                 HologramManager.createOrUpdateHologram(
                         vendor.getVendorId(),
-                        loc,
+                        hologramLocation,
                         vendor.getHologramLines(),
                         lineSpacing
                 );
-            } else {
-                // fallback to stored location
-                Location fallback = vendor.getLocation();
-                if (fallback != null) {
-                    double hologramHeight = vendorConfig.getDouble("hologram-height");
-                    if (hologramHeight <= 0) hologramHeight = 2.8;
-
-                    Location hologramLocation = fallback.clone().add(0, hologramHeight, 0);
-
-                    double lineSpacing = vendorConfig.getDouble("hologram-line-spacing");
-                    if (lineSpacing <= 0) lineSpacing = 0.3;
-
-                    HologramManager.createOrUpdateHologram(
-                            vendor.getVendorId(),
-                            hologramLocation,
-                            vendor.getHologramLines(),
-                            lineSpacing
-                    );
-                }
             }
         } catch (Exception e) {
-            plugin.getLogger().log(Level.WARNING, "Failed to create/update hologram for vendor: " + vendor.getVendorId(), e);
-            // Add to recent errors
-            recentErrors.add("Hologram error for " + vendor.getVendorId() + ": " + e.getMessage());
+            plugin.getLogger().warning("Failed to create/update hologram for vendor: " + vendor.getVendorId() + " - " + e.getMessage());
+            addError("Hologram error for " + vendor.getVendorId() + ": " + e.getMessage());
+            failedVendors.add(vendor.getVendorId());
         }
     }
 
-    // ================== PUBLIC API ==================
+    // ================== ENHANCED PUBLIC API ==================
 
     /**
-     * Registers a vendor directly without creating a new NPC
-     * Used when a NPC has already been created
-     *
-     * @param vendor The vendor to register
+     * Thread-safe vendor registration
      */
     public void registerVendor(Vendor vendor) {
         if (vendor == null || !vendor.isValid()) {
             throw new IllegalArgumentException("Cannot register invalid vendor");
         }
 
-        vendors.put(vendor.getVendorId(), vendor);
-
+        vendorLock.writeLock().lock();
+        try {
+            vendors.put(vendor.getVendorId(), vendor);
+            failedVendors.remove(vendor.getVendorId());
+        } finally {
+            vendorLock.writeLock().unlock();
+        }
     }
 
     /**
-     * Creates a new vendor, spawns its NPC, stores it in memory.
-     * This won't immediately save to config unless you call saveVendorsToConfig().
-     *
-     * @return The newly created Vendor object or null if Citizens is not available
+     * Enhanced vendor creation with better error handling
      */
     public Vendor createVendor(String vendorId,
                                String worldName,
@@ -362,36 +423,29 @@ public class VendorManager implements Listener {
                                List<String> hologramLines,
                                String behaviorClass) {
 
-        Vendor vendor = createVendorWithoutAura(vendorId, worldName, x, y, z, yaw, pitch, hologramLines, behaviorClass);
-
-        return vendor;
-    }
-
-    /**
-     * Internal method to create a vendor without starting aura
-     * Same implementation as the original createVendor method
-     */
-    private Vendor createVendorWithoutAura(String vendorId,
-                                           String worldName,
-                                           double x, double y, double z,
-                                           float yaw, float pitch,
-                                           List<String> hologramLines,
-                                           String behaviorClass) {
-        if (!citizensAvailable) {
-            plugin.getLogger().warning("Cannot create vendor: Citizens API not available");
-            return null;
-        }
-
-        if (vendors.containsKey(vendorId)) {
-            throw new IllegalArgumentException("A vendor with ID '" + vendorId + "' already exists!");
-        }
-
-        World world = Bukkit.getWorld(worldName);
-        if (world == null) {
-            throw new IllegalArgumentException("World not found: " + worldName);
-        }
+        long startTime = System.currentTimeMillis();
 
         try {
+            if (!citizensAvailable) {
+                plugin.getLogger().warning("Cannot create vendor: Citizens API not available");
+                return null;
+            }
+
+            // Check for existing vendor
+            vendorLock.readLock().lock();
+            try {
+                if (vendors.containsKey(vendorId)) {
+                    throw new IllegalArgumentException("A vendor with ID '" + vendorId + "' already exists!");
+                }
+            } finally {
+                vendorLock.readLock().unlock();
+            }
+
+            World world = Bukkit.getWorld(worldName);
+            if (world == null) {
+                throw new IllegalArgumentException("World not found: " + worldName);
+            }
+
             // Validate behavior class
             if (behaviorClass == null || behaviorClass.isEmpty()) {
                 behaviorClass = vendorConfig.getString("default-behavior-class");
@@ -407,243 +461,508 @@ public class VendorManager implements Listener {
                         .collect(Collectors.toList());
             }
 
-            // Spawn a Citizens NPC for this vendor
+            // Spawn Citizens NPC
             NPC npc = CitizensAPI.getNPCRegistry().createNPC(
                     org.bukkit.entity.EntityType.PLAYER,
-                    vendorId // set display name
+                    vendorId
             );
             Location loc = new Location(world, x, y, z, yaw, pitch);
             npc.spawn(loc);
 
             int npcId = npc.getId();
-            Vendor vendor = new Vendor(
-                    vendorId,
-                    npcId,
-                    loc,
-                    hologramLines,
-                    behaviorClass
-            );
-            vendors.put(vendorId, vendor);
+            Vendor vendor = new Vendor(vendorId, npcId, loc, hologramLines, behaviorClass);
 
-            // Immediately create the hologram
+            // Register vendor
+            registerVendor(vendor);
+
+            // Create hologram immediately
             createOrUpdateHologram(vendor);
 
             // Save to config
             saveVendorsToConfig();
 
+            operationTimings.put("createVendor", System.currentTimeMillis() - startTime);
             return vendor;
+
         } catch (Exception e) {
-            plugin.getLogger().log(Level.SEVERE, "Error creating vendor: " + e.getMessage(), e);
-            // Add to recent errors
-            recentErrors.add("Create vendor error: " + e.getMessage());
+            plugin.getLogger().severe("Error creating vendor " + vendorId + ": " + e.getMessage());
+            e.printStackTrace();
+            addError("Create vendor error: " + e.getMessage());
+            failedVendors.add(vendorId);
             return null;
         }
     }
 
     /**
-     * Deletes an existing vendor by ID: removes from memory, config,
-     * despawns & destroys its Citizens NPC, removes the hologram, and stops aura effects.
-     *
-     * @param vendorId The unique ID of the vendor
-     * @return true if a vendor was found and deleted, false otherwise
+     * Enhanced vendor deletion with proper cleanup
      */
     public boolean deleteVendor(String vendorId) {
-        // First stop aura effects
-        VendorAuraManager auraManager = VendorSystemInitializer.getAuraManager();
-
-        Vendor vendor = vendors.remove(vendorId);
-        if (vendor == null) {
-            return false;
-        }
-
-        // Remove hologram
-        HologramManager.removeHologram(vendorId);
-
-        // Only attempt to remove from Citizens if the API is available
-        if (citizensAvailable) {
-            try {
-                // Remove from Citizens
-                NPC npc = CitizensAPI.getNPCRegistry().getById(vendor.getNpcId());
-                if (npc != null) {
-                    npc.despawn();
-                    npc.destroy();
-                }
-            } catch (Exception e) {
-                plugin.getLogger().log(Level.WARNING, "Error removing Citizens NPC: " + e.getMessage(), e);
-                // Add to recent errors
-                recentErrors.add("Delete vendor error: " + e.getMessage());
-            }
-        }
-
-        // Save changes to config
-        saveVendorsToConfig();
-
-        return true;
-    }
-
-    /**
-     * Update a vendor's behavior class and refresh its aura
-     */
-    public void updateVendorBehavior(String vendorId, String behaviorClass) {
-        Vendor vendor = getVendor(vendorId);
-        if (vendor == null) {
-            return;
-        }
-
-        // Store old type
-        String oldType = vendor.getVendorType();
-
-        // Update behavior
-        vendor.setBehaviorClass(behaviorClass);
-
-        // Check if type changed
-        if (!oldType.equals(vendor.getVendorType())) {
-            // Update aura if vendor type changed
-            VendorAuraManager auraManager = VendorSystemInitializer.getAuraManager();
-            if (auraManager != null) {
-                auraManager.updateVendorAura(vendor);
-            }
-        }
-
-        // Save to config
-        saveVendorsToConfig();
-    }
-
-    /**
-     * Save all vendor data to the vendors.yml config.
-     * Usually called during onDisable().
-     */
-    public void saveVendorsToConfig() {
-        config.set("vendors", null); // clear old data
-
-        for (Vendor vendor : vendors.values()) {
-            String path = "vendors." + vendor.getVendorId();
-            config.set(path + ".npcId", vendor.getNpcId());
-
-            Location loc = vendor.getLocation();
-            if (loc != null && loc.getWorld() != null) {
-                config.set(path + ".world", loc.getWorld().getName());
-                config.set(path + ".x", loc.getX());
-                config.set(path + ".y", loc.getY());
-                config.set(path + ".z", loc.getZ());
-                config.set(path + ".yaw", loc.getYaw());
-                config.set(path + ".pitch", loc.getPitch());
-            }
-            config.set(path + ".lines", vendor.getHologramLines());
-            config.set(path + ".behaviorClass", vendor.getBehaviorClass());
-            config.set(path + ".lastUpdated", vendor.getLastUpdated());
-        }
+        long startTime = System.currentTimeMillis();
 
         try {
-            config.save(configFile);
-            totalSaves++;
-            lastSaveTime = System.currentTimeMillis();
+            // Stop aura effects first
+            VendorAuraManager auraManager = VendorSystemInitializer.getAuraManager();
 
-            if (isDebugMode()) {
-                plugin.getLogger().info("Saved " + vendors.size() + " vendors to config");
+            Vendor vendor;
+            vendorLock.writeLock().lock();
+            try {
+                vendor = vendors.remove(vendorId);
+                failedVendors.remove(vendorId);
+            } finally {
+                vendorLock.writeLock().unlock();
             }
-        } catch (IOException e) {
-            plugin.getLogger().log(Level.SEVERE, "Failed to save vendors.yml", e);
-            // Add to recent errors
-            recentErrors.add("Save config error: " + e.getMessage());
+
+            if (vendor == null) {
+                return false;
+            }
+
+            // Remove hologram
+            HologramManager.removeHologram(vendorId);
+
+            // Remove from Citizens if available
+            if (citizensAvailable) {
+                try {
+                    NPC npc = CitizensAPI.getNPCRegistry().getById(vendor.getNpcId());
+                    if (npc != null) {
+                        npc.despawn();
+                        npc.destroy();
+                    }
+                } catch (Exception e) {
+                    plugin.getLogger().warning("Error removing Citizens NPC for vendor " + vendorId + ": " + e.getMessage());
+                    addError("Delete vendor NPC error: " + e.getMessage());
+                }
+            }
+
+            // Save changes
+            saveVendorsToConfig();
+
+            operationTimings.put("deleteVendor", System.currentTimeMillis() - startTime);
+            return true;
+
+        } catch (Exception e) {
+            plugin.getLogger().severe("Error deleting vendor " + vendorId + ": " + e.getMessage());
+            addError("Delete vendor error: " + e.getMessage());
+            return false;
         }
     }
 
     /**
-     * Retrieves a vendor by its vendorId.
+     * Enhanced vendor behavior update
+     */
+    public void updateVendorBehavior(String vendorId, String behaviorClass) {
+        try {
+            Vendor vendor = getVendor(vendorId);
+            if (vendor == null) {
+                return;
+            }
+
+            String oldType = vendor.getVendorType();
+            vendor.setBehaviorClass(behaviorClass);
+
+            // Check if type changed
+            if (!oldType.equals(vendor.getVendorType())) {
+                VendorAuraManager auraManager = VendorSystemInitializer.getAuraManager();
+                if (auraManager != null) {
+                    auraManager.updateVendorAura(vendor);
+                }
+            }
+
+            saveVendorsToConfig();
+
+        } catch (Exception e) {
+            plugin.getLogger().warning("Error updating vendor behavior for " + vendorId + ": " + e.getMessage());
+            addError("Update behavior error: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Thread-safe vendor retrieval
      */
     public Vendor getVendor(String vendorId) {
-        return vendors.get(vendorId);
+        vendorLock.readLock().lock();
+        try {
+            return vendors.get(vendorId);
+        } finally {
+            vendorLock.readLock().unlock();
+        }
     }
 
     /**
-     * Retrieves a vendor by Citizens npcId, or null if none.
+     * Thread-safe vendor retrieval by NPC ID
      */
     public Vendor getVendorByNpcId(int npcId) {
-        for (Vendor v : vendors.values()) {
-            if (v.getNpcId() == npcId) return v;
+        vendorLock.readLock().lock();
+        try {
+            for (Vendor v : vendors.values()) {
+                if (v.getNpcId() == npcId) return v;
+            }
+            return null;
+        } finally {
+            vendorLock.readLock().unlock();
         }
-        return null;
     }
 
     /**
-     * @return A read-only view of all known vendors.
+     * Thread-safe vendors access
      */
     public Map<String, Vendor> getVendors() {
-        return Collections.unmodifiableMap(vendors);
+        vendorLock.readLock().lock();
+        try {
+            return new HashMap<>(vendors);
+        } finally {
+            vendorLock.readLock().unlock();
+        }
     }
 
     /**
-     * Validate all vendors and fix issues
-     * @return The number of issues fixed
+     * Enhanced validation with better error tracking
      */
     public int validateAndFixVendors() {
+        long startTime = System.currentTimeMillis();
         int issuesFixed = 0;
 
-        for (Map.Entry<String, Vendor> entry : vendors.entrySet()) {
+        vendorLock.readLock().lock();
+        Map<String, Vendor> vendorsCopy;
+        try {
+            vendorsCopy = new HashMap<>(vendors);
+        } finally {
+            vendorLock.readLock().unlock();
+        }
+
+        for (Map.Entry<String, Vendor> entry : vendorsCopy.entrySet()) {
             Vendor vendor = entry.getValue();
             boolean modified = false;
 
-            // Check if behavior class exists
-            String behaviorClass = vendor.getBehaviorClass();
-            if (behaviorClass == null || behaviorClass.isEmpty()) {
-                String vendorType = vendor.getVendorType();
-                String newBehaviorClass = getDefaultBehaviorForType(vendorType);
-                vendor.setBehaviorClass(newBehaviorClass);
-                plugin.getLogger().warning("Fixed missing behavior class for vendor " + vendor.getVendorId() +
-                        ". Set to " + newBehaviorClass);
-                modified = true;
-                issuesFixed++;
-            } else {
-                // Verify the behavior class can be instantiated
-                try {
-                    Class.forName(behaviorClass);
-                } catch (ClassNotFoundException e) {
+            try {
+                // Check behavior class
+                String behaviorClass = vendor.getBehaviorClass();
+                if (behaviorClass == null || behaviorClass.isEmpty()) {
                     String vendorType = vendor.getVendorType();
                     String newBehaviorClass = getDefaultBehaviorForType(vendorType);
                     vendor.setBehaviorClass(newBehaviorClass);
-                    plugin.getLogger().warning("Fixed invalid behavior class for vendor " + vendor.getVendorId() +
-                            ". Changed from " + behaviorClass + " to " + newBehaviorClass);
+                    plugin.getLogger().warning("Fixed missing behavior class for vendor " + vendor.getVendorId() +
+                            ". Set to " + newBehaviorClass);
+                    modified = true;
+                    issuesFixed++;
+                } else {
+                    // Verify behavior class exists
+                    try {
+                        Class.forName(behaviorClass);
+                    } catch (ClassNotFoundException e) {
+                        String vendorType = vendor.getVendorType();
+                        String newBehaviorClass = getDefaultBehaviorForType(vendorType);
+                        vendor.setBehaviorClass(newBehaviorClass);
+                        plugin.getLogger().warning("Fixed invalid behavior class for vendor " + vendor.getVendorId() +
+                                ". Changed from " + behaviorClass + " to " + newBehaviorClass);
+                        modified = true;
+                        issuesFixed++;
+                    }
+                }
+
+                // Check hologram lines
+                if (vendor.getHologramLines() == null || vendor.getHologramLines().isEmpty()) {
+                    List<String> defaultLines = vendorConfig.getStringList("default-hologram-text").stream()
+                            .map(line -> ChatColor.translateAlternateColorCodes('&', line))
+                            .collect(Collectors.toList());
+
+                    vendor.setHologramLines(defaultLines);
+                    plugin.getLogger().warning("Fixed missing hologram lines for vendor " + vendor.getVendorId());
                     modified = true;
                     issuesFixed++;
                 }
-            }
 
-            // Check if vendor type matches behavior class
-            String expectedType = extractTypeFromBehaviorClass(vendor.getBehaviorClass());
-            if (!expectedType.equals(vendor.getVendorType())) {
-                plugin.getLogger().warning("Vendor type mismatch for " + vendor.getVendorId() +
-                        ". Type: " + vendor.getVendorType() +
-                        ", Behavior suggests: " + expectedType);
-                // Don't auto-fix this, just log it
-            }
+                if (modified) {
+                    failedVendors.remove(vendor.getVendorId());
+                }
 
-            // Check hologram lines
-            if (vendor.getHologramLines() == null || vendor.getHologramLines().isEmpty()) {
-                List<String> defaultLines = vendorConfig.getStringList("default-hologram-text").stream()
-                        .map(line -> ChatColor.translateAlternateColorCodes('&', line))
-                        .collect(Collectors.toList());
-
-                vendor.setHologramLines(defaultLines);
-                plugin.getLogger().warning("Fixed missing hologram lines for vendor " + vendor.getVendorId());
-                modified = true;
-                issuesFixed++;
+            } catch (Exception e) {
+                plugin.getLogger().warning("Error validating vendor " + vendor.getVendorId() + ": " + e.getMessage());
+                addError("Validation error for " + vendor.getVendorId() + ": " + e.getMessage());
+                failedVendors.add(vendor.getVendorId());
             }
         }
 
         if (issuesFixed > 0) {
             saveVendorsToConfig();
-            vendorsFixed += issuesFixed;
+            vendorsFixed.addAndGet(issuesFixed);
         }
 
+        operationTimings.put("validateAndFix", System.currentTimeMillis() - startTime);
         return issuesFixed;
     }
 
     /**
-     * Get the default behavior class for a vendor type
-     * @param vendorType The vendor type
-     * @return The default behavior class
+     * Enhanced configuration save with atomic operations
      */
+    public void saveVendorsToConfig() {
+        if (isShuttingDown) return;
+
+        long startTime = System.currentTimeMillis();
+
+        try {
+            config.set("vendors", null); // Clear old data
+
+            vendorLock.readLock().lock();
+            try {
+                for (Vendor vendor : vendors.values()) {
+                    String path = "vendors." + vendor.getVendorId();
+                    config.set(path + ".npcId", vendor.getNpcId());
+
+                    Location loc = vendor.getLocation();
+                    if (loc != null && loc.getWorld() != null) {
+                        config.set(path + ".world", loc.getWorld().getName());
+                        config.set(path + ".x", loc.getX());
+                        config.set(path + ".y", loc.getY());
+                        config.set(path + ".z", loc.getZ());
+                        config.set(path + ".yaw", loc.getYaw());
+                        config.set(path + ".pitch", loc.getPitch());
+                    }
+                    config.set(path + ".lines", vendor.getHologramLines());
+                    config.set(path + ".behaviorClass", vendor.getBehaviorClass());
+                    config.set(path + ".lastUpdated", vendor.getLastUpdated());
+                }
+            } finally {
+                vendorLock.readLock().unlock();
+            }
+
+            config.save(configFile);
+            totalSaves.incrementAndGet();
+            lastSaveTime = System.currentTimeMillis();
+
+            operationTimings.put("saveConfig", System.currentTimeMillis() - startTime);
+
+            if (isDebugMode()) {
+                plugin.getLogger().info("Saved " + vendors.size() + " vendors to config in " +
+                        (System.currentTimeMillis() - startTime) + "ms");
+            }
+
+        } catch (IOException e) {
+            plugin.getLogger().severe("Failed to save vendors.yml: " + e.getMessage());
+            addError("Save config error: " + e.getMessage());
+        }
+    }
+
+    // ================== ENHANCED UTILITY METHODS ==================
+
+    /**
+     * Enhanced error tracking with size limits
+     */
+    private void addError(String error) {
+        recentErrors.add(new SimpleDateFormat("HH:mm:ss").format(new Date()) + " - " + error);
+
+        // Limit error list size
+        while (recentErrors.size() > MAX_RECENT_ERRORS) {
+            recentErrors.remove(0);
+        }
+    }
+
+    /**
+     * Clean up old errors periodically
+     */
+    private void cleanupOldErrors() {
+        if (recentErrors.size() > MAX_RECENT_ERRORS / 2) {
+            synchronized (recentErrors) {
+                while (recentErrors.size() > MAX_RECENT_ERRORS / 4) {
+                    recentErrors.remove(0);
+                }
+            }
+        }
+    }
+
+    /**
+     * Performance metrics logging
+     */
+    private void logPerformanceMetrics() {
+        if (operationTimings.isEmpty()) return;
+
+        StringBuilder metrics = new StringBuilder("VendorManager Performance Metrics:\n");
+        operationTimings.forEach((operation, time) -> {
+            metrics.append("  ").append(operation).append(": ").append(time).append("ms\n");
+        });
+
+        metrics.append("Vendors: ").append(vendors.size())
+                .append(", Failed: ").append(failedVendors.size())
+                .append(", Errors: ").append(recentErrors.size());
+
+        plugin.getLogger().info(metrics.toString());
+
+        // Clear old timings
+        operationTimings.clear();
+    }
+
+    /**
+     * Enhanced metrics with performance data
+     */
+    public Map<String, Object> getMetrics() {
+        Map<String, Object> metrics = new HashMap<>();
+
+        vendorLock.readLock().lock();
+        try {
+            metrics.put("vendorsCount", vendors.size());
+        } finally {
+            vendorLock.readLock().unlock();
+        }
+
+        metrics.put("vendorsLoaded", vendorsLoaded.get());
+        metrics.put("vendorsFixed", vendorsFixed.get());
+        metrics.put("totalSaves", totalSaves.get());
+        metrics.put("lastSaveTime", lastSaveTime);
+        metrics.put("errorCount", recentErrors.size());
+        metrics.put("citizensAvailable", citizensAvailable);
+        metrics.put("failedVendorsCount", failedVendors.size());
+        metrics.put("isShuttingDown", isShuttingDown);
+
+        // Get aura stats if available
+        VendorAuraManager auraManager = VendorSystemInitializer.getAuraManager();
+        if (auraManager != null) {
+            metrics.putAll(auraManager.getAuraStats());
+        }
+
+        return metrics;
+    }
+
+    public List<String> getRecentErrors() {
+        synchronized (recentErrors) {
+            return new ArrayList<>(recentErrors);
+        }
+    }
+
+    public void clearRecentErrors() {
+        recentErrors.clear();
+    }
+
+    public Set<String> getFailedVendors() {
+        return new HashSet<>(failedVendors);
+    }
+
+    // ================== ENHANCED INTERNALS ==================
+
+    private void loadConfigFile() {
+        if (!configFile.exists()) {
+            try {
+                plugin.saveResource("vendors.yml", false);
+            } catch (Exception e) {
+                try {
+                    plugin.getDataFolder().mkdirs();
+                    configFile.createNewFile();
+                } catch (IOException ex) {
+                    plugin.getLogger().severe("Failed to create vendors.yml: " + ex.getMessage());
+                    addError("Config creation error: " + ex.getMessage());
+                }
+            }
+        }
+        config = YamlConfiguration.loadConfiguration(configFile);
+    }
+
+    /**
+     * Enhanced vendor loading with better error recovery
+     */
+    private void loadVendorsFromConfig() {
+        if (!citizensAvailable) {
+            plugin.getLogger().warning("Skipping vendor loading because Citizens is not available");
+            return;
+        }
+
+        if (!config.contains("vendors")) {
+            return;
+        }
+
+        long startTime = System.currentTimeMillis();
+        int loadedCount = 0;
+
+        try {
+            Set<String> vendorIds = config.getConfigurationSection("vendors").getKeys(false);
+
+            for (String vendorId : vendorIds) {
+                try {
+                    if (loadSingleVendor(vendorId)) {
+                        loadedCount++;
+                    }
+                } catch (Exception e) {
+                    plugin.getLogger().warning("Failed to load vendor " + vendorId + ": " + e.getMessage());
+                    addError("Load vendor error for " + vendorId + ": " + e.getMessage());
+                    failedVendors.add(vendorId);
+                }
+            }
+
+            vendorsLoaded.set(loadedCount);
+            operationTimings.put("loadVendors", System.currentTimeMillis() - startTime);
+            plugin.getLogger().info("Loaded " + loadedCount + " vendors from config in " +
+                    (System.currentTimeMillis() - startTime) + "ms");
+
+        } catch (Exception e) {
+            plugin.getLogger().severe("Error loading vendors from config: " + e.getMessage());
+            addError("Vendor loading error: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Load a single vendor with enhanced error handling
+     */
+    private boolean loadSingleVendor(String vendorId) {
+        String path = "vendors." + vendorId;
+
+        int npcId = config.getInt(path + ".npcId", -1);
+        String worldName = config.getString(path + ".world", "world");
+        double x = config.getDouble(path + ".x", 0.0);
+        double y = config.getDouble(path + ".y", 64.0);
+        double z = config.getDouble(path + ".z", 0.0);
+        float yaw = (float) config.getDouble(path + ".yaw", 0.0);
+        float pitch = (float) config.getDouble(path + ".pitch", 0.0);
+        List<String> lines = config.getStringList(path + ".lines");
+        String behaviorClass = config.getString(path + ".behaviorClass");
+
+        if (behaviorClass == null || behaviorClass.isEmpty()) {
+            plugin.getLogger().warning("No behavior class found for vendor " + vendorId + ". Using default ShopBehavior.");
+            behaviorClass = "com.rednetty.server.mechanics.economy.vendors.behaviors.ShopBehavior";
+        }
+
+        World world = Bukkit.getWorld(worldName);
+        if (world == null) {
+            if (!Bukkit.getWorlds().isEmpty()) {
+                world = Bukkit.getWorlds().get(0);
+                plugin.getLogger().warning("World '" + worldName + "' not found for vendor " + vendorId +
+                        ". Using " + world.getName() + " instead.");
+            } else {
+                plugin.getLogger().warning("No valid world for vendor " + vendorId + ". Skipping.");
+                return false;
+            }
+        }
+
+        Location loc = new Location(world, x, y, z, yaw, pitch);
+        Vendor vendor = new Vendor(vendorId, npcId, loc, lines, behaviorClass);
+
+        vendorLock.writeLock().lock();
+        try {
+            vendors.put(vendorId, vendor);
+        } finally {
+            vendorLock.writeLock().unlock();
+        }
+
+        // Spawn NPC if needed
+        try {
+            NPC npc = CitizensAPI.getNPCRegistry().getById(npcId);
+            if (npc != null && !npc.isSpawned()) {
+                npc.spawn(loc);
+            }
+            if (npc != null && npc.isSpawned()) {
+                createOrUpdateHologram(vendor);
+            }
+        } catch (Exception e) {
+            plugin.getLogger().warning("Error spawning NPC for vendor: " + vendorId + " - " + e.getMessage());
+            addError("NPC spawn error for " + vendorId + ": " + e.getMessage());
+            failedVendors.add(vendorId);
+        }
+
+        return true;
+    }
+
+    // ================== HELPER METHODS ==================
+
+    private boolean isDebugMode() {
+        return vendorConfig != null && vendorConfig.getBoolean("debug-mode");
+    }
+
     public String getDefaultBehaviorForType(String vendorType) {
         String basePath = "com.rednetty.server.mechanics.economy.vendors.behaviors.";
 
@@ -665,275 +984,5 @@ public class VendorManager implements Listener {
             default:
                 return basePath + "ShopBehavior";
         }
-    }
-
-    /**
-     * Extract vendor type from behavior class name
-     * @param behaviorClass The behavior class name
-     * @return The extracted vendor type
-     */
-    private String extractTypeFromBehaviorClass(String behaviorClass) {
-        if (behaviorClass == null || behaviorClass.isEmpty()) {
-            return "unknown";
-        }
-
-        // Extract class name without package
-        String className = behaviorClass;
-        if (behaviorClass.contains(".")) {
-            className = behaviorClass.substring(behaviorClass.lastIndexOf('.') + 1);
-        }
-
-        // Remove "Behavior" suffix if present
-        if (className.endsWith("Behavior")) {
-            return className.substring(0, className.length() - 8).toLowerCase();
-        } else {
-            return "unknown";
-        }
-    }
-
-    /**
-     * Back up current vendor configuration
-     * @return true if backup was successful
-     */
-    public boolean backupVendorConfig() {
-        try {
-            // Create a timestamped backup file
-            String timestamp = new SimpleDateFormat("yyyyMMdd_HHmmss").format(new Date());
-            File backupFile = new File(plugin.getDataFolder(), "vendors_backup_" + timestamp + ".yml");
-
-            // Save current config to the backup file
-            config.save(backupFile);
-
-            plugin.getLogger().info("Created vendor config backup: " + backupFile.getName());
-            return true;
-        } catch (IOException e) {
-            plugin.getLogger().log(Level.SEVERE, "Failed to create vendor config backup", e);
-            // Add to recent errors
-            recentErrors.add("Backup error: " + e.getMessage());
-            return false;
-        }
-    }
-
-    /**
-     * Restore vendor configuration from a backup
-     * @param backupFileName The name of the backup file
-     * @return true if restore was successful
-     */
-    public boolean restoreVendorConfig(String backupFileName) {
-        try {
-            File backupFile = new File(plugin.getDataFolder(), backupFileName);
-
-            if (!backupFile.exists()) {
-                plugin.getLogger().warning("Backup file not found: " + backupFileName);
-                return false;
-            }
-
-            // Load the backup file
-            FileConfiguration backupConfig = YamlConfiguration.loadConfiguration(backupFile);
-
-            // Save to the current config file
-            backupConfig.save(configFile);
-
-            // Reload the config
-            config = YamlConfiguration.loadConfiguration(configFile);
-
-            // Stop all auras first
-            VendorAuraManager auraManager = VendorSystemInitializer.getAuraManager();
-            if (auraManager != null) {
-                auraManager.stopAllAuras();
-            }
-
-            // Reload vendors
-            vendors.clear();
-            loadVendorsFromConfig();
-
-            // Restart auras
-            if (auraManager != null) {
-                auraManager.startAllAuras();
-            }
-
-            plugin.getLogger().info("Restored vendor config from backup: " + backupFileName);
-            return true;
-        } catch (IOException e) {
-            plugin.getLogger().log(Level.SEVERE, "Failed to restore vendor config from backup", e);
-            // Add to recent errors
-            recentErrors.add("Restore error: " + e.getMessage());
-            return false;
-        }
-    }
-
-    /**
-     * Get metrics and statistics about the vendor system
-     *
-     * @return A map of statistics
-     */
-    public Map<String, Object> getMetrics() {
-        Map<String, Object> metrics = new HashMap<>();
-
-        metrics.put("vendorsCount", vendors.size());
-        metrics.put("vendorsLoaded", vendorsLoaded);
-        metrics.put("vendorsFixed", vendorsFixed);
-        metrics.put("totalSaves", totalSaves);
-        metrics.put("lastSaveTime", lastSaveTime);
-        metrics.put("errorCount", recentErrors.size());
-        metrics.put("citizensAvailable", citizensAvailable);
-
-        // Get aura stats if available
-        VendorAuraManager auraManager = VendorSystemInitializer.getAuraManager();
-        if (auraManager != null) {
-            metrics.putAll(auraManager.getAuraStats());
-        }
-
-        return metrics;
-    }
-
-    /**
-     * Get recent errors
-     *
-     * @return List of recent errors
-     */
-    public List<String> getRecentErrors() {
-        return new ArrayList<>(recentErrors);
-    }
-
-    /**
-     * Clear recent errors list
-     */
-    public void clearRecentErrors() {
-        recentErrors.clear();
-    }
-
-    // ================== INTERNALS ==================
-
-    /**
-     * Ensure the vendors.yml file exists (or create it), then load its data.
-     */
-    private void loadConfigFile() {
-        if (!configFile.exists()) {
-            try {
-                // If you ship a default vendors.yml in your jar, you can copy it:
-                plugin.saveResource("vendors.yml", false);
-            } catch (Exception e) {
-                // If no default file, create an empty one
-                try {
-                    plugin.getDataFolder().mkdirs();
-                    configFile.createNewFile();
-                } catch (IOException ex) {
-                    plugin.getLogger().log(Level.SEVERE, "Failed to create vendors.yml", ex);
-                    // Add to recent errors
-                    recentErrors.add("Config creation error: " + ex.getMessage());
-                }
-            }
-        }
-        config = YamlConfiguration.loadConfiguration(configFile);
-    }
-
-    /**
-     * Parse vendor data from config and spawn them if needed.
-     */
-    private void loadVendorsFromConfig() {
-        if (!citizensAvailable) {
-            plugin.getLogger().warning("Skipping vendor loading because Citizens is not available");
-            return;
-        }
-
-        if (!config.contains("vendors")) {
-            return;
-        }
-
-        try {
-            int loadedCount = 0;
-            Set<String> vendorIds = config.getConfigurationSection("vendors").getKeys(false);
-            for (String vendorId : vendorIds) {
-                String path = "vendors." + vendorId;
-                int npcId = config.getInt(path + ".npcId", -1);
-                String worldName = config.getString(path + ".world", "world");
-                double x = config.getDouble(path + ".x", 0.0);
-                double y = config.getDouble(path + ".y", 64.0);
-                double z = config.getDouble(path + ".z", 0.0);
-                float yaw = (float) config.getDouble(path + ".yaw", 0.0);
-                float pitch = (float) config.getDouble(path + ".pitch", 0.0);
-                List<String> lines = config.getStringList(path + ".lines");
-
-                // Get behavior class with improved handling
-                String behaviorClass = config.getString(path + ".behaviorClass");
-
-                if (behaviorClass == null || behaviorClass.isEmpty()) {
-                    plugin.getLogger().warning("No behavior class found for vendor " + vendorId + ". Using default ShopBehavior.");
-                    behaviorClass = "com.rednetty.server.mechanics.economy.vendors.behaviors.ShopBehavior";
-                }
-
-                World w = Bukkit.getWorld(worldName);
-                if (w == null) {
-                    if (!Bukkit.getWorlds().isEmpty()) {
-                        w = Bukkit.getWorlds().get(0);
-                        plugin.getLogger().warning("World '" + worldName + "' not found for vendor " + vendorId +
-                                ". Using " + w.getName() + " instead.");
-                    } else {
-                        plugin.getLogger().warning("No valid world for vendor " + vendorId + ". Skipping.");
-                        continue; // no valid world to spawn
-                    }
-                }
-                Location loc = new Location(w, x, y, z, yaw, pitch);
-
-                Vendor vendor = new Vendor(vendorId, npcId, loc, lines, behaviorClass);
-                vendors.put(vendorId, vendor);
-                loadedCount++;
-
-                try {
-                    // If an NPC with npcId exists in the registry, spawn it
-                    NPC npc = CitizensAPI.getNPCRegistry().getById(npcId);
-                    if (npc != null && !npc.isSpawned()) {
-                        npc.spawn(loc);
-                    }
-                    // If the NPC is spawned, create/update the hologram
-                    if (npc != null && npc.isSpawned()) {
-                        createOrUpdateHologram(vendor);
-                    }
-                } catch (Exception e) {
-                    plugin.getLogger().log(Level.WARNING, "Error spawning NPC for vendor: " + vendorId, e);
-                    // Add to recent errors
-                    recentErrors.add("NPC spawn error for " + vendorId + ": " + e.getMessage());
-                }
-            }
-
-            vendorsLoaded = loadedCount;
-            plugin.getLogger().info("Loaded " + loadedCount + " vendors from config");
-        } catch (Exception e) {
-            plugin.getLogger().log(Level.SEVERE, "Error loading vendors from config", e);
-            // Add to recent errors
-            recentErrors.add("Vendor loading error: " + e.getMessage());
-        }
-    }
-
-    /**
-     * Force update of a vendor's hologram
-     *
-     * @param vendor The vendor to update
-     */
-    public void refreshHologram(Vendor vendor) {
-        if (!citizensAvailable) return;
-
-        HologramManager.removeHologram(vendor.getVendorId());
-        createOrUpdateHologram(vendor);
-    }
-
-    /**
-     * Check if there are players within the specified distance of a location
-     * @param loc The center location
-     * @param distance The radius to check
-     * @return true if players are nearby
-     */
-    private boolean hasPlayersNearby(Location loc, double distance) {
-        if (loc == null || loc.getWorld() == null) return false;
-
-        double distanceSquared = distance * distance;
-
-        for (Player player : loc.getWorld().getPlayers()) {
-            if (player.getLocation().distanceSquared(loc) <= distanceSquared) {
-                return true;
-            }
-        }
-        return false;
     }
 }

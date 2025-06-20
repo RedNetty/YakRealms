@@ -2,6 +2,8 @@ package com.rednetty.server.mechanics.economy.vendors;
 
 import com.rednetty.server.YakRealms;
 import com.rednetty.server.mechanics.economy.vendors.behaviors.VendorBehavior;
+import net.citizensnpcs.api.CitizensAPI;
+import net.citizensnpcs.api.npc.NPC;
 import org.bukkit.ChatColor;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
@@ -15,34 +17,92 @@ import org.bukkit.plugin.java.JavaPlugin;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.logging.Level;
 
 /**
- * Handles player interactions with vendors
+ * Enhanced VendorInteractionHandler with improved performance, error handling, and behavior management.
+ * Handles player interactions with vendor NPCs using optimized cooldown management and robust
+ * fallback behavior system with comprehensive error recovery.
  */
 public class VendorInteractionHandler implements Listener {
 
     private final VendorManager vendorManager;
     private final JavaPlugin plugin;
+
+    // Enhanced cooldown management with thread-safe operations
     private final Map<UUID, Long> interactionCooldowns = new ConcurrentHashMap<>();
+    private final Map<String, Class<? extends VendorBehavior>> behaviorClassCache = new ConcurrentHashMap<>();
+    private final Map<String, Long> behaviorCacheTime = new ConcurrentHashMap<>();
+
+    // Performance tracking
+    private final AtomicLong totalInteractions = new AtomicLong(0);
+    private final AtomicLong successfulInteractions = new AtomicLong(0);
+    private final AtomicLong failedInteractions = new AtomicLong(0);
+
+    // Configuration
     private static final long COOLDOWN_MILLIS = 500; // 500ms cooldown between interactions
+    private static final long BEHAVIOR_CACHE_DURATION = 300000; // 5 minutes cache duration
+    private static final int MAX_FALLBACK_ATTEMPTS = 3;
+
+    // Error tracking
+    private final Map<String, Integer> vendorErrorCounts = new ConcurrentHashMap<>();
+    private final Map<String, Long> lastErrorTime = new ConcurrentHashMap<>();
 
     /**
-     * Constructor
-     *
-     * @param plugin The main plugin instance
+     * Enhanced constructor with better initialization
      */
     public VendorInteractionHandler(JavaPlugin plugin) {
         this.plugin = plugin;
         this.vendorManager = VendorManager.getInstance(plugin);
+
+        // Register events
         plugin.getServer().getPluginManager().registerEvents(this, plugin);
-        plugin.getLogger().info("Vendor interaction handler registered");
+
+        // Start cleanup task for old entries
+        startMaintenanceTask();
+
+        plugin.getLogger().info("Enhanced vendor interaction handler registered with performance optimizations");
     }
 
     /**
-     * Handle player interactions with entities
+     * Maintenance task to clean up old cache entries and cooldowns
+     */
+    private void startMaintenanceTask() {
+        plugin.getServer().getScheduler().runTaskTimerAsynchronously(plugin, () -> {
+            long currentTime = System.currentTimeMillis();
+
+            // Clean up old cooldowns (older than 1 minute)
+            interactionCooldowns.entrySet().removeIf(entry ->
+                    currentTime - entry.getValue() > 60000);
+
+            // Clean up old behavior cache entries
+            behaviorCacheTime.entrySet().removeIf(entry -> {
+                if (currentTime - entry.getValue() > BEHAVIOR_CACHE_DURATION) {
+                    behaviorClassCache.remove(entry.getKey());
+                    return true;
+                }
+                return false;
+            });
+
+            // Clean up old error tracking (older than 1 hour)
+            lastErrorTime.entrySet().removeIf(entry -> {
+                if (currentTime - entry.getValue() > 3600000) {
+                    vendorErrorCounts.remove(entry.getKey());
+                    return true;
+                }
+                return false;
+            });
+
+        }, 1200L, 1200L); // Run every minute
+    }
+
+    /**
+     * Enhanced vendor interaction handling with comprehensive error management
      */
     @EventHandler(priority = EventPriority.HIGH)
     public void onVendorInteract(PlayerInteractEntityEvent event) {
+        // Quick patch lockdown check
         if (YakRealms.isPatchLockdown()) {
             event.setCancelled(true);
             return;
@@ -50,87 +110,193 @@ public class VendorInteractionHandler implements Listener {
 
         Player player = event.getPlayer();
         Entity entity = event.getRightClicked();
+        UUID playerId = player.getUniqueId();
 
-        // Check if the entity is an NPC
-        if (!isNPC(entity)) {
-            return;
-        }
-
-        // Check for cooldown to prevent double-clicks
-        if (isOnCooldown(player.getUniqueId())) {
-            event.setCancelled(true);
-            return;
-        }
-
-        // Add to cooldown
-        addCooldown(player.getUniqueId());
-
-        // Get the NPC ID
-        int npcId = getNpcId(entity);
-        if (npcId == -1) {
-            return;
-        }
-
-        // Find vendor by NPC ID
-        Vendor vendor = vendorManager.getVendorByNpcId(npcId);
-        if (vendor == null) {
-            return;
-        }
-
-        // Cancel the event to prevent default interaction
-        event.setCancelled(true);
-
-        // Get the behavior class
-        String behaviorClassName = vendor.getBehaviorClass();
-        VendorBehavior behavior = null;
+        totalInteractions.incrementAndGet();
 
         try {
-            Class<?> behaviorClass = Class.forName(behaviorClassName);
-            if (VendorBehavior.class.isAssignableFrom(behaviorClass)) {
-                behavior = (VendorBehavior) behaviorClass.getDeclaredConstructor().newInstance();
-            }
-        } catch (ClassNotFoundException e) {
-            // Log the original behavior class for debugging
-            YakRealms.error("Vendor behavior class not found: " + behaviorClassName, e);
-
-            // Try to fallback to the appropriate behavior based on vendor type
-            String vendorType = vendor.getVendorType();
-            String fallbackBehavior = getFallbackBehaviorForType(vendorType);
-
-            try {
-                Class<?> fallbackClass = Class.forName(fallbackBehavior);
-                behavior = (VendorBehavior) fallbackClass.getDeclaredConstructor().newInstance();
-
-                // Update the vendor's behavior class for future interactions
-                vendor.setBehaviorClass(fallbackBehavior);
-
-                // Save the change to config
-                VendorManager.getInstance(plugin).saveVendorsToConfig();
-
-                player.sendMessage(ChatColor.YELLOW + "This vendor had an issue but has been fixed. Please interact again.");
-                return;
-            } catch (Exception ex) {
-                YakRealms.error("Failed to create fallback behavior: " + fallbackBehavior, ex);
-                player.sendMessage(ChatColor.RED + "This vendor is not configured correctly. Please contact an administrator.");
+            // Enhanced NPC validation
+            if (!isValidNPC(entity)) {
                 return;
             }
+
+            // Enhanced cooldown check with performance optimization
+            if (isOnCooldown(playerId)) {
+                event.setCancelled(true);
+                return;
+            }
+
+            // Add to cooldown immediately to prevent double-processing
+            addCooldown(playerId);
+
+            // Enhanced NPC ID retrieval
+            int npcId = getNpcId(entity);
+            if (npcId == -1) {
+                return;
+            }
+
+            // Find vendor with error handling
+            Vendor vendor = vendorManager.getVendorByNpcId(npcId);
+            if (vendor == null) {
+                plugin.getLogger().warning("No vendor found for NPC ID: " + npcId);
+                return;
+            }
+
+            // Cancel the event to prevent default interaction
+            event.setCancelled(true);
+
+            // Execute vendor behavior with enhanced error handling
+            executeVendorBehavior(player, vendor);
+
+            successfulInteractions.incrementAndGet();
+
         } catch (Exception e) {
-            YakRealms.error("Failed to instantiate vendor behavior: " + behaviorClassName, e);
-            player.sendMessage(ChatColor.RED + "This vendor is not configured correctly. Please contact an administrator.");
-            return;
-        }
-
-        // Execute the behavior
-        if (behavior != null) {
-            behavior.onInteract(player);
+            failedInteractions.incrementAndGet();
+            plugin.getLogger().log(Level.WARNING, "Unexpected error in vendor interaction", e);
+            player.sendMessage(ChatColor.RED + "An unexpected error occurred. Please try again or contact an administrator.");
         }
     }
 
     /**
-     * Gets a fallback behavior class for a vendor type
-     *
-     * @param vendorType The vendor type
-     * @return The fallback behavior class name
+     * Enhanced vendor behavior execution with caching and fallback mechanisms
+     */
+    private void executeVendorBehavior(Player player, Vendor vendor) {
+        String vendorId = vendor.getVendorId();
+        String behaviorClassName = vendor.getBehaviorClass();
+
+        try {
+            // Check if this vendor has had too many recent errors
+            if (hasRecentErrors(vendorId)) {
+                player.sendMessage(ChatColor.RED + "This vendor is temporarily unavailable. Please try again later.");
+                return;
+            }
+
+            VendorBehavior behavior = getBehaviorInstance(behaviorClassName, vendor);
+
+            if (behavior != null) {
+                behavior.onInteract(player);
+                // Reset error count on successful interaction
+                vendorErrorCounts.remove(vendorId);
+            } else {
+                handleBehaviorFailure(player, vendor, "Failed to create behavior instance");
+            }
+
+        } catch (Exception e) {
+            handleBehaviorFailure(player, vendor, e.getMessage());
+        }
+    }
+
+    /**
+     * Enhanced behavior instance creation with caching
+     */
+    private VendorBehavior getBehaviorInstance(String behaviorClassName, Vendor vendor) {
+        if (behaviorClassName == null || behaviorClassName.isEmpty()) {
+            return null;
+        }
+
+        try {
+            // Check cache first
+            Class<? extends VendorBehavior> behaviorClass = behaviorClassCache.get(behaviorClassName);
+            long currentTime = System.currentTimeMillis();
+
+            if (behaviorClass == null ||
+                    currentTime - behaviorCacheTime.getOrDefault(behaviorClassName, 0L) > BEHAVIOR_CACHE_DURATION) {
+
+                // Load and validate class
+                Class<?> clazz = Class.forName(behaviorClassName);
+
+                if (!VendorBehavior.class.isAssignableFrom(clazz)) {
+                    throw new IllegalArgumentException("Class does not implement VendorBehavior: " + behaviorClassName);
+                }
+
+                @SuppressWarnings("unchecked")
+                Class<? extends VendorBehavior> validatedClass = (Class<? extends VendorBehavior>) clazz;
+
+                // Cache the class
+                behaviorClass = validatedClass;
+                behaviorClassCache.put(behaviorClassName, behaviorClass);
+                behaviorCacheTime.put(behaviorClassName, currentTime);
+            }
+
+            // Create new instance
+            return behaviorClass.getDeclaredConstructor().newInstance();
+
+        } catch (ClassNotFoundException e) {
+            plugin.getLogger().warning("Vendor behavior class not found: " + behaviorClassName);
+            return null;
+        } catch (Exception e) {
+            plugin.getLogger().warning("Failed to instantiate vendor behavior: " + behaviorClassName + " - " + e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Enhanced behavior failure handling with automatic fallback
+     */
+    private void handleBehaviorFailure(Player player, Vendor vendor, String errorMessage) {
+        String vendorId = vendor.getVendorId();
+
+        // Track error
+        recordVendorError(vendorId);
+
+        // Log error for debugging
+        plugin.getLogger().warning("Vendor behavior failure for " + vendorId + ": " + errorMessage);
+
+        // Attempt fallback behavior
+        String fallbackBehavior = getFallbackBehaviorForType(vendor.getVendorType());
+
+        if (!fallbackBehavior.equals(vendor.getBehaviorClass())) {
+            try {
+                VendorBehavior fallbackInstance = getBehaviorInstance(fallbackBehavior, vendor);
+
+                if (fallbackInstance != null) {
+                    // Update vendor with working behavior
+                    vendor.setBehaviorClass(fallbackBehavior);
+                    vendorManager.saveVendorsToConfig();
+
+                    // Execute fallback behavior
+                    fallbackInstance.onInteract(player);
+
+                    player.sendMessage(ChatColor.YELLOW + "This vendor had an issue but has been fixed. Enjoy your interaction!");
+                    plugin.getLogger().info("Successfully applied fallback behavior for vendor " + vendorId);
+                    return;
+                }
+            } catch (Exception e) {
+                plugin.getLogger().warning("Fallback behavior also failed for vendor " + vendorId + ": " + e.getMessage());
+            }
+        }
+
+        // All attempts failed
+        player.sendMessage(ChatColor.RED + "This vendor is currently experiencing technical difficulties. Please contact an administrator.");
+    }
+
+    /**
+     * Enhanced error tracking for vendors
+     */
+    private void recordVendorError(String vendorId) {
+        int errorCount = vendorErrorCounts.getOrDefault(vendorId, 0) + 1;
+        vendorErrorCounts.put(vendorId, errorCount);
+        lastErrorTime.put(vendorId, System.currentTimeMillis());
+
+        if (errorCount >= MAX_FALLBACK_ATTEMPTS) {
+            plugin.getLogger().warning("Vendor " + vendorId + " has exceeded maximum error threshold (" +
+                    errorCount + " errors). Consider investigating.");
+        }
+    }
+
+    /**
+     * Check if vendor has recent errors
+     */
+    private boolean hasRecentErrors(String vendorId) {
+        int errorCount = vendorErrorCounts.getOrDefault(vendorId, 0);
+        long lastError = lastErrorTime.getOrDefault(vendorId, 0L);
+
+        // If more than 5 errors in the last 10 minutes, consider it problematic
+        return errorCount >= 5 && (System.currentTimeMillis() - lastError) < 600000;
+    }
+
+    /**
+     * Enhanced fallback behavior determination
      */
     private String getFallbackBehaviorForType(String vendorType) {
         String basePath = "com.rednetty.server.mechanics.economy.vendors.behaviors.";
@@ -156,104 +322,144 @@ public class VendorInteractionHandler implements Listener {
     }
 
     /**
-     * Check if an entity is an NPC
-     *
-     * @param entity The entity to check
-     * @return true if the entity is an NPC
+     * Enhanced NPC validation
      */
-    private boolean isNPC(Entity entity) {
-        return entity.hasMetadata("NPC");
+    private boolean isValidNPC(Entity entity) {
+        return entity != null && entity.isValid() && entity.hasMetadata("NPC");
     }
 
     /**
-     * Get the NPC ID from an entity
-     *
-     * @param entity The entity
-     * @return The NPC ID, or -1 if not found
+     * Enhanced NPC ID retrieval with multiple fallback methods
      */
     private int getNpcId(Entity entity) {
-        if (!entity.hasMetadata("NPC")) {
+        if (!isValidNPC(entity)) {
             return -1;
         }
 
-        for (MetadataValue meta : entity.getMetadata("NPC")) {
-            if (meta.getOwningPlugin() != null && "Citizens".equals(meta.getOwningPlugin().getName())) {
-                try {
-                    // Try to get the NPC ID
-                    return CitizensUtil.getNpcId(entity);
-                } catch (Exception e) {
-                    YakRealms.error("Failed to get NPC ID from entity", e);
-                    return -1;
+        try {
+            // Primary method: Citizens API
+            NPC npc = CitizensAPI.getNPCRegistry().getNPC(entity);
+            if (npc != null) {
+                return npc.getId();
+            }
+        } catch (Exception e) {
+            plugin.getLogger().fine("Citizens API method failed for NPC ID retrieval: " + e.getMessage());
+        }
+
+        // Fallback method: Metadata inspection
+        return extractNpcIdFromMetadata(entity);
+    }
+
+    /**
+     * Enhanced metadata-based NPC ID extraction
+     */
+    private int extractNpcIdFromMetadata(Entity entity) {
+        try {
+            for (MetadataValue meta : entity.getMetadata("NPC")) {
+                if (meta.getOwningPlugin() != null && "Citizens".equals(meta.getOwningPlugin().getName())) {
+                    // Try direct integer value
+                    if (meta.value() instanceof Integer) {
+                        return (Integer) meta.value();
+                    }
+
+                    // Try string parsing
+                    try {
+                        String stringValue = meta.asString();
+                        return Integer.parseInt(stringValue);
+                    } catch (NumberFormatException e) {
+                        plugin.getLogger().fine("Could not parse NPC ID from metadata string: " + meta.asString());
+                    }
                 }
             }
+        } catch (Exception e) {
+            plugin.getLogger().warning("Error extracting NPC ID from metadata: " + e.getMessage());
         }
 
         return -1;
     }
 
     /**
-     * Check if a player is on interaction cooldown
-     *
-     * @param uuid The player's UUID
-     * @return true if the player is on cooldown
+     * Enhanced cooldown checking with performance optimization
      */
     private boolean isOnCooldown(UUID uuid) {
-        if (!interactionCooldowns.containsKey(uuid)) {
+        Long lastInteraction = interactionCooldowns.get(uuid);
+        if (lastInteraction == null) {
             return false;
         }
 
-        long lastInteraction = interactionCooldowns.get(uuid);
         return System.currentTimeMillis() - lastInteraction < COOLDOWN_MILLIS;
     }
 
     /**
-     * Add a player to the interaction cooldown
-     *
-     * @param uuid The player's UUID
+     * Enhanced cooldown management
      */
     private void addCooldown(UUID uuid) {
         interactionCooldowns.put(uuid, System.currentTimeMillis());
     }
 
     /**
-     * Utility class for Citizens integration
+     * Enhanced metrics and statistics
      */
-    private static class CitizensUtil {
-        /**
-         * Get the NPC ID from an entity
-         *
-         * @param entity The entity
-         * @return The NPC ID
-         */
-        public static int getNpcId(Entity entity) {
-            try {
-                // Use Citizens API directly
-                net.citizensnpcs.api.npc.NPC npc = net.citizensnpcs.api.CitizensAPI.getNPCRegistry().getNPC(entity);
-                if (npc != null) {
-                    return npc.getId();
-                }
+    public Map<String, Object> getInteractionStats() {
+        Map<String, Object> stats = new ConcurrentHashMap<>();
 
-                // Fallback to metadata approach
-                for (MetadataValue meta : entity.getMetadata("NPC")) {
-                    if (meta.getOwningPlugin() != null && "Citizens".equals(meta.getOwningPlugin().getName())) {
-                        // Some Citizens implementations store the ID directly, others need more work
-                        if (meta.value() instanceof Integer) {
-                            return (Integer) meta.value();
-                        } else {
-                            String value = meta.asString();
-                            try {
-                                return Integer.parseInt(value);
-                            } catch (NumberFormatException e) {
-                                // Not a simple integer, need more extraction
-                            }
-                        }
-                    }
-                }
-            } catch (Exception e) {
-                YakRealms.error("Error getting NPC ID", e);
-            }
+        stats.put("totalInteractions", totalInteractions.get());
+        stats.put("successfulInteractions", successfulInteractions.get());
+        stats.put("failedInteractions", failedInteractions.get());
+        stats.put("activeCooldowns", interactionCooldowns.size());
+        stats.put("cachedBehaviors", behaviorClassCache.size());
+        stats.put("vendorsWithErrors", vendorErrorCounts.size());
 
-            return -1;
+        // Calculate success rate
+        long total = totalInteractions.get();
+        if (total > 0) {
+            double successRate = (double) successfulInteractions.get() / total * 100.0;
+            stats.put("successRate", Math.round(successRate * 100.0) / 100.0);
+        } else {
+            stats.put("successRate", 0.0);
         }
+
+        return stats;
+    }
+
+    /**
+     * Get vendors with recent errors for administrative purposes
+     */
+    public Map<String, Integer> getVendorsWithErrors() {
+        return new ConcurrentHashMap<>(vendorErrorCounts);
+    }
+
+    /**
+     * Clear error tracking for a specific vendor (admin command)
+     */
+    public void clearVendorErrors(String vendorId) {
+        vendorErrorCounts.remove(vendorId);
+        lastErrorTime.remove(vendorId);
+        plugin.getLogger().info("Cleared error tracking for vendor: " + vendorId);
+    }
+
+    /**
+     * Clear all error tracking (admin command)
+     */
+    public void clearAllErrors() {
+        vendorErrorCounts.clear();
+        lastErrorTime.clear();
+        plugin.getLogger().info("Cleared all vendor error tracking");
+    }
+
+    /**
+     * Force clear behavior cache (admin command)
+     */
+    public void clearBehaviorCache() {
+        behaviorClassCache.clear();
+        behaviorCacheTime.clear();
+        plugin.getLogger().info("Cleared vendor behavior cache");
+    }
+
+    /**
+     * Manual cooldown clear for admin purposes
+     */
+    public void clearPlayerCooldown(UUID playerId) {
+        interactionCooldowns.remove(playerId);
     }
 }
