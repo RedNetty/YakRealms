@@ -159,7 +159,7 @@ public class VendorSystemInitializer {
             }
 
             // Run initial health check
-            int issuesFixed = healthCheck.runHealthCheck(true);
+            int issuesFixed = healthCheck.runComprehensiveHealthCheck();
             if (issuesFixed > 0) {
                 pluginInstance.getLogger().info("Initial health check fixed " + issuesFixed + " issues");
             }
@@ -335,7 +335,7 @@ public class VendorSystemInitializer {
         healthMonitorTask = Bukkit.getScheduler().runTaskTimer(pluginInstance, () -> {
             try {
                 if (initialized.get() && healthCheck != null) {
-                    int issuesFixed = healthCheck.runHealthCheck(false);
+                    int issuesFixed = healthCheck.runComprehensiveHealthCheck();
                     if (issuesFixed > 0) {
                         pluginInstance.getLogger().info("Health monitor fixed " + issuesFixed + " vendor issues");
                     }
