@@ -8,6 +8,7 @@ import com.rednetty.server.utils.text.TextUtil;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.Location;
+import org.bukkit.Particle;
 import org.bukkit.Sound;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Item;
@@ -25,10 +26,13 @@ import org.bukkit.scheduler.BukkitRunnable;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.TimeUnit;
+import java.util.function.Predicate;
 import java.util.logging.Logger;
+import java.util.stream.Collectors;
 
 /**
- * Handles event processing for item drops from mobs
+ * Enhanced event handler for item drops from mobs with improved performance and visual effects
  */
 public class DropsHandler implements Listener {
     private static DropsHandler instance;
@@ -40,11 +44,80 @@ public class DropsHandler implements Listener {
     private final LootNotifier lootNotifier;
     private final LootBuffManager lootBuffManager;
 
-    // Track damage contributions for loot allocation
-    private final Map<UUID, Map<UUID, Double>> mobDamageTracking = new ConcurrentHashMap<>();
+    // Enhanced damage tracking with better performance
+    private final Map<UUID, MobDamageData> mobDamageTracking = new ConcurrentHashMap<>();
+    private final Set<UUID> processedMobs = ConcurrentHashMap.newKeySet();
 
-    // Track processed mobs to prevent double drops
-    private final Set<UUID> processedMobs = Collections.synchronizedSet(new HashSet<>());
+    // Constants for better maintainability
+    private static final long CLEANUP_INTERVAL_TICKS = 1200L; // 1 minute
+    private static final long DAMAGE_TRACKING_EXPIRY = TimeUnit.MINUTES.toMillis(5); // 5 minutes
+    private static final int WORLD_BOSS_DROP_COUNT_MIN = 3;
+    private static final int WORLD_BOSS_DROP_COUNT_MAX = 5;
+    private static final double WORLD_BOSS_DROP_RADIUS = 2.0;
+    private static final int DEFAULT_PROTECTION_SECONDS = 5;
+    private static final int WORLD_BOSS_PROTECTION_SECONDS = 30;
+
+    // Enhanced visual effects
+    private static final Map<Integer, Particle> TIER_PARTICLES = Map.of(
+            1, Particle.VILLAGER_HAPPY,
+            2, Particle.ENCHANTMENT_TABLE,
+            3, Particle.DRIP_WATER,
+            4, Particle.PORTAL,
+            5, Particle.FLAME,
+            6, Particle.SNOWBALL
+    );
+
+    /**
+     * Enhanced damage tracking data structure
+     */
+    private static class MobDamageData {
+        private final Map<UUID, Double> damageMap = new ConcurrentHashMap<>();
+        private final long creationTime = System.currentTimeMillis();
+
+        public void addDamage(UUID playerUuid, double damage) {
+            damageMap.merge(playerUuid, damage, Double::sum);
+        }
+
+        public Map<UUID, Double> getDamageMap() {
+            return damageMap;
+        }
+
+        public boolean isExpired() {
+            return System.currentTimeMillis() - creationTime > DAMAGE_TRACKING_EXPIRY;
+        }
+
+        public List<Map.Entry<UUID, Double>> getSortedDamagers() {
+            return damageMap.entrySet().stream()
+                    .sorted(Map.Entry.<UUID, Double>comparingByValue().reversed())
+                    .collect(Collectors.toList());
+        }
+    }
+
+    /**
+     * Enhanced mob detection result
+     */
+    private static class MobAnalysis {
+        private final int tier;
+        private final boolean isElite;
+        private final boolean isWorldBoss;
+        private final boolean isNamedElite;
+        private final String mobType;
+
+        public MobAnalysis(int tier, boolean isElite, boolean isWorldBoss, boolean isNamedElite, String mobType) {
+            this.tier = tier;
+            this.isElite = isElite;
+            this.isWorldBoss = isWorldBoss;
+            this.isNamedElite = isNamedElite;
+            this.mobType = mobType;
+        }
+
+        // Getters
+        public int getTier() { return tier; }
+        public boolean isElite() { return isElite; }
+        public boolean isWorldBoss() { return isWorldBoss; }
+        public boolean isNamedElite() { return isNamedElite; }
+        public String getMobType() { return mobType; }
+    }
 
     /**
      * Private constructor for singleton pattern
@@ -64,7 +137,7 @@ public class DropsHandler implements Listener {
      *
      * @return The DropsHandler instance
      */
-    public static DropsHandler getInstance() {
+    public static synchronized DropsHandler getInstance() {
         if (instance == null) {
             instance = new DropsHandler();
         }
@@ -72,32 +145,64 @@ public class DropsHandler implements Listener {
     }
 
     /**
-     * Initializes the drops handler
+     * Initializes the drops handler with enhanced cleanup system
      */
     public void initialize() {
-        // Register event listeners
         Bukkit.getPluginManager().registerEvents(this, plugin);
-
-        // Start cleanup task
-        startCleanupTask();
-
-        logger.info("[DropsHandler] has been initialized");
+        startEnhancedCleanupTask();
+        logger.info("[DropsHandler] has been initialized with enhanced features");
     }
 
     /**
-     * Starts a task to clean up old damage tracking data
+     * Enhanced cleanup task with better performance monitoring
      */
-    private void startCleanupTask() {
+    private void startEnhancedCleanupTask() {
         new BukkitRunnable() {
             @Override
             public void run() {
-                // Clean up damage tracking for entities that no longer exist
-                mobDamageTracking.entrySet().removeIf(entry -> {
-                    Entity entity = Bukkit.getEntity(entry.getKey());
-                    return entity == null || !entity.isValid();
-                });
+                int cleanedDamage = cleanupExpiredDamageTracking();
+                int cleanedProcessed = cleanupInvalidProcessedMobs();
+
+                if (cleanedDamage > 0 || cleanedProcessed > 0) {
+                    logger.fine(String.format("Cleanup completed: %d damage entries, %d processed mobs removed",
+                            cleanedDamage, cleanedProcessed));
+                }
             }
-        }.runTaskTimerAsynchronously(plugin, 1200L, 1200L); // Run every minute
+        }.runTaskTimerAsynchronously(plugin, CLEANUP_INTERVAL_TICKS, CLEANUP_INTERVAL_TICKS);
+    }
+
+    /**
+     * Cleanup expired damage tracking entries
+     */
+    private int cleanupExpiredDamageTracking() {
+        int removed = 0;
+        Iterator<Map.Entry<UUID, MobDamageData>> iterator = mobDamageTracking.entrySet().iterator();
+
+        while (iterator.hasNext()) {
+            Map.Entry<UUID, MobDamageData> entry = iterator.next();
+            if (entry.getValue().isExpired() || !isEntityValid(entry.getKey())) {
+                iterator.remove();
+                removed++;
+            }
+        }
+        return removed;
+    }
+
+    /**
+     * Cleanup processed mobs that are no longer valid
+     */
+    private int cleanupInvalidProcessedMobs() {
+        int initialSize = processedMobs.size();
+        processedMobs.removeIf(uuid -> !isEntityValid(uuid));
+        return initialSize - processedMobs.size();
+    }
+
+    /**
+     * Check if entity is still valid
+     */
+    private boolean isEntityValid(UUID entityUuid) {
+        Entity entity = Bukkit.getEntity(entityUuid);
+        return entity != null && entity.isValid();
     }
 
     /**
@@ -110,618 +215,579 @@ public class DropsHandler implements Listener {
     }
 
     /**
-     * Handle mob death and dropping items
-     *
-     * @param event The EntityDeathEvent
+     * Enhanced mob death handler with better organization
      */
-    @EventHandler
+    @EventHandler(priority = EventPriority.HIGHEST)
     public void onMobDeath(EntityDeathEvent event) {
-        // Clear default drops
+        // Clear default drops immediately
         event.getDrops().clear();
         event.setDroppedExp(0);
 
-        // Only process custom mobs
         LivingEntity entity = event.getEntity();
+
+        // Skip players
         if (entity instanceof Player) {
             return;
         }
 
-        // Skip if already processed or has metadata indicating processed
-        if (processedMobs.contains(entity.getUniqueId()) ||
-                entity.hasMetadata("dropsProcessed")) {
+        // Prevent double processing
+        if (!markAsProcessed(entity)) {
             return;
         }
 
-        // Mark as processed to prevent double drops
-        entity.setMetadata("dropsProcessed",
-                new FixedMetadataValue(plugin, true));
-        processedMobs.add(entity.getUniqueId());
-
-        // Process drops in new task to avoid concurrency issues
+        // Process drops asynchronously to avoid blocking
         new BukkitRunnable() {
             @Override
             public void run() {
-                handleMobDrops(entity);
+                try {
+                    handleEnhancedMobDrops(entity);
+                } catch (Exception e) {
+                    logger.warning("Error processing drops for entity " + entity.getType() + ": " + e.getMessage());
+                }
             }
         }.runTaskLater(plugin, 1L);
     }
 
     /**
-     * Track damage for calculating drop ownership
-     *
-     * @param event The EntityDamageByEntityEvent
+     * Enhanced damage tracking with better performance
      */
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onEntityDamage(EntityDamageByEntityEvent event) {
-        if (!(event.getEntity() instanceof LivingEntity) ||
-                event.getEntity() instanceof Player) {
+        if (!(event.getEntity() instanceof LivingEntity) || event.getEntity() instanceof Player) {
             return;
         }
 
-        Player damager = null;
+        Player damager = extractPlayerDamager(event);
+        if (damager == null) {
+            return;
+        }
 
-        // Determine the player who caused damage
-        if (event.getDamager() instanceof Player) {
-            damager = (Player) event.getDamager();
-        } else if (event.getDamager() instanceof org.bukkit.entity.Projectile) {
-            org.bukkit.entity.Projectile projectile = (org.bukkit.entity.Projectile) event.getDamager();
+        UUID entityUuid = event.getEntity().getUniqueId();
+        UUID playerUuid = damager.getUniqueId();
+        double damage = event.getFinalDamage();
+
+        // Use computeIfAbsent for thread-safe initialization
+        mobDamageTracking.computeIfAbsent(entityUuid, k -> new MobDamageData())
+                .addDamage(playerUuid, damage);
+    }
+
+    /**
+     * Enhanced player damager extraction
+     */
+    private Player extractPlayerDamager(EntityDamageByEntityEvent event) {
+        Entity damager = event.getDamager();
+
+        if (damager instanceof Player) {
+            return (Player) damager;
+        }
+
+        if (damager instanceof org.bukkit.entity.Projectile) {
+            org.bukkit.entity.Projectile projectile = (org.bukkit.entity.Projectile) damager;
             if (projectile.getShooter() instanceof Player) {
-                damager = (Player) projectile.getShooter();
+                return (Player) projectile.getShooter();
             }
-        }
-
-        if (damager != null) {
-            // Track damage for this entity
-            UUID entityUuid = event.getEntity().getUniqueId();
-            UUID playerUuid = damager.getUniqueId();
-
-            mobDamageTracking.computeIfAbsent(entityUuid, k -> new ConcurrentHashMap<>());
-            Map<UUID, Double> damageMap = mobDamageTracking.get(entityUuid);
-            damageMap.merge(playerUuid, event.getFinalDamage(), Double::sum);
-        }
-    }
-
-    /**
-     * Handle drops for a mob entity
-     *
-     * @param entity The entity that died
-     */
-    private void handleMobDrops(LivingEntity entity) {
-        // Get tier and elite status
-        int tier = getMobTier(entity);
-        boolean isElite = isElite(entity);
-
-        // Check if this entity should drop items
-        if (!dropsManager.shouldDropItem(entity, isElite, tier)) {
-            return;
-        }
-
-        // Handle world boss drops
-        if (mobManager.hasMetadata(entity, "worldboss")) {
-            handleWorldBossDrop(entity);
-            return; // Exit early for world bosses
-        }
-
-        // Check if this is a NAMED elite (has a specific config)
-        boolean isNamedElite = false;
-        String mobType = null;
-
-        if (isElite && entity.hasMetadata("type")) {
-            mobType = entity.getMetadata("type").get(0).asString();
-
-            // Check if this type has a specific elite config
-            EliteDropConfig config = DropConfig.getEliteDropConfig(mobType.toLowerCase());
-
-            if (config != null) {
-                // It has a specific configuration in elite_drops.yml
-                isNamedElite = true;
-            }
-        }
-
-        // Handle drops based on elite type - ONLY ONE DROP TYPE PER MOB
-        if (isNamedElite && mobType != null) {
-            // If it's a named elite, ONLY handle it as a named elite
-            handleNamedEliteDrop(entity, mobType, tier);
-        } else if (isElite) {
-            // If it's a regular elite, handle it as a regular elite
-            handleEliteDrop(entity, tier);
-        } else {
-            // Normal mob
-            handleNormalDrop(entity, tier);
-        }
-
-        // Additional drop chances - these still happen for all mob types
-        dropGems(entity, tier);
-        dropScroll(entity, tier);
-        dropCrate(entity, tier);
-    }
-
-    /**
-     * Extract the tier from a mob entity accurately combining multiple detection methods
-     *
-     * @param entity The entity to check
-     * @return The tier level (1-6)
-     */
-    private int getMobTier(LivingEntity entity) {
-        if (entity == null) return 1;
-
-        // Check equipment first - most reliable direct method
-        if (entity.getEquipment() != null) {
-            ItemStack mainHand = entity.getEquipment().getItemInMainHand();
-            if (mainHand != null && mainHand.getType() != org.bukkit.Material.AIR) {
-                String material = mainHand.getType().name();
-                // Direct material checking
-                if (material.contains("DIAMOND")) {
-                    // Check for blue display name for T6
-                    if (mainHand.getItemMeta() != null &&
-                            mainHand.getItemMeta().hasDisplayName() &&
-                            mainHand.getItemMeta().getDisplayName().contains(ChatColor.BLUE.toString())) {
-                        return 6;
-                    }
-                    return 4;
-                } else if (material.contains("GOLDEN") || material.contains("GOLD")) return 5;
-                else if (material.contains("IRON")) return 3;
-                else if (material.contains("STONE")) return 2;
-                else if (material.contains("WOODEN") || material.contains("WOOD")) return 1;
-            }
-        }
-
-        // Try metadata next
-        if (entity.hasMetadata("equipTier")) {
-            return entity.getMetadata("equipTier").get(0).asInt();
-        }
-
-        if (entity.hasMetadata("dropTier")) {
-            try {
-                return entity.getMetadata("dropTier").get(0).asInt();
-            } catch (Exception e) {
-                // Fall through to next method
-            }
-        }
-
-        if (entity.hasMetadata("customTier")) {
-            try {
-                return entity.getMetadata("customTier").get(0).asInt();
-            } catch (Exception e) {
-                // Fall through to next method
-            }
-        }
-
-        if (entity.hasMetadata("tier")) {
-            try {
-                String tierStr = entity.getMetadata("tier").get(0).asString();
-                return Integer.parseInt(tierStr);
-            } catch (Exception e) {
-                try {
-                    return entity.getMetadata("tier").get(0).asInt();
-                } catch (Exception ex) {
-                    // Fall through to next method
-                }
-            }
-        }
-
-        // Default to 1 if nothing else worked
-        return 1;
-    }
-
-    /**
-     * Check if a mob is elite using reliable methods
-     *
-     * @param entity The entity to check
-     * @return true if elite
-     */
-    private boolean isElite(LivingEntity entity) {
-        if (entity == null) return false;
-
-        // Check metadata first (most reliable)
-        if (entity.hasMetadata("elite")) {
-            try {
-                return entity.getMetadata("elite").get(0).asBoolean();
-            } catch (Exception e) {
-                // Fall through to next method
-            }
-        }
-
-        if (entity.hasMetadata("dropElite")) {
-            try {
-                return entity.getMetadata("dropElite").get(0).asBoolean();
-            } catch (Exception e) {
-                // Fall through to next method
-            }
-        }
-
-        // Check equipment for enchantments
-        if (entity.getEquipment() != null) {
-            ItemStack mainHand = entity.getEquipment().getItemInMainHand();
-            if (mainHand != null && !mainHand.getType().isAir() &&
-                    mainHand.hasItemMeta() && mainHand.getItemMeta().hasEnchants()) {
-                return true;
-            }
-
-            ItemStack helmet = entity.getEquipment().getHelmet();
-            if (helmet != null && !helmet.getType().isAir() &&
-                    helmet.hasItemMeta() && helmet.getItemMeta().hasEnchants()) {
-                return true;
-            }
-        }
-
-        // Default to false
-        return false;
-    }
-
-    /**
-     * Handle drops for normal (non-elite) mobs
-     *
-     * @param entity The mob entity
-     * @param tier   The mob tier
-     */
-    private void handleNormalDrop(LivingEntity entity, int tier) {
-        // Random item type (1-8)
-        int itemType = ThreadLocalRandom.current().nextInt(8) + 1;
-
-        // Create the item
-        ItemStack item = dropsManager.createDrop(tier, itemType);
-
-        // Drop the item with protection for the top damage dealer
-        Item droppedItem = dropItemWithProtection(entity, item);
-
-        // Apply visual effects and sounds
-        if (droppedItem != null) {
-            // Play sound based on tier
-            Sound sound = dropsManager.getTierSound(tier);
-            entity.getWorld().playSound(entity.getLocation(), sound, 1.0f, 1.0f);
-
-            // Notify the player who caused the most damage
-            Player topDamager = getTopDamageDealer(entity);
-            if (topDamager != null) {
-                lootNotifier.sendDropNotification(topDamager, item, entity, false);
-            }
-        }
-    }
-
-    /**
-     * Handle drops for elite mobs
-     *
-     * @param entity The mob entity
-     * @param tier   The mob's tier
-     */
-    private void handleEliteDrop(LivingEntity entity, int tier) {
-        // Determine random item type with weapon bias
-        int itemType;
-        if (ThreadLocalRandom.current().nextInt(100) < 40) {
-            // 40% chance for weapon drop (types 1-4)
-            itemType = ThreadLocalRandom.current().nextInt(4) + 1;
-        } else {
-            // 60% chance for armor drop (types 5-8)
-            itemType = ThreadLocalRandom.current().nextInt(4) + 5;
-        }
-
-        // Elite mobs have better rarity chances
-        int rarity;
-        int roll = ThreadLocalRandom.current().nextInt(100);
-
-        if (roll < 5) {
-            rarity = 4; // Unique - 5%
-        } else if (roll < 20) {
-            rarity = 3; // Rare - 15%
-        } else if (roll < 50) {
-            rarity = 2; // Uncommon - 30%
-        } else {
-            rarity = 1; // Common - 50%
-        }
-
-        // Create the elite drop
-        ItemStack item = dropsManager.createDrop(tier, itemType, rarity);
-
-        // Drop the item with protection
-        Item droppedItem = dropItemWithProtection(entity, item);
-
-        // Apply visual effects and sounds
-        if (droppedItem != null) {
-            // Play sound based on rarity
-            Sound sound = dropsManager.getRaritySound(rarity);
-            entity.getWorld().playSound(entity.getLocation(), sound, 1.0f, 1.0f);
-
-
-            // Notify the player who caused the most damage
-            Player topDamager = getTopDamageDealer(entity);
-            if (topDamager != null) {
-                lootNotifier.sendDropNotification(topDamager, item, entity, false);
-            }
-        }
-    }
-
-    /**
-     * Handle drops for named elite mobs
-     *
-     * @param entity     The mob entity
-     * @param mobType    The mob type
-     * @param actualTier The actual tier of the mob (for fallback)
-     */
-    private void handleNamedEliteDrop(LivingEntity entity, String mobType, int actualTier) {
-        if (mobType == null || mobType.isEmpty()) {
-            // Fallback to standard elite drop if no type found
-            handleEliteDrop(entity, actualTier);
-            return;
-        }
-
-        // Determine random item type
-        int itemType = ThreadLocalRandom.current().nextInt(8) + 1;
-
-        // Create custom elite drop - PASS THE ACTUAL TIER FOR FALLBACK
-        // This is crucial for special elites without configs
-        ItemStack item = dropsManager.createEliteDrop(mobType, itemType, actualTier);
-
-        // Drop the item with protection
-        Item droppedItem = dropItemWithProtection(entity, item);
-
-        // Apply visual effects and sounds
-        if (droppedItem != null) {
-            // Play special sound
-            entity.getWorld().playSound(entity.getLocation(), Sound.ENTITY_ELDER_GUARDIAN_DEATH, 1.0f, 1.0f);
-
-            // Notify nearby players
-            for (Entity nearby : entity.getNearbyEntities(30, 30, 30)) {
-                if (nearby instanceof Player) {
-                    Player player = (Player) nearby;
-                    lootNotifier.sendDropNotification(player, item, entity, false);
-                }
-            }
-        }
-    }
-
-    /**
-     * Handle drops for world bosses
-     *
-     * @param entity The world boss entity
-     */
-    private void handleWorldBossDrop(LivingEntity entity) {
-        // World bosses drop multiple items
-        int dropCount = ThreadLocalRandom.current().nextInt(3) + 3; // 3-5 drops
-
-        // Get damage contributors sorted by damage
-        List<Map.Entry<UUID, Double>> sortedDamagers = getSortedDamageContributors(entity);
-
-        // Get boss tier
-        int tier = getMobTier(entity);
-
-        // Drop location parameters
-        double radius = 2.0;
-        Location center = entity.getLocation();
-
-        // Top damagers list for announcement
-        List<Object[]> topDamagersList = new ArrayList<>();
-
-        // Spawn items in a circle
-        for (int i = 0; i < dropCount; i++) {
-            // Calculate position
-            double angle = 2 * Math.PI * i / dropCount;
-            double x = center.getX() + radius * Math.cos(angle);
-            double z = center.getZ() + radius * Math.sin(angle);
-            Location dropLoc = new Location(center.getWorld(), x, center.getY(), z);
-
-            // Create high-quality item
-            int itemType = ThreadLocalRandom.current().nextInt(8) + 1;
-            int rarity = ThreadLocalRandom.current().nextInt(2) + 3; // Rare or Unique
-
-            ItemStack item = dropsManager.createDrop(tier, itemType, rarity);
-
-            // Drop the item
-            Item droppedItem = entity.getWorld().dropItem(dropLoc, item);
-
-            // Apply protection for top damagers if available
-            if (!sortedDamagers.isEmpty()) {
-                Map.Entry<UUID, Double> damager = sortedDamagers.get(0);
-                Player player = Bukkit.getPlayer(damager.getKey());
-
-                if (player != null && player.isOnline()) {
-                    // Add protection for this player
-                    dropsManager.registerDropProtection(droppedItem, player.getUniqueId(), 30); // 30 second protection
-
-                    // Notify player
-                    lootNotifier.sendDropNotification(player, item, entity, true);
-
-                    // Add to top damagers list if not already there
-                    boolean found = false;
-                    for (Object[] entry : topDamagersList) {
-                        if (entry[0].equals(player.getName())) {
-                            found = true;
-                            break;
-                        }
-                    }
-
-                    if (!found) {
-                        topDamagersList.add(new Object[]{player.getName(), (int) Math.round(damager.getValue())});
-                    }
-                }
-
-                // Move to next damager for next item
-                if (sortedDamagers.size() > 1) {
-                    sortedDamagers.remove(0);
-                }
-            }
-
-        }
-
-        // Announce boss defeat
-        String bossName = entity.getCustomName() != null ?
-                ChatColor.stripColor(entity.getCustomName()) : "World Boss";
-        lootNotifier.announceWorldBossDefeat(bossName, topDamagersList);
-
-        // Sound effects
-        entity.getWorld().playSound(entity.getLocation(), Sound.ENTITY_WITHER_DEATH, 1.0f, 0.5f);
-    }
-
-    /**
-     * Drop gems based on tier
-     *
-     * @param entity The mob entity
-     * @param tier   The mob's tier
-     */
-    private void dropGems(LivingEntity entity, int tier) {
-        // 50% chance to drop gems
-        if (ThreadLocalRandom.current().nextBoolean()) {
-            // Create gem item
-            ItemStack gemsItem = dropFactory.createGemDrop(tier);
-
-            // Drop the gems
-            dropItemWithProtection(entity, gemsItem);
-        }
-    }
-
-    /**
-     * Drop scroll based on tier with low chance
-     *
-     * @param entity The mob entity
-     * @param tier   The mob's tier
-     */
-    private void dropScroll(LivingEntity entity, int tier) {
-        // 5% chance to drop scroll
-        if (ThreadLocalRandom.current().nextInt(100) < 5) {
-            try {
-                // Create scroll item
-                ItemStack scroll = dropFactory.createScrollDrop(tier);
-
-                if (scroll != null) {
-                    // Drop the scroll
-                    Item droppedItem = dropItemWithProtection(entity, scroll);
-
-                    // Notify the player who caused the most damage
-                    if (droppedItem != null) {
-                        Player topDamager = getTopDamageDealer(entity);
-                        if (topDamager != null) {
-                            lootNotifier.sendDropNotification(topDamager, scroll, entity, false);
-                        }
-                    }
-                }
-            } catch (Exception e) {
-                logger.warning("Error creating teleport scroll drop: " + e.getMessage());
-            }
-        }
-    }
-
-    /**
-     * Drop crate based on tier with very low chance
-     *
-     * @param entity The mob entity
-     * @param tier   The mob's tier
-     */
-    private void dropCrate(LivingEntity entity, int tier) {
-        int crateRate = DropConfig.getCrateDropRate(tier);
-
-        // Apply buff if active
-        if (lootBuffManager.isBuffActive()) {
-            int buffPercentage = lootBuffManager.getActiveBuff().getBuffRate();
-            crateRate += (crateRate * buffPercentage / 100);
-        }
-
-        // Roll for crate drop
-        if (ThreadLocalRandom.current().nextInt(100) < crateRate) {
-            // Create crate item
-            ItemStack crate = dropFactory.createCrateDrop(tier);
-
-            // Drop the crate
-            Item droppedItem = dropItemWithProtection(entity, crate);
-
-            // Notify the player who caused the most damage
-            if (droppedItem != null) {
-                Player topDamager = getTopDamageDealer(entity);
-                if (topDamager != null) {
-                    lootNotifier.sendDropNotification(topDamager, crate, entity, false);
-                }
-            }
-
-            // Count as improved drop if buff is active
-            if (lootBuffManager.isBuffActive()) {
-                lootBuffManager.updateImprovedDrops();
-            }
-        }
-    }
-
-    /**
-     * Drops an item with protection for the top damage dealer
-     *
-     * @param entity The source entity
-     * @param item   The item to drop
-     * @return The dropped item entity
-     */
-    private Item dropItemWithProtection(LivingEntity entity, ItemStack item) {
-        // Find player with highest damage
-        Player topDamager = getTopDamageDealer(entity);
-
-        // Drop the item
-        Item droppedItem = entity.getWorld().dropItemNaturally(entity.getLocation(), item);
-
-        // Apply protection if we have a top damager
-        if (topDamager != null) {
-            dropsManager.registerDropProtection(droppedItem, topDamager.getUniqueId(), 5); // 5 second protection
-        }
-
-        return droppedItem;
-    }
-
-    /**
-     * Get the player who dealt the most damage to an entity
-     *
-     * @param entity The entity
-     * @return The top damage dealer or null if none
-     */
-    private Player getTopDamageDealer(LivingEntity entity) {
-        Map<UUID, Double> damageMap = mobDamageTracking.get(entity.getUniqueId());
-        if (damageMap == null || damageMap.isEmpty()) {
-            return null;
-        }
-
-        // Find player with highest damage
-        UUID topDamagerUuid = damageMap.entrySet().stream()
-                .max(Map.Entry.comparingByValue())
-                .map(Map.Entry::getKey)
-                .orElse(null);
-
-        if (topDamagerUuid != null) {
-            return Bukkit.getPlayer(topDamagerUuid);
         }
 
         return null;
     }
 
     /**
-     * Get sorted list of damagers by damage amount
-     *
-     * @param entity The entity
-     * @return Sorted list of damagers
+     * Marks entity as processed to prevent double drops
      */
-    private List<Map.Entry<UUID, Double>> getSortedDamageContributors(LivingEntity entity) {
-        Map<UUID, Double> damageMap = mobDamageTracking.get(entity.getUniqueId());
-        if (damageMap == null || damageMap.isEmpty()) {
-            return new ArrayList<>();
+    private boolean markAsProcessed(LivingEntity entity) {
+        UUID entityUuid = entity.getUniqueId();
+
+        if (processedMobs.contains(entityUuid) || entity.hasMetadata("dropsProcessed")) {
+            return false;
         }
 
-        // Sort by damage (descending)
-        return damageMap.entrySet().stream()
-                .sorted(Map.Entry.comparingByValue(Comparator.reverseOrder()))
-                .collect(java.util.stream.Collectors.toList());
+        entity.setMetadata("dropsProcessed", new FixedMetadataValue(plugin, true));
+        processedMobs.add(entityUuid);
+        return true;
     }
 
     /**
-     * Sets the drop rate for a specific tier
-     *
-     * @param tier The tier (1-6)
-     * @param rate The new drop rate
+     * Enhanced mob drop handling with better organization
      */
+    private void handleEnhancedMobDrops(LivingEntity entity) {
+        MobAnalysis analysis = analyzeMob(entity);
+
+        // Check if this entity should drop items
+        if (!shouldDropItems(entity, analysis)) {
+            return;
+        }
+
+        // Handle different mob types with enhanced logic
+        if (analysis.isWorldBoss()) {
+            handleWorldBossDrops(entity, analysis);
+        } else if (analysis.isNamedElite()) {
+            handleNamedEliteDrops(entity, analysis);
+        } else if (analysis.isElite()) {
+            handleEliteDrops(entity, analysis);
+        } else {
+            handleNormalDrops(entity, analysis);
+        }
+
+        // Handle additional drops (gems, scrolls, crates) for all mob types
+        handleAdditionalDrops(entity, analysis);
+    }
+
+    /**
+     * Enhanced mob analysis with comprehensive detection
+     */
+    private MobAnalysis analyzeMob(LivingEntity entity) {
+        int tier = detectMobTier(entity);
+        boolean isElite = detectEliteStatus(entity);
+        boolean isWorldBoss = mobManager.hasMetadata(entity, "worldboss");
+        String mobType = extractMobType(entity);
+        boolean isNamedElite = isElite && mobType != null && DropConfig.getEliteDropConfig(mobType.toLowerCase()) != null;
+
+        return new MobAnalysis(tier, isElite, isWorldBoss, isNamedElite, mobType);
+    }
+
+    /**
+     * Enhanced tier detection with multiple fallback methods
+     */
+    private int detectMobTier(LivingEntity entity) {
+        // Method 1: Check equipment (most reliable)
+        int equipmentTier = detectTierFromEquipment(entity);
+        if (equipmentTier > 0) {
+            return equipmentTier;
+        }
+
+        // Method 2: Check metadata
+        int metadataTier = detectTierFromMetadata(entity);
+        if (metadataTier > 0) {
+            return metadataTier;
+        }
+
+        // Method 3: Default based on entity type
+        return getDefaultTierForEntityType(entity);
+    }
+
+    /**
+     * Detect tier from equipment with enhanced logic
+     */
+    private int detectTierFromEquipment(LivingEntity entity) {
+        if (entity.getEquipment() == null) {
+            return 0;
+        }
+
+        ItemStack mainHand = entity.getEquipment().getItemInMainHand();
+        if (mainHand != null && mainHand.getType() != org.bukkit.Material.AIR) {
+            String material = mainHand.getType().name();
+
+            // Enhanced material-based tier detection
+            if (material.contains("DIAMOND")) {
+                // Check for special blue display name for T6
+                if (mainHand.hasItemMeta() && mainHand.getItemMeta().hasDisplayName() &&
+                        mainHand.getItemMeta().getDisplayName().contains(ChatColor.BLUE.toString())) {
+                    return 6;
+                }
+                return 4;
+            } else if (material.contains("NETHERITE")) {
+                return 6; // Netherite should be highest tier
+            } else if (material.contains("GOLDEN") || material.contains("GOLD")) {
+                return 5;
+            } else if (material.contains("IRON")) {
+                return 3;
+            } else if (material.contains("STONE")) {
+                return 2;
+            } else if (material.contains("WOODEN") || material.contains("WOOD")) {
+                return 1;
+            }
+        }
+        return 0;
+    }
+
+    /**
+     * Detect tier from metadata with multiple key checking
+     */
+    private int detectTierFromMetadata(LivingEntity entity) {
+        String[] tierKeys = {"equipTier", "dropTier", "customTier", "tier"};
+
+        for (String key : tierKeys) {
+            if (entity.hasMetadata(key)) {
+                try {
+                    if (entity.getMetadata(key).get(0).value() instanceof Integer) {
+                        return entity.getMetadata(key).get(0).asInt();
+                    } else {
+                        return Integer.parseInt(entity.getMetadata(key).get(0).asString());
+                    }
+                } catch (NumberFormatException | IndexOutOfBoundsException ignored) {
+                    // Try next key
+                }
+            }
+        }
+        return 0;
+    }
+
+    /**
+     * Get default tier based on entity type
+     */
+    private int getDefaultTierForEntityType(LivingEntity entity) {
+        return switch (entity.getType()) {
+            case ZOMBIE, SKELETON, SPIDER -> 1;
+            case CREEPER, ENDERMAN -> 2;
+            case WITCH, VINDICATOR -> 3;
+            case EVOKER, VEX -> 4;
+            case WITHER_SKELETON -> 5;
+            case WITHER, ENDER_DRAGON -> 6;
+            default -> 1;
+        };
+    }
+
+    /**
+     * Enhanced elite status detection
+     */
+    private boolean detectEliteStatus(LivingEntity entity) {
+        // Check metadata first
+        String[] eliteKeys = {"elite", "dropElite", "isElite"};
+        for (String key : eliteKeys) {
+            if (entity.hasMetadata(key)) {
+                try {
+                    return entity.getMetadata(key).get(0).asBoolean();
+                } catch (Exception ignored) {
+                    // Try next key
+                }
+            }
+        }
+
+        // Check equipment for enchantments
+        if (entity.getEquipment() != null) {
+            ItemStack[] equipment = {
+                    entity.getEquipment().getItemInMainHand(),
+                    entity.getEquipment().getHelmet(),
+                    entity.getEquipment().getChestplate(),
+                    entity.getEquipment().getLeggings(),
+                    entity.getEquipment().getBoots()
+            };
+
+            for (ItemStack item : equipment) {
+                if (item != null && !item.getType().isAir() &&
+                        item.hasItemMeta() && item.getItemMeta().hasEnchants()) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Extract mob type from metadata
+     */
+    private String extractMobType(LivingEntity entity) {
+        if (entity.hasMetadata("type")) {
+            try {
+                return entity.getMetadata("type").get(0).asString();
+            } catch (Exception ignored) {
+                // Fall through
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Enhanced drop decision logic
+     */
+    private boolean shouldDropItems(LivingEntity entity, MobAnalysis analysis) {
+        if (analysis.isWorldBoss()) {
+            return true; // World bosses always drop
+        }
+
+        int baseDropRate = DropConfig.getDropRate(analysis.getTier());
+        int dropRate = analysis.isElite() ? DropConfig.getEliteDropRate(analysis.getTier()) : baseDropRate;
+
+        // Apply loot buff if active
+        if (lootBuffManager.isBuffActive()) {
+            int buffPercentage = lootBuffManager.getActiveBuff().getBuffRate();
+            dropRate += (dropRate * buffPercentage / 100);
+        }
+
+        boolean shouldDrop = ThreadLocalRandom.current().nextInt(100) < dropRate;
+
+        // Track improved drops from buff
+        if (shouldDrop && lootBuffManager.isBuffActive()) {
+            int originalChance = analysis.isElite() ? DropConfig.getEliteDropRate(analysis.getTier()) : DropConfig.getDropRate(analysis.getTier());
+            if (ThreadLocalRandom.current().nextInt(100) >= originalChance) {
+                lootBuffManager.updateImprovedDrops();
+            }
+        }
+
+        return shouldDrop;
+    }
+
+    /**
+     * Enhanced world boss drop handling
+     */
+    private void handleWorldBossDrops(LivingEntity entity, MobAnalysis analysis) {
+        int dropCount = ThreadLocalRandom.current().nextInt(
+                WORLD_BOSS_DROP_COUNT_MAX - WORLD_BOSS_DROP_COUNT_MIN + 1) + WORLD_BOSS_DROP_COUNT_MIN;
+
+        List<Map.Entry<UUID, Double>> sortedDamagers = getSortedDamageContributors(entity);
+        List<DropInfo> drops = new ArrayList<>();
+
+        Location center = entity.getLocation();
+        String bossName = entity.getCustomName() != null ?
+                ChatColor.stripColor(entity.getCustomName()) : "World Boss";
+
+        for (int i = 0; i < dropCount; i++) {
+            Location dropLocation = calculateDropLocation(center, i, dropCount);
+            ItemStack item = createHighQualityItem(analysis.getTier());
+
+            Item droppedItem = entity.getWorld().dropItem(dropLocation, item);
+            applyWorldBossEffects(droppedItem, dropLocation);
+
+            // Assign protection to top damagers
+            if (!sortedDamagers.isEmpty()) {
+                int damagerIndex = i % sortedDamagers.size();
+                UUID playerUuid = sortedDamagers.get(damagerIndex).getKey();
+                Player player = Bukkit.getPlayer(playerUuid);
+
+                if (player != null && player.isOnline()) {
+                    dropsManager.registerDropProtection(droppedItem, playerUuid, WORLD_BOSS_PROTECTION_SECONDS);
+                    lootNotifier.sendDropNotification(player, item, entity, true);
+                    drops.add(new DropInfo(player.getName(), sortedDamagers.get(damagerIndex).getValue().intValue()));
+                }
+            }
+        }
+
+        // Enhanced world boss defeat announcement
+        lootNotifier.announceWorldBossDefeat(bossName, drops.stream()
+                .map(drop -> new Object[]{drop.playerName, drop.damage})
+                .distinct()
+                .limit(3)
+                .collect(Collectors.toList()));
+
+        // Enhanced sound and particle effects
+        playWorldBossDefeatEffects(center);
+    }
+
+    /**
+     * Enhanced normal mob drop handling
+     */
+    private void handleNormalDrops(LivingEntity entity, MobAnalysis analysis) {
+        int itemType = ThreadLocalRandom.current().nextInt(8) + 1;
+        ItemStack item = dropsManager.createDrop(analysis.getTier(), itemType);
+
+        Item droppedItem = dropItemWithEnhancedEffects(entity, item, analysis.getTier());
+        playDropEffects(entity.getLocation(), analysis.getTier(), false);
+
+        Player topDamager = getTopDamageDealer(entity);
+        if (topDamager != null) {
+            lootNotifier.sendDropNotification(topDamager, item, entity, false);
+        }
+    }
+
+    /**
+     * Enhanced elite mob drop handling
+     */
+    private void handleEliteDrops(LivingEntity entity, MobAnalysis analysis) {
+        int itemType = determineEliteItemType();
+        int rarity = determineEliteRarity();
+
+        ItemStack item = dropsManager.createDrop(analysis.getTier(), itemType, rarity);
+
+        Item droppedItem = dropItemWithEnhancedEffects(entity, item, analysis.getTier());
+        playDropEffects(entity.getLocation(), analysis.getTier(), true);
+
+        Player topDamager = getTopDamageDealer(entity);
+        if (topDamager != null) {
+            lootNotifier.sendDropNotification(topDamager, item, entity, false);
+        }
+    }
+
+    /**
+     * Enhanced named elite drop handling
+     */
+    private void handleNamedEliteDrops(LivingEntity entity, MobAnalysis analysis) {
+        int itemType = ThreadLocalRandom.current().nextInt(8) + 1;
+        ItemStack item = dropsManager.createEliteDrop(analysis.getMobType(), itemType, analysis.getTier());
+
+        Item droppedItem = dropItemWithEnhancedEffects(entity, item, analysis.getTier());
+        playDropEffects(entity.getLocation(), analysis.getTier(), true);
+
+        // Notify nearby players for special elites
+        entity.getNearbyEntities(30, 30, 30).stream()
+                .filter(e -> e instanceof Player)
+                .map(e -> (Player) e)
+                .forEach(player -> lootNotifier.sendDropNotification(player, item, entity, false));
+    }
+
+    /**
+     * Handle additional drops (gems, scrolls, crates)
+     */
+    private void handleAdditionalDrops(LivingEntity entity, MobAnalysis analysis) {
+        // Gems (50% chance)
+        if (ThreadLocalRandom.current().nextBoolean()) {
+            dropGems(entity, analysis.getTier());
+        }
+
+        // Scrolls (5% chance)
+        if (ThreadLocalRandom.current().nextInt(100) < 5) {
+            dropScrolls(entity, analysis.getTier());
+        }
+
+        // Crates (tier-based chance)
+        dropCrates(entity, analysis.getTier());
+    }
+
+    /**
+     * Enhanced item dropping with visual effects
+     */
+    private Item dropItemWithEnhancedEffects(LivingEntity entity, ItemStack item, int tier) {
+        Item droppedItem = entity.getWorld().dropItemNaturally(entity.getLocation(), item);
+
+        Player topDamager = getTopDamageDealer(entity);
+        if (topDamager != null) {
+            dropsManager.registerDropProtection(droppedItem, topDamager.getUniqueId(), DEFAULT_PROTECTION_SECONDS);
+        }
+
+        return droppedItem;
+    }
+
+    /**
+     * Enhanced drop effects with tier-based particles and sounds
+     */
+    private void playDropEffects(Location location, int tier, boolean isElite) {
+        // Particle effects
+        Particle particle = TIER_PARTICLES.getOrDefault(tier, Particle.VILLAGER_HAPPY);
+        location.getWorld().spawnParticle(particle, location.add(0, 1, 0),
+                isElite ? 20 : 10, 0.5, 0.5, 0.5, 0.1);
+
+        // Sound effects
+        Sound sound = isElite ? dropsManager.getRaritySound(3) : dropsManager.getTierSound(tier);
+        location.getWorld().playSound(location, sound, 1.0f, 1.0f);
+    }
+
+    // Helper classes and methods
+    private static class DropInfo {
+        final String playerName;
+        final int damage;
+
+        DropInfo(String playerName, int damage) {
+            this.playerName = playerName;
+            this.damage = damage;
+        }
+    }
+
+    private int determineEliteItemType() {
+        return ThreadLocalRandom.current().nextInt(100) < 40 ?
+                ThreadLocalRandom.current().nextInt(4) + 1 : // Weapon (40%)
+                ThreadLocalRandom.current().nextInt(4) + 5;   // Armor (60%)
+    }
+
+    private int determineEliteRarity() {
+        int roll = ThreadLocalRandom.current().nextInt(100);
+        if (roll < 5) return 4;      // Unique - 5%
+        else if (roll < 20) return 3; // Rare - 15%
+        else if (roll < 50) return 2; // Uncommon - 30%
+        else return 1;               // Common - 50%
+    }
+
+    private ItemStack createHighQualityItem(int tier) {
+        int itemType = ThreadLocalRandom.current().nextInt(8) + 1;
+        int rarity = ThreadLocalRandom.current().nextInt(2) + 3; // Rare or Unique
+        return dropsManager.createDrop(tier, itemType, rarity);
+    }
+
+    private Location calculateDropLocation(Location center, int index, int total) {
+        double angle = 2 * Math.PI * index / total;
+        double x = center.getX() + WORLD_BOSS_DROP_RADIUS * Math.cos(angle);
+        double z = center.getZ() + WORLD_BOSS_DROP_RADIUS * Math.sin(angle);
+        return new Location(center.getWorld(), x, center.getY(), z);
+    }
+
+    private void applyWorldBossEffects(Item droppedItem, Location location) {
+        location.getWorld().spawnParticle(Particle.DRAGON_BREATH, location, 30, 1, 1, 1, 0.1);
+        droppedItem.setUnlimitedLifetime(true);
+    }
+
+    private void playWorldBossDefeatEffects(Location location) {
+        location.getWorld().playSound(location, Sound.ENTITY_WITHER_DEATH, 2.0f, 0.5f);
+        location.getWorld().spawnParticle(Particle.EXPLOSION_LARGE, location, 5, 2, 2, 2, 0);
+    }
+
+    private void dropGems(LivingEntity entity, int tier) {
+        ItemStack gemsItem = dropFactory.createGemDrop(tier);
+        dropItemWithEnhancedEffects(entity, gemsItem, tier);
+    }
+
+    private void dropScrolls(LivingEntity entity, int tier) {
+        try {
+            ItemStack scroll = dropFactory.createScrollDrop(tier);
+            if (scroll != null) {
+                Item droppedItem = dropItemWithEnhancedEffects(entity, scroll, tier);
+                Player topDamager = getTopDamageDealer(entity);
+                if (topDamager != null) {
+                    lootNotifier.sendDropNotification(topDamager, scroll, entity, false);
+                }
+            }
+        } catch (Exception e) {
+            logger.warning("Error creating teleport scroll drop: " + e.getMessage());
+        }
+    }
+
+    private void dropCrates(LivingEntity entity, int tier) {
+        int crateRate = DropConfig.getCrateDropRate(tier);
+
+        if (lootBuffManager.isBuffActive()) {
+            int buffPercentage = lootBuffManager.getActiveBuff().getBuffRate();
+            crateRate += (crateRate * buffPercentage / 100);
+        }
+
+        if (ThreadLocalRandom.current().nextInt(100) < crateRate) {
+            ItemStack crate = dropFactory.createCrateDrop(tier);
+            Item droppedItem = dropItemWithEnhancedEffects(entity, crate, tier);
+
+            Player topDamager = getTopDamageDealer(entity);
+            if (topDamager != null) {
+                lootNotifier.sendDropNotification(topDamager, crate, entity, false);
+            }
+
+            if (lootBuffManager.isBuffActive()) {
+                lootBuffManager.updateImprovedDrops();
+            }
+        }
+    }
+
+    private Player getTopDamageDealer(LivingEntity entity) {
+        MobDamageData damageData = mobDamageTracking.get(entity.getUniqueId());
+        if (damageData == null) {
+            return null;
+        }
+
+        return damageData.getSortedDamagers().stream()
+                .findFirst()
+                .map(Map.Entry::getKey)
+                .map(Bukkit::getPlayer)
+                .filter(Objects::nonNull)
+                .orElse(null);
+    }
+
+    private List<Map.Entry<UUID, Double>> getSortedDamageContributors(LivingEntity entity) {
+        MobDamageData damageData = mobDamageTracking.get(entity.getUniqueId());
+        return damageData != null ? damageData.getSortedDamagers() : new ArrayList<>();
+    }
+
+    // Public API methods
     public void setDropRate(int tier, int rate) {
         dropsManager.setDropRate(tier, rate);
         TextUtil.broadcastCentered(ChatColor.YELLOW + "DROP RATES" + ChatColor.GRAY + " - " +
                 ChatColor.AQUA + "Tier " + tier + " drop rates have been changed to " + rate + "%");
     }
 
-    /**
-     * Gets the drop rate for a specific tier
-     *
-     * @param tier The tier (1-6)
-     * @return The drop rate
-     */
     public int getDropRate(int tier) {
         return dropsManager.getDropRate(tier);
+    }
+
+    public Map<String, Object> getStatistics() {
+        Map<String, Object> stats = new HashMap<>();
+        stats.put("activeDamageTracking", mobDamageTracking.size());
+        stats.put("processedMobs", processedMobs.size());
+        stats.put("totalDamageEntries", mobDamageTracking.values().stream()
+                .mapToInt(data -> data.getDamageMap().size()).sum());
+        return stats;
     }
 }

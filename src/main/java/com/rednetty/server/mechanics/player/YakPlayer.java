@@ -1913,6 +1913,28 @@ public class YakPlayer {
         }
     }
 
+    public boolean isInGuild() {
+        return false;
+    }
+
+    public String getGuildName() {
+        return "N/A";
+    }
+
+    public boolean isMuted() {
+        return false;
+    }
+
+    public String[] getUnlockedChatTags() {
+        return null;
+    }
+
+    public void unlockChatTag(ChatTag tag) {
+    }
+
+    public int getChaoticTime() {
+    }
+
     // Helper classes for serialization (unchanged from original)
     private static class ItemSerializer {
         public static String serializeItemStack(ItemStack item) throws IOException {
