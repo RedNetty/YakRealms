@@ -12,280 +12,511 @@ import org.bukkit.util.Vector;
 import java.util.List;
 import java.util.Random;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.stream.Collectors;
 
 /**
- * Extension of CustomMob for elite mobs with special abilities
+ * Enhanced extension of CustomMob for elite mobs with special abilities and improved mechanics
  */
 public class EliteMob extends CustomMob {
+
+    // ================ CONSTANTS ================
+
+    private static final int CRITICAL_DURATION = 12;
+    private static final double NEARBY_PLAYER_RADIUS = 8.0;
+    private static final double ATTACK_RADIUS = 7.0;
+    private static final float SPIN_SPEED = 15f;
+
+    // ================ ELITE STATE ================
+
     private float originalYaw = 0;
     private boolean isSpinning = false;
+    private long lastCriticalAttack = 0;
+    private int criticalAttackCount = 0;
+
+    // ================ VISUAL EFFECTS TIMING ================
+
+    private static final int[] WARNING_TICKS = {9, 6, 3}; // Countdown warnings
 
     /**
-     * Create a new elite mob
+     * Create a new elite mob with enhanced capabilities
      *
-     * @param type Mob type
+     * @param type Mob type configuration
      * @param tier Mob tier (1-6)
      */
     public EliteMob(MobType type, int tier) {
         super(type, tier, true);
     }
 
+    // ================ CRITICAL STATE OVERRIDE ================
+
     @Override
     public void setCriticalState(int duration) {
         super.setCriticalState(duration);
 
-        if (entity == null || !entity.isValid()) return;
+        if (!isValid()) return;
 
-        // Store the original yaw for restoring later
+        try {
+            initializeCriticalState();
+            applyImmobilization();
+            playInitialWarning();
+
+        } catch (Exception e) {
+            LOGGER.warning(String.format("§c[EliteMob] Critical state setup failed: %s", e.getMessage()));
+        }
+    }
+
+    private void initializeCriticalState() {
         originalYaw = entity.getLocation().getYaw();
         isSpinning = true;
 
-        // Apply freeze effect to elite mobs - NO MOVEMENT
+        if (YakRealms.getInstance().isDebugMode()) {
+            LOGGER.info(String.format("§6[EliteMob] §7%s entering critical state", type.getId()));
+        }
+    }
+
+    private void applyImmobilization() {
         if (MobUtils.isFrozenBoss(entity)) {
-            // For frozen boss, apply slowness to nearby players
-            for (Player player : getNearbyPlayers(8.0)) {
-                player.addPotionEffect(
-                        new PotionEffect(PotionEffectType.SLOW, 30, 1),
-                        true
-                );
-            }
+            handleFrozenBossImmobilization();
         } else {
-            // Complete immobilization - stronger than before
-            entity.addPotionEffect(
-                    new PotionEffect(PotionEffectType.SLOW, Integer.MAX_VALUE, 100),
-                    true
-            );
-            entity.addPotionEffect(
-                    new PotionEffect(PotionEffectType.JUMP, Integer.MAX_VALUE, 128),
-                    true
-            );
+            applyStandardImmobilization();
         }
+    }
 
-        // Initial warning explosion effect
+    private void handleFrozenBossImmobilization() {
+        // Apply slowness to nearby players instead of the boss
+        getNearbyPlayers(NEARBY_PLAYER_RADIUS).forEach(player ->
+                player.addPotionEffect(new PotionEffect(PotionEffectType.SLOW, 30, 1), true)
+        );
+    }
+
+    private void applyStandardImmobilization() {
+        // Complete immobilization for standard elites
+        entity.addPotionEffect(new PotionEffect(PotionEffectType.SLOW, Integer.MAX_VALUE, 100), true);
+        entity.addPotionEffect(new PotionEffect(PotionEffectType.JUMP, Integer.MAX_VALUE, 128), true);
+    }
+
+    private void playInitialWarning() {
         entity.getWorld().playSound(entity.getLocation(), Sound.ENTITY_CREEPER_PRIMED, 1.0f, 1.0f);
-        entity.getWorld().spawnParticle(
-                org.bukkit.Particle.EXPLOSION_LARGE,
+        entity.getWorld().spawnParticle(org.bukkit.Particle.EXPLOSION_LARGE,
                 entity.getLocation().clone().add(0.0, 1.0, 0.0),
-                5, 0.2, 0.2, 0.2, 0.1f
-        );
+                5, 0.2, 0.2, 0.2, 0.1f);
     }
 
-    /**
-     * Execute the critical attack with enhanced visual effects
-     */
-    public void executeCriticalAttack() {
-        if (entity == null || !entity.isValid()) return;
-
-        // End critical state
-        inCriticalState = false;
-        isSpinning = false;
-
-        // Clear metadata
-        if (entity.hasMetadata("criticalState")) {
-            entity.removeMetadata("criticalState", YakRealms.getInstance());
-        }
-
-        // Reset effects
-        resetMobEffects();
-
-        // Get weapon damage range
-        List<Integer> damageRange = MobUtils.getDamageRange(entity.getEquipment().getItemInMainHand());
-        int min = damageRange.get(0);
-        int max = damageRange.get(1);
-        int dmg = (ThreadLocalRandom.current().nextInt(max - min + 1) + min) * 3;
-
-        // Get nearby players to damage
-        for (Player player : getNearbyPlayers(7.0)) {
-            // Apply damage
-            player.damage(dmg, entity);
-
-            // Apply knockback
-            Vector direction = player.getLocation().clone().toVector()
-                    .subtract(entity.getLocation().toVector());
-
-            if (direction.length() > 0) {
-                direction.normalize();
-
-                // Reverse direction for frozen boss
-                if (MobUtils.isFrozenBoss(entity)) {
-                    direction.multiply(-3);
-                } else {
-                    direction.multiply(3);
-                }
-
-                player.setVelocity(direction);
-            }
-
-            // Play hit effects for the player
-            player.playSound(player.getLocation(), Sound.ENTITY_PLAYER_HURT, 1.0f, 0.5f);
-        }
-
-        // FINAL EXPLOSION - much larger and more dramatic
-        entity.getWorld().playSound(entity.getLocation(), Sound.ENTITY_GENERIC_EXPLODE, 1.0f, 0.5f);
-
-        // Large explosion effect
-        entity.getWorld().spawnParticle(
-                org.bukkit.Particle.EXPLOSION_HUGE,
-                entity.getLocation().clone().add(0.0, 1.0, 0.0),
-                10, 0, 0, 0, 1.0f
-        );
-
-        // Add flame particles for additional effect
-        entity.getWorld().spawnParticle(
-                org.bukkit.Particle.FLAME,
-                entity.getLocation().clone().add(0.0, 0.5, 0.0),
-                40, 1.0, 0.2, 1.0, 0.1
-        );
-
-        // Restore original name
-        restoreName();
-    }
-
-    /**
-     * Reset all effects on the mob after critical attack
-     */
-    private void resetMobEffects() {
-        if (entity == null) return;
-
-        // Remove slowness effect
-        if (entity.hasPotionEffect(PotionEffectType.SLOW)) {
-            entity.removePotionEffect(PotionEffectType.SLOW);
-        }
-
-        // Remove jump effect
-        if (entity.hasPotionEffect(PotionEffectType.JUMP)) {
-            entity.removePotionEffect(PotionEffectType.JUMP);
-        }
-
-        // Reapply any tier-specific effects
-        applyTypeProperties();
-    }
+    // ================ CRITICAL STATE PROCESSING ================
 
     @Override
     public boolean processCriticalStateTick() {
-        if (!inCriticalState || entity == null || !entity.isValid()) {
+        if (!inCriticalState || !isValid()) {
             return false;
         }
 
-        // Handle spinning effect for elite mobs during critical state
-        if (isSpinning && criticalStateDuration > 0) {
-            // Calculate new rotation
-            float spinSpeed = 15f; // Consistent spin speed
-            Location loc = entity.getLocation();
-            float newYaw = (loc.getYaw() + spinSpeed) % 360;
+        try {
+            // Handle spinning animation
+            if (isSpinning && criticalStateDuration > 0) {
+                performSpinning();
+            }
 
-            // Apply rotation
+            // Process countdown
+            if (criticalStateDuration > 0) {
+                return processCriticalCountdown();
+            }
+
+            return false;
+        } catch (Exception e) {
+            LOGGER.warning(String.format("§c[EliteMob] Critical tick processing failed: %s", e.getMessage()));
+            return false;
+        }
+    }
+
+    private void performSpinning() {
+        try {
+            Location loc = entity.getLocation();
+            float newYaw = (loc.getYaw() + SPIN_SPEED) % 360;
             loc.setYaw(newYaw);
             entity.teleport(loc);
+        } catch (Exception e) {
+            LOGGER.warning(String.format("§c[EliteMob] Spinning effect failed: %s", e.getMessage()));
+        }
+    }
+
+    private boolean processCriticalCountdown() {
+        criticalStateDuration--;
+        updateHealthBar(); // Always keep health bar visible
+
+        // Play warning effects at specific ticks
+        for (int warningTick : WARNING_TICKS) {
+            if (criticalStateDuration == warningTick) {
+                playWarningEffect();
+                break;
+            }
         }
 
-        // Only decrement counter if still counting down (positive)
-        if (criticalStateDuration > 0) {
-            criticalStateDuration--;
+        // Add periodic witch particles
+        if (criticalStateDuration % 3 == 0) {
+            showWitchParticles();
+        }
 
-            // Always update the health bar during critical state
-            updateHealthBar();
-
-            // Play countdown explosion effects at specific ticks
-            // We'll use 3 visual warnings plus the final explosion (total of 4)
-            if (criticalStateDuration == 9) { // First warning
-                // Play creeper prime sound
-                entity.getWorld().playSound(entity.getLocation(), Sound.ENTITY_CREEPER_PRIMED, 1.0f, 1.0f);
-
-                // Visual explosion only
-                entity.getWorld().spawnParticle(
-                        org.bukkit.Particle.EXPLOSION_LARGE,
-                        entity.getLocation().clone().add(0.0, 1.0, 0.0),
-                        5, 0.3, 0.3, 0.3, 0.1
-                );
-            } else if (criticalStateDuration == 6) { // Second warning
-                // Play creeper prime sound
-                entity.getWorld().playSound(entity.getLocation(), Sound.ENTITY_CREEPER_PRIMED, 1.0f, 1.0f);
-
-                // Visual explosion only
-                entity.getWorld().spawnParticle(
-                        org.bukkit.Particle.EXPLOSION_LARGE,
-                        entity.getLocation().clone().add(0.0, 1.0, 0.0),
-                        5, 0.3, 0.3, 0.3, 0.1
-                );
-            } else if (criticalStateDuration == 3) { // Third warning
-                // Play creeper prime sound
-                entity.getWorld().playSound(entity.getLocation(), Sound.ENTITY_CREEPER_PRIMED, 1.0f, 1.0f);
-
-                // Visual explosion only
-                entity.getWorld().spawnParticle(
-                        org.bukkit.Particle.EXPLOSION_LARGE,
-                        entity.getLocation().clone().add(0.0, 1.0, 0.0),
-                        5, 0.3, 0.3, 0.3, 0.1
-                );
-            }
-
-            // Add witch particles effect for visual indicator
-            if (criticalStateDuration % 3 == 0) {
-                entity.getWorld().spawnParticle(
-                        org.bukkit.Particle.SPELL_WITCH,
-                        entity.getLocation().clone().add(0.0, 1.0, 0.0),
-                        5, 0.3, 0.3, 0.3, 0.1
-                );
-            }
-
-            // When countdown reaches 0, execute attack
-            if (criticalStateDuration == 0) {
-                executeCriticalAttack();
-                return true;
-            }
+        // Execute attack when countdown reaches 0
+        if (criticalStateDuration == 0) {
+            executeCriticalAttack();
+            return true;
         }
 
         return false;
     }
 
-    /**
-     * Process damage specifically for elites
-     */
-    @Override
-    public double damage(double damage) {
-        if (entity == null || !entity.isValid() || entity.isDead()) {
-            return 0;
-        }
-
-        // Apply elite-specific damage modifications
-        double finalDamage = super.damage(damage);
-
-        // Special handling for frozen boss
-        if (MobUtils.isFrozenBoss(entity) && entity.getHealth() <
-                (YakRealms.isT6Enabled() ? 100000 : 50000) && !inCriticalState) {
-            // Set critical state for frozen boss at low health
-            setCriticalState(12);  // Longer duration
-        }
-
-        return finalDamage;
+    private void playWarningEffect() {
+        entity.getWorld().playSound(entity.getLocation(), Sound.ENTITY_CREEPER_PRIMED, 1.0f, 1.0f);
+        entity.getWorld().spawnParticle(org.bukkit.Particle.EXPLOSION_LARGE,
+                entity.getLocation().clone().add(0.0, 1.0, 0.0),
+                5, 0.3, 0.3, 0.3, 0.1);
     }
 
+    private void showWitchParticles() {
+        entity.getWorld().spawnParticle(org.bukkit.Particle.SPELL_WITCH,
+                entity.getLocation().clone().add(0.0, 1.0, 0.0),
+                5, 0.3, 0.3, 0.3, 0.1);
+    }
+
+    // ================ CRITICAL ATTACK EXECUTION ================
+
     /**
-     * Get nearby players
-     *
-     * @param radius Radius to check
-     * @return List of nearby players
+     * Execute the elite critical attack with enhanced effects and mechanics
      */
-    protected List<Player> getNearbyPlayers(double radius) {
-        if (entity == null || !entity.isValid()) {
-            return java.util.Collections.emptyList();
+    public void executeCriticalAttack() {
+        if (!isValid()) return;
+
+        try {
+            prepareAttackExecution();
+
+            int damage = calculateCriticalDamage();
+            List<Player> targets = identifyTargets();
+
+            int playersHit = executeAttackOnTargets(targets, damage);
+
+            playAttackEffects();
+            cleanupAfterAttack();
+
+            recordAttackMetrics(playersHit, damage);
+
+        } catch (Exception e) {
+            LOGGER.warning(String.format("§c[EliteMob] Critical attack execution failed: %s", e.getMessage()));
+        }
+    }
+
+    private void prepareAttackExecution() {
+        inCriticalState = false;
+        isSpinning = false;
+
+        if (entity.hasMetadata("criticalState")) {
+            entity.removeMetadata("criticalState", YakRealms.getInstance());
         }
 
-        List<Player> players = new java.util.ArrayList<>();
+        lastCriticalAttack = System.currentTimeMillis();
+        criticalAttackCount++;
+    }
 
-        for (org.bukkit.entity.Entity nearby :
-                entity.getNearbyEntities(radius, radius, radius)) {
-            if (nearby instanceof Player) {
-                players.add((Player) nearby);
+    private int calculateCriticalDamage() {
+        List<Integer> damageRange = MobUtils.getDamageRange(entity.getEquipment().getItemInMainHand());
+        int min = damageRange.get(0);
+        int max = damageRange.get(1);
+
+        int baseDamage = ThreadLocalRandom.current().nextInt(max - min + 1) + min;
+
+        // Apply critical multiplier with elite bonus
+        int criticalMultiplier = 3;
+        if (tier >= 5) criticalMultiplier = 4; // Higher tiers hit harder
+
+        return baseDamage * criticalMultiplier;
+    }
+
+    private List<Player> identifyTargets() {
+        return getNearbyPlayers(ATTACK_RADIUS);
+    }
+
+    private int executeAttackOnTargets(List<Player> targets, int damage) {
+        int playersHit = 0;
+
+        for (Player player : targets) {
+            if (applyDamageToPlayer(player, damage)) {
+                applyKnockbackToPlayer(player);
+                playPlayerHitEffects(player);
+                playersHit++;
             }
         }
 
-        return players;
+        return playersHit;
+    }
+
+    private boolean applyDamageToPlayer(Player player, int damage) {
+        try {
+            player.damage(damage, entity);
+            return true;
+        } catch (Exception e) {
+            LOGGER.warning(String.format("§c[EliteMob] Failed to damage player %s: %s",
+                    player.getName(), e.getMessage()));
+            return false;
+        }
+    }
+
+    private void applyKnockbackToPlayer(Player player) {
+        try {
+            Vector knockback = calculateKnockbackVector(player);
+            player.setVelocity(knockback);
+        } catch (Exception e) {
+            LOGGER.warning(String.format("§c[EliteMob] Knockback failed for player %s: %s",
+                    player.getName(), e.getMessage()));
+        }
+    }
+
+    private Vector calculateKnockbackVector(Player player) {
+        Vector direction = player.getLocation().clone().toVector()
+                .subtract(entity.getLocation().toVector());
+
+        if (direction.length() <= 0) {
+            // If players are at same location, use random direction
+            direction = new Vector(Math.random() - 0.5, 0.2, Math.random() - 0.5);
+        }
+
+        direction.normalize();
+
+        // Special handling for frozen boss (reverse knockback)
+        double knockbackStrength = MobUtils.isFrozenBoss(entity) ? -3.0 : 3.0;
+
+        return direction.multiply(knockbackStrength);
+    }
+
+    private void playPlayerHitEffects(Player player) {
+        player.playSound(player.getLocation(), Sound.ENTITY_PLAYER_HURT, 1.0f, 0.5f);
+    }
+
+    private void playAttackEffects() {
+        Location loc = entity.getLocation();
+
+        // Main explosion sound and effect
+        entity.getWorld().playSound(loc, Sound.ENTITY_GENERIC_EXPLODE, 1.0f, 0.5f);
+        entity.getWorld().spawnParticle(org.bukkit.Particle.EXPLOSION_HUGE,
+                loc.clone().add(0.0, 1.0, 0.0), 10, 0, 0, 0, 1.0f);
+
+        // Additional flame effects for visual impact
+        entity.getWorld().spawnParticle(org.bukkit.Particle.FLAME,
+                loc.clone().add(0.0, 0.5, 0.0), 40, 1.0, 0.2, 1.0, 0.1);
+
+        // Type-specific additional effects
+        applyTypeSpecificEffects();
+    }
+
+    private void applyTypeSpecificEffects() {
+        if (MobUtils.isFrozenBoss(entity)) {
+            // Ice effects for frozen boss
+            entity.getWorld().spawnParticle(org.bukkit.Particle.SNOWFLAKE,
+                    entity.getLocation().clone().add(0.0, 1.0, 0.0), 20, 1.0, 1.0, 1.0, 0.1);
+        } else if (type == MobType.WARDEN) {
+            // Dark effects for warden
+            entity.getWorld().spawnParticle(org.bukkit.Particle.SMOKE_LARGE,
+                    entity.getLocation().clone().add(0.0, 1.0, 0.0), 15, 0.5, 0.5, 0.5, 0.05);
+        }
+    }
+
+    private void cleanupAfterAttack() {
+        resetMobEffects();
+        restoreName();
+    }
+
+    private void recordAttackMetrics(int playersHit, int damage) {
+        if (YakRealms.getInstance().isDebugMode()) {
+            LOGGER.info(String.format("§6[EliteMob] §7Critical attack #%d hit §e%d §7players for §c%d §7damage",
+                    criticalAttackCount, playersHit, damage));
+        }
+    }
+
+    // ================ POST-ATTACK CLEANUP ================
+
+    private void resetMobEffects() {
+        try {
+            // Remove immobilization effects
+            removeEffect(PotionEffectType.SLOW);
+            removeEffect(PotionEffectType.JUMP);
+
+            // Reapply tier-specific effects
+            applyTypeProperties();
+
+        } catch (Exception e) {
+            LOGGER.warning(String.format("§c[EliteMob] Effect reset failed: %s", e.getMessage()));
+        }
+    }
+
+    private void removeEffect(PotionEffectType effectType) {
+        if (entity.hasPotionEffect(effectType)) {
+            entity.removePotionEffect(effectType);
+        }
+    }
+
+    // ================ DAMAGE PROCESSING OVERRIDE ================
+
+    @Override
+    public double damage(double damage) {
+        if (!isValid()) return 0;
+
+        try {
+            double finalDamage = super.damage(damage);
+
+            // Check for special critical conditions
+            checkSpecialCriticalTriggers();
+
+            return finalDamage;
+        } catch (Exception e) {
+            LOGGER.warning(String.format("§c[EliteMob] Damage processing failed: %s", e.getMessage()));
+            return 0;
+        }
+    }
+
+    private void checkSpecialCriticalTriggers() {
+        // Frozen boss special critical at low health
+        if (MobUtils.isFrozenBoss(entity) &&
+                entity.getHealth() < (YakRealms.isT6Enabled() ? 100000 : 50000) &&
+                !inCriticalState) {
+
+            if (YakRealms.getInstance().isDebugMode()) {
+                LOGGER.info("§6[EliteMob] §7Triggering special critical for low-health frozen boss");
+            }
+
+            setCriticalState(12); // Longer duration for special trigger
+        }
+    }
+
+    // ================ SPAWN ENHANCEMENTS ================
+
+    @Override
+    public boolean spawn(Location location) {
+        boolean success = super.spawn(location);
+
+        if (success && entity != null) {
+            applyEliteEnhancements();
+            updateNameVisibility();
+        }
+
+        return success;
+    }
+
+    private void applyEliteEnhancements() {
+        try {
+            applyEliteMovementEffects();
+            enhanceEliteEquipment();
+            applyEliteAppearance();
+
+        } catch (Exception e) {
+            LOGGER.warning(String.format("§c[EliteMob] Elite enhancements failed: %s", e.getMessage()));
+        }
+    }
+
+    private void applyEliteMovementEffects() {
+        // Elite mobs get speed unless they are frozen boss
+        if (!MobUtils.isFrozenBoss(entity)) {
+            entity.addPotionEffect(new PotionEffect(PotionEffectType.SPEED, Integer.MAX_VALUE, 1));
+        }
+    }
+
+    private void enhanceEliteEquipment() {
+        if (entity.getEquipment() == null) return;
+
+        // Enhance weapon with elite identifier
+        org.bukkit.inventory.ItemStack weapon = entity.getEquipment().getItemInMainHand();
+        if (weapon != null && weapon.getType() != org.bukkit.Material.AIR && !weapon.hasItemMeta()) {
+            org.bukkit.inventory.meta.ItemMeta meta = weapon.getItemMeta();
+            if (meta != null && !meta.hasEnchants()) {
+                weapon.addUnsafeEnchantment(org.bukkit.enchantments.Enchantment.LOOT_BONUS_MOBS, 1);
+                entity.getEquipment().setItemInMainHand(weapon);
+            }
+        }
+    }
+
+    private void applyEliteAppearance() {
+        if (entity.getCustomName() != null) {
+            String name = entity.getCustomName();
+            String eliteName = org.bukkit.ChatColor.LIGHT_PURPLE + "" +
+                    org.bukkit.ChatColor.BOLD +
+                    org.bukkit.ChatColor.stripColor(name);
+
+            if (!name.startsWith(org.bukkit.ChatColor.LIGHT_PURPLE.toString())) {
+                entity.setCustomName(eliteName);
+                // Update our original name record
+                customName = eliteName;
+            }
+        }
+    }
+
+    // ================ PLAYER INTERACTION ================
+
+    /**
+     * Handle special effects when hit by a player
+     *
+     * @param player The attacking player
+     * @param damage The damage amount
+     */
+    public void onHitByPlayer(Player player, double damage) {
+        if (!isValid()) return;
+
+        try {
+            // Update combat status
+            lastDamageTime = System.currentTimeMillis();
+            nameVisible = true;
+            updateHealthBar();
+
+            // Apply type-specific hit effects
+            applyHitEffects(player);
+
+        } catch (Exception e) {
+            LOGGER.warning(String.format("§c[EliteMob] Player hit processing failed: %s", e.getMessage()));
+        }
+    }
+
+    private void applyHitEffects(Player player) {
+        if (type == MobType.FROZEN_BOSS || type == MobType.FROZEN_ELITE) {
+            applyFrostHitEffects(player);
+        } else if (type == MobType.WARDEN) {
+            applyWardenHitEffects(player);
+        }
+    }
+
+    private void applyFrostHitEffects(Player player) {
+        player.getWorld().playSound(player.getLocation(), Sound.BLOCK_GLASS_BREAK, 0.5f, 1.2f);
+        player.getWorld().spawnParticle(org.bukkit.Particle.SNOWFLAKE,
+                player.getLocation().add(0, 1, 0), 10, 0.5, 0.5, 0.5, 0.05);
+    }
+
+    private void applyWardenHitEffects(Player player) {
+        player.getWorld().playSound(player.getLocation(), Sound.ENTITY_WARDEN_HURT, 0.3f, 1.5f);
+        player.getWorld().spawnParticle(org.bukkit.Particle.SMOKE_NORMAL,
+                player.getLocation().add(0, 1, 0), 5, 0.3, 0.3, 0.3, 0.02);
+    }
+
+    // ================ UTILITY METHODS ================
+
+    /**
+     * Get all players within the specified radius
+     *
+     * @param radius The search radius
+     * @return List of nearby players
+     */
+    protected List<Player> getNearbyPlayers(double radius) {
+        if (!isValid()) {
+            return java.util.Collections.emptyList();
+        }
+
+        try {
+            return entity.getNearbyEntities(radius, radius, radius).stream()
+                    .filter(Player.class::isInstance)
+                    .map(Player.class::cast)
+                    .collect(Collectors.toList());
+        } catch (Exception e) {
+            LOGGER.warning(String.format("§c[EliteMob] Failed to get nearby players: %s", e.getMessage()));
+            return java.util.Collections.emptyList();
+        }
     }
 
     /**
-     * Roll for a critical hit chance
+     * Enhanced critical hit chance calculation for elites
      *
      * @return true if critical hit should occur
      */
@@ -294,124 +525,80 @@ public class EliteMob extends CustomMob {
             return false;
         }
 
-        // Calculate critical chance based on tier
-        int critChance;
-        switch (tier) {
-            case 1:
-                critChance = 5;
-                break;   // 2%
-            case 2:
-                critChance = 7;
-                break;   // 2.8%
-            case 3:
-                critChance = 10;
-                break;  // 4%
-            case 4:
-                critChance = 13;
-                break;  // 5.2%
-            case 5:
-            case 6:
-                critChance = 20;
-                break;  // 8%
-            default:
-                critChance = 5;
-                break;
-        }
+        try {
+            int critChance = calculateEliteCriticalChance();
 
-        // Check for golem boss in berserker state (immune to crits)
-        if (MobUtils.isGolemBoss(entity) &&
-                MobUtils.getMetadataInt(entity, "stage", 0) == 3) {
+            // Check for golem boss berserker immunity
+            if (MobUtils.isGolemBoss(entity) &&
+                    MobUtils.getMetadataInt(entity, "stage", 0) == 3) {
+                return false;
+            }
+
+            Random random = new Random();
+            int roll = random.nextInt(250) + 1; // Slightly harder for elites
+
+            boolean success = roll <= critChance;
+
+            if (success) {
+                entity.getWorld().playSound(entity.getLocation(), Sound.ENTITY_CREEPER_PRIMED, 1.0f, 1.0f);
+            }
+
+            return success;
+
+        } catch (Exception e) {
+            LOGGER.warning(String.format("§c[EliteMob] Critical roll failed: %s", e.getMessage()));
             return false;
         }
-
-        // Roll for critical
-        Random random = new Random();
-        int roll = random.nextInt(250) + 1;
-
-        // Track if this is a successful roll
-        boolean success = roll <= critChance;
-
-        // If successful, play a warning sound
-        if (success) {
-            entity.getWorld().playSound(entity.getLocation(),
-                    Sound.ENTITY_CREEPER_PRIMED, 1.0f, 1.0f);
-        }
-
-        return success;
     }
 
-    @Override
-    public boolean spawn(Location location) {
-        boolean success = super.spawn(location);
-
-        if (success && entity != null) {
-            // Apply elite-specific effects
-
-            // Elite mobs get speed unless they are frozen boss
-            if (!MobUtils.isFrozenBoss(entity)) {
-                entity.addPotionEffect(new PotionEffect(PotionEffectType.SPEED, Integer.MAX_VALUE, 1));
-            }
-
-            // Apply special equipment modifications
-            enhanceEliteEquipment();
-            updateNameVisibility();
+    private int calculateEliteCriticalChance() {
+        switch (tier) {
+            case 1: return 5;   // 2%
+            case 2: return 7;   // 2.8%
+            case 3: return 10;  // 4%
+            case 4: return 13;  // 5.2%
+            case 5:
+            case 6: return 20;  // 8%
+            default: return 5;
         }
+    }
 
-        return success;
+    // ================ STATUS METHODS ================
+
+    /**
+     * Get the number of critical attacks performed
+     *
+     * @return Critical attack count
+     */
+    public int getCriticalAttackCount() {
+        return criticalAttackCount;
     }
 
     /**
-     * Enhance equipment specifically for elites
+     * Get the time of the last critical attack
+     *
+     * @return Last critical attack timestamp
      */
-    private void enhanceEliteEquipment() {
-        if (entity == null || entity.getEquipment() == null) return;
-
-        // Modify weapon if needed
-        org.bukkit.inventory.ItemStack weapon = entity.getEquipment().getItemInMainHand();
-        if (weapon != null && weapon.getType() != org.bukkit.Material.AIR && !weapon.hasItemMeta()) {
-            org.bukkit.inventory.meta.ItemMeta meta = weapon.getItemMeta();
-            if (meta != null && !meta.hasEnchants()) {
-                // Add elite identifier enchant
-                weapon.addUnsafeEnchantment(org.bukkit.enchantments.Enchantment.LOOT_BONUS_MOBS, 1);
-                entity.getEquipment().setItemInMainHand(weapon);
-            }
-        }
-
-        // Apply appropriate color to custom name
-        if (entity.getCustomName() != null) {
-            String name = entity.getCustomName();
-            if (!name.contains(org.bukkit.ChatColor.LIGHT_PURPLE.toString() + org.bukkit.ChatColor.BOLD)) {
-                entity.setCustomName(org.bukkit.ChatColor.LIGHT_PURPLE + "" + org.bukkit.ChatColor.BOLD + org.bukkit.ChatColor.stripColor(name));
-
-                // Update our original name record
-                originalName = entity.getCustomName();
-            }
-        }
+    public long getLastCriticalAttack() {
+        return lastCriticalAttack;
     }
 
     /**
-     * Apply special effects for elite mobs
-     * Called when the mob is hit by a player
+     * Check if this elite is currently spinning (during critical state)
+     *
+     * @return true if spinning
      */
-    public void onHitByPlayer(Player player, double damage) {
-        if (entity == null || !entity.isValid()) return;
+    public boolean isSpinning() {
+        return isSpinning;
+    }
 
-        // Update combat status
-        lastDamageTime = System.currentTimeMillis();
-        nameVisible = true;
-        updateHealthBar();
-
-        // Special handling for specific elite types
-        if (type == MobType.FROZEN_BOSS || type == MobType.FROZEN_ELITE) {
-            // Apply frost effects when player hits these elites
-            player.getWorld().playSound(player.getLocation(), Sound.BLOCK_GLASS_BREAK, 0.5f, 1.2f);
-
-            // Add particles around the player
-            player.getWorld().spawnParticle(
-                    org.bukkit.Particle.SNOWFLAKE,
-                    player.getLocation().add(0, 1, 0),
-                    10, 0.5, 0.5, 0.5, 0.05
-            );
-        }
+    /**
+     * Get the time since last critical attack in seconds
+     *
+     * @return Seconds since last critical attack
+     */
+    public long getSecondsSinceLastCritical() {
+        if (lastCriticalAttack == 0) return -1;
+        return (System.currentTimeMillis() - lastCriticalAttack) / 1000;
     }
 }
