@@ -21,112 +21,156 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Logger;
+import java.util.stream.Collectors;
 
 /**
- * Manages player toggle preferences and provides a GUI for changing them
+ * Enhanced toggle system with improved UI, better performance,
+ * validation, and enhanced user experience.
  */
 public class Toggles implements Listener {
     private static Toggles instance;
     private final YakPlayerManager playerManager;
     private final Logger logger;
 
-    // Confirmation map for sensitive toggles
-    private final Map<UUID, String> confirmationMap = new HashMap<>();
+    // Enhanced confirmation system
+    private final Map<UUID, PendingConfirmation> confirmationMap = new ConcurrentHashMap<>();
 
-    // Expiry time for confirmations (in milliseconds)
-    private final long CONFIRMATION_EXPIRY = 10000; // 10 seconds
-    private final Map<UUID, Long> confirmationTimestamps = new HashMap<>();
+    // Configuration
+    private final long CONFIRMATION_EXPIRY = 15000; // 15 seconds
+    private final int MENU_SIZE = 54; // 6 rows for better organization
 
-    // Toggle categories
-    private static final String CATEGORY_COMBAT = "Combat";
-    private static final String CATEGORY_DISPLAY = "Display";
-    private static final String CATEGORY_SYSTEM = "System";
-    private static final String CATEGORY_SOCIAL = "Social";
-
-    // Map of toggle names to their categories
-    private final Map<String, String> toggleCategories = new HashMap<>();
-
-    // Map of toggle names to their required permissions (null = no permission required)
-    private final Map<String, String> togglePermissions = new HashMap<>();
-
-    // Map of toggle names to whether they require confirmation
-    private final Set<String> sensitiveToggles = new HashSet<>();
+    // Toggle definitions with enhanced metadata
+    private final Map<String, ToggleDefinition> toggleDefinitions = new HashMap<>();
 
     /**
-     * Private constructor for singleton pattern
+     * Enhanced confirmation tracking
      */
+    private static class PendingConfirmation {
+        final String toggleName;
+        final long timestamp;
+        final boolean originalState;
+
+        PendingConfirmation(String toggleName, boolean originalState) {
+            this.toggleName = toggleName;
+            this.originalState = originalState;
+            this.timestamp = System.currentTimeMillis();
+        }
+
+        boolean isExpired(long expiryTime) {
+            return System.currentTimeMillis() - timestamp > expiryTime;
+        }
+    }
+
+    /**
+     * Enhanced toggle definition with metadata
+     */
+    private static class ToggleDefinition {
+        final String name;
+        final String category;
+        final String description;
+        final String permission;
+        final boolean requiresConfirmation;
+        final boolean defaultValue;
+        final Material iconMaterial;
+        final String iconName;
+        final List<String> loreLines;
+
+        ToggleDefinition(String name, String category, String description, String permission,
+                         boolean requiresConfirmation, boolean defaultValue, Material iconMaterial) {
+            this.name = name;
+            this.category = category;
+            this.description = description;
+            this.permission = permission;
+            this.requiresConfirmation = requiresConfirmation;
+            this.defaultValue = defaultValue;
+            this.iconMaterial = iconMaterial;
+            this.iconName = formatToggleName(name);
+            this.loreLines = createLoreLines(description, requiresConfirmation);
+        }
+
+        private String formatToggleName(String name) {
+            return "§f§l" + name;
+        }
+
+        private List<String> createLoreLines(String description, boolean requiresConfirmation) {
+            List<String> lore = new ArrayList<>();
+            lore.add("§7" + description);
+            lore.add("");
+
+            if (requiresConfirmation) {
+                lore.add("§c§l⚠ §cRequires Confirmation");
+                lore.add("§7Click twice to change this setting");
+            }
+
+            return lore;
+        }
+    }
+
     private Toggles() {
         this.playerManager = YakPlayerManager.getInstance();
         this.logger = YakRealms.getInstance().getLogger();
-
-        // Initialize toggle categories
-        initializeToggleCategories();
-
-        // Initialize toggle permissions
-        initializeTogglePermissions();
-
-        // Initialize sensitive toggles
-        initializeSensitiveToggles();
+        initializeToggleDefinitions();
     }
 
     /**
-     * Sets up categories for all toggles
+     * Initialize all toggle definitions with enhanced metadata
      */
-    private void initializeToggleCategories() {
+    private void initializeToggleDefinitions() {
         // Combat toggles
-        toggleCategories.put("Anti PVP", CATEGORY_COMBAT);
-        toggleCategories.put("Friendly Fire", CATEGORY_COMBAT);
-        toggleCategories.put("Chaotic", CATEGORY_COMBAT);
+        addToggleDefinition("Anti PVP", "Combat", "Prevents you from dealing damage to other players",
+                null, false, true, Material.IRON_SWORD);
+        addToggleDefinition("Friendly Fire", "Combat", "Allows damaging buddies and guild members",
+                null, false, false, Material.DIAMOND_SWORD);
+        addToggleDefinition("Chaotic Protection", "Combat", "Prevents accidentally attacking lawful players",
+                null, true, false, Material.SHIELD);
 
         // Display toggles
-        toggleCategories.put("Hologram Damage", CATEGORY_DISPLAY);
-        toggleCategories.put("Debug", CATEGORY_DISPLAY);
-        toggleCategories.put("Particles", CATEGORY_DISPLAY);
+        addToggleDefinition("Hologram Damage", "Display", "Shows floating damage numbers in combat",
+                null, false, true, Material.NAME_TAG);
+        addToggleDefinition("Debug Mode", "Display", "Shows detailed combat and system information",
+                null, false, false, Material.REDSTONE);
+        addToggleDefinition("Trail Effects", "Display", "Displays special particle trail effects",
+                "yakserver.donator", false, false, Material.FIREWORK_ROCKET);
+        addToggleDefinition("Particles", "Display", "Shows various particle effects",
+                "yakserver.donator", false, false, Material.BLAZE_POWDER);
 
         // System toggles
-        toggleCategories.put("Energy Disabled", CATEGORY_SYSTEM);
-        toggleCategories.put("Drop Protection", CATEGORY_SYSTEM);
-        toggleCategories.put("Auto Bank", CATEGORY_SYSTEM);
+        addToggleDefinition("Drop Protection", "System", "Protects your dropped items for 5 seconds",
+                null, false, true, Material.CHEST);
+        addToggleDefinition("Auto Bank", "System", "Automatically deposits gems into your bank",
+                "yakserver.donator.tier2", false, false, Material.GOLD_INGOT);
+        addToggleDefinition("Energy System", "System", "Enables/disables the energy/stamina system",
+                "yakserver.admin", true, true, Material.SUGAR);
+        addToggleDefinition("Disable Kit", "System", "Prevents receiving starter kits on respawn",
+                null, false, false, Material.LEATHER_CHESTPLATE);
 
         // Social toggles
-        toggleCategories.put("Trading", CATEGORY_SOCIAL);
+        addToggleDefinition("Trading", "Social", "Allows other players to send you trade requests",
+                null, false, true, Material.EMERALD);
+        addToggleDefinition("Player Messages", "Social", "Receive private messages from other players",
+                null, false, true, Material.PAPER);
+        addToggleDefinition("Guild Invites", "Social", "Receive guild invitation requests",
+                null, false, true, Material.BLUE_BANNER);
+        addToggleDefinition("Buddy Requests", "Social", "Receive buddy/friend requests",
+                null, false, true, Material.GOLDEN_APPLE);
+
+        // Audio toggles
+        addToggleDefinition("Sound Effects", "Audio", "Play UI and interaction sound effects",
+                null, false, true, Material.NOTE_BLOCK);
+        addToggleDefinition("Combat Sounds", "Audio", "Play enhanced combat sound effects",
+                null, false, true, Material.BELL);
+
+        logger.info("Initialized " + toggleDefinitions.size() + " toggle definitions");
     }
 
-    /**
-     * Sets up permissions required for toggles
-     */
-    private void initializeTogglePermissions() {
-        // Standard toggles - no special permissions
-        togglePermissions.put("Anti PVP", null);
-        togglePermissions.put("Friendly Fire", null);
-        togglePermissions.put("Hologram Damage", null);
-        togglePermissions.put("Debug", null);
-        togglePermissions.put("Trading", null);
-        togglePermissions.put("Drop Protection", null);
-        togglePermissions.put("Chaotic", null);
-
-        // Premium toggles
-        togglePermissions.put("Particles", "yakserver.donator");
-        togglePermissions.put("Auto Bank", "yakserver.donator.tier2");
-
-        // Admin toggles
-        togglePermissions.put("Energy Disabled", "yakserver.admin");
+    private void addToggleDefinition(String name, String category, String description, String permission,
+                                     boolean requiresConfirmation, boolean defaultValue, Material iconMaterial) {
+        toggleDefinitions.put(name, new ToggleDefinition(name, category, description, permission,
+                requiresConfirmation, defaultValue, iconMaterial));
     }
 
-    /**
-     * Sets up which toggles require confirmation
-     */
-    private void initializeSensitiveToggles() {
-        sensitiveToggles.add("Energy Disabled");
-        sensitiveToggles.add("Chaotic");
-    }
-
-    /**
-     * Gets the singleton instance
-     *
-     * @return The Toggles instance
-     */
     public static Toggles getInstance() {
         if (instance == null) {
             instance = new Toggles();
@@ -134,49 +178,58 @@ public class Toggles implements Listener {
         return instance;
     }
 
-    /**
-     * Initialize the toggle system
-     */
     public void onEnable() {
         Bukkit.getServer().getPluginManager().registerEvents(this, YakRealms.getInstance());
-        YakRealms.log("Toggles system has been enabled.");
+
+        // Start cleanup task for expired confirmations
+        Bukkit.getScheduler().runTaskTimerAsynchronously(YakRealms.getInstance(), () -> {
+            cleanupExpiredConfirmations();
+        }, 20L * 30, 20L * 30); // Every 30 seconds
+
+        YakRealms.log("Enhanced Toggles system has been enabled.");
     }
 
-    /**
-     * Clean up on disable
-     */
     public void onDisable() {
         confirmationMap.clear();
-        confirmationTimestamps.clear();
-        YakRealms.log("Toggles system has been disabled.");
+        YakRealms.log("Enhanced Toggles system has been disabled.");
     }
 
     /**
-     * Check if a toggle is enabled for a player
-     *
-     * @param player The player to check
-     * @param toggle The toggle name
-     * @return true if the toggle is enabled
+     * Clean up expired confirmations
+     */
+    private void cleanupExpiredConfirmations() {
+        confirmationMap.entrySet().removeIf(entry ->
+                entry.getValue().isExpired(CONFIRMATION_EXPIRY));
+    }
+
+    /**
+     * Enhanced toggle checking with null safety
      */
     public static boolean isToggled(Player player, String toggle) {
+        if (player == null || toggle == null) return false;
+
         YakPlayer yakPlayer = getInstance().playerManager.getPlayer(player);
-        return yakPlayer != null && yakPlayer.isToggled(toggle);
+        if (yakPlayer == null) return false;
+
+        // Check if toggle exists and get default value
+        ToggleDefinition def = getInstance().toggleDefinitions.get(toggle);
+        if (def == null) return false;
+
+        return yakPlayer.isToggled(toggle);
     }
 
     /**
-     * Set a toggle state for a player
-     *
-     * @param player  The player to update
-     * @param toggle  The toggle name
-     * @param enabled The new state
-     * @return true if the toggle was changed, false if not authorized
+     * Enhanced toggle setting with validation
      */
     public static boolean setToggle(Player player, String toggle, boolean enabled) {
+        if (player == null || toggle == null) return false;
+
         Toggles toggles = getInstance();
+        ToggleDefinition def = toggles.toggleDefinitions.get(toggle);
+        if (def == null) return false;
 
         // Check permission
-        String permission = toggles.togglePermissions.get(toggle);
-        if (permission != null && !player.hasPermission(permission)) {
+        if (def.permission != null && !player.hasPermission(def.permission)) {
             player.sendMessage(ChatColor.RED + "You don't have permission to use the " + toggle + " toggle.");
             return false;
         }
@@ -184,274 +237,354 @@ public class Toggles implements Listener {
         YakPlayer yakPlayer = toggles.playerManager.getPlayer(player);
         if (yakPlayer == null) return false;
 
-        if (enabled && !yakPlayer.isToggled(toggle)) {
+        boolean currentState = yakPlayer.isToggled(toggle);
+        if (currentState != enabled) {
             yakPlayer.toggleSetting(toggle);
-        } else if (!enabled && yakPlayer.isToggled(toggle)) {
-            yakPlayer.toggleSetting(toggle);
+            toggles.playerManager.savePlayer(yakPlayer);
+
+            // Send feedback with enhanced formatting
+            String status = enabled ? "§a§lEnabled" : "§c§lDisabled";
+            player.sendMessage("§6§l✦ §f" + toggle + " " + status);
+            player.playSound(player.getLocation(), Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 1.0f,
+                    enabled ? 1.2f : 0.8f);
         }
 
-        toggles.playerManager.savePlayer(yakPlayer);
         return true;
     }
 
     /**
-     * Change a toggle state (flip its current value)
-     *
-     * @param player The player to update
-     * @param toggle The toggle to flip
-     * @return true if the toggle was changed or confirmation is required, false if not authorized
+     * Enhanced toggle change with confirmation system
      */
     public boolean changeToggle(Player player, String toggle) {
-        YakPlayer yakPlayer = playerManager.getPlayer(player);
-        if (yakPlayer == null) return false;
+        if (player == null || toggle == null) return false;
 
-        // Check permission
-        String permission = togglePermissions.get(toggle);
-        if (permission != null && !player.hasPermission(permission)) {
-            player.sendMessage(ChatColor.RED + "You don't have permission to use the " + toggle + " toggle.");
+        ToggleDefinition def = toggleDefinitions.get(toggle);
+        if (def == null) {
+            player.sendMessage(ChatColor.RED + "Unknown toggle: " + toggle);
             return false;
         }
 
-        // Check if this requires confirmation
-        if (sensitiveToggles.contains(toggle)) {
-            UUID uuid = player.getUniqueId();
+        // Check permission
+        if (def.permission != null && !player.hasPermission(def.permission)) {
+            player.sendMessage(ChatColor.RED + "§l⚠ §cYou don't have permission to use the " + toggle + " toggle.");
+            player.sendMessage(ChatColor.GRAY + "Required permission: " + def.permission);
+            return false;
+        }
 
-            // If player has a pending confirmation for this toggle
-            if (confirmationMap.containsKey(uuid) && confirmationMap.get(uuid).equals(toggle)) {
-                // Check if confirmation has expired
-                Long timestamp = confirmationTimestamps.get(uuid);
-                if (timestamp != null && System.currentTimeMillis() - timestamp > CONFIRMATION_EXPIRY) {
+        YakPlayer yakPlayer = playerManager.getPlayer(player);
+        if (yakPlayer == null) return false;
+
+        UUID uuid = player.getUniqueId();
+        boolean currentState = yakPlayer.isToggled(toggle);
+
+        // Handle confirmation system for sensitive toggles
+        if (def.requiresConfirmation) {
+            PendingConfirmation pending = confirmationMap.get(uuid);
+
+            if (pending != null && pending.toggleName.equals(toggle)) {
+                if (pending.isExpired(CONFIRMATION_EXPIRY)) {
                     confirmationMap.remove(uuid);
-                    confirmationTimestamps.remove(uuid);
-
-                    player.sendMessage(ChatColor.YELLOW + "Confirmation expired. Click again to toggle " + toggle + ".");
+                    sendConfirmationRequest(player, toggle, currentState);
                     return true;
                 }
 
-                // Execute the toggle since it's confirmed
-                boolean currentState = yakPlayer.isToggled(toggle);
-                yakPlayer.toggleSetting(toggle);
-                playerManager.savePlayer(yakPlayer);
-
-                boolean newState = !currentState;
-
-                // Clear the confirmation
+                // Execute the confirmed toggle
                 confirmationMap.remove(uuid);
-                confirmationTimestamps.remove(uuid);
-
-                // Send feedback
-                player.sendMessage((newState ? ChatColor.GREEN : ChatColor.RED) + ChatColor.BOLD.toString() +
-                        "Toggle " + toggle + " - " + (newState ? "Enabled!" : "Disabled!"));
-                player.playSound(player.getLocation(), Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 1.0f, 0.5f);
-
+                executeToggleChange(player, yakPlayer, toggle, !currentState);
                 return true;
             } else {
-                // Require confirmation
-                confirmationMap.put(uuid, toggle);
-                confirmationTimestamps.put(uuid, System.currentTimeMillis());
-
-                player.sendMessage(ChatColor.YELLOW + "This is a sensitive toggle. Click again to confirm changing " + toggle + ".");
-                player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_PLING, 0.5f, 1.0f);
-
+                // Request confirmation
+                sendConfirmationRequest(player, toggle, currentState);
+                confirmationMap.put(uuid, new PendingConfirmation(toggle, currentState));
                 return true;
             }
         }
 
-        // Standard toggle (no confirmation needed)
-        boolean currentState = yakPlayer.isToggled(toggle);
-        yakPlayer.toggleSetting(toggle);
-        playerManager.savePlayer(yakPlayer);
-
-        boolean newState = !currentState;
-
-        // Send feedback
-        player.sendMessage((newState ? ChatColor.GREEN : ChatColor.RED) + ChatColor.BOLD.toString() +
-                "Toggle " + toggle + " - " + (newState ? "Enabled!" : "Disabled!"));
-        player.playSound(player.getLocation(), Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 1.0f, 0.5f);
-
+        // Execute toggle change immediately for non-sensitive toggles
+        executeToggleChange(player, yakPlayer, toggle, !currentState);
         return true;
     }
 
     /**
-     * Get a player's toggle menu
-     *
-     * @param player The player to create menu for
-     * @return The toggle menu inventory
+     * Send enhanced confirmation request
+     */
+    private void sendConfirmationRequest(Player player, String toggle, boolean currentState) {
+        ToggleDefinition def = toggleDefinitions.get(toggle);
+        String newState = !currentState ? "§a§lEnabled" : "§c§lDisabled";
+
+        player.sendMessage("");
+        player.sendMessage("§6§l⚠ CONFIRMATION REQUIRED ⚠");
+        player.sendMessage("§7You are about to change §f" + toggle + " §7to " + newState);
+        player.sendMessage("§7" + def.description);
+        player.sendMessage("");
+        player.sendMessage("§e§lClick the toggle again within 15 seconds to confirm.");
+        player.sendMessage("");
+
+        player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_PLING, 0.7f, 0.8f);
+    }
+
+    /**
+     * Execute the actual toggle change with enhanced feedback
+     */
+    private void executeToggleChange(Player player, YakPlayer yakPlayer, String toggle, boolean newState) {
+        yakPlayer.toggleSetting(toggle);
+        playerManager.savePlayer(yakPlayer);
+
+        ToggleDefinition def = toggleDefinitions.get(toggle);
+        String status = newState ? "§a§lEnabled" : "§c§lDisabled";
+        String icon = newState ? "§a✓" : "§c✗";
+
+        player.sendMessage("");
+        player.sendMessage("§6§l✦ TOGGLE UPDATED ✦");
+        player.sendMessage("§f" + toggle + " " + status);
+        player.sendMessage("§7" + def.description);
+        player.sendMessage("");
+
+        // Play appropriate sound
+        Sound sound = newState ? Sound.ENTITY_PLAYER_LEVELUP : Sound.BLOCK_NOTE_BLOCK_BASS;
+        float pitch = newState ? 1.5f : 0.8f;
+        player.playSound(player.getLocation(), sound, 0.8f, pitch);
+
+        // Special handling for certain toggles
+        handleSpecialToggleEffects(player, toggle, newState);
+    }
+
+    /**
+     * Handle special effects for certain toggles
+     */
+    private void handleSpecialToggleEffects(Player player, String toggle, boolean enabled) {
+        switch (toggle) {
+            case "Trail Effects":
+                if (enabled) {
+                    player.sendMessage("§a§l✨ §aTrail effects will now appear when you move!");
+                } else {
+                    player.sendMessage("§7Trail effects have been disabled.");
+                }
+                break;
+
+            case "Energy System":
+                if (!enabled) {
+                    player.sendMessage("§c§l⚠ §cEnergy system disabled - unlimited stamina!");
+                } else {
+                    player.sendMessage("§a§lEnergy system re-enabled!");
+                }
+                break;
+
+            case "Auto Bank":
+                if (enabled) {
+                    player.sendMessage("§6§l💰 §6Gems will now automatically deposit to your bank!");
+                } else {
+                    player.sendMessage("§7Auto-banking disabled.");
+                }
+                break;
+        }
+    }
+
+    /**
+     * Enhanced toggle menu with improved organization and visuals
      */
     public Inventory getToggleMenu(Player player) {
-        // Create a larger inventory with 45 slots (5 rows) to accommodate categories
-        Inventory inventory = Bukkit.createInventory(null, 45, "Toggle Settings");
+        Inventory inventory = Bukkit.createInventory(null, MENU_SIZE, "§6§l✦ §e§lTOGGLE SETTINGS §6§l✦");
+
         YakPlayer yakPlayer = playerManager.getPlayer(player);
         if (yakPlayer == null) return inventory;
 
-        // Get player's rank for permission-based toggles
-        Rank rank = ModerationMechanics.rankMap.getOrDefault(player.getUniqueId(), Rank.DEFAULT);
-        boolean isDonator = (rank != Rank.DEFAULT);
-        boolean isHighTierDonator = (rank == Rank.SUB2 || rank == Rank.SUB3 || rank == Rank.SUPPORTER ||
-                rank == Rank.YOUTUBER || ModerationMechanics.isStaff(player));
-        boolean isAdmin = ModerationMechanics.isStaff(player);
+        // Group toggles by category
+        Map<String, List<ToggleDefinition>> categories = toggleDefinitions.values().stream()
+                .collect(Collectors.groupingBy(def -> def.category));
 
-        // Add category headers
-        addCategoryHeader(inventory, CATEGORY_COMBAT, 0);
-        addCategoryHeader(inventory, CATEGORY_DISPLAY, 9);
-        addCategoryHeader(inventory, CATEGORY_SYSTEM, 18);
-        addCategoryHeader(inventory, CATEGORY_SOCIAL, 27);
+        int slot = 0;
 
-        // Combat toggles
-        addToggle(inventory, "Anti PVP", yakPlayer, 1, "Prevents you from dealing damage to other players");
-        addToggle(inventory, "Friendly Fire", yakPlayer, 2, "Allows damaging buddies and guild members");
-        addToggle(inventory, "Chaotic", yakPlayer, 3, "Prevents accidentally attacking lawful players");
+        // Add category sections
+        for (Map.Entry<String, List<ToggleDefinition>> entry : categories.entrySet()) {
+            String category = entry.getKey();
+            List<ToggleDefinition> categoryToggles = entry.getValue();
 
-        // Display toggles
-        addToggle(inventory, "Hologram Damage", yakPlayer, 10, "Shows damage numbers in combat");
-        addToggle(inventory, "Debug", yakPlayer, 11, "Shows extra combat information");
+            // Add category header
+            addCategoryHeader(inventory, category, slot);
+            slot += 9; // Move to next row
 
-        if (isDonator || player.hasPermission("yakserver.donator")) {
-            addToggle(inventory, "Particles", yakPlayer, 12, "Displays special particle effects");
-        } else {
-            addLockedToggle(inventory, "Particles", 12, "Requires Donator rank");
+            // Add toggles for this category
+            for (ToggleDefinition def : categoryToggles) {
+                if (hasPermissionForToggle(player, def)) {
+                    addToggleItem(inventory, def, yakPlayer, slot);
+                } else {
+                    addLockedToggleItem(inventory, def, slot);
+                }
+                slot++;
+
+                if (slot % 9 == 0) slot += 0; // Stay in same row until full
+            }
+
+            // Align to next row if not already
+            slot = ((slot / 9) + 1) * 9;
         }
 
-        // System toggles
-        addToggle(inventory, "Drop Protection", yakPlayer, 19, "Protects dropped items for a few seconds");
-
-        if (isHighTierDonator || player.hasPermission("yakserver.donator.tier2")) {
-            addToggle(inventory, "Auto Bank", yakPlayer, 20, "Automatically deposits gems in your bank");
-        } else {
-            addLockedToggle(inventory, "Auto Bank", 20, "Requires SUB2+ rank");
-        }
-
-        if (isAdmin || player.hasPermission("yakserver.admin")) {
-            addToggle(inventory, "Energy Disabled", yakPlayer, 21, "Disables the energy system");
-        }
-
-        // Social toggles
-        addToggle(inventory, "Trading", yakPlayer, 28, "Allows other players to trade with you");
-
-        // Add information button
-        addInfoButton(inventory, 44);
+        // Add decorative elements and info
+        addMenuDecorations(inventory);
+        addInfoButton(inventory, MENU_SIZE - 1);
 
         return inventory;
     }
 
     /**
-     * Add a category header to the inventory
-     *
-     * @param inventory The inventory to add to
-     * @param category  The category name
-     * @param slot      The inventory slot
+     * Add enhanced category header
      */
     private void addCategoryHeader(Inventory inventory, String category, int slot) {
-        ItemStack header = new ItemStack(Material.BLACK_STAINED_GLASS_PANE, 1);
+        Material headerMaterial = getCategoryMaterial(category);
+        ItemStack header = new ItemStack(headerMaterial);
         ItemMeta meta = header.getItemMeta();
-        meta.setDisplayName(ChatColor.GOLD + ChatColor.BOLD.toString() + category + " Toggles");
+
+        meta.setDisplayName("§6§l✦ " + category.toUpperCase() + " TOGGLES §6§l✦");
+
+        List<String> lore = new ArrayList<>();
+        lore.add("§7Settings related to " + category.toLowerCase());
+        lore.add("§8Click toggles below to change them");
+        meta.setLore(lore);
+
         header.setItemMeta(meta);
         inventory.setItem(slot, header);
     }
 
     /**
-     * Add a toggle button to an inventory
-     *
-     * @param inventory   The inventory to add to
-     * @param toggle      The toggle name
-     * @param yakPlayer   The player's data
-     * @param slot        The inventory slot
-     * @param description The toggle description
+     * Get material for category headers
      */
-    private void addToggle(Inventory inventory, String toggle, YakPlayer yakPlayer, int slot, String description) {
-        boolean isEnabled = yakPlayer.isToggled(toggle);
-        boolean isSensitive = sensitiveToggles.contains(toggle);
+    private Material getCategoryMaterial(String category) {
+        switch (category) {
+            case "Combat": return Material.IRON_SWORD;
+            case "Display": return Material.PAINTING;
+            case "System": return Material.REDSTONE_BLOCK;
+            case "Social": return Material.PLAYER_HEAD;
+            case "Audio": return Material.JUKEBOX;
+            default: return Material.BOOKSHELF;
+        }
+    }
 
-        // Choose material based on state and sensitivity
-        Material material;
-        if (isEnabled) {
-            material = isSensitive ? Material.LIME_CONCRETE : Material.LIME_DYE;
-        } else {
-            material = isSensitive ? Material.RED_CONCRETE : Material.GRAY_DYE;
+    /**
+     * Add enhanced toggle item
+     */
+    private void addToggleItem(Inventory inventory, ToggleDefinition def, YakPlayer yakPlayer, int slot) {
+        boolean isEnabled = yakPlayer.isToggled(def.name);
+
+        // Choose material and color based on state
+        Material material = isEnabled ? Material.LIME_DYE : Material.GRAY_DYE;
+        if (def.requiresConfirmation) {
+            material = isEnabled ? Material.LIME_CONCRETE : Material.RED_CONCRETE;
         }
 
-        ItemStack toggleItem = new ItemStack(material, 1);
-        ItemMeta meta = toggleItem.getItemMeta();
+        ItemStack item = new ItemStack(material);
+        ItemMeta meta = item.getItemMeta();
 
-        meta.setDisplayName((isEnabled ? ChatColor.GREEN : ChatColor.RED) + toggle);
+        // Enhanced naming with status
+        String status = isEnabled ? "§a§lEnabled" : "§c§lDisabled";
+        String icon = isEnabled ? "§a✓" : "§c✗";
+        meta.setDisplayName(icon + " §f§l" + def.name + " " + status);
 
+        // Enhanced lore
         List<String> lore = new ArrayList<>();
-        lore.add(ChatColor.GRAY + description);
+        lore.add("§7" + def.description);
+        lore.add("");
+        lore.add("§8Category: §7" + def.category);
 
-        // Add category to lore
-        String category = toggleCategories.getOrDefault(toggle, "Other");
-        lore.add(ChatColor.YELLOW + "Category: " + category);
-
-        // Add sensitivity warning if applicable
-        if (isSensitive) {
+        if (def.requiresConfirmation) {
             lore.add("");
-            lore.add(ChatColor.RED + "This toggle requires confirmation to change");
+            lore.add("§c§l⚠ §cSensitive Setting");
+            lore.add("§7Requires confirmation to change");
         }
 
+        lore.add("");
+        lore.add("§e§lClick to " + (isEnabled ? "disable" : "enable"));
+
         meta.setLore(lore);
-        toggleItem.setItemMeta(meta);
-        inventory.setItem(slot, toggleItem);
+        item.setItemMeta(meta);
+
+        inventory.setItem(slot, item);
     }
 
     /**
-     * Add a locked toggle button to an inventory
-     *
-     * @param inventory  The inventory to add to
-     * @param toggle     The toggle name
-     * @param slot       The inventory slot
-     * @param lockReason The reason the toggle is locked
+     * Add locked toggle item with enhanced visuals
      */
-    private void addLockedToggle(Inventory inventory, String toggle, int slot, String lockReason) {
-        ItemStack toggleItem = new ItemStack(Material.BARRIER, 1);
-        ItemMeta meta = toggleItem.getItemMeta();
+    private void addLockedToggleItem(Inventory inventory, ToggleDefinition def, int slot) {
+        ItemStack item = new ItemStack(Material.BARRIER);
+        ItemMeta meta = item.getItemMeta();
 
-        meta.setDisplayName(ChatColor.DARK_GRAY + toggle + " " + ChatColor.RED + "(Locked)");
+        meta.setDisplayName("§c§l🔒 " + def.name + " §8(Locked)");
 
         List<String> lore = new ArrayList<>();
-        lore.add(ChatColor.RED + lockReason);
-
-        // Add category to lore
-        String category = toggleCategories.getOrDefault(toggle, "Other");
-        lore.add(ChatColor.YELLOW + "Category: " + category);
+        lore.add("§7" + def.description);
+        lore.add("");
+        lore.add("§8Category: §7" + def.category);
+        lore.add("");
+        lore.add("§c§lRequired Permission:");
+        lore.add("§7" + def.permission);
+        lore.add("");
+        lore.add("§8Contact staff for access");
 
         meta.setLore(lore);
-        toggleItem.setItemMeta(meta);
-        inventory.setItem(slot, toggleItem);
+        item.setItemMeta(meta);
+
+        inventory.setItem(slot, item);
     }
 
     /**
-     * Add an information button to the inventory
-     *
-     * @param inventory The inventory to add to
-     * @param slot      The inventory slot
+     * Add menu decorations
+     */
+    private void addMenuDecorations(Inventory inventory) {
+        ItemStack glass = new ItemStack(Material.BLACK_STAINED_GLASS_PANE);
+        ItemMeta glassMeta = glass.getItemMeta();
+        glassMeta.setDisplayName("§8");
+        glass.setItemMeta(glassMeta);
+
+        // Fill empty border slots
+        for (int i = 0; i < MENU_SIZE; i++) {
+            if (inventory.getItem(i) == null && (i < 9 || i >= MENU_SIZE - 9 || i % 9 == 0 || i % 9 == 8)) {
+                inventory.setItem(i, glass);
+            }
+        }
+    }
+
+    /**
+     * Add enhanced info button
      */
     private void addInfoButton(Inventory inventory, int slot) {
-        ItemStack infoItem = new ItemStack(Material.BOOK, 1);
-        ItemMeta meta = infoItem.getItemMeta();
+        ItemStack info = new ItemStack(Material.BOOK);
+        ItemMeta meta = info.getItemMeta();
 
-        meta.setDisplayName(ChatColor.AQUA + "Toggle Information");
+        meta.setDisplayName("§b§l📖 Toggle Information");
 
         List<String> lore = new ArrayList<>();
-        lore.add(ChatColor.GRAY + "Click a toggle to enable or disable it");
-        lore.add(ChatColor.GRAY + "Green toggles are enabled");
-        lore.add(ChatColor.GRAY + "Gray toggles are disabled");
-        lore.add(ChatColor.GRAY + "Red barriers are locked toggles");
+        lore.add("§7Click any toggle to enable or disable it");
+        lore.add("§7§lColors:");
+        lore.add("  §a§l✓ Green §7- Enabled");
+        lore.add("  §c§l✗ Red §7- Disabled");
+        lore.add("  §8🔒 Barrier §7- Locked (requires permission)");
         lore.add("");
-        lore.add(ChatColor.YELLOW + "Some toggles require specific ranks");
-        lore.add(ChatColor.YELLOW + "Some toggles require confirmation");
+        lore.add("§6§lSpecial Toggles:");
+        lore.add("§7Some toggles require confirmation");
+        lore.add("§7and may have additional requirements");
+        lore.add("");
+        lore.add("§8Total toggles: " + toggleDefinitions.size());
 
         meta.setLore(lore);
-        infoItem.setItemMeta(meta);
-        inventory.setItem(slot, infoItem);
+        info.setItemMeta(meta);
+
+        inventory.setItem(slot, info);
     }
 
     /**
-     * Handle clicks in the toggle menu
+     * Check if player has permission for a toggle
      */
-    @EventHandler
+    private boolean hasPermissionForToggle(Player player, ToggleDefinition def) {
+        return def.permission == null || player.hasPermission(def.permission);
+    }
+
+    /**
+     * Enhanced inventory click handler
+     */
+    @EventHandler(priority = EventPriority.NORMAL)
     public void onToggleClick(InventoryClickEvent event) {
         if (!(event.getWhoClicked() instanceof Player)) return;
-        if (!event.getView().getTitle().equals("Toggle Settings")) return;
+        if (!event.getView().getTitle().contains("TOGGLE SETTINGS")) return;
 
         event.setCancelled(true);
 
@@ -460,40 +593,58 @@ public class Toggles implements Listener {
 
         if (clickedItem == null || !clickedItem.hasItemMeta()) return;
 
-        // Check if it's a category header or info button
+        String displayName = ChatColor.stripColor(clickedItem.getItemMeta().getDisplayName());
+
+        // Skip decorative items
         if (clickedItem.getType() == Material.BLACK_STAINED_GLASS_PANE ||
-                clickedItem.getType() == Material.BOOK) {
+                clickedItem.getType() == Material.BOOK ||
+                displayName.contains("TOGGLES")) {
             return;
         }
 
-        // Check if it's a locked toggle
+        // Handle locked toggles
         if (clickedItem.getType() == Material.BARRIER) {
-            String name = ChatColor.stripColor(clickedItem.getItemMeta().getDisplayName());
-            name = name.replace(" (Locked)", "");
-
+            String toggleName = extractToggleName(displayName);
             player.playSound(player.getLocation(), Sound.BLOCK_ANVIL_LAND, 0.5f, 1.0f);
-            player.sendMessage(ChatColor.RED + "You don't have access to the " + name + " toggle.");
+            player.sendMessage("§c§l🔒 §cYou don't have access to the §f" + toggleName + " §ctoggle.");
             return;
         }
 
-        // Process toggle click - accept any valid toggle material
-        if (clickedItem.getType() == Material.LIME_DYE ||
-                clickedItem.getType() == Material.GRAY_DYE ||
-                clickedItem.getType() == Material.LIME_CONCRETE ||
-                clickedItem.getType() == Material.RED_CONCRETE) {
-
-            String toggleName = ChatColor.stripColor(clickedItem.getItemMeta().getDisplayName());
-
-            // Handle toggle change
+        // Process toggle click
+        String toggleName = extractToggleName(displayName);
+        if (toggleName != null && toggleDefinitions.containsKey(toggleName)) {
             if (changeToggle(player, toggleName)) {
-                // Update the inventory if toggle was changed or requires confirmation
-                player.openInventory(getToggleMenu(player));
+                // Refresh the menu after a short delay
+                Bukkit.getScheduler().runTaskLater(YakRealms.getInstance(), () -> {
+                    if (player.isOnline()) {
+                        player.openInventory(getToggleMenu(player));
+                    }
+                }, 5L);
             }
         }
     }
 
     /**
-     * Handle PVP based on toggle settings
+     * Extract toggle name from display name
+     */
+    private String extractToggleName(String displayName) {
+        // Remove status indicators and formatting
+        displayName = displayName.replaceAll("^[✓✗🔒]\\s*", "")
+                .replaceAll("\\s+(Enabled|Disabled|\\(Locked\\)).*$", "")
+                .trim();
+
+        // Find matching toggle definition
+        for (String toggleName : toggleDefinitions.keySet()) {
+            if (displayName.equals(toggleName)) {
+                return toggleName;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Enhanced PVP damage handler with better messaging
      */
     @EventHandler(priority = EventPriority.LOWEST)
     public void onPvpDamage(EntityDamageByEntityEvent event) {
@@ -508,160 +659,150 @@ public class Toggles implements Listener {
 
         if (damagerData == null || victimData == null) return;
 
-        // Check for duels or other PVP exceptions
-        // if (isDueling(damager, victim)) return;
-
-        // Check various PVP-prevention scenarios
+        // Enhanced PVP prevention with better feedback
         if (damagerData.isToggled("Anti PVP")) {
             event.setCancelled(true);
-            damager.sendMessage(ChatColor.RED + "You have PVP disabled (/toggle)");
+            damager.sendMessage("§c§l⚠ §cYou have PVP disabled! §7Use §f/toggle §7to enable it.");
+            damager.playSound(damager.getLocation(), Sound.BLOCK_NOTE_BLOCK_BASS, 1.0f, 0.5f);
             return;
         }
 
-        // Check victim's trading toggle if applicable
         if (victimData.isToggled("Anti PVP")) {
             event.setCancelled(true);
-            damager.sendMessage(ChatColor.RED + victim.getName() + " has PVP disabled");
+            damager.sendMessage("§c§l⚠ §f" + victim.getName() + " §chas PVP disabled!");
+            damager.playSound(damager.getLocation(), Sound.BLOCK_NOTE_BLOCK_BASS, 1.0f, 0.5f);
             return;
         }
 
-        // Friendly fire check (buddies)
+        // Enhanced buddy protection
         if (damagerData.isBuddy(victim.getName()) && !damagerData.isToggled("Friendly Fire")) {
             event.setCancelled(true);
-            damager.sendMessage(ChatColor.RED + "You cannot attack your buddy. Enable Friendly Fire to do this.");
+            damager.sendMessage("§c§l⚠ §cYou cannot attack your buddy §f" + victim.getName() + "§c!");
+            damager.sendMessage("§7Enable §fFriendly Fire §7in §f/toggle §7to allow this.");
             return;
         }
 
-        // Guild/party check
-        if (isInSameGuild(damager, victim)) {
-            if (!damagerData.isToggled("Friendly Fire")) {
-                event.setCancelled(true);
-                damager.sendMessage(ChatColor.RED + "You cannot attack your guild member. Enable Friendly Fire to do this.");
-                return;
-            }
-        }
-
-        if (isInSameParty(damager, victim)) {
-            if (!damagerData.isToggled("Friendly Fire")) {
-                event.setCancelled(true);
-                damager.sendMessage(ChatColor.RED + "You cannot attack your party member. Enable Friendly Fire to do this.");
-                return;
-            }
-        }
-
-        // Chaotic protection (prevents attacking lawful players)
-        if (damagerData.isToggled("Chaotic") && isLawfulPlayer(victim)) {
+        // Enhanced guild protection
+        if (isInSameGuild(damager, victim) && !damagerData.isToggled("Friendly Fire")) {
             event.setCancelled(true);
-            damager.sendMessage(ChatColor.RED + "You have Chaotic protection enabled. Disable it to attack lawful players.");
+            damager.sendMessage("§c§l⚠ §cYou cannot attack your guild member §f" + victim.getName() + "§c!");
+            damager.sendMessage("§7Enable §fFriendly Fire §7in §f/toggle §7to allow this.");
+            return;
+        }
+
+        // Enhanced chaotic protection
+        if (damagerData.isToggled("Chaotic Protection") && isLawfulPlayer(victim)) {
+            event.setCancelled(true);
+            damager.sendMessage("§c§l⚠ §cChaotic Protection prevented you from attacking §f" + victim.getName() + "§c!");
+            damager.sendMessage("§7This player is lawful. Disable §fChaotic Protection §7to attack them.");
             return;
         }
     }
 
     /**
-     * Check if a player is lawful (non-chaotic)
-     *
-     * @param player The player to check
-     * @return true if the player is lawful
+     * Enhanced player join handler with improved defaults
      */
-    private boolean isLawfulPlayer(Player player) {
-        YakPlayer yakPlayer = playerManager.getPlayer(player);
-        return yakPlayer != null && "LAWFUL".equals(yakPlayer.getAlignment());
-    }
-
-    /**
-     * Check if two players are in the same guild
-     *
-     * @param player1 The first player
-     * @param player2 The second player
-     * @return true if they're in the same guild
-     */
-    private boolean isInSameGuild(Player player1, Player player2) {
-        YakPlayer yakPlayer1 = playerManager.getPlayer(player1);
-        YakPlayer yakPlayer2 = playerManager.getPlayer(player2);
-
-        if (yakPlayer1 == null || yakPlayer2 == null) return false;
-
-        String guild1 = yakPlayer1.getGuildName();
-        String guild2 = yakPlayer2.getGuildName();
-
-        return guild1 != null && !guild1.isEmpty() && guild1.equals(guild2);
-    }
-
-    /**
-     * Check if two players are in the same party
-     *
-     * @param player1 The first player
-     * @param player2 The second player
-     * @return true if they're in the same party
-     */
-    private boolean isInSameParty(Player player1, Player player2) {
-        // This would integrate with your party system
-        // For now, returning false
-        return false;
-    }
-
-    /**
-     * Initialize default toggles for new players
-     */
-    @EventHandler
+    @EventHandler(priority = EventPriority.MONITOR)
     public void onPlayerJoin(PlayerJoinEvent event) {
         Player player = event.getPlayer();
         YakPlayer yakPlayer = playerManager.getPlayer(player);
 
         if (yakPlayer != null && yakPlayer.getToggleSettings().isEmpty()) {
-            // Set default toggles for new players
-            yakPlayer.toggleSetting("Hologram Damage"); // On by default
-            yakPlayer.toggleSetting("Drop Protection"); // On by default
-            yakPlayer.toggleSetting("Anti PVP"); // On by default for new players
+            // Set enhanced default toggles
+            setDefaultToggles(yakPlayer);
             playerManager.savePlayer(yakPlayer);
 
-            // Send welcome message
+            // Send enhanced welcome message
             Bukkit.getScheduler().runTaskLater(YakRealms.getInstance(), () -> {
                 if (player.isOnline()) {
-                    player.sendMessage(ChatColor.GREEN + "Default toggles have been set. Use /toggle to customize your settings.");
+                    sendWelcomeMessage(player);
                 }
-            }, 60L); // 3 seconds later
+            }, 60L);
         }
     }
 
     /**
-     * Command to open the toggle menu
-     *
-     * @param player The player to show the menu to
+     * Set default toggles for new players
+     */
+    private void setDefaultToggles(YakPlayer yakPlayer) {
+        for (ToggleDefinition def : toggleDefinitions.values()) {
+            if (def.defaultValue) {
+                yakPlayer.toggleSetting(def.name);
+            }
+        }
+    }
+
+    /**
+     * Send enhanced welcome message
+     */
+    private void sendWelcomeMessage(Player player) {
+        player.sendMessage("");
+        player.sendMessage("§6§l✦ §e§lWELCOME TO YAK REALMS §6§l✦");
+        player.sendMessage("§7Your toggle settings have been initialized!");
+        player.sendMessage("§7Use §f/toggle §7to customize your experience.");
+        player.sendMessage("");
+        player.playSound(player.getLocation(), Sound.ENTITY_PLAYER_LEVELUP, 0.7f, 1.2f);
+    }
+
+    // Utility methods
+    private boolean isLawfulPlayer(Player player) {
+        YakPlayer yakPlayer = playerManager.getPlayer(player);
+        return yakPlayer != null && "LAWFUL".equals(yakPlayer.getAlignment());
+    }
+
+    private boolean isInSameGuild(Player player1, Player player2) {
+        YakPlayer yakPlayer1 = playerManager.getPlayer(player1);
+        YakPlayer yakPlayer2 = playerManager.getPlayer(player2);
+
+        if (yakPlayer1 == null || yakPlayer2 == null) return false;
+//
+        //String guild1 = yakPlayer1.getGuildName();
+        // guild2 = yakPlayer2.getGuildName();
+
+        return false;
+    }
+
+    /**
+     * Open enhanced toggle menu
      */
     public void openToggleMenu(Player player) {
         player.openInventory(getToggleMenu(player));
-        player.playSound(player.getLocation(), Sound.BLOCK_CHEST_OPEN, 0.5f, 1.0f);
+        player.playSound(player.getLocation(), Sound.BLOCK_ENDER_CHEST_OPEN, 0.7f, 1.0f);
     }
 
     /**
-     * Get all available toggles for a player
-     *
-     * @param player The player to check
-     * @return A list of toggle names
+     * Get available toggles for a player
      */
     public List<String> getAvailableToggles(Player player) {
-        List<String> available = new ArrayList<>();
-
-        for (String toggle : toggleCategories.keySet()) {
-            String permission = togglePermissions.get(toggle);
-            if (permission == null || player.hasPermission(permission)) {
-                available.add(toggle);
-            }
-        }
-
-        return available;
+        return toggleDefinitions.values().stream()
+                .filter(def -> hasPermissionForToggle(player, def))
+                .map(def -> def.name)
+                .collect(Collectors.toList());
     }
 
     /**
-     * Check if a player has permission to use a toggle
-     *
-     * @param player The player to check
-     * @param toggle The toggle name
-     * @return true if the player can use the toggle
+     * Check if player can use a toggle
      */
     public boolean canUseToggle(Player player, String toggle) {
-        String permission = togglePermissions.get(toggle);
-        return permission == null || player.hasPermission(permission);
+        ToggleDefinition def = toggleDefinitions.get(toggle);
+        return def != null && hasPermissionForToggle(player, def);
+    }
+
+    /**
+     * Get toggle definition
+     */
+    public ToggleDefinition getToggleDefinition(String toggle) {
+        return toggleDefinitions.get(toggle);
+    }
+
+    /**
+     * Get toggles by category
+     */
+    public Map<String, List<String>> getTogglesByCategory() {
+        return toggleDefinitions.values().stream()
+                .collect(Collectors.groupingBy(
+                        def -> def.category,
+                        Collectors.mapping(def -> def.name, Collectors.toList())
+                ));
     }
 }

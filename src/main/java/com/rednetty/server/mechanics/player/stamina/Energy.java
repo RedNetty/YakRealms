@@ -3,71 +3,105 @@ package com.rednetty.server.mechanics.player.stamina;
 import com.rednetty.server.YakRealms;
 import com.rednetty.server.mechanics.player.YakPlayer;
 import com.rednetty.server.mechanics.player.YakPlayerManager;
-import com.rednetty.server.mechanics.world.WorldGuardManager;
+import com.rednetty.server.mechanics.player.stats.PlayerStatsCalculator;
+import com.rednetty.server.utils.ui.ActionBarUtil;
 import org.bukkit.Bukkit;
+import org.bukkit.ChatColor;
 import org.bukkit.GameMode;
 import org.bukkit.Sound;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
-import org.bukkit.event.Event;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.Action;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
+import org.bukkit.event.player.PlayerJoinEvent;
+import org.bukkit.event.player.PlayerMoveEvent;
+import org.bukkit.event.player.PlayerToggleSprintEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.metadata.FixedMetadataValue;
 import org.bukkit.potion.PotionEffect;
 import org.bukkit.potion.PotionEffectType;
 import org.bukkit.scheduler.BukkitRunnable;
+import org.bukkit.scheduler.BukkitTask;
 
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.logging.Logger;
 
 /**
- * Manages player energy mechanics - a stamina system that affects
- * combat and movement capabilities.
+ * Enhanced energy/stamina system with improved performance, visual feedback,
+ * and better gameplay balance.
  */
 public class Energy implements Listener {
     private static Energy instance;
     private final YakPlayerManager playerManager;
     private final Logger logger;
 
-    // Configuration constants
+    // Enhanced configuration with balance improvements
     private static final int MAX_ENERGY = 100;
-    private static final int ENERGY_UPDATE_INTERVAL = 1; // ticks
-    private static final int ENERGY_REDUCTION_INTERVAL = 4; // ticks
-    private static final int BASE_ENERGY_REGEN = 2;
-    private static final float BASE_ENERGY_INCREASE = 100.0f;
-    private static final float ENERGY_PER_ARMOR_PIECE = 7.5f;
-    private static final float ENERGY_INCREASE_PER_INTEL = 0.02f;
-    private static final int ENERGY_REDUCTION_AMOUNT = 85;
-    private static final float ENERGY_REDUCTION_MULTIPLIER = 3.2f;
-    private static final int FATIGUE_DURATION = 40; // ticks (2 seconds)
-    private static final int FATIGUE_AMPLIFIER = 5;
-    private static final long REGEN_DELAY = 2000L; // milliseconds
+    private static final int MIN_ENERGY = 0;
+    private static final float BASE_REGEN_RATE = 2.0f;
+    private static final float BASE_SPRINT_COST = 1.5f;
+    private static final float BASE_COMBAT_COST = 3.0f;
+    private static final long REGEN_DELAY_AFTER_COMBAT = 2000L; // 2 seconds
+    private static final long REGEN_DELAY_AFTER_SPRINT = 1000L; // 1 second
+    private static final int FATIGUE_DURATION = 60; // 3 seconds in ticks
+    private static final int LOW_ENERGY_THRESHOLD = 20;
+    private static final int CRITICAL_ENERGY_THRESHOLD = 5;
 
-    // In-memory caches
-    private final Map<UUID, Long> attackCooldowns = new ConcurrentHashMap<>();
+    // Enhanced timing and intervals
+    private static final int ENERGY_UPDATE_INTERVAL = 1; // Every tick for smooth updates
+    private static final int SPRINT_DRAIN_INTERVAL = 4; // Every 4 ticks for sprinting
+    private static final int DISPLAY_UPDATE_INTERVAL = 5; // Every 5 ticks for UI updates
+
+    // Performance tracking
+    private final AtomicInteger totalEnergyOperations = new AtomicInteger(0);
+    private final AtomicLong lastPerformanceLog = new AtomicLong(0);
+
+    // Enhanced caching and state management
     private final Map<UUID, Long> energyRegenCooldowns = new ConcurrentHashMap<>();
-    public final Map<UUID, Long> noDamage = new ConcurrentHashMap<>();
+    private final Map<UUID, Long> lastSprintTime = new ConcurrentHashMap<>();
+    private final Map<UUID, Long> lastCombatTime = new ConcurrentHashMap<>();
+    private final Map<UUID, Integer> cachedEnergyValues = new ConcurrentHashMap<>();
+    private final Map<UUID, Long> lastEnergyUpdate = new ConcurrentHashMap<>();
+    private final Map<UUID, Boolean> lowEnergyWarningShown = new ConcurrentHashMap<>();
+
+    // Enhanced weapon energy costs with better balance
+    private final Map<String, WeaponEnergyData> weaponEnergyCosts = new ConcurrentHashMap<>();
+
+    // Task management
+    private BukkitTask energyRegenTask;
+    private BukkitTask sprintDrainTask;
+    private BukkitTask displayUpdateTask;
+    private BukkitTask performanceTask;
 
     /**
-     * Private constructor for singleton pattern
+     * Enhanced weapon energy data
      */
+    private static class WeaponEnergyData {
+        final int swingCost;
+        final int hitCost;
+        final float speedMultiplier;
+
+        WeaponEnergyData(int swingCost, int hitCost, float speedMultiplier) {
+            this.swingCost = swingCost;
+            this.hitCost = hitCost;
+            this.speedMultiplier = speedMultiplier;
+        }
+    }
+
     private Energy() {
         this.playerManager = YakPlayerManager.getInstance();
         this.logger = YakRealms.getInstance().getLogger();
+        initializeWeaponData();
     }
 
-    /**
-     * Gets the singleton instance
-     *
-     * @return The Energy instance
-     */
     public static Energy getInstance() {
         if (instance == null) {
             instance = new Energy();
@@ -76,443 +110,568 @@ public class Energy implements Listener {
     }
 
     /**
-     * Initialize the energy system
+     * Initialize weapon energy costs with enhanced balance
      */
+    private void initializeWeaponData() {
+        // Swords - balanced for versatility
+        weaponEnergyCosts.put("WOODEN_SWORD", new WeaponEnergyData(2, 6, 1.0f));
+        weaponEnergyCosts.put("STONE_SWORD", new WeaponEnergyData(3, 7, 1.0f));
+        weaponEnergyCosts.put("IRON_SWORD", new WeaponEnergyData(3, 8, 1.0f));
+        weaponEnergyCosts.put("DIAMOND_SWORD", new WeaponEnergyData(4, 9, 1.0f));
+        weaponEnergyCosts.put("NETHERITE_SWORD", new WeaponEnergyData(4, 10, 1.0f));
+        weaponEnergyCosts.put("GOLDEN_SWORD", new WeaponEnergyData(2, 8, 1.2f));
+
+        // Axes - higher damage, higher cost
+        weaponEnergyCosts.put("WOODEN_AXE", new WeaponEnergyData(4, 10, 0.8f));
+        weaponEnergyCosts.put("STONE_AXE", new WeaponEnergyData(4, 11, 0.8f));
+        weaponEnergyCosts.put("IRON_AXE", new WeaponEnergyData(5, 12, 0.8f));
+        weaponEnergyCosts.put("DIAMOND_AXE", new WeaponEnergyData(5, 13, 0.8f));
+        weaponEnergyCosts.put("NETHERITE_AXE", new WeaponEnergyData(6, 14, 0.8f));
+        weaponEnergyCosts.put("GOLDEN_AXE", new WeaponEnergyData(4, 12, 1.0f));
+
+        // Tools as weapons - lower efficiency
+        weaponEnergyCosts.put("WOODEN_SHOVEL", new WeaponEnergyData(3, 8, 0.9f));
+        weaponEnergyCosts.put("STONE_SHOVEL", new WeaponEnergyData(3, 8, 0.9f));
+        weaponEnergyCosts.put("IRON_SHOVEL", new WeaponEnergyData(4, 9, 0.9f));
+        weaponEnergyCosts.put("DIAMOND_SHOVEL", new WeaponEnergyData(4, 10, 0.9f));
+        weaponEnergyCosts.put("NETHERITE_SHOVEL", new WeaponEnergyData(5, 11, 0.9f));
+
+        // Hoes as staves - magic weapons
+        weaponEnergyCosts.put("WOODEN_HOE", new WeaponEnergyData(3, 7, 1.1f));
+        weaponEnergyCosts.put("STONE_HOE", new WeaponEnergyData(3, 8, 1.1f));
+        weaponEnergyCosts.put("IRON_HOE", new WeaponEnergyData(4, 9, 1.1f));
+        weaponEnergyCosts.put("DIAMOND_HOE", new WeaponEnergyData(4, 10, 1.1f));
+        weaponEnergyCosts.put("NETHERITE_HOE", new WeaponEnergyData(5, 11, 1.1f));
+
+        logger.info("Initialized energy costs for " + weaponEnergyCosts.size() + " weapon types");
+    }
+
     public void onEnable() {
         Bukkit.getServer().getPluginManager().registerEvents(this, YakRealms.getInstance());
-        startEnergyTasks();
-        YakRealms.log("Energy system has been enabled.");
+        startEnhancedTasks();
+        YakRealms.log("Enhanced Energy system has been enabled.");
     }
 
-    /**
-     * Clean up on disable
-     */
     public void onDisable() {
-        attackCooldowns.clear();
-        energyRegenCooldowns.clear();
-        noDamage.clear();
-        YakRealms.log("Energy system has been disabled.");
+        stopAllTasks();
+        clearAllCaches();
+        YakRealms.log("Enhanced Energy system has been disabled.");
     }
 
     /**
-     * Start the energy update and reduction tasks
+     * Start enhanced task system with better performance
      */
-    private void startEnergyTasks() {
-        // Energy regeneration task
-        new BukkitRunnable() {
+    private void startEnhancedTasks() {
+        // Energy regeneration task - smooth and frequent
+        energyRegenTask = new BukkitRunnable() {
             @Override
             public void run() {
-                for (Player player : Bukkit.getOnlinePlayers()) {
-                    YakPlayer yakPlayer = playerManager.getPlayer(player);
-                    if (yakPlayer == null) continue;
-
-                    UUID uuid = player.getUniqueId();
-
-                    // Skip if player is in energy cooldown
-                    if (energyRegenCooldowns.containsKey(uuid) &&
-                            System.currentTimeMillis() - energyRegenCooldowns.get(uuid) < REGEN_DELAY) {
-                        continue;
-                    }
-
-                    // Calculate energy regeneration
-                    float energy = BASE_ENERGY_INCREASE;
-                    int addedEnergy = 0;
-
-                    // Check armor for energy regen bonuses
-                    for (ItemStack armor : player.getInventory().getArmorContents()) {
-                        if (armor != null && armor.getType().name().contains("_") &&
-                                armor.hasItemMeta() && armor.getItemMeta().hasLore()) {
-                            addedEnergy += getEnergyRegenFromItem(armor);
-                            int addedIntel = getElementalAttributeFromItem(armor, "INT");
-
-                            if (addedIntel > 0) {
-                                addedEnergy += Math.round(addedIntel * ENERGY_INCREASE_PER_INTEL);
-                            }
-
-                            energy += addedEnergy * ENERGY_PER_ARMOR_PIECE;
-                        }
-                    }
-
-                    // Apply energy regen
-                    if (getEnergy(yakPlayer) < MAX_ENERGY) {
-                        float energyRegen = energy / MAX_ENERGY;
-                        setEnergy(yakPlayer, getEnergy(yakPlayer) + energyRegen);
-                    }
-                }
+                processEnergyRegeneration();
             }
         }.runTaskTimerAsynchronously(YakRealms.getInstance(), 0, ENERGY_UPDATE_INTERVAL);
 
-        // Energy reduction while sprinting task
-        new BukkitRunnable() {
+        // Sprint energy drain task
+        sprintDrainTask = new BukkitRunnable() {
             @Override
             public void run() {
-                for (Player player : Bukkit.getOnlinePlayers()) {
-                    YakPlayer yakPlayer = playerManager.getPlayer(player);
-                    if (yakPlayer == null) continue;
-
-                    // Skip if player is not sprinting or has energy disabled
-                    if (!player.isSprinting() || isEnergyDisabled(yakPlayer) ||
-                            isSafeZone(player.getLocation())) {
-                        continue;
-                    }
-
-                    // Calculate energy reduction
-                    float energyReduction = BASE_ENERGY_INCREASE + ENERGY_REDUCTION_AMOUNT;
-                    energyReduction *= ENERGY_REDUCTION_MULTIPLIER;
-                    float adjustedReduction = energyReduction / MAX_ENERGY;
-
-                    // Apply energy reduction
-                    if (getEnergy(yakPlayer) > 0) {
-                        setEnergy(yakPlayer, getEnergy(yakPlayer) - adjustedReduction);
-                    }
-
-                    // Apply fatigue if energy is depleted
-                    if (getEnergy(yakPlayer) <= 0) {
-                        setEnergy(yakPlayer, 0);
-                        energyRegenCooldowns.put(player.getUniqueId(), System.currentTimeMillis());
-                        applyFatigue(player);
-                    }
-                }
+                processSprintEnergyDrain();
             }
-        }.runTaskTimerAsynchronously(YakRealms.getInstance(), 0, ENERGY_REDUCTION_INTERVAL);
+        }.runTaskTimerAsynchronously(YakRealms.getInstance(), 0, SPRINT_DRAIN_INTERVAL);
+
+        // Display update task - less frequent to reduce overhead
+        displayUpdateTask = new BukkitRunnable() {
+            @Override
+            public void run() {
+                updateEnergyDisplays();
+            }
+        }.runTaskTimer(YakRealms.getInstance(), 0, DISPLAY_UPDATE_INTERVAL);
+
+        // Performance monitoring task
+        performanceTask = new BukkitRunnable() {
+            @Override
+            public void run() {
+                logPerformanceMetrics();
+            }
+        }.runTaskTimerAsynchronously(YakRealms.getInstance(), 20 * 60, 20 * 60); // Every minute
+
+        logger.info("Started enhanced energy task system");
     }
 
     /**
-     * Apply the fatigue effect to a player
-     *
-     * @param player The player to apply fatigue to
+     * Process energy regeneration with enhanced logic
      */
-    private void applyFatigue(Player player) {
+    private void processEnergyRegeneration() {
+        long currentTime = System.currentTimeMillis();
+
+        for (Player player : Bukkit.getOnlinePlayers()) {
+            if (!shouldProcessPlayer(player)) continue;
+
+            YakPlayer yakPlayer = playerManager.getPlayer(player);
+            if (yakPlayer == null) continue;
+
+            UUID uuid = player.getUniqueId();
+
+            // Check regeneration cooldowns
+            if (isInRegenCooldown(uuid, currentTime)) continue;
+
+            // Calculate current energy
+            int currentEnergy = getEnergy(yakPlayer);
+            if (currentEnergy >= MAX_ENERGY) continue;
+
+            // Calculate regeneration rate
+            float regenRate = calculateRegenRate(player, yakPlayer);
+
+            // Apply regeneration
+            float newEnergy = Math.min(MAX_ENERGY, currentEnergy + regenRate);
+            setEnergy(yakPlayer, newEnergy);
+
+            // Clear low energy warning if recovered
+            if (currentEnergy < LOW_ENERGY_THRESHOLD && newEnergy >= LOW_ENERGY_THRESHOLD) {
+                lowEnergyWarningShown.remove(uuid);
+            }
+
+            totalEnergyOperations.incrementAndGet();
+        }
+    }
+
+    /**
+     * Process sprint energy drain with smooth consumption
+     */
+    private void processSprintEnergyDrain() {
+        long currentTime = System.currentTimeMillis();
+
+        for (Player player : Bukkit.getOnlinePlayers()) {
+            if (!shouldProcessPlayer(player) || !player.isSprinting()) continue;
+
+            YakPlayer yakPlayer = playerManager.getPlayer(player);
+            if (yakPlayer == null) continue;
+
+            UUID uuid = player.getUniqueId();
+            int currentEnergy = getEnergy(yakPlayer);
+
+            if (currentEnergy <= MIN_ENERGY) {
+                handleEnergyDepletion(player, yakPlayer);
+                continue;
+            }
+
+            // Calculate sprint cost with modifiers
+            float sprintCost = calculateSprintCost(player, yakPlayer);
+
+            // Apply sprint drain
+            float newEnergy = Math.max(MIN_ENERGY, currentEnergy - sprintCost);
+            setEnergy(yakPlayer, newEnergy);
+
+            // Update last sprint time
+            lastSprintTime.put(uuid, currentTime);
+
+            // Handle low energy warnings
+            handleLowEnergyWarnings(player, (int) newEnergy);
+
+            totalEnergyOperations.incrementAndGet();
+        }
+    }
+
+    /**
+     * Update energy displays for all players
+     */
+    private void updateEnergyDisplays() {
+        for (Player player : Bukkit.getOnlinePlayers()) {
+            YakPlayer yakPlayer = playerManager.getPlayer(player);
+            if (yakPlayer == null) continue;
+
+            updatePlayerEnergyDisplay(player, yakPlayer);
+        }
+    }
+
+    /**
+     * Calculate enhanced regeneration rate
+     */
+    private float calculateRegenRate(Player player, YakPlayer yakPlayer) {
+        float baseRegen = BASE_REGEN_RATE;
+
+        // Equipment bonuses
+        float equipmentBonus = 0;
+        for (ItemStack armor : player.getInventory().getArmorContents()) {
+            if (PlayerStatsCalculator.hasValidItemStats(armor)) {
+                equipmentBonus += getEnergyRegenFromItem(armor);
+
+                // Intelligence bonus
+                int intelligence = PlayerStatsCalculator.getElementalAttribute(armor, "INT");
+                equipmentBonus += intelligence * 0.02f;
+            }
+        }
+
+        // Player level bonus
+        int playerLevel = yakPlayer.getLevel();
+        float levelBonus = playerLevel * 0.1f;
+
+        // Resting bonus (not moving)
+        float restingBonus = 0;
+        if (!player.isSprinting() && player.getVelocity().lengthSquared() < 0.01) {
+            restingBonus = baseRegen * 0.5f; // 50% bonus when resting
+        }
+
+        return baseRegen + equipmentBonus + levelBonus + restingBonus;
+    }
+
+    /**
+     * Calculate enhanced sprint cost
+     */
+    private float calculateSprintCost(Player player, YakPlayer yakPlayer) {
+        float baseCost = BASE_SPRINT_COST;
+
+        // Armor weight penalty
+        float armorPenalty = 0;
+        for (ItemStack armor : player.getInventory().getArmorContents()) {
+            if (armor != null && armor.getType().name().contains("_")) {
+                String materialName = armor.getType().name();
+                if (materialName.contains("DIAMOND") || materialName.contains("NETHERITE")) {
+                    armorPenalty += 0.3f;
+                } else if (materialName.contains("IRON")) {
+                    armorPenalty += 0.2f;
+                } else if (materialName.contains("CHAIN")) {
+                    armorPenalty += 0.1f;
+                }
+            }
+        }
+
+        // Dexterity bonus (reduces cost)
+        int dexterity = PlayerStatsCalculator.calculateTotalAttribute(player, "DEX");
+        float dexterityBonus = dexterity * 0.01f; // 1% reduction per dexterity point
+
+        return Math.max(0.5f, baseCost + armorPenalty - dexterityBonus);
+    }
+
+    /**
+     * Handle energy depletion with enhanced effects
+     */
+    private void handleEnergyDepletion(Player player, YakPlayer yakPlayer) {
+        UUID uuid = player.getUniqueId();
+
+        // Force stop sprinting
+        player.setSprinting(false);
+
+        // Apply enhanced fatigue effect
         Bukkit.getScheduler().runTask(YakRealms.getInstance(), () -> {
             player.addPotionEffect(new PotionEffect(
-                    PotionEffectType.SLOW_DIGGING,
-                    FATIGUE_DURATION,
-                    FATIGUE_AMPLIFIER,
-                    false,
-                    true
+                    PotionEffectType.SLOW_DIGGING, FATIGUE_DURATION, 3, false, true
             ));
-            player.setSprinting(false);
-            player.playSound(player.getLocation(), Sound.ENTITY_WOLF_PANT, 0.5f, 1.5f);
+            player.addPotionEffect(new PotionEffect(
+                    PotionEffectType.SLOW, FATIGUE_DURATION / 2, 1, false, true
+            ));
+        });
+
+        // Enhanced audio and visual feedback
+        player.playSound(player.getLocation(), Sound.ENTITY_PLAYER_HURT_DROWN, 0.7f, 0.8f);
+
+        // Set regeneration cooldown
+        energyRegenCooldowns.put(uuid, System.currentTimeMillis() + REGEN_DELAY_AFTER_COMBAT);
+
+        // Action bar message
+        if (ActionBarUtil.class != null) {
+            ActionBarUtil.addTemporaryMessage(player, "§c§lExhausted! §7Rest to recover energy...", 60L);
+        } else {
+            player.sendMessage("§c§lExhausted! §7Rest to recover energy...");
+        }
+    }
+
+    /**
+     * Handle low energy warnings
+     */
+    private void handleLowEnergyWarnings(Player player, int energy) {
+        UUID uuid = player.getUniqueId();
+
+        if (energy <= CRITICAL_ENERGY_THRESHOLD && !lowEnergyWarningShown.getOrDefault(uuid, false)) {
+            player.sendMessage("§c§l⚠ CRITICAL ENERGY! §7Stop sprinting to recover!");
+            player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_PLING, 1.0f, 0.5f);
+            lowEnergyWarningShown.put(uuid, true);
+        } else if (energy <= LOW_ENERGY_THRESHOLD && !lowEnergyWarningShown.getOrDefault(uuid, false)) {
+            player.sendMessage("§e§l⚠ Low Energy! §7Consider resting soon.");
+            player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_PLING, 0.5f, 1.0f);
+            lowEnergyWarningShown.put(uuid, true);
+        }
+    }
+
+    /**
+     * Enhanced energy display update
+     */
+    private void updatePlayerEnergyDisplay(Player player, YakPlayer yakPlayer) {
+        if (!player.isOnline()) return;
+
+        int energy = getEnergy(yakPlayer);
+
+        // Use experience bar for energy display
+        float expBar = (float) energy / MAX_ENERGY;
+        int expLevel = energy;
+
+        // Color-coded level display
+        if (energy <= CRITICAL_ENERGY_THRESHOLD) {
+            // Red for critical
+            expLevel = energy;
+        } else if (energy <= LOW_ENERGY_THRESHOLD) {
+            // Yellow for low
+            expLevel = energy;
+        } else {
+            // Normal display
+            expLevel = energy;
+        }
+
+        int finalExpLevel = expLevel;
+        Bukkit.getScheduler().runTask(YakRealms.getInstance(), () -> {
+            player.setExp(expBar);
+            player.setLevel(finalExpLevel);
         });
     }
 
     /**
-     * Get energy regen value from an item
-     *
-     * @param item The item to check
-     * @return The energy regen value
+     * Enhanced weapon energy calculation
      */
-    private int getEnergyRegenFromItem(ItemStack item) {
-        if (item != null && item.getType().name().contains("_") &&
-                item.hasItemMeta() && item.getItemMeta().hasLore()) {
-            for (String line : item.getItemMeta().getLore()) {
-                if (line.contains("ENERGY REGEN")) {
-                    try {
-                        return Integer.parseInt(line.split(": ")[1].split("%")[0]);
-                    } catch (Exception e) {
-                        return 0;
-                    }
-                }
-            }
+    private int calculateWeaponEnergyCost(ItemStack weapon, boolean isHit) {
+        if (weapon == null) return isHit ? 6 : 3;
+
+        String weaponType = weapon.getType().name();
+        WeaponEnergyData weaponData = weaponEnergyCosts.get(weaponType);
+
+        if (weaponData == null) {
+            // Default costs for unknown weapons
+            return isHit ? 6 : 3;
         }
-        return 0;
+
+        return isHit ? weaponData.hitCost : weaponData.swingCost;
     }
 
     /**
-     * Get an elemental attribute from an item
-     *
-     * @param item      The item to check
-     * @param attribute The attribute name (e.g., "INT")
-     * @return The attribute value
-     */
-    private int getElementalAttributeFromItem(ItemStack item, String attribute) {
-        if (item != null && item.getType().name().contains("_") &&
-                item.hasItemMeta() && item.getItemMeta().hasLore()) {
-            for (String line : item.getItemMeta().getLore()) {
-                if (line.contains(attribute + ":")) {
-                    try {
-                        return Integer.parseInt(line.split(": ")[1]);
-                    } catch (Exception e) {
-                        return 0;
-                    }
-                }
-            }
-        }
-        return 0;
-    }
-
-    /**
-     * Calculate energy cost based on weapon type
-     *
-     * @param item        The weapon item
-     * @param isActualHit Whether this is an actual hit or just a swing
-     * @return The energy cost
-     */
-    private int calculateWeaponEnergyCost(ItemStack item, boolean isActualHit) {
-        if (item == null || !item.hasItemMeta() || !item.getItemMeta().hasDisplayName()) {
-            return isActualHit ? 6 : 3;
-        }
-
-        String materialName = item.getType().name();
-        int cost;
-
-        if (isActualHit) {
-            // Actual hit costs
-            if (materialName.contains("WOODEN") || materialName.contains("WOOD")) {
-                if (materialName.contains("SWORD") || materialName.contains("SHOVEL") || materialName.contains("SPADE") || materialName.contains("HOE")) {
-                    cost = 8;
-                } else { // AXE
-                    cost = 10;
-                }
-            } else if (materialName.contains("STONE")) {
-                if (materialName.contains("SWORD") || materialName.contains("HOE")) {
-                    cost = 10;
-                } else { // AXE or SHOVEL
-                    cost = 11;
-                }
-            } else if (materialName.contains("IRON")) {
-                if (materialName.contains("SWORD")) {
-                    cost = 11;
-                } else if (materialName.contains("HOE") || materialName.contains("SHOVEL") || materialName.contains("SPADE")) {
-                    cost = 12;
-                } else { // AXE
-                    cost = 13;
-                }
-            } else if (materialName.contains("DIAMOND")) {
-                if (materialName.contains("SWORD")) {
-                    cost = 12;
-                } else if (materialName.contains("HOE") || materialName.contains("SHOVEL") || materialName.contains("SPADE")) {
-                    cost = 13;
-                } else { // AXE
-                    cost = 14;
-                }
-            } else if (materialName.contains("GOLDEN") || materialName.contains("GOLD")) {
-                if (materialName.contains("SWORD")) {
-                    cost = 13;
-                } else if (materialName.contains("HOE") || materialName.contains("SHOVEL") || materialName.contains("SPADE")) {
-                    cost = 16;
-                } else { // AXE
-                    cost = 14;
-                }
-            } else {
-                cost = 12; // Default for other materials
-            }
-        } else {
-            // Swing costs
-            if (materialName.contains("WOODEN") || materialName.contains("WOOD")) {
-                cost = 3;
-            } else if (materialName.contains("STONE")) {
-                if (materialName.contains("SWORD")) {
-                    cost = 3;
-                } else { // AXE/SHOVEL
-                    cost = 4;
-                }
-            } else if (materialName.contains("IRON")) {
-                if (materialName.contains("SWORD")) {
-                    cost = 4;
-                } else { // AXE/SHOVEL
-                    cost = 6;
-                }
-            } else if (materialName.contains("DIAMOND") || materialName.contains("GOLD") || materialName.contains("GOLDEN")) {
-                if (materialName.contains("SWORD") || materialName.contains("SHOVEL") || materialName.contains("SPADE") || materialName.contains("HOE")) {
-                    cost = 8;
-                } else { // AXE
-                    cost = 10;
-                }
-            } else {
-                cost = 6; // Default for other materials
-            }
-        }
-
-        return cost;
-    }
-
-    /**
-     * Get a player's current energy level
-     *
-     * @param yakPlayer The player to check
-     * @return The player's energy level (0-100)
+     * Enhanced energy management methods
      */
     public int getEnergy(YakPlayer yakPlayer) {
         Object energy = yakPlayer.getTemporaryData("energy");
-        return energy != null ? (Integer) energy : MAX_ENERGY;
+        if (energy instanceof Integer) {
+            return (Integer) energy;
+        }
+        return MAX_ENERGY; // Default to full energy
     }
 
-    /**
-     * Set a player's energy level
-     *
-     * @param yakPlayer The player to update
-     * @param energy    The new energy value
-     */
     public void setEnergy(YakPlayer yakPlayer, float energy) {
-        // Clamp energy between 0 and MAX_ENERGY
-        int clampedEnergy = Math.max(0, Math.min(MAX_ENERGY, (int) energy));
-
-        // Update the data in YakPlayer
+        int clampedEnergy = Math.max(MIN_ENERGY, Math.min(MAX_ENERGY, (int) energy));
         yakPlayer.setTemporaryData("energy", clampedEnergy);
 
-        // Update visual indicators if player is online
-        Player player = yakPlayer.getBukkitPlayer();
-        if (player != null && player.isOnline()) {
-            // Use experience bar to display energy level
-            player.setExp((float) clampedEnergy / MAX_ENERGY);
-            player.setLevel(clampedEnergy);
+        // Cache the value for performance
+        UUID uuid = yakPlayer.getUUID();
+        if (uuid != null) {
+            cachedEnergyValues.put(uuid, clampedEnergy);
+            lastEnergyUpdate.put(uuid, System.currentTimeMillis());
         }
     }
 
-    /**
-     * Remove energy from a player
-     *
-     * @param player The player to remove energy from
-     * @param amount The amount of energy to remove
-     */
     public void removeEnergy(Player player, int amount) {
+        if (amount <= 0) return;
+
         YakPlayer yakPlayer = playerManager.getPlayer(player);
         if (yakPlayer == null) return;
 
-        // Skip in safe zones or if energy is disabled
-        if (isSafeZone(player.getLocation()) ||
-                player.getGameMode() == GameMode.CREATIVE ||
-                isEnergyDisabled(yakPlayer)) {
+        // Skip if energy is disabled or in creative mode
+        if (yakPlayer.isToggled("Energy Disabled") || player.getGameMode() == GameMode.CREATIVE) {
             return;
         }
 
-        // Check for cooldown
-        if (player.hasMetadata("lastenergy") &&
-                System.currentTimeMillis() - player.getMetadata("lastenergy").get(0).asLong() < ENERGY_UPDATE_INTERVAL) {
+        UUID uuid = player.getUniqueId();
+        long currentTime = System.currentTimeMillis();
+
+        // Rate limiting
+        Long lastUpdate = lastEnergyUpdate.get(uuid);
+        if (lastUpdate != null && currentTime - lastUpdate < 50) { // 50ms limit
             return;
         }
 
-        // Set cooldown
-        player.setMetadata("lastenergy", new FixedMetadataValue(YakRealms.getInstance(), System.currentTimeMillis()));
-
-        // Calculate and set new energy level
+        // Apply energy reduction
         int currentEnergy = getEnergy(yakPlayer);
-        int newEnergy = Math.max(0, currentEnergy - amount);
+        int newEnergy = Math.max(MIN_ENERGY, currentEnergy - amount);
         setEnergy(yakPlayer, newEnergy);
 
-        // Apply fatigue if energy is depleted
-        if (newEnergy <= 0) {
-            energyRegenCooldowns.put(player.getUniqueId(), System.currentTimeMillis());
-            applyFatigue(player);
+        // Set regeneration cooldown
+        energyRegenCooldowns.put(uuid, currentTime + REGEN_DELAY_AFTER_COMBAT);
+        lastCombatTime.put(uuid, currentTime);
+
+        // Handle depletion
+        if (newEnergy <= MIN_ENERGY) {
+            handleEnergyDepletion(player, yakPlayer);
         }
+
+        totalEnergyOperations.incrementAndGet();
     }
 
-    /**
-     * Check if energy system is disabled for a player
-     *
-     * @param yakPlayer The player to check
-     * @return true if energy is disabled
-     */
-    private boolean isEnergyDisabled(YakPlayer yakPlayer) {
-        return WorldGuardManager.getInstance().isSafeZone(yakPlayer.getLocation());
-    }
+    // Event handlers with enhanced functionality
 
-    /**
-     * Check if a location is in a safe zone
-     *
-     * @param location The location to check
-     * @return true if the location is in a safe zone
-     */
-    private boolean isSafeZone(org.bukkit.Location location) {
-        // This would integrate with your alignment/territory system
-        // For now, returning false as we don't have the integration yet
-        return false;
-    }
-
-    /**
-     * Handles energy consumption for player attacks (left-click)
-     */
     @EventHandler(priority = EventPriority.LOWEST)
-    public void onEnergyUse(PlayerInteractEvent event) {
+    public void onPlayerInteract(PlayerInteractEvent event) {
         if (event.getAction() != Action.LEFT_CLICK_AIR && event.getAction() != Action.LEFT_CLICK_BLOCK) {
             return;
         }
 
         Player player = event.getPlayer();
-        UUID uuid = player.getUniqueId();
         YakPlayer yakPlayer = playerManager.getPlayer(player);
-
         if (yakPlayer == null) return;
 
-        // Check attack cooldown
-        if (noDamage.containsKey(uuid) &&
-                System.currentTimeMillis() - noDamage.get(uuid) < ENERGY_UPDATE_INTERVAL) {
-            event.setUseItemInHand(Event.Result.DENY);
-            event.setCancelled(true);
-            return;
-        }
+        ItemStack weapon = player.getInventory().getItemInMainHand();
+        if (weapon == null) return;
 
-        // Get item in hand
-        ItemStack itemInHand = player.getInventory().getItemInMainHand();
-        if (itemInHand == null) return;
-
-        // Calculate energy cost based on weapon type
-        int energyCost = calculateWeaponEnergyCost(itemInHand, false);
-
-        // Remove energy
-        if (energyCost > 0 && getEnergy(yakPlayer) > 0) {
-            removeEnergy(player, energyCost);
-        }
-
-        // Handle energy depletion
-        if (getEnergy(yakPlayer) <= 0) {
-            setEnergy(yakPlayer, 0);
-            energyRegenCooldowns.put(uuid, System.currentTimeMillis());
-            applyFatigue(player);
-        }
+        // Calculate and apply energy cost
+        int energyCost = calculateWeaponEnergyCost(weapon, false);
+        removeEnergy(player, energyCost);
     }
 
-    /**
-     * Handles energy consumption for actual damage events
-     */
     @EventHandler(priority = EventPriority.LOWEST)
-    public void onEnergyUseDamage(EntityDamageByEntityEvent event) {
+    public void onEntityDamage(EntityDamageByEntityEvent event) {
         if (!(event.getDamager() instanceof Player) || !(event.getEntity() instanceof LivingEntity)) {
             return;
         }
 
         Player player = (Player) event.getDamager();
-        UUID uuid = player.getUniqueId();
         YakPlayer yakPlayer = playerManager.getPlayer(player);
-
         if (yakPlayer == null) return;
 
-        // Check attack cooldown
-        if (noDamage.containsKey(uuid) &&
-                System.currentTimeMillis() - noDamage.get(uuid) < ENERGY_UPDATE_INTERVAL) {
-            event.setCancelled(true);
-            event.setDamage(0.0);
-            return;
+        ItemStack weapon = player.getInventory().getItemInMainHand();
+        int energyCost = calculateWeaponEnergyCost(weapon, true);
+
+        removeEnergy(player, energyCost);
+    }
+
+    @EventHandler
+    public void onPlayerToggleSprint(PlayerToggleSprintEvent event) {
+        Player player = event.getPlayer();
+        UUID uuid = player.getUniqueId();
+
+        if (event.isSprinting()) {
+            lastSprintTime.put(uuid, System.currentTimeMillis());
+        } else {
+            // Set regeneration delay when stopping sprint
+            energyRegenCooldowns.put(uuid, System.currentTimeMillis() + REGEN_DELAY_AFTER_SPRINT);
         }
+    }
 
-        // Check if player has the fatigue effect
-        if (player.hasPotionEffect(PotionEffectType.SLOW_DIGGING)) {
-            event.setCancelled(true);
-            event.setDamage(0.0);
-            return;
+    @EventHandler
+    public void onPlayerJoin(PlayerJoinEvent event) {
+        Player player = event.getPlayer();
+        YakPlayer yakPlayer = playerManager.getPlayer(player);
+
+        if (yakPlayer != null) {
+            // Initialize energy display
+            Bukkit.getScheduler().runTaskLater(YakRealms.getInstance(), () -> {
+                updatePlayerEnergyDisplay(player, yakPlayer);
+            }, 10L);
         }
+    }
 
-        // Set the attack cooldown
-        noDamage.put(uuid, System.currentTimeMillis());
+    // Utility methods
 
-        // Get item in hand
-        ItemStack itemInHand = player.getInventory().getItemInMainHand();
-        if (itemInHand == null) return;
+    private boolean shouldProcessPlayer(Player player) {
+        return player != null && player.isOnline() &&
+                player.getGameMode() != GameMode.CREATIVE &&
+                player.getGameMode() != GameMode.SPECTATOR;
+    }
 
-        // Calculate energy cost based on weapon type
-        int energyCost = calculateWeaponEnergyCost(itemInHand, true);
+    private boolean isInRegenCooldown(UUID uuid, long currentTime) {
+        Long cooldownTime = energyRegenCooldowns.get(uuid);
+        return cooldownTime != null && currentTime < cooldownTime;
+    }
 
-        // Remove energy
-        if (energyCost > 0 && getEnergy(yakPlayer) > 0) {
-            removeEnergy(player, energyCost);
+    private int getEnergyRegenFromItem(ItemStack item) {
+        if (!PlayerStatsCalculator.hasValidItemStats(item)) return 0;
+
+        for (String line : item.getItemMeta().getLore()) {
+            if (line.contains("ENERGY REGEN")) {
+                try {
+                    return Integer.parseInt(line.split(": ")[1].split("%")[0]);
+                } catch (Exception e) {
+                    return 0;
+                }
+            }
         }
+        return 0;
+    }
 
-        // Handle energy depletion
-        if (getEnergy(yakPlayer) <= 0) {
-            setEnergy(yakPlayer, 0);
-            energyRegenCooldowns.put(uuid, System.currentTimeMillis());
-            applyFatigue(player);
+    private void logPerformanceMetrics() {
+        long currentTime = System.currentTimeMillis();
+        long lastLog = lastPerformanceLog.getAndSet(currentTime);
+
+        if (lastLog > 0) {
+            int operations = totalEnergyOperations.getAndSet(0);
+            long timeDiff = currentTime - lastLog;
+
+            if (operations > 0) {
+                double opsPerSecond = (operations * 1000.0) / timeDiff;
+                logger.info("Energy System Performance: " + String.format("%.1f", opsPerSecond) + " ops/sec, " +
+                        "Active players: " + Bukkit.getOnlinePlayers().size() +
+                        ", Cache size: " + cachedEnergyValues.size());
+            }
+        }
+    }
+
+    private void stopAllTasks() {
+        if (energyRegenTask != null && !energyRegenTask.isCancelled()) {
+            energyRegenTask.cancel();
+        }
+        if (sprintDrainTask != null && !sprintDrainTask.isCancelled()) {
+            sprintDrainTask.cancel();
+        }
+        if (displayUpdateTask != null && !displayUpdateTask.isCancelled()) {
+            displayUpdateTask.cancel();
+        }
+        if (performanceTask != null && !performanceTask.isCancelled()) {
+            performanceTask.cancel();
+        }
+    }
+
+    private void clearAllCaches() {
+        energyRegenCooldowns.clear();
+        lastSprintTime.clear();
+        lastCombatTime.clear();
+        cachedEnergyValues.clear();
+        lastEnergyUpdate.clear();
+        lowEnergyWarningShown.clear();
+    }
+
+    // Public API methods
+
+    public boolean hasEnergy(Player player, int amount) {
+        YakPlayer yakPlayer = playerManager.getPlayer(player);
+        return yakPlayer != null && getEnergy(yakPlayer) >= amount;
+    }
+
+    public void restoreEnergy(Player player, int amount) {
+        YakPlayer yakPlayer = playerManager.getPlayer(player);
+        if (yakPlayer == null) return;
+
+        int currentEnergy = getEnergy(yakPlayer);
+        setEnergy(yakPlayer, currentEnergy + amount);
+
+        player.sendMessage("§a§l+ " + amount + " Energy!");
+        player.playSound(player.getLocation(), Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 1.0f, 1.5f);
+    }
+
+    public float getEnergyPercentage(Player player) {
+        YakPlayer yakPlayer = playerManager.getPlayer(player);
+        if (yakPlayer == null) return 1.0f;
+
+        return (float) getEnergy(yakPlayer) / MAX_ENERGY;
+    }
+
+    public boolean isEnergyDepleted(Player player) {
+        YakPlayer yakPlayer = playerManager.getPlayer(player);
+        return yakPlayer != null && getEnergy(yakPlayer) <= MIN_ENERGY;
+    }
+
+    public void setEnergyEnabled(Player player, boolean enabled) {
+        YakPlayer yakPlayer = playerManager.getPlayer(player);
+        if (yakPlayer == null) return;
+
+        yakPlayer.setEnergyDisabled(!enabled);
+
+        if (enabled) {
+            setEnergy(yakPlayer, MAX_ENERGY);
+            player.sendMessage("§a§lEnergy system enabled!");
+        } else {
+            player.sendMessage("§c§lEnergy system disabled!");
         }
     }
 }
