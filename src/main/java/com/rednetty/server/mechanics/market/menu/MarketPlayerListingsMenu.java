@@ -1,5 +1,6 @@
 package com.rednetty.server.mechanics.market.menu;
 
+import com.rednetty.server.YakRealms;
 import com.rednetty.server.mechanics.market.MarketItem;
 import com.rednetty.server.mechanics.market.MarketManager;
 import com.rednetty.server.utils.menu.Menu;
@@ -18,7 +19,7 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
 /**
- * Menu for viewing and managing player's market listings
+ * Menu for viewing and managing player's market listings with chat integration
  */
 public class MarketPlayerListingsMenu extends Menu {
     private final MarketManager marketManager;
@@ -74,7 +75,7 @@ public class MarketPlayerListingsMenu extends Menu {
         CompletableFuture<List<MarketItem>> future = marketManager.getPlayerListings(getPlayer().getUniqueId());
 
         future.thenAccept(listings -> {
-            getPlugin().getServer().getScheduler().runTask(getPlugin(), () -> {
+            YakRealms.getInstance().getServer().getScheduler().runTask(YakRealms.getInstance(), () -> {
                 if (isOpen()) {
                     this.playerListings = listings;
                     this.isLoading = false;
@@ -83,7 +84,7 @@ public class MarketPlayerListingsMenu extends Menu {
                 }
             });
         }).exceptionally(throwable -> {
-            getPlugin().getServer().getScheduler().runTask(getPlugin(), () -> {
+            YakRealms.getInstance().getServer().getScheduler().runTask(YakRealms.getInstance(), () -> {
                 if (isOpen()) {
                     this.isLoading = false;
                     displayError();
@@ -136,6 +137,10 @@ public class MarketPlayerListingsMenu extends Menu {
             displayName = ChatColor.GOLD + "⭐ " + displayName;
         }
 
+        if (listing.isExpired()) {
+            displayName = ChatColor.RED + "[EXPIRED] " + displayName;
+        }
+
         List<String> lore = new ArrayList<>();
 
         // Original lore
@@ -151,11 +156,16 @@ public class MarketPlayerListingsMenu extends Menu {
         lore.add(ChatColor.GRAY + "Amount: " + ChatColor.WHITE + listing.getAmount());
         lore.add(ChatColor.GRAY + "Views: " + ChatColor.WHITE + listing.getViews());
         lore.add(ChatColor.GRAY + "Listed: " + ChatColor.WHITE + getTimeAgo(listing.getListedTime()));
-        lore.add(ChatColor.GRAY + "Expires: " + ChatColor.WHITE + listing.getFormattedTimeRemaining());
 
         if (listing.isExpired()) {
-            lore.add("");
-            lore.add(ChatColor.RED + "⚠ This listing has expired!");
+            lore.add(ChatColor.RED + "Status: " + ChatColor.DARK_RED + "EXPIRED");
+            lore.add(ChatColor.GRAY + "This listing is no longer visible to buyers.");
+        } else {
+            lore.add(ChatColor.GRAY + "Expires: " + ChatColor.WHITE + listing.getFormattedTimeRemaining());
+        }
+
+        if (listing.isFeatured()) {
+            lore.add(ChatColor.GOLD + "★ Featured Listing");
         }
 
         lore.add("");
@@ -171,56 +181,8 @@ public class MarketPlayerListingsMenu extends Menu {
 
         return new MenuItem(displayItem).setClickHandler((player, slot) -> {
             player.playSound(player.getLocation(), Sound.UI_BUTTON_CLICK, 1.0f, 1.0f);
-            confirmRemoval(player, listing);
-        });
-    }
-
-    private void confirmRemoval(Player player, MarketItem listing) {
-        player.closeInventory();
-
-        player.sendMessage("");
-        player.sendMessage(ChatColor.YELLOW + "⚡ Confirm Removal");
-        player.sendMessage("");
-        player.sendMessage(ChatColor.GRAY + "Item: " + ChatColor.WHITE + listing.getDisplayName());
-        player.sendMessage(ChatColor.GRAY + "Price: " + ChatColor.GREEN + TextUtil.formatNumber(listing.getPrice()) + " gems");
-        player.sendMessage("");
-        player.sendMessage(ChatColor.RED + "Remove this listing from the market?");
-        player.sendMessage(ChatColor.GRAY + "The item will be returned to your inventory.");
-        player.sendMessage("");
-        player.sendMessage(ChatColor.GREEN + "Type " + ChatColor.YELLOW + "confirm" + ChatColor.GREEN + " to remove");
-        player.sendMessage(ChatColor.RED + "Type " + ChatColor.YELLOW + "cancel" + ChatColor.RED + " to go back");
-        player.sendMessage("");
-
-        // TODO: Implement chat listener for confirmation
-        // For now, automatically remove
-        processRemoval(player, listing);
-    }
-
-    private void processRemoval(Player player, MarketItem listing) {
-        marketManager.removeItemListing(player, listing.getItemId()).thenAccept(result -> {
-            getPlugin().getServer().getScheduler().runTask(getPlugin(), () -> {
-                switch (result) {
-                    case SUCCESS:
-                        player.sendMessage(ChatColor.GREEN + "✓ Listing removed successfully!");
-                        player.playSound(player.getLocation(), Sound.ENTITY_ITEM_PICKUP, 1.0f, 1.2f);
-                        // Refresh the menu
-                        loadPlayerListings();
-                        break;
-                    case ITEM_NOT_FOUND:
-                        player.sendMessage(ChatColor.RED + "✗ Listing not found!");
-                        loadPlayerListings(); // Refresh to remove the item
-                        break;
-                    case INVENTORY_FULL:
-                        player.sendMessage(ChatColor.RED + "✗ Your inventory is full!");
-                        break;
-                    default:
-                        player.sendMessage(ChatColor.RED + "✗ Removal failed: " + result.name());
-                        break;
-                }
-
-                // Reopen menu
-                new MarketPlayerListingsMenu(player, marketManager, session).open();
-            });
+            // Use MarketManager's chat system for confirmation
+            marketManager.startRemovalConfirmation(player, listing.getItemId());
         });
     }
 
@@ -268,17 +230,25 @@ public class MarketPlayerListingsMenu extends Menu {
             if (meta != null) {
                 long totalValue = playerListings.stream().mapToLong(MarketItem::getPrice).sum();
                 int featuredCount = (int) playerListings.stream().filter(MarketItem::isFeatured).count();
+                int expiredCount = (int) playerListings.stream().filter(MarketItem::isExpired).count();
+                int activeCount = playerListings.size() - expiredCount;
 
-                meta.setLore(Arrays.asList(
-                        "",
-                        ChatColor.GRAY + "Manage your active market listings.",
-                        ChatColor.GRAY + "Click items to remove them.",
-                        "",
-                        ChatColor.AQUA + "Active Listings: " + ChatColor.WHITE + playerListings.size() + "/" + marketManager.getMaxListingsPerPlayer(),
-                        ChatColor.AQUA + "Total Value: " + ChatColor.WHITE + TextUtil.formatNumber(totalValue) + " gems",
-                        featuredCount > 0 ? ChatColor.AQUA + "Featured: " + ChatColor.WHITE + featuredCount : "",
-                        ""
-                ));
+                List<String> lore = new ArrayList<>();
+                lore.add("");
+                lore.add(ChatColor.GRAY + "Manage your active market listings.");
+                lore.add(ChatColor.GRAY + "Click items to remove them.");
+                lore.add("");
+                lore.add(ChatColor.AQUA + "Total Listings: " + ChatColor.WHITE + playerListings.size() + "/" + marketManager.getMaxListingsPerPlayer());
+                lore.add(ChatColor.AQUA + "Active: " + ChatColor.GREEN + activeCount + ChatColor.GRAY + " | Expired: " + ChatColor.RED + expiredCount);
+                lore.add(ChatColor.AQUA + "Total Value: " + ChatColor.WHITE + TextUtil.formatNumber(totalValue) + " gems");
+
+                if (featuredCount > 0) {
+                    lore.add(ChatColor.AQUA + "Featured: " + ChatColor.GOLD + "★ " + ChatColor.WHITE + featuredCount);
+                }
+
+                lore.add("");
+
+                meta.setLore(lore);
                 infoItem.setItemMeta(meta);
             }
         }
@@ -392,7 +362,10 @@ public class MarketPlayerListingsMenu extends Menu {
                 ChatColor.GRAY + "listed on the market.",
                 "",
                 ChatColor.GREEN + "Click 'List New Item' to",
-                ChatColor.GREEN + "start selling your items!"
+                ChatColor.GREEN + "start selling your items!",
+                "",
+                ChatColor.GRAY + "You can list up to " + ChatColor.WHITE +
+                        marketManager.getMaxListingsPerPlayer() + ChatColor.GRAY + " items per day."
         ));
 
         item.setItemMeta(meta);
@@ -432,6 +405,7 @@ public class MarketPlayerListingsMenu extends Menu {
         long now = java.time.Instant.now().getEpochSecond();
         long diff = now - timestamp;
 
+        if (diff < 60) return diff + "s ago";
         if (diff < 3600) return (diff / 60) + "m ago";
         if (diff < 86400) return (diff / 3600) + "h ago";
         return (diff / 86400) + "d ago";
@@ -443,20 +417,26 @@ public class MarketPlayerListingsMenu extends Menu {
         long totalValue = playerListings.stream().mapToLong(MarketItem::getPrice).sum();
         int featuredCount = (int) playerListings.stream().filter(MarketItem::isFeatured).count();
         int totalViews = playerListings.stream().mapToInt(MarketItem::getViews).sum();
+        int expiredCount = (int) playerListings.stream().filter(MarketItem::isExpired).count();
+        int activeCount = playerListings.size() - expiredCount;
 
         player.sendMessage("");
         player.sendMessage(ChatColor.GOLD + "▪ " + ChatColor.YELLOW + "Your Market Statistics" + ChatColor.GOLD + " ▪");
         player.sendMessage("");
-        player.sendMessage(ChatColor.AQUA + "Active Listings: " + ChatColor.WHITE + playerListings.size() + "/" + marketManager.getMaxListingsPerPlayer());
+        player.sendMessage(ChatColor.AQUA + "Total Listings: " + ChatColor.WHITE + playerListings.size() + "/" + marketManager.getMaxListingsPerPlayer());
+        player.sendMessage(ChatColor.AQUA + "Active Listings: " + ChatColor.GREEN + activeCount);
+        player.sendMessage(ChatColor.AQUA + "Expired Listings: " + ChatColor.RED + expiredCount);
         player.sendMessage(ChatColor.AQUA + "Total Value: " + ChatColor.WHITE + TextUtil.formatNumber(totalValue) + " gems");
         player.sendMessage(ChatColor.AQUA + "Featured Listings: " + ChatColor.WHITE + featuredCount);
         player.sendMessage(ChatColor.AQUA + "Total Views: " + ChatColor.WHITE + totalViews);
+
+        if (activeCount > 0) {
+            double avgViews = (double) totalViews / activeCount;
+            player.sendMessage(ChatColor.AQUA + "Average Views per Item: " + ChatColor.WHITE + String.format("%.1f", avgViews));
+        }
+
         player.sendMessage("");
         player.sendMessage(ChatColor.GRAY + "Use " + ChatColor.YELLOW + "/market" + ChatColor.GRAY + " to return to the market.");
         player.sendMessage("");
-    }
-
-    private org.bukkit.plugin.Plugin getPlugin() {
-        return com.rednetty.server.YakRealms.getInstance();
     }
 }

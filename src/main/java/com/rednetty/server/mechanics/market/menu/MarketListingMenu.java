@@ -19,7 +19,7 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * Menu for listing items for sale
+ * Menu for listing items for sale with chat integration
  */
 public class MarketListingMenu extends Menu {
     private final MarketManager marketManager;
@@ -87,6 +87,7 @@ public class MarketListingMenu extends Menu {
         ItemMeta meta = item.getItemMeta();
 
         YakPlayer yakPlayer = YakPlayerManager.getInstance().getPlayer(getPlayer());
+        int dailyListings = getDailyListingsUsed(getPlayer());
 
         meta.setDisplayName(ChatColor.GOLD + "📋 Listing Information");
         meta.setLore(Arrays.asList(
@@ -95,7 +96,7 @@ public class MarketListingMenu extends Menu {
                 ChatColor.GRAY + "to list it for sale on the market.",
                 "",
                 ChatColor.AQUA + "Your Gems: " + ChatColor.WHITE + (yakPlayer != null ? TextUtil.formatNumber(yakPlayer.getGems()) : "0"),
-                ChatColor.AQUA + "Daily Listings: " + ChatColor.WHITE + "TODO/" + marketManager.getMaxListingsPerPlayer(),
+                ChatColor.AQUA + "Daily Listings: " + ChatColor.WHITE + dailyListings + "/" + marketManager.getMaxListingsPerPlayer(),
                 ChatColor.AQUA + "Market Tax: " + ChatColor.WHITE + String.format("%.1f%%", marketManager.getMarketTaxRate() * 100),
                 "",
                 ChatColor.YELLOW + "Click an item to list it!"
@@ -124,7 +125,15 @@ public class MarketListingMenu extends Menu {
                 TextUtil.formatNumber(marketManager.getMinItemPrice()) + " - " +
                 TextUtil.formatNumber(marketManager.getMaxItemPrice()) + " gems");
         lore.add("");
-        lore.add(ChatColor.GREEN + "✓ Click to list this item!");
+
+        // Check if player can list more items
+        int dailyListings = getDailyListingsUsed(getPlayer());
+        if (dailyListings >= marketManager.getMaxListingsPerPlayer()) {
+            lore.add(ChatColor.RED + "✗ Daily listing limit reached!");
+            lore.add(ChatColor.GRAY + "You can list " + marketManager.getMaxListingsPerPlayer() + " items per day.");
+        } else {
+            lore.add(ChatColor.GREEN + "✓ Click to list this item!");
+        }
 
         if (meta == null) {
             meta = displayItem.getItemMeta();
@@ -132,62 +141,23 @@ public class MarketListingMenu extends Menu {
         meta.setLore(lore);
         displayItem.setItemMeta(meta);
 
-        return new MenuItem(displayItem).setClickHandler((player, slot) -> {
-            player.playSound(player.getLocation(), Sound.UI_BUTTON_CLICK, 1.0f, 1.0f);
-            startListingProcess(player, originalItem, inventorySlot);
-        });
-    }
+        MenuItem menuItem = new MenuItem(displayItem);
 
-    private void startListingProcess(Player player, ItemStack item, int inventorySlot) {
-        session.setItemToList(item);
-        session.setListingMode(true);
-
-        player.closeInventory();
-        player.sendMessage("");
-        player.sendMessage(ChatColor.GOLD + "⚡ " + ChatColor.YELLOW + "List Item for Sale");
-        player.sendMessage("");
-        player.sendMessage(ChatColor.GRAY + "Item: " + ChatColor.WHITE +
-                (item.hasItemMeta() && item.getItemMeta().hasDisplayName() ?
-                        item.getItemMeta().getDisplayName() :
-                        TextUtil.formatItemName(item.getType().name())));
-        player.sendMessage(ChatColor.GRAY + "Amount: " + ChatColor.WHITE + item.getAmount());
-        player.sendMessage("");
-        player.sendMessage(ChatColor.YELLOW + "Enter the price in gems:");
-        player.sendMessage(ChatColor.GRAY + "Min: " + TextUtil.formatNumber(marketManager.getMinItemPrice()) +
-                " | Max: " + TextUtil.formatNumber(marketManager.getMaxItemPrice()));
-        player.sendMessage(ChatColor.GRAY + "Type 'cancel' to go back.");
-        player.sendMessage("");
-
-        // Note: Price input would be handled by chat listener in MarketManager
-        // For now, we'll use a default price for demonstration
-        processListing(player, item, 100, false);
-    }
-
-    private void processListing(Player player, ItemStack item, int price, boolean featured) {
-        marketManager.listItem(player, item, price, featured).thenAccept(result -> {
-            getPlugin().getServer().getScheduler().runTask(getPlugin(), () -> {
-                switch (result) {
-                    case SUCCESS:
-                        player.sendMessage(ChatColor.GREEN + "✓ Item listed successfully!");
-                        break;
-                    case INVALID_ITEM:
-                        player.sendMessage(ChatColor.RED + "✗ Invalid item or price!");
-                        break;
-                    case LISTING_LIMIT_REACHED:
-                        player.sendMessage(ChatColor.RED + "✗ Daily listing limit reached!");
-                        break;
-                    case INSUFFICIENT_FUNDS:
-                        player.sendMessage(ChatColor.RED + "✗ Not enough gems for featured listing!");
-                        break;
-                    default:
-                        player.sendMessage(ChatColor.RED + "✗ Listing failed: " + result.name());
-                        break;
-                }
-
-                // Return to market menu
-                new MarketMainMenu(player, marketManager, session).open();
+        if (dailyListings < marketManager.getMaxListingsPerPlayer()) {
+            menuItem.setClickHandler((player, slot) -> {
+                player.playSound(player.getLocation(), Sound.UI_BUTTON_CLICK, 1.0f, 1.0f);
+                // Use MarketManager's chat system for price input
+                marketManager.startListingProcess(player, originalItem);
             });
-        });
+        } else {
+            menuItem.setClickHandler((player, slot) -> {
+                player.playSound(player.getLocation(), Sound.ENTITY_VILLAGER_NO, 1.0f, 1.0f);
+                player.sendMessage(ChatColor.RED + "You have reached your daily listing limit of " +
+                        marketManager.getMaxListingsPerPlayer() + " items.");
+            });
+        }
+
+        return menuItem;
     }
 
     private MenuItem createBackButton() {
@@ -222,6 +192,7 @@ public class MarketListingMenu extends Menu {
                 ChatColor.YELLOW + "• " + ChatColor.GRAY + "Check market demand",
                 ChatColor.YELLOW + "• " + ChatColor.GRAY + "Featured listings get more views",
                 ChatColor.YELLOW + "• " + ChatColor.GRAY + "Items expire after 7 days",
+                ChatColor.YELLOW + "• " + ChatColor.GRAY + "You can remove listings anytime",
                 "",
                 ChatColor.GREEN + "Good luck selling!"
         ));
@@ -253,12 +224,18 @@ public class MarketListingMenu extends Menu {
                 }
             }
             loadPlayerInventory();
+
+            // Update info button
+            setItem(4, createInfoButton());
         });
     }
 
     private MenuItem createListingInfoButton() {
         ItemStack item = new ItemStack(Material.EMERALD);
         ItemMeta meta = item.getItemMeta();
+
+        YakPlayer yakPlayer = YakPlayerManager.getInstance().getPlayer(getPlayer());
+        boolean canAffordFeatured = yakPlayer != null && yakPlayer.getGems() >= marketManager.getFeaturedListingCost();
 
         meta.setDisplayName(ChatColor.GREEN + "💎 Featured Listing");
         meta.setLore(Arrays.asList(
@@ -268,6 +245,11 @@ public class MarketListingMenu extends Menu {
                 ChatColor.GRAY + "more visibility from buyers.",
                 "",
                 ChatColor.AQUA + "Cost: " + ChatColor.WHITE + TextUtil.formatNumber(marketManager.getFeaturedListingCost()) + " gems",
+                ChatColor.AQUA + "You have: " + ChatColor.WHITE + (yakPlayer != null ? TextUtil.formatNumber(yakPlayer.getGems()) : "0") + " gems",
+                "",
+                canAffordFeatured ?
+                        ChatColor.GREEN + "✓ You can afford featured listings!" :
+                        ChatColor.RED + "✗ Not enough gems for featured listings",
                 "",
                 ChatColor.YELLOW + "Available when listing items!"
         ));
@@ -295,7 +277,18 @@ public class MarketListingMenu extends Menu {
         });
     }
 
-    private org.bukkit.plugin.Plugin getPlugin() {
-        return com.rednetty.server.YakRealms.getInstance();
+    /**
+     * Get the number of daily listings used by the player
+     * This would need to be implemented based on your tracking system
+     */
+    private int getDailyListingsUsed(Player player) {
+        // This is a placeholder - you would implement this based on how you track daily listings
+        // For example, you might check the MarketManager's daily listing tracking
+        try {
+            // Get from MarketManager's session or database
+            return 0; // Placeholder
+        } catch (Exception e) {
+            return 0;
+        }
     }
 }

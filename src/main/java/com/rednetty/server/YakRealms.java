@@ -29,6 +29,7 @@ import com.rednetty.server.mechanics.economy.vendors.VendorSystemInitializer;
 import com.rednetty.server.mechanics.item.Journal;
 import com.rednetty.server.mechanics.item.orb.OrbManager;
 import com.rednetty.server.mechanics.item.scroll.ScrollManager;
+import com.rednetty.server.mechanics.market.MarketManager;
 import com.rednetty.server.mechanics.mobs.MobManager;
 import com.rednetty.server.mechanics.mobs.tasks.SpawnerHologramUpdater;
 import com.rednetty.server.mechanics.moderation.ModerationMechanics;
@@ -95,6 +96,9 @@ public class YakRealms extends JavaPlugin {
     private BankManager bankManager;
     private GemPouchManager gemPouchManager;
     private VendorManager vendorManager;
+
+    // Market system
+    private MarketManager marketManager;
 
     // Mob system
     private MobManager mobManager;
@@ -184,6 +188,9 @@ public class YakRealms extends JavaPlugin {
 
         // Initialize economy systems
         initializeEconomySystems();
+
+        // Initialize market system
+        initializeMarketSystem();
 
         // Initialize combat systems
         initializeCombatSystems();
@@ -294,6 +301,11 @@ public class YakRealms extends JavaPlugin {
         // Disable vendor system
         if (vendorManager != null) {
             vendorManager.shutdown();
+        }
+
+        // Disable market system
+        if (marketManager != null) {
+            marketManager.onDisable();
         }
 
         // Disable combat systems
@@ -642,6 +654,19 @@ public class YakRealms extends JavaPlugin {
     }
 
     /**
+     * Initializes the market system
+     */
+    private void initializeMarketSystem() {
+        try {
+            marketManager = MarketManager.getInstance();
+            marketManager.onEnable();
+            getLogger().info("Market system initialized successfully!");
+        } catch (Exception e) {
+            getLogger().log(Level.SEVERE, "Error initializing market system", e);
+        }
+    }
+
+    /**
      * Initializes combat systems (damage, magic staffs)
      */
     private void initializeCombatSystems() {
@@ -727,6 +752,11 @@ public class YakRealms extends JavaPlugin {
         getCommand("gempouch").setExecutor(new GemPouchCommand(gemPouchManager));
         getCommand("eco").setExecutor(new EcoCommand(economyManager));
         getCommand("vendor").setExecutor(new VendorCommand(this));
+
+        // Register market command
+        MarketCommand marketCommand = new MarketCommand();
+        getCommand("market").setExecutor(marketCommand);
+        getCommand("market").setTabCompleter(marketCommand);
 
         // Register mob and spawner related commands - Updated with enhanced SpawnerCommand
         spawnerCommand = new SpawnerCommand(mobManager);
@@ -1002,6 +1032,15 @@ public class YakRealms extends JavaPlugin {
      */
     public VendorManager getVendorManager() {
         return vendorManager;
+    }
+
+    /**
+     * Gets the market manager
+     *
+     * @return The market manager
+     */
+    public MarketManager getMarketManager() {
+        return marketManager;
     }
 
     /**

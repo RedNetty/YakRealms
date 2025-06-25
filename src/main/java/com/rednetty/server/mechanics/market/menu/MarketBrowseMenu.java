@@ -1,5 +1,6 @@
 package com.rednetty.server.mechanics.market.menu;
 
+import com.rednetty.server.YakRealms;
 import com.rednetty.server.mechanics.market.MarketCategory;
 import com.rednetty.server.mechanics.market.MarketItem;
 import com.rednetty.server.mechanics.market.MarketManager;
@@ -22,7 +23,7 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
 /**
- * Enhanced market browse menu with advanced features
+ * Enhanced market browse menu with advanced features and chat integration
  */
 public class MarketBrowseMenu extends Menu {
     private final MarketManager marketManager;
@@ -103,7 +104,7 @@ public class MarketBrowseMenu extends Menu {
         );
 
         future.thenAccept(items -> {
-            getPlugin().getServer().getScheduler().runTask(getPlugin(), () -> {
+            YakRealms.getInstance().getServer().getScheduler().runTask(YakRealms.getInstance(), () -> {
                 if (isOpen()) {
                     this.currentItems = items;
                     this.isLoading = false;
@@ -112,7 +113,7 @@ public class MarketBrowseMenu extends Menu {
                 }
             });
         }).exceptionally(throwable -> {
-            getPlugin().getServer().getScheduler().runTask(getPlugin(), () -> {
+            YakRealms.getInstance().getServer().getScheduler().runTask(YakRealms.getInstance(), () -> {
                 if (isOpen()) {
                     this.isLoading = false;
                     displayError();
@@ -217,7 +218,8 @@ public class MarketBrowseMenu extends Menu {
         if (!isOwnItem && canAfford) {
             menuItem.setClickHandler((player, slot) -> {
                 player.playSound(player.getLocation(), Sound.UI_BUTTON_CLICK, 1.0f, 1.0f);
-                confirmPurchase(player, marketItem);
+                // Use the MarketManager's chat system for confirmation
+                marketManager.startPurchaseConfirmation(player, marketItem.getItemId());
             });
         } else {
             menuItem.setClickHandler((player, slot) -> {
@@ -232,56 +234,6 @@ public class MarketBrowseMenu extends Menu {
         }
 
         return menuItem;
-    }
-
-    private void confirmPurchase(Player player, MarketItem marketItem) {
-        player.closeInventory();
-
-        player.sendMessage("");
-        player.sendMessage(ChatColor.YELLOW + "⚡ Confirm Purchase");
-        player.sendMessage("");
-        player.sendMessage(ChatColor.GRAY + "Item: " + ChatColor.WHITE + marketItem.getDisplayName());
-        player.sendMessage(ChatColor.GRAY + "Price: " + ChatColor.GREEN + TextUtil.formatNumber(marketItem.getPrice()) + " gems");
-        player.sendMessage(ChatColor.GRAY + "Seller: " + ChatColor.WHITE + marketItem.getOwnerName());
-        player.sendMessage("");
-        player.sendMessage(ChatColor.GREEN + "Type " + ChatColor.YELLOW + "confirm" + ChatColor.GREEN + " to purchase");
-        player.sendMessage(ChatColor.RED + "Type " + ChatColor.YELLOW + "cancel" + ChatColor.RED + " to go back");
-        player.sendMessage("");
-
-        // Store purchase info in session data for chat handler
-        session.setData("pending_purchase", marketItem.getItemId());
-
-        // TODO: Implement chat listener for confirmation
-        // For now, automatically purchase
-        processPurchase(player, marketItem);
-    }
-
-    private void processPurchase(Player player, MarketItem marketItem) {
-        marketManager.purchaseItem(player, marketItem.getItemId()).thenAccept(result -> {
-            getPlugin().getServer().getScheduler().runTask(getPlugin(), () -> {
-                switch (result) {
-                    case SUCCESS:
-                        player.sendMessage(ChatColor.GREEN + "✓ Purchase successful!");
-                        player.playSound(player.getLocation(), Sound.ENTITY_PLAYER_LEVELUP, 1.0f, 1.2f);
-                        // Refresh the menu
-                        loadItems();
-                        break;
-                    case INSUFFICIENT_FUNDS:
-                        player.sendMessage(ChatColor.RED + "✗ You don't have enough gems!");
-                        break;
-                    case ITEM_NOT_FOUND:
-                        player.sendMessage(ChatColor.RED + "✗ This item is no longer available!");
-                        loadItems(); // Refresh to remove the item
-                        break;
-                    case INVENTORY_FULL:
-                        player.sendMessage(ChatColor.RED + "✗ Your inventory is full!");
-                        break;
-                    default:
-                        player.sendMessage(ChatColor.RED + "✗ Purchase failed: " + result.name());
-                        break;
-                }
-            });
-        });
     }
 
     // Control buttons
@@ -382,7 +334,8 @@ public class MarketBrowseMenu extends Menu {
         item.setItemMeta(meta);
         return new MenuItem(item).setClickHandler((player, slot) -> {
             player.playSound(player.getLocation(), Sound.UI_BUTTON_CLICK, 1.0f, 1.0f);
-            player.sendMessage(ChatColor.YELLOW + "Search feature - type in chat (feature in development)");
+            // Use MarketManager's search input system
+            marketManager.startSearchInput(player);
         });
     }
 
@@ -608,9 +561,5 @@ public class MarketBrowseMenu extends Menu {
         // Update navigation buttons
         setItem(45, createPreviousPageButton());
         setItem(52, createNextPageButton());
-    }
-
-    private org.bukkit.plugin.Plugin getPlugin() {
-        return com.rednetty.server.YakRealms.getInstance();
     }
 }

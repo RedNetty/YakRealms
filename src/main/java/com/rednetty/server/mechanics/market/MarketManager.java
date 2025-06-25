@@ -13,12 +13,15 @@ import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
+import org.bukkit.event.player.AsyncPlayerChatEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.scheduler.BukkitTask;
 
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -50,7 +53,10 @@ public class MarketManager implements Listener {
     private final Map<UUID, MarketSession> activeSessions = new ConcurrentHashMap<>();
     private final Map<UUID, Long> lastTransactionTime = new ConcurrentHashMap<>();
     private final Map<UUID, Integer> dailyListings = new ConcurrentHashMap<>();
-    private final Map<UUID, Long> lastDailyReset = new ConcurrentHashMap<>();
+    private final Map<UUID, LocalDate> lastDailyReset = new ConcurrentHashMap<>();
+
+    // Chat input tracking
+    private final Map<UUID, ChatInputContext> chatInputContexts = new ConcurrentHashMap<>();
 
     // Performance tracking
     private volatile int totalTransactions = 0;
@@ -130,6 +136,38 @@ public class MarketManager implements Listener {
         public void setItemToList(ItemStack item) { this.itemToList = item; }
         public int getPriceToList() { return priceToList; }
         public void setPriceToList(int price) { this.priceToList = price; }
+    }
+
+    /**
+     * Chat input context for handling user input
+     */
+    private static class ChatInputContext {
+        private final ChatInputType type;
+        private final long startTime;
+        private final Map<String, Object> data;
+
+        public ChatInputContext(ChatInputType type) {
+            this.type = type;
+            this.startTime = System.currentTimeMillis();
+            this.data = new HashMap<>();
+        }
+
+        public ChatInputType getType() { return type; }
+        public long getStartTime() { return startTime; }
+        public Map<String, Object> getData() { return data; }
+        public boolean isExpired(long timeoutMs) {
+            return System.currentTimeMillis() - startTime > timeoutMs;
+        }
+    }
+
+    /**
+     * Types of chat input we're waiting for
+     */
+    private enum ChatInputType {
+        LISTING_PRICE,
+        PURCHASE_CONFIRMATION,
+        REMOVAL_CONFIRMATION,
+        SEARCH_QUERY
     }
 
     /**
@@ -225,6 +263,7 @@ public class MarketManager implements Listener {
 
         // Clear active sessions
         activeSessions.clear();
+        chatInputContexts.clear();
 
         logger.info("Market manager disabled");
     }
@@ -268,21 +307,24 @@ public class MarketManager implements Listener {
         // Clean up old transaction times
         lastTransactionTime.entrySet().removeIf(entry ->
                 (currentTime - entry.getValue()) > TimeUnit.HOURS.toMillis(24));
+
+        // Clean up expired chat input contexts
+        chatInputContexts.entrySet().removeIf(entry ->
+                entry.getValue().isExpired(TimeUnit.MINUTES.toMillis(5)));
     }
 
     /**
      * Reset daily limits for players
      */
     private void resetDailyLimits() {
-        long currentTime = System.currentTimeMillis();
-        long dayInMillis = TimeUnit.DAYS.toMillis(1);
+        LocalDate currentDate = LocalDate.now();
 
         dailyListings.entrySet().removeIf(entry -> {
             UUID playerId = entry.getKey();
-            Long lastReset = lastDailyReset.get(playerId);
+            LocalDate lastReset = lastDailyReset.get(playerId);
 
-            if (lastReset == null || (currentTime - lastReset) >= dayInMillis) {
-                lastDailyReset.put(playerId, currentTime);
+            if (lastReset == null || !lastReset.equals(currentDate)) {
+                lastDailyReset.put(playerId, currentDate);
                 return true; // Remove from dailyListings to reset
             }
             return false;
@@ -314,6 +356,146 @@ public class MarketManager implements Listener {
 
         MarketSession session = getOrCreateSession(player.getUniqueId());
         new MarketMainMenu(player, this, session).open();
+    }
+
+    /**
+     * Start listing process with chat input
+     */
+    public void startListingProcess(Player player, ItemStack item) {
+        if (!canUseMarket(player)) {
+            return;
+        }
+
+        TransactionResult validation = validateListing(player, item, 1); // Basic validation
+        if (validation != TransactionResult.SUCCESS) {
+            handleTransactionResult(player, validation);
+            return;
+        }
+
+        MarketSession session = getOrCreateSession(player.getUniqueId());
+        session.setItemToList(item);
+        session.setListingMode(true);
+
+        // Set up chat input context
+        ChatInputContext context = new ChatInputContext(ChatInputType.LISTING_PRICE);
+        context.getData().put("item", item);
+        chatInputContexts.put(player.getUniqueId(), context);
+
+        player.closeInventory();
+        player.sendMessage("");
+        player.sendMessage(ChatColor.GOLD + "⚡ " + ChatColor.YELLOW + "List Item for Sale");
+        player.sendMessage("");
+        player.sendMessage(ChatColor.GRAY + "Item: " + ChatColor.WHITE + getItemDisplayName(item));
+        player.sendMessage(ChatColor.GRAY + "Amount: " + ChatColor.WHITE + item.getAmount());
+        player.sendMessage("");
+        player.sendMessage(ChatColor.YELLOW + "Enter the price in gems:");
+        player.sendMessage(ChatColor.GRAY + "Range: " + TextUtil.formatNumber(minItemPrice) +
+                " - " + TextUtil.formatNumber(maxItemPrice) + " gems");
+        player.sendMessage(ChatColor.GRAY + "Type " + ChatColor.RED + "'cancel'" + ChatColor.GRAY + " to abort.");
+        player.sendMessage("");
+    }
+
+    /**
+     * Start purchase confirmation process
+     */
+    public void startPurchaseConfirmation(Player player, UUID itemId) {
+        repository.findById(itemId).thenAccept(itemOpt -> {
+            Bukkit.getScheduler().runTask(plugin, () -> {
+                if (!itemOpt.isPresent()) {
+                    player.sendMessage(ChatColor.RED + "✗ Item not found!");
+                    return;
+                }
+
+                MarketItem marketItem = itemOpt.get();
+
+                if (marketItem.isExpired()) {
+                    player.sendMessage(ChatColor.RED + "✗ This item has expired!");
+                    return;
+                }
+
+                if (marketItem.getOwnerUuid().equals(player.getUniqueId())) {
+                    player.sendMessage(ChatColor.RED + "✗ You cannot purchase your own item!");
+                    return;
+                }
+
+                // Set up chat input context
+                ChatInputContext context = new ChatInputContext(ChatInputType.PURCHASE_CONFIRMATION);
+                context.getData().put("itemId", itemId);
+                context.getData().put("marketItem", marketItem);
+                chatInputContexts.put(player.getUniqueId(), context);
+
+                player.closeInventory();
+                player.sendMessage("");
+                player.sendMessage(ChatColor.YELLOW + "⚡ Confirm Purchase");
+                player.sendMessage("");
+                player.sendMessage(ChatColor.GRAY + "Item: " + ChatColor.WHITE + marketItem.getDisplayName());
+                player.sendMessage(ChatColor.GRAY + "Price: " + ChatColor.GREEN + TextUtil.formatNumber(marketItem.getPrice()) + " gems");
+                player.sendMessage(ChatColor.GRAY + "Seller: " + ChatColor.WHITE + marketItem.getOwnerName());
+                player.sendMessage("");
+                player.sendMessage(ChatColor.GREEN + "Type " + ChatColor.YELLOW + "'confirm'" + ChatColor.GREEN + " to purchase");
+                player.sendMessage(ChatColor.RED + "Type " + ChatColor.YELLOW + "'cancel'" + ChatColor.RED + " to abort");
+                player.sendMessage("");
+            });
+        });
+    }
+
+    /**
+     * Start removal confirmation process
+     */
+    public void startRemovalConfirmation(Player player, UUID itemId) {
+        repository.findById(itemId).thenAccept(itemOpt -> {
+            Bukkit.getScheduler().runTask(plugin, () -> {
+                if (!itemOpt.isPresent()) {
+                    player.sendMessage(ChatColor.RED + "✗ Item not found!");
+                    return;
+                }
+
+                MarketItem marketItem = itemOpt.get();
+
+                if (!marketItem.getOwnerUuid().equals(player.getUniqueId())) {
+                    player.sendMessage(ChatColor.RED + "✗ You don't own this item!");
+                    return;
+                }
+
+                // Set up chat input context
+                ChatInputContext context = new ChatInputContext(ChatInputType.REMOVAL_CONFIRMATION);
+                context.getData().put("itemId", itemId);
+                context.getData().put("marketItem", marketItem);
+                chatInputContexts.put(player.getUniqueId(), context);
+
+                player.closeInventory();
+                player.sendMessage("");
+                player.sendMessage(ChatColor.YELLOW + "⚡ Confirm Removal");
+                player.sendMessage("");
+                player.sendMessage(ChatColor.GRAY + "Item: " + ChatColor.WHITE + marketItem.getDisplayName());
+                player.sendMessage(ChatColor.GRAY + "Price: " + ChatColor.GREEN + TextUtil.formatNumber(marketItem.getPrice()) + " gems");
+                player.sendMessage("");
+                player.sendMessage(ChatColor.RED + "Remove this listing from the market?");
+                player.sendMessage(ChatColor.GRAY + "The item will be returned to your inventory.");
+                player.sendMessage("");
+                player.sendMessage(ChatColor.GREEN + "Type " + ChatColor.YELLOW + "'confirm'" + ChatColor.GREEN + " to remove");
+                player.sendMessage(ChatColor.RED + "Type " + ChatColor.YELLOW + "'cancel'" + ChatColor.RED + " to abort");
+                player.sendMessage("");
+            });
+        });
+    }
+
+    /**
+     * Start search input process
+     */
+    public void startSearchInput(Player player) {
+        // Set up chat input context
+        ChatInputContext context = new ChatInputContext(ChatInputType.SEARCH_QUERY);
+        chatInputContexts.put(player.getUniqueId(), context);
+
+        player.closeInventory();
+        player.sendMessage("");
+        player.sendMessage(ChatColor.YELLOW + "⚡ Market Search");
+        player.sendMessage("");
+        player.sendMessage(ChatColor.GRAY + "Enter your search term:");
+        player.sendMessage(ChatColor.GRAY + "Example: 'diamond sword', 'enchanted', 'steve'");
+        player.sendMessage(ChatColor.GRAY + "Type " + ChatColor.RED + "'cancel'" + ChatColor.GRAY + " to abort.");
+        player.sendMessage("");
     }
 
     /**
@@ -543,6 +725,227 @@ public class MarketManager implements Listener {
         return repository.findByOwner(playerId);
     }
 
+    // Chat event handler
+    @EventHandler(priority = EventPriority.LOWEST)
+    public void onPlayerChat(AsyncPlayerChatEvent event) {
+        Player player = event.getPlayer();
+        UUID playerId = player.getUniqueId();
+
+        ChatInputContext context = chatInputContexts.get(playerId);
+        if (context == null) {
+            return; // Not waiting for input from this player
+        }
+
+        // Cancel the chat event to prevent public message
+        event.setCancelled(true);
+
+        String message = event.getMessage().trim();
+
+        // Handle cancellation
+        if (message.equalsIgnoreCase("cancel")) {
+            chatInputContexts.remove(playerId);
+            Bukkit.getScheduler().runTask(plugin, () -> {
+                player.sendMessage(ChatColor.YELLOW + "Operation cancelled.");
+                openMarketMenu(player);
+            });
+            return;
+        }
+
+        // Handle different input types
+        switch (context.getType()) {
+            case LISTING_PRICE:
+                handleListingPriceInput(player, message, context);
+                break;
+            case PURCHASE_CONFIRMATION:
+                handlePurchaseConfirmationInput(player, message, context);
+                break;
+            case REMOVAL_CONFIRMATION:
+                handleRemovalConfirmationInput(player, message, context);
+                break;
+            case SEARCH_QUERY:
+                handleSearchQueryInput(player, message, context);
+                break;
+        }
+    }
+
+    private void handleListingPriceInput(Player player, String message, ChatInputContext context) {
+        try {
+            int price = Integer.parseInt(message);
+
+            if (price < minItemPrice || price > maxItemPrice) {
+                player.sendMessage(ChatColor.RED + "Price must be between " +
+                        TextUtil.formatNumber(minItemPrice) + " and " +
+                        TextUtil.formatNumber(maxItemPrice) + " gems.");
+                return;
+            }
+
+            ItemStack item = (ItemStack) context.getData().get("item");
+            if (item == null) {
+                player.sendMessage(ChatColor.RED + "Error: Item not found.");
+                chatInputContexts.remove(player.getUniqueId());
+                return;
+            }
+
+            chatInputContexts.remove(player.getUniqueId());
+
+            // Ask about featured listing
+            Bukkit.getScheduler().runTask(plugin, () -> {
+                YakPlayer yakPlayer = YakPlayerManager.getInstance().getPlayer(player);
+                boolean canAffordFeatured = yakPlayer != null && yakPlayer.getGems() >= featuredListingCost;
+
+                player.sendMessage("");
+                player.sendMessage(ChatColor.YELLOW + "Price set to: " + ChatColor.GREEN + TextUtil.formatNumber(price) + " gems");
+                player.sendMessage("");
+
+                if (canAffordFeatured) {
+                    player.sendMessage(ChatColor.GOLD + "★ Make this a featured listing?");
+                    player.sendMessage(ChatColor.GRAY + "Cost: " + ChatColor.YELLOW + TextUtil.formatNumber(featuredListingCost) + " gems");
+                    player.sendMessage(ChatColor.GRAY + "Featured listings appear at the top and get more views.");
+                    player.sendMessage("");
+                    player.sendMessage(ChatColor.GREEN + "Type " + ChatColor.YELLOW + "'yes'" + ChatColor.GREEN + " for featured listing");
+                    player.sendMessage(ChatColor.GRAY + "Type " + ChatColor.YELLOW + "'no'" + ChatColor.GRAY + " for regular listing");
+
+                    // Set up new context for featured confirmation
+                    ChatInputContext featuredContext = new ChatInputContext(ChatInputType.PURCHASE_CONFIRMATION);
+                    featuredContext.getData().put("item", item);
+                    featuredContext.getData().put("price", price);
+                    featuredContext.getData().put("featured_choice", true);
+                    chatInputContexts.put(player.getUniqueId(), featuredContext);
+                } else {
+                    // List normally
+                    listItem(player, item, price, false).thenAccept(result ->
+                            Bukkit.getScheduler().runTask(plugin, () -> {
+                                handleTransactionResult(player, result);
+                                if (result == TransactionResult.SUCCESS) {
+                                    openMarketMenu(player);
+                                }
+                            }));
+                }
+            });
+
+        } catch (NumberFormatException e) {
+            player.sendMessage(ChatColor.RED + "Invalid price. Please enter a valid number.");
+        }
+    }
+
+    private void handlePurchaseConfirmationInput(Player player, String message, ChatInputContext context) {
+        if (context.getData().containsKey("featured_choice")) {
+            // This is actually for featured listing choice
+            boolean featured = message.equalsIgnoreCase("yes") || message.equalsIgnoreCase("y");
+            ItemStack item = (ItemStack) context.getData().get("item");
+            int price = (Integer) context.getData().get("price");
+
+            chatInputContexts.remove(player.getUniqueId());
+
+            Bukkit.getScheduler().runTask(plugin, () -> {
+                listItem(player, item, price, featured).thenAccept(result ->
+                        Bukkit.getScheduler().runTask(plugin, () -> {
+                            handleTransactionResult(player, result);
+                            if (result == TransactionResult.SUCCESS) {
+                                openMarketMenu(player);
+                            }
+                        }));
+            });
+            return;
+        }
+
+        if (message.equalsIgnoreCase("confirm") || message.equalsIgnoreCase("yes")) {
+            UUID itemId = (UUID) context.getData().get("itemId");
+            chatInputContexts.remove(player.getUniqueId());
+
+            Bukkit.getScheduler().runTask(plugin, () -> {
+                purchaseItem(player, itemId).thenAccept(result ->
+                        Bukkit.getScheduler().runTask(plugin, () -> {
+                            handleTransactionResult(player, result);
+                            if (result == TransactionResult.SUCCESS) {
+                                openMarketMenu(player);
+                            }
+                        }));
+            });
+        } else {
+            chatInputContexts.remove(player.getUniqueId());
+            Bukkit.getScheduler().runTask(plugin, () -> {
+                player.sendMessage(ChatColor.YELLOW + "Purchase cancelled.");
+                openMarketMenu(player);
+            });
+        }
+    }
+
+    private void handleRemovalConfirmationInput(Player player, String message, ChatInputContext context) {
+        if (message.equalsIgnoreCase("confirm") || message.equalsIgnoreCase("yes")) {
+            UUID itemId = (UUID) context.getData().get("itemId");
+            chatInputContexts.remove(player.getUniqueId());
+
+            Bukkit.getScheduler().runTask(plugin, () -> {
+                removeItemListing(player, itemId).thenAccept(result ->
+                        Bukkit.getScheduler().runTask(plugin, () -> {
+                            handleTransactionResult(player, result);
+                            openMarketMenu(player);
+                        }));
+            });
+        } else {
+            chatInputContexts.remove(player.getUniqueId());
+            Bukkit.getScheduler().runTask(plugin, () -> {
+                player.sendMessage(ChatColor.YELLOW + "Removal cancelled.");
+                openMarketMenu(player);
+            });
+        }
+    }
+
+    private void handleSearchQueryInput(Player player, String message, ChatInputContext context) {
+        chatInputContexts.remove(player.getUniqueId());
+
+        MarketSession session = getOrCreateSession(player.getUniqueId());
+        session.setSearchQuery(message);
+        session.setCurrentPage(0);
+
+        Bukkit.getScheduler().runTask(plugin, () -> {
+            player.sendMessage(ChatColor.GREEN + "Search set to: " + ChatColor.WHITE + message);
+            openMarketMenu(player);
+        });
+    }
+
+    /**
+     * Handle transaction results with appropriate messaging
+     */
+    private void handleTransactionResult(Player player, TransactionResult result) {
+        switch (result) {
+            case SUCCESS:
+                // Already handled in individual methods
+                break;
+            case INSUFFICIENT_FUNDS:
+                player.sendMessage(ChatColor.RED + "✗ You don't have enough gems!");
+                break;
+            case ITEM_NOT_FOUND:
+                player.sendMessage(ChatColor.RED + "✗ Item not found!");
+                break;
+            case ITEM_EXPIRED:
+                player.sendMessage(ChatColor.RED + "✗ This item has expired!");
+                break;
+            case INVENTORY_FULL:
+                player.sendMessage(ChatColor.RED + "✗ Your inventory is full!");
+                break;
+            case PERMISSION_DENIED:
+                player.sendMessage(ChatColor.RED + "✗ You don't have permission to do that!");
+                break;
+            case COOLDOWN_ACTIVE:
+                player.sendMessage(ChatColor.RED + "✗ Please wait before trying again!");
+                break;
+            case INVALID_ITEM:
+                player.sendMessage(ChatColor.RED + "✗ Invalid item or price!");
+                break;
+            case LISTING_LIMIT_REACHED:
+                player.sendMessage(ChatColor.RED + "✗ You've reached your daily listing limit!");
+                break;
+            case PLAYER_OFFLINE:
+                player.sendMessage(ChatColor.RED + "✗ Player data could not be loaded!");
+                break;
+            case DATABASE_ERROR:
+                player.sendMessage(ChatColor.RED + "✗ Database error occurred. Please try again!");
+                break;
+        }
+    }
+
     /**
      * Validation methods
      */
@@ -561,15 +964,10 @@ public class MarketManager implements Listener {
         }
 
         if (price < minItemPrice || price > maxItemPrice) {
-            player.sendMessage(ChatColor.RED + "Price must be between " +
-                    TextUtil.formatNumber(minItemPrice) + " and " +
-                    TextUtil.formatNumber(maxItemPrice) + " gems.");
             return TransactionResult.INVALID_ITEM;
         }
 
         if (getDailyListings(player.getUniqueId()) >= maxListingsPerPlayer) {
-            player.sendMessage(ChatColor.RED + "You have reached your daily listing limit of " +
-                    maxListingsPerPlayer + " items.");
             return TransactionResult.LISTING_LIMIT_REACHED;
         }
 
@@ -628,7 +1026,14 @@ public class MarketManager implements Listener {
         return leftover.isEmpty();
     }
 
-    private MarketSession getOrCreateSession(UUID playerId) {
+    private String getItemDisplayName(ItemStack item) {
+        if (item.hasItemMeta() && item.getItemMeta().hasDisplayName()) {
+            return item.getItemMeta().getDisplayName();
+        }
+        return TextUtil.formatItemName(item.getType().name());
+    }
+
+    public MarketSession getOrCreateSession(UUID playerId) {
         return activeSessions.computeIfAbsent(playerId, MarketSession::new);
     }
 
@@ -638,6 +1043,7 @@ public class MarketManager implements Listener {
 
     private void incrementDailyListings(UUID playerId) {
         dailyListings.merge(playerId, 1, Integer::sum);
+        lastDailyReset.put(playerId, LocalDate.now());
     }
 
     // Event handlers
@@ -649,7 +1055,9 @@ public class MarketManager implements Listener {
 
     @EventHandler(priority = EventPriority.MONITOR)
     public void onPlayerQuit(PlayerQuitEvent event) {
-        activeSessions.remove(event.getPlayer().getUniqueId());
+        UUID playerId = event.getPlayer().getUniqueId();
+        activeSessions.remove(playerId);
+        chatInputContexts.remove(playerId);
     }
 
     // Getters
