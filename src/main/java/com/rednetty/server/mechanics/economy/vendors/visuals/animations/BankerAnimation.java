@@ -79,7 +79,7 @@ public class BankerAnimation extends BaseVendorAnimation {
 
     @Override
     public void updateDisplayAnimations(Set<Entity> entities, Location loc) {
-        int tick = animationTick;
+        int tick = animationTick.get();
 
         for (Entity entity : entities) {
             if (!entity.isValid()) continue;
@@ -207,11 +207,11 @@ public class BankerAnimation extends BaseVendorAnimation {
         if (world == null) return;
 
         // Gold sparkle particles
-        if (animationTick % 5 == 0) {
+        if (animationTick.get() % 5 == 0) {
             // Calculate position based on current tick for gold
-            double angle = Math.toRadians(animationTick * 2);
+            double angle = Math.toRadians(animationTick.get() * 2);
             double radius = 0.7;
-            double height = 1.2 + Math.sin(Math.toRadians(animationTick * 2)) * 0.1;
+            double height = 1.2 + Math.sin(Math.toRadians(animationTick.get() * 2)) * 0.1;
 
             double x = Math.cos(angle) * radius;
             double z = Math.sin(angle) * radius;
@@ -232,11 +232,11 @@ public class BankerAnimation extends BaseVendorAnimation {
         }
 
         // Emerald sparkles
-        if (animationTick % 7 == 0) {
+        if (animationTick.get() % 7 == 0) {
             // Calculate position based on current tick for emerald
-            double angle = Math.toRadians(animationTick * 2.5 + 120);
+            double angle = Math.toRadians(animationTick.get() * 2.5 + 120);
             double radius = 0.8;
-            double height = 1.4 + Math.sin(Math.toRadians(animationTick * 3 + 45)) * 0.15;
+            double height = 1.4 + Math.sin(Math.toRadians(animationTick.get() * 3 + 45)) * 0.15;
 
             double x = Math.cos(angle) * radius;
             double z = Math.sin(angle) * radius;
@@ -257,11 +257,11 @@ public class BankerAnimation extends BaseVendorAnimation {
         }
 
         // Diamond sparkles
-        if (animationTick % 6 == 0) {
+        if (animationTick.get() % 6 == 0) {
             // Calculate position based on current tick for diamond
-            double angle = Math.toRadians(animationTick * 1.8 + 240);
+            double angle = Math.toRadians(animationTick.get() * 1.8 + 240);
             double radius = 0.65;
-            double height = 1.0 + Math.sin(Math.toRadians(animationTick * 2.5 + 90)) * 0.12;
+            double height = 1.0 + Math.sin(Math.toRadians(animationTick.get() * 2.5 + 90)) * 0.12;
 
             double x = Math.cos(angle) * radius;
             double z = Math.sin(angle) * radius;
@@ -282,7 +282,7 @@ public class BankerAnimation extends BaseVendorAnimation {
         }
 
         // Money glitter effect
-        if (animationTick % 20 == 0) {
+        if (animationTick.get() % 20 == 0) {
             Location centerLoc = loc.clone().add(0, 1.3, 0);
 
             Particle.DustOptions goldDust = new Particle.DustOptions(
@@ -316,7 +316,7 @@ public class BankerAnimation extends BaseVendorAnimation {
         if (world == null) return;
 
         // Coin sounds
-        if (animationTick % 30 == 0) {
+        if (animationTick.get() % 30 == 0) {
             Sound sound = Sound.BLOCK_CHAIN_PLACE;
             float volume = 0.15f;
             float pitch = 1.5f + random.nextFloat() * 0.2f;
@@ -325,7 +325,7 @@ public class BankerAnimation extends BaseVendorAnimation {
         }
 
         // Second coin sound occasionally
-        if (animationTick % 80 == 0) {
+        if (animationTick.get() % 80 == 0) {
             Sound sound = Sound.ENTITY_EXPERIENCE_ORB_PICKUP;
             float volume = 0.2f;
             float pitch = 0.7f + random.nextFloat() * 0.3f;

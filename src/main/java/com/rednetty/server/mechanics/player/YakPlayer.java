@@ -1097,6 +1097,11 @@ public class YakPlayer {
             StringBuilder displayName = new StringBuilder();
 
             try {
+                // Add guild tag if in guild
+                if (isInGuild()) {
+                    displayName.append(ChatColor.WHITE).append("[").append(guildName).append("] ");
+                }
+
                 // Add chat tag if not default
                 if (!chatTag.equals("DEFAULT")) {
                     ChatTag chatTagEnum = ChatTag.getByName(chatTag);
@@ -1109,7 +1114,7 @@ public class YakPlayer {
                 if (!rank.equals("DEFAULT")) {
                     Rank rankEnum = Rank.fromString(rank);
                     if (rankEnum != Rank.DEFAULT) {
-                        displayName.append(rankEnum.tag).append(" ");
+                        displayName.append(ChatColor.translateAlternateColorCodes('&', rankEnum.tag)).append(" ");
                     }
                 }
             } catch (IllegalArgumentException e) {
@@ -1119,7 +1124,7 @@ public class YakPlayer {
             // Add colored username based on alignment
             displayName.append(getColorByAlignment()).append(username);
 
-            this.cachedDisplayName = ChatColor.translateAlternateColorCodes('&', displayName.toString());
+            this.cachedDisplayName = displayName.toString();
             this.displayNameCacheTime = currentTime;
 
             return cachedDisplayName;
@@ -1462,6 +1467,52 @@ public class YakPlayer {
         }
     }
 
+    // PvP methods needed by other classes
+    public void addPlayerKill() {
+        lock.writeLock().lock();
+        try {
+            playerKills++;
+            markDirty();
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    public void addDeath() {
+        lock.writeLock().lock();
+        try {
+            deaths++;
+            markDirty();
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    public void addMonsterKill() {
+        lock.writeLock().lock();
+        try {
+            monsterKills++;
+            markDirty();
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    // Chat tag methods
+    public void unlockChatTag(ChatTag tag) {
+        if (tag == null) return;
+
+        lock.writeLock().lock();
+        try {
+            unlockedChatTags.add(tag.name());
+            markDirty();
+
+            sendMessageIfOnline(ChatColor.GREEN + "Unlocked chat tag: " + tag.getTag());
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
     // Utility methods
     private void markDirty() {
         this.dirty = true;
@@ -1507,6 +1558,25 @@ public class YakPlayer {
         temporaryData.clear();
     }
 
+    // PUBLIC ItemStack serialization methods (used by other classes)
+    public String serializeItemStacks(ItemStack[] items) {
+        try {
+            return ItemSerializer.serializeItemStacks(items);
+        } catch (Exception e) {
+            logger.log(Level.SEVERE, "Error serializing item stacks", e);
+            return null;
+        }
+    }
+
+    public ItemStack[] deserializeItemStacks(String data) {
+        try {
+            return ItemSerializer.deserializeItemStacks(data);
+        } catch (Exception e) {
+            logger.log(Level.SEVERE, "Error deserializing item stacks", e);
+            return new ItemStack[0];
+        }
+    }
+
     // Comprehensive getters and setters with proper synchronization
     public UUID getUUID() { return uuid; }
 
@@ -1530,6 +1600,82 @@ public class YakPlayer {
         }
     }
 
+    public long getLastLogin() {
+        lock.readLock().lock();
+        try {
+            return lastLogin;
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    public void setLastLogin(long lastLogin) {
+        lock.writeLock().lock();
+        try {
+            this.lastLogin = lastLogin;
+            markDirty();
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    public long getLastLogout() {
+        lock.readLock().lock();
+        try {
+            return lastLogout;
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    public void setLastLogout(long lastLogout) {
+        lock.writeLock().lock();
+        try {
+            this.lastLogout = lastLogout;
+            markDirty();
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    public long getFirstJoin() {
+        lock.readLock().lock();
+        try {
+            return firstJoin;
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    public void setFirstJoin(long firstJoin) {
+        lock.writeLock().lock();
+        try {
+            this.firstJoin = firstJoin;
+            markDirty();
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    public String getIpAddress() {
+        lock.readLock().lock();
+        try {
+            return ipAddress;
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    public void setIpAddress(String ipAddress) {
+        lock.writeLock().lock();
+        try {
+            this.ipAddress = ipAddress;
+            markDirty();
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
     public int getLevel() {
         lock.readLock().lock();
         try {
@@ -1543,6 +1689,120 @@ public class YakPlayer {
         lock.writeLock().lock();
         try {
             this.level = Math.max(MIN_LEVEL, Math.min(MAX_LEVEL, level));
+            markDirty();
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    public int getExp() {
+        lock.readLock().lock();
+        try {
+            return exp;
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    public void setExp(int exp) {
+        lock.writeLock().lock();
+        try {
+            this.exp = Math.max(0, exp);
+            markDirty();
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    public int getMonsterKills() {
+        lock.readLock().lock();
+        try {
+            return monsterKills;
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    public void setMonsterKills(int monsterKills) {
+        lock.writeLock().lock();
+        try {
+            this.monsterKills = Math.max(0, monsterKills);
+            markDirty();
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    public int getPlayerKills() {
+        lock.readLock().lock();
+        try {
+            return playerKills;
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    public void setPlayerKills(int playerKills) {
+        lock.writeLock().lock();
+        try {
+            this.playerKills = Math.max(0, playerKills);
+            markDirty();
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    public int getDeaths() {
+        lock.readLock().lock();
+        try {
+            return deaths;
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    public void setDeaths(int deaths) {
+        lock.writeLock().lock();
+        try {
+            this.deaths = Math.max(0, deaths);
+            markDirty();
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    public int getOreMined() {
+        lock.readLock().lock();
+        try {
+            return oreMined;
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    public void setOreMined(int oreMined) {
+        lock.writeLock().lock();
+        try {
+            this.oreMined = Math.max(0, oreMined);
+            markDirty();
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    public int getFishCaught() {
+        lock.readLock().lock();
+        try {
+            return fishCaught;
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    public void setFishCaught(int fishCaught) {
+        lock.writeLock().lock();
+        try {
+            this.fishCaught = Math.max(0, fishCaught);
             markDirty();
         } finally {
             lock.writeLock().unlock();
@@ -1587,6 +1847,98 @@ public class YakPlayer {
         }
     }
 
+    public int getEliteShards() {
+        lock.readLock().lock();
+        try {
+            return eliteShards;
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    public void setEliteShards(int eliteShards) {
+        lock.writeLock().lock();
+        try {
+            this.eliteShards = Math.max(0, eliteShards);
+            markDirty();
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    public int getBankPages() {
+        lock.readLock().lock();
+        try {
+            return bankPages;
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    public void setBankPages(int bankPages) {
+        lock.writeLock().lock();
+        try {
+            this.bankPages = Math.max(1, Math.min(MAX_BANK_PAGES, bankPages));
+            markDirty();
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    public String getSerializedBankItems(int page) {
+        lock.readLock().lock();
+        try {
+            return serializedBankItems.get(page);
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    public void setSerializedBankItems(int page, String data) {
+        lock.writeLock().lock();
+        try {
+            if (data != null && !data.trim().isEmpty()) {
+                serializedBankItems.put(page, data);
+            } else {
+                serializedBankItems.remove(page);
+            }
+            markDirty();
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    public Map<Integer, String> getAllSerializedBankItems() {
+        lock.readLock().lock();
+        try {
+            return new HashMap<>(serializedBankItems);
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    public List<String> getBankAuthorizedUsers() {
+        lock.readLock().lock();
+        try {
+            return new ArrayList<>(bankAuthorizedUsers);
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    public void setBankAuthorizedUsers(List<String> users) {
+        lock.writeLock().lock();
+        try {
+            bankAuthorizedUsers.clear();
+            if (users != null) {
+                bankAuthorizedUsers.addAll(users);
+            }
+            markDirty();
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
     public String getAlignment() {
         lock.readLock().lock();
         try {
@@ -1623,6 +1975,44 @@ public class YakPlayer {
         }
     }
 
+    public long getChaoticTime() {
+        lock.readLock().lock();
+        try {
+            return chaoticTime;
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    public void setChaoticTime(long chaoticTime) {
+        lock.writeLock().lock();
+        try {
+            this.chaoticTime = chaoticTime;
+            markDirty();
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    public long getNeutralTime() {
+        lock.readLock().lock();
+        try {
+            return neutralTime;
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    public void setNeutralTime(long neutralTime) {
+        lock.writeLock().lock();
+        try {
+            this.neutralTime = neutralTime;
+            markDirty();
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
     public String getRank() {
         lock.readLock().lock();
         try {
@@ -1640,6 +2030,91 @@ public class YakPlayer {
             markDirty();
         } finally {
             lock.writeLock().unlock();
+        }
+    }
+
+    public boolean isBanned() {
+        lock.readLock().lock();
+        try {
+            return banned;
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    public void setBanned(boolean banned) {
+        lock.writeLock().lock();
+        try {
+            this.banned = banned;
+            markDirty();
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    public String getBanReason() {
+        lock.readLock().lock();
+        try {
+            return banReason;
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    public void setBanReason(String banReason) {
+        lock.writeLock().lock();
+        try {
+            this.banReason = banReason != null ? banReason : "";
+            markDirty();
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    public long getBanExpiry() {
+        lock.readLock().lock();
+        try {
+            return banExpiry;
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    public void setBanExpiry(long banExpiry) {
+        lock.writeLock().lock();
+        try {
+            this.banExpiry = banExpiry;
+            markDirty();
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    public int getMuteTime() {
+        lock.readLock().lock();
+        try {
+            return muteTime;
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    public void setMuteTime(int muteTime) {
+        lock.writeLock().lock();
+        try {
+            this.muteTime = Math.max(0, muteTime);
+            markDirty();
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    public boolean isMuted() {
+        lock.readLock().lock();
+        try {
+            return muteTime > 0;
+        } finally {
+            lock.readLock().unlock();
         }
     }
 
@@ -1663,12 +2138,90 @@ public class YakPlayer {
         }
     }
 
-    public boolean isToggled(String setting) {
-        if (setting == null) return false;
-
+    public List<String> getUnlockedChatTags() {
         lock.readLock().lock();
         try {
-            return toggleSettings.contains(setting);
+            return new ArrayList<>(unlockedChatTags);
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    public void setUnlockedChatTags(List<String> tags) {
+        lock.writeLock().lock();
+        try {
+            unlockedChatTags.clear();
+            if (tags != null) {
+                unlockedChatTags.addAll(tags);
+            }
+            markDirty();
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    public int getHorseTier() {
+        lock.readLock().lock();
+        try {
+            return horseTier;
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    public void setHorseTier(int horseTier) {
+        lock.writeLock().lock();
+        try {
+            this.horseTier = Math.max(0, horseTier);
+            markDirty();
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    public String getGuildName() {
+        lock.readLock().lock();
+        try {
+            return guildName != null ? guildName : "";
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    public void setGuildName(String guildName) {
+        lock.writeLock().lock();
+        try {
+            this.guildName = guildName != null ? guildName : "";
+            this.cachedDisplayName = null; // Invalidate cache
+            markDirty();
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    public String getGuildRank() {
+        lock.readLock().lock();
+        try {
+            return guildRank != null ? guildRank : "";
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    public void setGuildRank(String guildRank) {
+        lock.writeLock().lock();
+        try {
+            this.guildRank = guildRank != null ? guildRank : "";
+            markDirty();
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    public boolean isInGuild() {
+        lock.readLock().lock();
+        try {
+            return guildName != null && !guildName.trim().isEmpty();
         } finally {
             lock.readLock().unlock();
         }
@@ -1683,6 +2236,321 @@ public class YakPlayer {
         }
     }
 
+    public void setToggleSettings(Set<String> settings) {
+        lock.writeLock().lock();
+        try {
+            toggleSettings.clear();
+            if (settings != null) {
+                toggleSettings.addAll(settings);
+            }
+            markDirty();
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    public boolean isToggled(String setting) {
+        if (setting == null) return false;
+
+        lock.readLock().lock();
+        try {
+            return toggleSettings.contains(setting);
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    public String getCurrentQuest() {
+        lock.readLock().lock();
+        try {
+            return currentQuest;
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    public void setCurrentQuest(String currentQuest) {
+        lock.writeLock().lock();
+        try {
+            this.currentQuest = currentQuest != null ? currentQuest : "";
+            markDirty();
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    public int getQuestProgress() {
+        lock.readLock().lock();
+        try {
+            return questProgress;
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    public void setQuestProgress(int questProgress) {
+        lock.writeLock().lock();
+        try {
+            this.questProgress = Math.max(0, questProgress);
+            markDirty();
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    public List<String> getCompletedQuests() {
+        lock.readLock().lock();
+        try {
+            return new ArrayList<>(completedQuests);
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    public void setCompletedQuests(List<String> quests) {
+        lock.writeLock().lock();
+        try {
+            completedQuests.clear();
+            if (quests != null) {
+                completedQuests.addAll(quests);
+            }
+            markDirty();
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    public int getPickaxeLevel() {
+        lock.readLock().lock();
+        try {
+            return pickaxeLevel;
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    public void setPickaxeLevel(int pickaxeLevel) {
+        lock.writeLock().lock();
+        try {
+            this.pickaxeLevel = Math.max(0, pickaxeLevel);
+            markDirty();
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    public int getFishingLevel() {
+        lock.readLock().lock();
+        try {
+            return fishingLevel;
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    public void setFishingLevel(int fishingLevel) {
+        lock.writeLock().lock();
+        try {
+            this.fishingLevel = Math.max(0, fishingLevel);
+            markDirty();
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    public int getMiningXp() {
+        lock.readLock().lock();
+        try {
+            return miningXp;
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    public void setMiningXp(int miningXp) {
+        lock.writeLock().lock();
+        try {
+            this.miningXp = Math.max(0, miningXp);
+            markDirty();
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    public int getFishingXp() {
+        lock.readLock().lock();
+        try {
+            return fishingXp;
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    public void setFishingXp(int fishingXp) {
+        lock.writeLock().lock();
+        try {
+            this.fishingXp = Math.max(0, fishingXp);
+            markDirty();
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    public int getT1Kills() {
+        lock.readLock().lock();
+        try {
+            return t1Kills;
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    public void setT1Kills(int t1Kills) {
+        lock.writeLock().lock();
+        try {
+            this.t1Kills = Math.max(0, t1Kills);
+            markDirty();
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    public int getT2Kills() {
+        lock.readLock().lock();
+        try {
+            return t2Kills;
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    public void setT2Kills(int t2Kills) {
+        lock.writeLock().lock();
+        try {
+            this.t2Kills = Math.max(0, t2Kills);
+            markDirty();
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    public int getT3Kills() {
+        lock.readLock().lock();
+        try {
+            return t3Kills;
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    public void setT3Kills(int t3Kills) {
+        lock.writeLock().lock();
+        try {
+            this.t3Kills = Math.max(0, t3Kills);
+            markDirty();
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    public int getT4Kills() {
+        lock.readLock().lock();
+        try {
+            return t4Kills;
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    public void setT4Kills(int t4Kills) {
+        lock.writeLock().lock();
+        try {
+            this.t4Kills = Math.max(0, t4Kills);
+            markDirty();
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    public int getT5Kills() {
+        lock.readLock().lock();
+        try {
+            return t5Kills;
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    public void setT5Kills(int t5Kills) {
+        lock.writeLock().lock();
+        try {
+            this.t5Kills = Math.max(0, t5Kills);
+            markDirty();
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    public int getT6Kills() {
+        lock.readLock().lock();
+        try {
+            return t6Kills;
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    public void setT6Kills(int t6Kills) {
+        lock.writeLock().lock();
+        try {
+            this.t6Kills = Math.max(0, t6Kills);
+            markDirty();
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    public Map<String, Integer> getWorldBossDamage() {
+        lock.readLock().lock();
+        try {
+            return new HashMap<>(worldBossDamage);
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    public void setWorldBossDamage(Map<String, Integer> damage) {
+        lock.writeLock().lock();
+        try {
+            worldBossDamage.clear();
+            if (damage != null) {
+                worldBossDamage.putAll(damage);
+            }
+            markDirty();
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    public boolean isTradeDisabled() {
+        lock.readLock().lock();
+        try {
+            return tradeDisabled;
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    public void setTradeDisabled(boolean tradeDisabled) {
+        lock.writeLock().lock();
+        try {
+            this.tradeDisabled = tradeDisabled;
+            markDirty();
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
     public List<String> getBuddies() {
         lock.readLock().lock();
         try {
@@ -1692,55 +2560,13 @@ public class YakPlayer {
         }
     }
 
-    public Set<String> getBlockedPlayers() {
-        lock.readLock().lock();
-        try {
-            return new HashSet<>(blockedPlayers);
-        } finally {
-            lock.readLock().unlock();
-        }
-    }
-
-    public boolean isBanned() {
-        lock.readLock().lock();
-        try {
-            return banned;
-        } finally {
-            lock.readLock().unlock();
-        }
-    }
-
-    public String getBanReason() {
-        lock.readLock().lock();
-        try {
-            return banReason;
-        } finally {
-            lock.readLock().unlock();
-        }
-    }
-
-    public long getBanExpiry() {
-        lock.readLock().lock();
-        try {
-            return banExpiry;
-        } finally {
-            lock.readLock().unlock();
-        }
-    }
-
-    public int getMuteTime() {
-        lock.readLock().lock();
-        try {
-            return muteTime;
-        } finally {
-            lock.readLock().unlock();
-        }
-    }
-
-    public void setMuteTime(int muteTime) {
+    public void setBuddies(List<String> buddyList) {
         lock.writeLock().lock();
         try {
-            this.muteTime = Math.max(0, muteTime);
+            buddies.clear();
+            if (buddyList != null) {
+                buddies.addAll(buddyList);
+            }
             markDirty();
         } finally {
             lock.writeLock().unlock();
@@ -1760,6 +2586,389 @@ public class YakPlayer {
         lock.writeLock().lock();
         try {
             this.energyDisabled = energyDisabled;
+            markDirty();
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    public String getWorld() {
+        lock.readLock().lock();
+        try {
+            return world;
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    public void setWorld(String world) {
+        lock.writeLock().lock();
+        try {
+            this.world = world;
+            markDirty();
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    public double getLocationX() {
+        lock.readLock().lock();
+        try {
+            return locationX;
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    public void setLocationX(double locationX) {
+        lock.writeLock().lock();
+        try {
+            this.locationX = locationX;
+            markDirty();
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    public double getLocationY() {
+        lock.readLock().lock();
+        try {
+            return locationY;
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    public void setLocationY(double locationY) {
+        lock.writeLock().lock();
+        try {
+            this.locationY = locationY;
+            markDirty();
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    public double getLocationZ() {
+        lock.readLock().lock();
+        try {
+            return locationZ;
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    public void setLocationZ(double locationZ) {
+        lock.writeLock().lock();
+        try {
+            this.locationZ = locationZ;
+            markDirty();
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    public float getLocationYaw() {
+        lock.readLock().lock();
+        try {
+            return locationYaw;
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    public void setLocationYaw(float locationYaw) {
+        lock.writeLock().lock();
+        try {
+            this.locationYaw = locationYaw;
+            markDirty();
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    public float getLocationPitch() {
+        lock.readLock().lock();
+        try {
+            return locationPitch;
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    public void setLocationPitch(float locationPitch) {
+        lock.writeLock().lock();
+        try {
+            this.locationPitch = locationPitch;
+            markDirty();
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    public String getSerializedInventory() {
+        lock.readLock().lock();
+        try {
+            return serializedInventory;
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    public void setSerializedInventory(String serializedInventory) {
+        lock.writeLock().lock();
+        try {
+            this.serializedInventory = serializedInventory;
+            markDirty();
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    public String getSerializedArmor() {
+        lock.readLock().lock();
+        try {
+            return serializedArmor;
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    public void setSerializedArmor(String serializedArmor) {
+        lock.writeLock().lock();
+        try {
+            this.serializedArmor = serializedArmor;
+            markDirty();
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    public String getSerializedEnderChest() {
+        lock.readLock().lock();
+        try {
+            return serializedEnderChest;
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    public void setSerializedEnderChest(String serializedEnderChest) {
+        lock.writeLock().lock();
+        try {
+            this.serializedEnderChest = serializedEnderChest;
+            markDirty();
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    public String getSerializedOffhand() {
+        lock.readLock().lock();
+        try {
+            return serializedOffhand;
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    public void setSerializedOffhand(String serializedOffhand) {
+        lock.writeLock().lock();
+        try {
+            this.serializedOffhand = serializedOffhand;
+            markDirty();
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    public double getHealth() {
+        lock.readLock().lock();
+        try {
+            return health;
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    public void setHealth(double health) {
+        lock.writeLock().lock();
+        try {
+            this.health = Math.max(0, health);
+            markDirty();
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    public double getMaxHealth() {
+        lock.readLock().lock();
+        try {
+            return maxHealth;
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    public void setMaxHealth(double maxHealth) {
+        lock.writeLock().lock();
+        try {
+            this.maxHealth = Math.max(1, maxHealth);
+            markDirty();
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    public int getFoodLevel() {
+        lock.readLock().lock();
+        try {
+            return foodLevel;
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    public void setFoodLevel(int foodLevel) {
+        lock.writeLock().lock();
+        try {
+            this.foodLevel = Math.max(0, Math.min(20, foodLevel));
+            markDirty();
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    public float getSaturation() {
+        lock.readLock().lock();
+        try {
+            return saturation;
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    public void setSaturation(float saturation) {
+        lock.writeLock().lock();
+        try {
+            this.saturation = Math.max(0, saturation);
+            markDirty();
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    public int getXpLevel() {
+        lock.readLock().lock();
+        try {
+            return xpLevel;
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    public void setXpLevel(int xpLevel) {
+        lock.writeLock().lock();
+        try {
+            this.xpLevel = Math.max(0, xpLevel);
+            markDirty();
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    public float getXpProgress() {
+        lock.readLock().lock();
+        try {
+            return xpProgress;
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    public void setXpProgress(float xpProgress) {
+        lock.writeLock().lock();
+        try {
+            this.xpProgress = Math.max(0, Math.min(1, xpProgress));
+            markDirty();
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    public int getTotalExperience() {
+        lock.readLock().lock();
+        try {
+            return totalExperience;
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    public void setTotalExperience(int totalExperience) {
+        lock.writeLock().lock();
+        try {
+            this.totalExperience = Math.max(0, totalExperience);
+            markDirty();
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    public String getBedSpawnLocation() {
+        lock.readLock().lock();
+        try {
+            return bedSpawnLocation;
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    public void setBedSpawnLocation(String bedSpawnLocation) {
+        lock.writeLock().lock();
+        try {
+            this.bedSpawnLocation = bedSpawnLocation;
+            markDirty();
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    public String getGameMode() {
+        lock.readLock().lock();
+        try {
+            return gameMode;
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    public void setGameMode(String gameMode) {
+        lock.writeLock().lock();
+        try {
+            this.gameMode = gameMode != null ? gameMode : "SURVIVAL";
+            markDirty();
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    public List<String> getActivePotionEffects() {
+        lock.readLock().lock();
+        try {
+            return new ArrayList<>(activePotionEffects);
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    public void setActivePotionEffects(List<String> effects) {
+        lock.writeLock().lock();
+        try {
+            activePotionEffects.clear();
+            if (effects != null) {
+                activePotionEffects.addAll(effects);
+            }
             markDirty();
         } finally {
             lock.writeLock().unlock();
@@ -1826,32 +3035,12 @@ public class YakPlayer {
         }
     }
 
-    public String getCurrentQuest() {
-        lock.readLock().lock();
-        try {
-            return currentQuest;
-        } finally {
-            lock.readLock().unlock();
-        }
-    }
-
-    public int getQuestProgress() {
-        lock.readLock().lock();
-        try {
-            return questProgress;
-        } finally {
-            lock.readLock().unlock();
-        }
-    }
-
     // Profession getters
     public int getMiningLevel() { return pickaxeLevel; }
-    public int getFishingLevel() { return fishingLevel; }
     public int getFarmingLevel() { return farmingLevel; }
     public int getWoodcuttingLevel() { return woodcuttingLevel; }
 
     public int getMiningXP() { return miningXp; }
-    public int getFishingXP() { return fishingXp; }
     public int getFarmingXP() { return farmingXp; }
     public int getWoodcuttingXP() { return woodcuttingXp; }
 
@@ -1862,15 +3051,6 @@ public class YakPlayer {
     public long getDamageDodged() { return damageDodged; }
 
     // Bank access methods
-    public Set<String> getBankAuthorizedUsers() {
-        lock.readLock().lock();
-        try {
-            return new HashSet<>(bankAuthorizedUsers);
-        } finally {
-            lock.readLock().unlock();
-        }
-    }
-
     public List<String> getBankAccessLog() {
         lock.readLock().lock();
         try {
@@ -1913,29 +3093,7 @@ public class YakPlayer {
         }
     }
 
-    public boolean isInGuild() {
-        return false;
-    }
-
-    public String getGuildName() {
-        return "N/A";
-    }
-
-    public boolean isMuted() {
-        return false;
-    }
-
-    public String[] getUnlockedChatTags() {
-        return null;
-    }
-
-    public void unlockChatTag(ChatTag tag) {
-    }
-
-    public int getChaoticTime() {
-    }
-
-    // Helper classes for serialization (unchanged from original)
+    // Helper classes for serialization
     private static class ItemSerializer {
         public static String serializeItemStack(ItemStack item) throws IOException {
             if (item == null || item.getType() == Material.AIR) {

@@ -54,7 +54,7 @@ public class DefaultVendorAnimation extends BaseVendorAnimation {
 
     @Override
     public void updateDisplayAnimations(Set<Entity> entities, Location loc) {
-        int tick = animationTick;
+        int tick = animationTick.get();
 
         for (Entity entity : entities) {
             if (!entity.isValid()) continue;
@@ -146,7 +146,7 @@ public class DefaultVendorAnimation extends BaseVendorAnimation {
         if (world == null) return;
 
         // Simple ambient particles
-        if (animationTick % 10 == 0) {
+        if (animationTick.get() % 10 == 0) {
             Location particleLoc = loc.clone().add(
                     (random.nextDouble() - 0.5) * 0.6,
                     1.0 + random.nextDouble() * 0.4,
@@ -161,7 +161,7 @@ public class DefaultVendorAnimation extends BaseVendorAnimation {
         }
 
         // Slow ascending particles
-        if (animationTick % 20 == 0) {
+        if (animationTick.get() % 20 == 0) {
             Location ascendLoc = loc.clone().add(
                     (random.nextDouble() - 0.5) * 0.4,
                     0.8,
@@ -189,7 +189,7 @@ public class DefaultVendorAnimation extends BaseVendorAnimation {
         if (world == null) return;
 
         // Generic vendor sound
-        if (animationTick % 100 == 0) {
+        if (animationTick.get() % 100 == 0) {
             Sound sound = Sound.ENTITY_VILLAGER_AMBIENT;
             float volume = 0.1f;
             float pitch = 1.0f;
@@ -198,7 +198,7 @@ public class DefaultVendorAnimation extends BaseVendorAnimation {
         }
 
         // Occasional item interaction sound
-        if (animationTick % 60 == 0 && random.nextBoolean()) {
+        if (animationTick.get() % 60 == 0 && random.nextBoolean()) {
             Sound sound = Sound.ENTITY_ITEM_PICKUP;
             float volume = 0.15f;
             float pitch = 1.0f + random.nextFloat() * 0.5f;

@@ -67,7 +67,7 @@ public class UpgradeVendorAnimation extends BaseVendorAnimation {
 
     @Override
     public void updateDisplayAnimations(Set<Entity> entities, Location loc) {
-        int tick = animationTick;
+        int tick = animationTick.get();
 
         for (Entity entity : entities) {
             if (!entity.isValid()) continue;
@@ -182,21 +182,21 @@ public class UpgradeVendorAnimation extends BaseVendorAnimation {
         if (world == null) return;
 
         // Calculate if hammer and sword are close to each other (potential strike)
-        boolean strikeEvent = animationTick % 120 < 10; // Every 6 seconds
+        boolean strikeEvent = animationTick.get() % 120 < 10; // Every 6 seconds
 
         // Create sparks when hammer and sword are close
-        if (strikeEvent && animationTick % 2 == 0) {
+        if (strikeEvent && animationTick.get() % 2 == 0) {
             // Calculate position based on current tick
-            double angle1 = Math.toRadians(animationTick * 2);
-            double angle2 = Math.toRadians(animationTick * 3 + 120);
+            double angle1 = Math.toRadians(animationTick.get() * 2);
+            double angle2 = Math.toRadians(animationTick.get() * 3 + 120);
 
             double x1 = Math.cos(angle1) * 0.8;
             double z1 = Math.sin(angle1) * 0.8;
-            double y1 = 1.3 + Math.sin(Math.toRadians(animationTick * 3)) * 0.2;
+            double y1 = 1.3 + Math.sin(Math.toRadians(animationTick.get() * 3)) * 0.2;
 
             double x2 = Math.cos(angle2) * 0.7;
             double z2 = Math.sin(angle2) * 0.7;
-            double y2 = 1.5 + Math.sin(Math.toRadians(animationTick * 4 + 30)) * 0.15;
+            double y2 = 1.5 + Math.sin(Math.toRadians(animationTick.get() * 4 + 30)) * 0.15;
 
             // Calculate distance between items
             double dx = x1 - x2;
@@ -240,7 +240,7 @@ public class UpgradeVendorAnimation extends BaseVendorAnimation {
         }
 
         // Create forge fire effect
-        if (animationTick % 10 == 0) {
+        if (animationTick.get() % 10 == 0) {
             Location forgeLoc = loc.clone().add(
                     (random.nextDouble() - 0.5) * 0.5,
                     0.5,
@@ -255,7 +255,7 @@ public class UpgradeVendorAnimation extends BaseVendorAnimation {
         }
 
         // Create smoke effect
-        if (animationTick % 25 == 0) {
+        if (animationTick.get() % 25 == 0) {
             Location smokeLoc = loc.clone().add(
                     (random.nextDouble() - 0.5) * 0.3,
                     0.7 + random.nextDouble() * 0.3,
@@ -278,7 +278,7 @@ public class UpgradeVendorAnimation extends BaseVendorAnimation {
         if (world == null) return;
 
         // Strike sounds when items align
-        if (animationTick % 120 < 3) { // Aligned with spark effect
+        if (animationTick.get() % 120 < 3) { // Aligned with spark effect
             Sound sound = Sound.BLOCK_ANVIL_USE;
             float volume = 0.3f;
             float pitch = 1.0f + random.nextFloat() * 0.2f;
@@ -287,7 +287,7 @@ public class UpgradeVendorAnimation extends BaseVendorAnimation {
         }
 
         // Ambient forge sounds
-        if (animationTick % 70 == 0) {
+        if (animationTick.get() % 70 == 0) {
             Sound sound = Sound.BLOCK_FIRE_AMBIENT;
             float volume = 0.15f;
             float pitch = 0.8f + random.nextFloat() * 0.4f;

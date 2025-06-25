@@ -12,6 +12,7 @@ import org.joml.Vector3f;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Item vendor animation with orbiting merchandise
@@ -55,7 +56,7 @@ public class ItemVendorAnimation extends BaseVendorAnimation {
 
     @Override
     public void updateDisplayAnimations(Set<Entity> entities, Location loc) {
-        int tick = animationTick;
+        AtomicInteger tick = animationTick;
 
         for (Entity entity : entities) {
             if (!entity.isValid()) continue;
@@ -71,7 +72,7 @@ public class ItemVendorAnimation extends BaseVendorAnimation {
 
             if (entity instanceof Display) {
                 Display display = (Display) entity;
-                updateDisplayAnimation(display, role, loc, tick);
+                updateDisplayAnimation(display, role, loc, tick.get());
             }
         }
     }
@@ -165,12 +166,12 @@ public class ItemVendorAnimation extends BaseVendorAnimation {
         if (world == null) return;
 
         // Highlight particles for items being showcased
-        if (animationTick % 5 == 0) {
+        if (animationTick.get() % 5 == 0) {
             // Determine which item is being highlighted based on tick
-            int highlightIndex = (animationTick / 140) % 7;
+            int highlightIndex = (animationTick.get() / 140) % 7;
 
             // Calculate the position of the highlighted item
-            int tick = animationTick;
+            int tick = animationTick.get();
             int totalItems = 7;
 
             double progress = ((double)tick / 180.0) + ((double)highlightIndex / totalItems);
@@ -208,7 +209,7 @@ public class ItemVendorAnimation extends BaseVendorAnimation {
         }
 
         // Occasional generic item sparkle
-        if (animationTick % 20 == 0) {
+        if (animationTick.get() % 20 == 0) {
             Location sparkLoc = loc.clone().add(
                     (random.nextDouble() - 0.5) * 0.8,
                     1.0 + random.nextDouble() * 0.8,
@@ -231,7 +232,7 @@ public class ItemVendorAnimation extends BaseVendorAnimation {
         if (world == null) return;
 
         // Highlighting sound for currently showcased item
-        if (animationTick % 140 == 0) {
+        if (animationTick.get() % 140 == 0) {
             Sound sound = Sound.ENTITY_EXPERIENCE_ORB_PICKUP;
             float volume = 0.2f;
             float pitch = 1.0f + random.nextFloat() * 0.5f;
@@ -240,7 +241,7 @@ public class ItemVendorAnimation extends BaseVendorAnimation {
         }
 
         // General item interactions
-        if (animationTick % 70 == 0 && random.nextBoolean()) {
+        if (animationTick.get() % 70 == 0 && random.nextBoolean()) {
             Sound sound = Sound.ENTITY_ITEM_PICKUP;
             float volume = 0.15f;
             float pitch = 0.8f + random.nextFloat() * 0.4f;

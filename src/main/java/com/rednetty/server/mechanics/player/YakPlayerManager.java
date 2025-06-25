@@ -37,12 +37,14 @@ import java.util.stream.Collectors;
 
 /**
  * Enhanced YakPlayer manager with improved performance, thread safety,
- * better error handling, and optimized database operations.
+ * better error handling, optimized database operations, and full integration
+ * with all YakPlayer systems.
  */
 public class YakPlayerManager implements Listener {
     private static YakPlayerManager instance;
     private final YakPlayerRepository repository;
     private final Map<UUID, YakPlayer> onlinePlayers = new ConcurrentHashMap<>();
+    private final Map<String, UUID> playerNameCache = new ConcurrentHashMap<>(); // Name -> UUID mapping
     private final Map<UUID, ReentrantLock> playerLocks = new ConcurrentHashMap<>();
     private final Logger logger;
     private final Plugin plugin;
@@ -50,9 +52,11 @@ public class YakPlayerManager implements Listener {
     // Enhanced task management
     private final ScheduledExecutorService scheduledExecutor;
     private final ExecutorService asyncExecutor;
+    private final ExecutorService priorityExecutor; // For critical operations
     private BukkitTask autoSaveTask;
     private BukkitTask emergencyBackupTask;
     private BukkitTask cacheMaintenance;
+    private BukkitTask performanceMonitor;
 
     // State management
     private volatile boolean shutdownInProgress = false;
@@ -60,6 +64,7 @@ public class YakPlayerManager implements Listener {
 
     // Error handling and logging
     private final File dataErrorLog;
+    private final File performanceLog;
     private final AtomicInteger saveCounter = new AtomicInteger(0);
     private final AtomicBoolean forceSaveAll = new AtomicBoolean(false);
 
@@ -67,19 +72,34 @@ public class YakPlayerManager implements Listener {
     private final Set<UUID> failedLoads = ConcurrentHashMap.newKeySet();
     private final Map<UUID, Long> playerSaveTimes = new ConcurrentHashMap<>();
     private final Map<UUID, Long> lastPlayerActivity = new ConcurrentHashMap<>();
+    private final Map<UUID, Long> playerLoadTimes = new ConcurrentHashMap<>();
+
+    // Enhanced caching
+    private final Map<UUID, String> displayNameCache = new ConcurrentHashMap<>();
+    private final Map<UUID, Long> displayNameCacheTime = new ConcurrentHashMap<>();
+    private static final long DISPLAY_NAME_CACHE_DURATION = 30000; // 30 seconds
 
     // Configuration
     private final long autoSaveInterval;
     private final long emergencyBackupInterval;
     private final long cacheMaintenanceInterval;
+    private final long performanceMonitorInterval;
     private final int savePlayersPerCycle;
     private final int maxFailedLoadAttempts;
     private final int threadPoolSize;
+    private final int priorityThreadPoolSize;
 
     // Performance metrics
     private final AtomicInteger totalLoads = new AtomicInteger(0);
     private final AtomicInteger totalSaves = new AtomicInteger(0);
     private final AtomicInteger failedSaves = new AtomicInteger(0);
+    private final AtomicInteger cacheHits = new AtomicInteger(0);
+    private final AtomicInteger cacheMisses = new AtomicInteger(0);
+
+    // System integration flags
+    private final AtomicBoolean chatSystemReady = new AtomicBoolean(false);
+    private final AtomicBoolean moderationSystemReady = new AtomicBoolean(false);
+    private final AtomicBoolean economySystemReady = new AtomicBoolean(false);
 
     /**
      * Private constructor for singleton pattern
@@ -93,20 +113,31 @@ public class YakPlayerManager implements Listener {
         this.autoSaveInterval = plugin.getConfig().getLong("player_manager.auto_save_interval_ticks", 6000L);
         this.emergencyBackupInterval = plugin.getConfig().getLong("player_manager.emergency_backup_interval_ticks", 18000L);
         this.cacheMaintenanceInterval = plugin.getConfig().getLong("player_manager.cache_maintenance_interval_ticks", 36000L);
+        this.performanceMonitorInterval = plugin.getConfig().getLong("player_manager.performance_monitor_interval_ticks", 12000L);
         this.savePlayersPerCycle = plugin.getConfig().getInt("player_manager.players_per_save_cycle", 5);
         this.maxFailedLoadAttempts = plugin.getConfig().getInt("player_manager.max_failed_load_attempts", 3);
         this.threadPoolSize = plugin.getConfig().getInt("player_manager.thread_pool_size", 4);
+        this.priorityThreadPoolSize = plugin.getConfig().getInt("player_manager.priority_thread_pool_size", 2);
 
         // Initialize thread pools
-        this.scheduledExecutor = Executors.newScheduledThreadPool(2, r -> {
+        this.scheduledExecutor = Executors.newScheduledThreadPool(3, r -> {
             Thread thread = new Thread(r, "YakPlayerManager-Scheduled");
             thread.setDaemon(true);
+            thread.setPriority(Thread.NORM_PRIORITY);
             return thread;
         });
 
         this.asyncExecutor = Executors.newFixedThreadPool(threadPoolSize, r -> {
             Thread thread = new Thread(r, "YakPlayerManager-Async");
             thread.setDaemon(true);
+            thread.setPriority(Thread.NORM_PRIORITY);
+            return thread;
+        });
+
+        this.priorityExecutor = Executors.newFixedThreadPool(priorityThreadPoolSize, r -> {
+            Thread thread = new Thread(r, "YakPlayerManager-Priority");
+            thread.setDaemon(true);
+            thread.setPriority(Thread.NORM_PRIORITY + 1);
             return thread;
         });
 
@@ -117,8 +148,10 @@ public class YakPlayerManager implements Listener {
         }
 
         this.dataErrorLog = new File(logsDir, "data_errors.log");
+        this.performanceLog = new File(logsDir, "performance.log");
 
-        logger.info("YakPlayerManager initialized with " + threadPoolSize + " async threads");
+        logger.info("YakPlayerManager initialized with " + threadPoolSize + " async threads and " +
+                priorityThreadPoolSize + " priority threads");
     }
 
     /**
@@ -150,7 +183,7 @@ public class YakPlayerManager implements Listener {
     }
 
     /**
-     * Enhanced initialization with better error handling
+     * Enhanced initialization with better error handling and system integration
      */
     public void onEnable() {
         if (!initialized.compareAndSet(false, true)) {
@@ -165,6 +198,9 @@ public class YakPlayerManager implements Listener {
             // Start enhanced task system
             startEnhancedTasks();
 
+            // Initialize system integration flags
+            initializeSystemIntegration();
+
             // Load existing online players with batching
             loadExistingOnlinePlayers();
 
@@ -173,6 +209,34 @@ public class YakPlayerManager implements Listener {
             logger.log(Level.SEVERE, "Failed to enable YakPlayerManager", e);
             throw new RuntimeException("YakPlayerManager initialization failed", e);
         }
+    }
+
+    /**
+     * Initialize system integration flags
+     */
+    private void initializeSystemIntegration() {
+        // Check if other systems are ready
+        Bukkit.getScheduler().runTaskLater(plugin, () -> {
+            try {
+                if (ChatMechanics.getInstance() != null) {
+                    chatSystemReady.set(true);
+                    logger.info("Chat system integration ready");
+                }
+            } catch (Exception e) {
+                logger.warning("Chat system not ready: " + e.getMessage());
+            }
+
+            try {
+                if (ModerationMechanics.getInstance() != null) {
+                    moderationSystemReady.set(true);
+                    logger.info("Moderation system integration ready");
+                }
+            } catch (Exception e) {
+                logger.warning("Moderation system not ready: " + e.getMessage());
+            }
+
+            logger.info("System integration initialized");
+        }, 20L); // 1 second delay
     }
 
     /**
@@ -211,11 +275,17 @@ public class YakPlayerManager implements Listener {
             loadPlayer(player.getUniqueId()).thenAccept(yakPlayer -> {
                 if (yakPlayer != null) {
                     Bukkit.getScheduler().runTask(plugin, () -> {
-                        onlinePlayers.put(player.getUniqueId(), yakPlayer);
-                        playerLocks.put(player.getUniqueId(), new ReentrantLock());
-                        yakPlayer.connect(player);
-                        initializePlayerEnergy(yakPlayer);
-                        lastPlayerActivity.put(player.getUniqueId(), System.currentTimeMillis());
+                        try {
+                            onlinePlayers.put(player.getUniqueId(), yakPlayer);
+                            playerNameCache.put(player.getName().toLowerCase(), player.getUniqueId());
+                            playerLocks.put(player.getUniqueId(), new ReentrantLock());
+                            yakPlayer.connect(player);
+                            initializePlayerSystems(player, yakPlayer);
+                            lastPlayerActivity.put(player.getUniqueId(), System.currentTimeMillis());
+                            playerLoadTimes.put(player.getUniqueId(), System.currentTimeMillis());
+                        } catch (Exception e) {
+                            logger.log(Level.SEVERE, "Error processing batch player: " + player.getName(), e);
+                        }
                     });
                 } else {
                     logDataError("Failed to load existing player: " + player.getName());
@@ -228,7 +298,7 @@ public class YakPlayerManager implements Listener {
     }
 
     /**
-     * Enhanced task system with better error handling
+     * Enhanced task system with better error handling and performance monitoring
      */
     private void startEnhancedTasks() {
         // Auto-save task with smart scheduling
@@ -278,6 +348,20 @@ public class YakPlayerManager implements Listener {
             }
         }.runTaskTimerAsynchronously(plugin, cacheMaintenanceInterval, cacheMaintenanceInterval);
 
+        // Performance monitoring task
+        performanceMonitor = new BukkitRunnable() {
+            @Override
+            public void run() {
+                if (shutdownInProgress) return;
+
+                try {
+                    performPerformanceMonitoring();
+                } catch (Exception e) {
+                    logger.log(Level.SEVERE, "Error during performance monitoring", e);
+                }
+            }
+        }.runTaskTimerAsynchronously(plugin, performanceMonitorInterval, performanceMonitorInterval);
+
         logger.info("Started enhanced task system (auto-save: " + (autoSaveInterval / 20) + "s, backup: " +
                 (emergencyBackupInterval / 20) + "s, maintenance: " + (cacheMaintenanceInterval / 20) + "s)");
     }
@@ -294,6 +378,7 @@ public class YakPlayerManager implements Listener {
 
         AtomicInteger savedCount = new AtomicInteger(0);
         AtomicInteger errorCount = new AtomicInteger(0);
+        long startTime = System.currentTimeMillis();
 
         // Process saves in parallel with rate limiting
         CompletableFuture<?>[] saveFutures = playersToSave.stream()
@@ -334,8 +419,10 @@ public class YakPlayerManager implements Listener {
         // Log results
         int saved = savedCount.get();
         int errors = errorCount.get();
+        long duration = System.currentTimeMillis() - startTime;
+
         if (saved > 0 || errors > 0) {
-            logger.info("Smart save completed: " + saved + " saved, " + errors + " errors" +
+            logger.info("Smart save completed: " + saved + " saved, " + errors + " errors in " + duration + "ms" +
                     (forceSaveAll.get() ? " (emergency)" : ""));
         }
 
@@ -394,31 +481,113 @@ public class YakPlayerManager implements Listener {
     }
 
     /**
-     * Cache maintenance to clean up stale data
+     * Enhanced cache maintenance with performance optimization
      */
     private void performCacheMaintenance() {
         long currentTime = System.currentTimeMillis();
         long staleThreshold = currentTime - TimeUnit.HOURS.toMillis(1);
+        long displayNameThreshold = currentTime - DISPLAY_NAME_CACHE_DURATION;
+
+        int cleaned = 0;
 
         // Clean up failed loads older than 1 hour
+        int failedLoadsSize = failedLoads.size();
         failedLoads.removeIf(uuid -> {
             Long lastActivity = lastPlayerActivity.get(uuid);
             return lastActivity != null && lastActivity < staleThreshold;
         });
+        cleaned += failedLoadsSize - failedLoads.size();
 
         // Clean up save times for offline players
+        int saveTimesSize = playerSaveTimes.size();
         playerSaveTimes.entrySet().removeIf(entry -> {
             UUID uuid = entry.getKey();
             return !onlinePlayers.containsKey(uuid) && entry.getValue() < staleThreshold;
         });
+        cleaned += saveTimesSize - playerSaveTimes.size();
 
         // Clean up activity tracking for offline players
+        int activitySize = lastPlayerActivity.size();
         lastPlayerActivity.entrySet().removeIf(entry -> {
             UUID uuid = entry.getKey();
             return !onlinePlayers.containsKey(uuid) && entry.getValue() < staleThreshold;
         });
+        cleaned += activitySize - lastPlayerActivity.size();
 
-        logger.fine("Cache maintenance completed - cleaned stale entries");
+        // Clean up display name cache
+        int displayCacheSize = displayNameCache.size();
+        displayNameCacheTime.entrySet().removeIf(entry -> {
+            UUID uuid = entry.getKey();
+            if (entry.getValue() < displayNameThreshold || !onlinePlayers.containsKey(uuid)) {
+                displayNameCache.remove(uuid);
+                return true;
+            }
+            return false;
+        });
+        cleaned += displayCacheSize - displayNameCache.size();
+
+        // Clean up name cache for offline players
+        int nameCacheSize = playerNameCache.size();
+        playerNameCache.entrySet().removeIf(entry -> {
+            UUID uuid = entry.getValue();
+            return !onlinePlayers.containsKey(uuid);
+        });
+        cleaned += nameCacheSize - playerNameCache.size();
+
+        if (cleaned > 0) {
+            logger.fine("Cache maintenance completed - cleaned " + cleaned + " stale entries");
+        }
+    }
+
+    /**
+     * Performance monitoring and logging
+     */
+    private void performPerformanceMonitoring() {
+        try {
+            // Calculate performance metrics
+            long currentTime = System.currentTimeMillis();
+            int onlineCount = onlinePlayers.size();
+            int loads = totalLoads.get();
+            int saves = totalSaves.get();
+            int failedSavesCount = failedSaves.get();
+            int hits = cacheHits.get();
+            int misses = cacheMisses.get();
+
+            double cacheHitRatio = (hits + misses) > 0 ? (double) hits / (hits + misses) * 100 : 0;
+            double saveSuccessRatio = saves > 0 ? (double) (saves - failedSavesCount) / saves * 100 : 100;
+
+            // Log to performance file
+            logPerformanceData(currentTime, onlineCount, loads, saves, failedSavesCount, cacheHitRatio, saveSuccessRatio);
+
+            // Check for performance issues
+            if (saveSuccessRatio < 95.0) {
+                logger.warning("Low save success ratio: " + String.format("%.1f%%", saveSuccessRatio));
+            }
+
+            if (cacheHitRatio < 80.0 && (hits + misses) > 100) {
+                logger.warning("Low cache hit ratio: " + String.format("%.1f%%", cacheHitRatio));
+            }
+
+        } catch (Exception e) {
+            logger.log(Level.WARNING, "Error during performance monitoring", e);
+        }
+    }
+
+    private void logPerformanceData(long timestamp, int online, int loads, int saves, int failedSaves,
+                                    double cacheHitRatio, double saveSuccessRatio) {
+        try {
+            SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+            String timeStr = dateFormat.format(new Date(timestamp));
+
+            synchronized (performanceLog) {
+                try (PrintWriter writer = new PrintWriter(new FileWriter(performanceLog, true))) {
+                    writer.printf("[%s] Online: %d, Loads: %d, Saves: %d, Failed: %d, Cache Hit: %.1f%%, Save Success: %.1f%%\n",
+                            timeStr, online, loads, saves, failedSaves, cacheHitRatio, saveSuccessRatio);
+                }
+            }
+        } catch (Exception e) {
+            logger.log(Level.WARNING, "Failed to log performance data", e);
+        }
     }
 
     /**
@@ -453,6 +622,9 @@ public class YakPlayerManager implements Listener {
         }
         if (cacheMaintenance != null && !cacheMaintenance.isCancelled()) {
             cacheMaintenance.cancel();
+        }
+        if (performanceMonitor != null && !performanceMonitor.isCancelled()) {
+            performanceMonitor.cancel();
         }
     }
 
@@ -497,14 +669,19 @@ public class YakPlayerManager implements Listener {
 
     private void cleanup() {
         onlinePlayers.clear();
+        playerNameCache.clear();
         playerLocks.clear();
         failedLoads.clear();
         playerSaveTimes.clear();
         lastPlayerActivity.clear();
+        playerLoadTimes.clear();
+        displayNameCache.clear();
+        displayNameCacheTime.clear();
 
         // Shutdown thread pools
         shutdownExecutor(scheduledExecutor, "scheduled");
         shutdownExecutor(asyncExecutor, "async");
+        shutdownExecutor(priorityExecutor, "priority");
     }
 
     private void shutdownExecutor(ExecutorService executor, String name) {
@@ -520,7 +697,7 @@ public class YakPlayerManager implements Listener {
         }
     }
 
-    // Continue with event handlers and other methods...
+    // Enhanced event handlers
 
     @EventHandler(priority = EventPriority.LOWEST)
     public void onPlayerPreLogin(AsyncPlayerPreLoginEvent event) {
@@ -546,8 +723,10 @@ public class YakPlayerManager implements Listener {
 
                 if (player.isBanned()) {
                     String banMessage = formatBanMessage(player);
-                    event.disallow(AsyncPlayerPreLoginEvent.Result.KICK_BANNED, banMessage);
-                    return;
+                    if (banMessage != null) {
+                        event.disallow(AsyncPlayerPreLoginEvent.Result.KICK_BANNED, banMessage);
+                        return;
+                    }
                 }
 
                 // Update username if changed
@@ -555,6 +734,9 @@ public class YakPlayerManager implements Listener {
                     player.setUsername(event.getName());
                     repository.save(player);
                 }
+
+                // Update name cache
+                playerNameCache.put(event.getName().toLowerCase(), uuid);
             }
         } catch (Exception e) {
             logger.log(Level.SEVERE, "Error checking ban status for " + event.getName(), e);
@@ -607,6 +789,9 @@ public class YakPlayerManager implements Listener {
         // Prepare lock
         playerLocks.computeIfAbsent(uuid, k -> new ReentrantLock());
 
+        // Update name cache
+        playerNameCache.put(player.getName().toLowerCase(), uuid);
+
         // Load player asynchronously
         CompletableFuture.supplyAsync(() -> {
             try {
@@ -615,7 +800,7 @@ public class YakPlayerManager implements Listener {
                 logger.log(Level.SEVERE, "Error loading player on join: " + player.getName(), e);
                 return null;
             }
-        }, asyncExecutor).thenAccept(yakPlayer -> {
+        }, priorityExecutor).thenAccept(yakPlayer -> {
             Bukkit.getScheduler().runTask(plugin, () -> {
                 handlePlayerJoinResult(player, yakPlayer);
             });
@@ -625,9 +810,11 @@ public class YakPlayerManager implements Listener {
     private YakPlayer loadPlayerForJoin(UUID uuid) throws Exception {
         if (onlinePlayers.containsKey(uuid)) {
             logger.info("Player already loaded: " + uuid);
+            cacheHits.incrementAndGet();
             return onlinePlayers.get(uuid);
         }
 
+        cacheMisses.incrementAndGet();
         Optional<YakPlayer> playerOpt = repository.findById(uuid).get(20, TimeUnit.SECONDS);
         totalLoads.incrementAndGet();
 
@@ -644,6 +831,7 @@ public class YakPlayerManager implements Listener {
         }
 
         lastPlayerActivity.put(uuid, System.currentTimeMillis());
+        playerLoadTimes.put(uuid, System.currentTimeMillis());
     }
 
     private void handleNewPlayer(Player player) {
@@ -661,9 +849,7 @@ public class YakPlayerManager implements Listener {
             onlinePlayers.put(uuid, newPlayer);
 
             // Initialize systems
-            ModerationMechanics.rankMap.put(uuid, Rank.DEFAULT);
-            ChatMechanics.getPlayerTags().put(uuid, ChatTag.DEFAULT);
-            initializePlayerEnergy(newPlayer);
+            initializePlayerSystems(player, newPlayer);
 
             // Save asynchronously
             savePlayer(newPlayer);
@@ -728,20 +914,27 @@ public class YakPlayerManager implements Listener {
         // Initialize energy system
         initializePlayerEnergy(yakPlayer);
 
-        // Update rank and chat tag in memory
-        try {
-            Rank rank = Rank.valueOf(yakPlayer.getRank());
-            ModerationMechanics.rankMap.put(uuid, rank);
-        } catch (IllegalArgumentException e) {
-            ModerationMechanics.rankMap.put(uuid, Rank.DEFAULT);
+        // Update rank and chat tag in memory if systems are ready
+        if (moderationSystemReady.get()) {
+            try {
+                Rank rank = Rank.valueOf(yakPlayer.getRank());
+                ModerationMechanics.rankMap.put(uuid, rank);
+            } catch (IllegalArgumentException e) {
+                ModerationMechanics.rankMap.put(uuid, Rank.DEFAULT);
+            }
         }
 
-        try {
-            ChatTag tag = ChatTag.valueOf(yakPlayer.getChatTag());
-            ChatMechanics.getPlayerTags().put(uuid, tag);
-        } catch (IllegalArgumentException e) {
-            ChatMechanics.getPlayerTags().put(uuid, ChatTag.DEFAULT);
+        if (chatSystemReady.get()) {
+            try {
+                ChatTag tag = ChatTag.valueOf(yakPlayer.getChatTag());
+                ChatMechanics.getPlayerTags().put(uuid, tag);
+            } catch (IllegalArgumentException e) {
+                ChatMechanics.getPlayerTags().put(uuid, ChatTag.DEFAULT);
+            }
         }
+
+        // Initialize display name cache
+        updateDisplayNameCache(yakPlayer);
     }
 
     private void handlePlayerDataError(Player player, Exception e) {
@@ -786,6 +979,11 @@ public class YakPlayerManager implements Listener {
                     // Remove from online players
                     onlinePlayers.remove(uuid);
 
+                    // Clear caches
+                    displayNameCache.remove(uuid);
+                    displayNameCacheTime.remove(uuid);
+                    playerNameCache.remove(player.getName().toLowerCase());
+
                     // Save asynchronously
                     savePlayer(yakPlayer).thenAccept(success -> {
                         if (success) {
@@ -816,6 +1014,13 @@ public class YakPlayerManager implements Listener {
         }
     }
 
+    private void updateDisplayNameCache(YakPlayer yakPlayer) {
+        UUID uuid = yakPlayer.getUUID();
+        String displayName = yakPlayer.getFormattedDisplayName();
+        displayNameCache.put(uuid, displayName);
+        displayNameCacheTime.put(uuid, System.currentTimeMillis());
+    }
+
     private void logDataError(String message) {
         logDataError(message, null);
     }
@@ -842,12 +1047,26 @@ public class YakPlayerManager implements Listener {
         }
     }
 
-    // Public API methods
+    // Enhanced public API methods
     public YakPlayer getPlayer(UUID uuid) {
         return onlinePlayers.get(uuid);
     }
 
     public YakPlayer getPlayer(String name) {
+        if (name == null) return null;
+
+        // Try cache first
+        UUID uuid = playerNameCache.get(name.toLowerCase());
+        if (uuid != null) {
+            YakPlayer player = onlinePlayers.get(uuid);
+            if (player != null) {
+                cacheHits.incrementAndGet();
+                return player;
+            }
+        }
+
+        // Fallback to iteration
+        cacheMisses.incrementAndGet();
         return onlinePlayers.values().stream()
                 .filter(player -> player.getUsername().equalsIgnoreCase(name))
                 .findFirst()
@@ -864,6 +1083,30 @@ public class YakPlayerManager implements Listener {
 
     public ReentrantLock getPlayerLock(UUID uuid) {
         return playerLocks.computeIfAbsent(uuid, id -> new ReentrantLock());
+    }
+
+    // Enhanced async operations for other systems
+    public CompletableFuture<Boolean> withPlayer(UUID uuid, Consumer<YakPlayer> action, boolean save) {
+        return CompletableFuture.supplyAsync(() -> {
+            YakPlayer player = getPlayer(uuid);
+            if (player != null) {
+                ReentrantLock lock = getPlayerLock(uuid);
+                lock.lock();
+                try {
+                    action.accept(player);
+                    if (save) {
+                        return savePlayer(player).get(10, TimeUnit.SECONDS);
+                    }
+                    return true;
+                } catch (Exception e) {
+                    logger.log(Level.SEVERE, "Error in withPlayer operation for " + uuid, e);
+                    return false;
+                } finally {
+                    lock.unlock();
+                }
+            }
+            return false;
+        }, asyncExecutor);
     }
 
     // Enhanced save methods
@@ -883,6 +1126,10 @@ public class YakPlayerManager implements Listener {
                         repository.save(player).get(10, TimeUnit.SECONDS);
                         playerSaveTimes.put(player.getUUID(), System.currentTimeMillis());
                         player.clearDirty();
+
+                        // Update display name cache
+                        updateDisplayNameCache(player);
+
                         return true;
 
                     } catch (Exception e) {
@@ -897,9 +1144,9 @@ public class YakPlayerManager implements Listener {
                     return false;
                 }
             } catch (InterruptedException e) {
-                e.printStackTrace();
+                Thread.currentThread().interrupt();
+                return false;
             }
-            return null;
         }, asyncExecutor);
     }
 
@@ -908,31 +1155,24 @@ public class YakPlayerManager implements Listener {
             try {
                 repository.saveSync(player);
                 player.clearDirty();
+                updateDisplayNameCache(player);
                 return true;
             } catch (Exception e) {
                 logger.log(Level.SEVERE, "Sync save failed for player: " + player.getUsername(), e);
                 return false;
             }
-        });
-    }
-
-    // Performance monitoring
-    public void logPerformanceStats() {
-        logger.info("YakPlayerManager Performance Stats:");
-        logger.info("  Online Players: " + onlinePlayers.size());
-        logger.info("  Total Loads: " + totalLoads.get());
-        logger.info("  Total Saves: " + totalSaves.get());
-        logger.info("  Failed Saves: " + failedSaves.get());
-        logger.info("  Cache Entries: " + playerSaveTimes.size());
+        }, priorityExecutor);
     }
 
     // Enhanced load method with retry logic
     private CompletableFuture<YakPlayer> loadPlayer(UUID uuid) {
         return CompletableFuture.supplyAsync(() -> {
             if (onlinePlayers.containsKey(uuid)) {
+                cacheHits.incrementAndGet();
                 return onlinePlayers.get(uuid);
             }
 
+            cacheMisses.incrementAndGet();
             int attempts = 0;
             Exception lastException = null;
 
@@ -962,7 +1202,61 @@ public class YakPlayerManager implements Listener {
         }, asyncExecutor);
     }
 
+    // Bulk operations
     public void saveAllPlayers() {
-        onlinePlayers.values().forEach(this::savePlayer);
+        forceSaveAll.set(true);
+        performSmartSave();
+        forceSaveAll.set(false);
+    }
+
+    public void saveAllPlayersSync() {
+        logger.info("Performing synchronous save of all players...");
+        List<CompletableFuture<Boolean>> futures = new ArrayList<>();
+
+        for (YakPlayer player : onlinePlayers.values()) {
+            futures.add(savePlayerSync(player));
+        }
+
+        try {
+            CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).get(30, TimeUnit.SECONDS);
+            logger.info("Synchronous save completed for " + futures.size() + " players");
+        } catch (Exception e) {
+            logger.log(Level.SEVERE, "Error during synchronous save all", e);
+        }
+    }
+
+    // Performance monitoring
+    public void logPerformanceStats() {
+        logger.info("YakPlayerManager Performance Stats:");
+        logger.info("  Online Players: " + onlinePlayers.size());
+        logger.info("  Total Loads: " + totalLoads.get());
+        logger.info("  Total Saves: " + totalSaves.get());
+        logger.info("  Failed Saves: " + failedSaves.get());
+        logger.info("  Cache Hits: " + cacheHits.get());
+        logger.info("  Cache Misses: " + cacheMisses.get());
+        logger.info("  Cache Hit Ratio: " + String.format("%.1f%%",
+                (cacheHits.get() + cacheMisses.get()) > 0 ?
+                        (double) cacheHits.get() / (cacheHits.get() + cacheMisses.get()) * 100 : 0));
+        logger.info("  Cache Entries: " + playerSaveTimes.size());
+    }
+
+    // System status
+    public boolean isSystemReady() {
+        return initialized.get() && !shutdownInProgress;
+    }
+
+    public Map<String, Object> getSystemStatus() {
+        Map<String, Object> status = new HashMap<>();
+        status.put("initialized", initialized.get());
+        status.put("shutdownInProgress", shutdownInProgress);
+        status.put("onlinePlayers", onlinePlayers.size());
+        status.put("totalLoads", totalLoads.get());
+        status.put("totalSaves", totalSaves.get());
+        status.put("failedSaves", failedSaves.get());
+        status.put("cacheHits", cacheHits.get());
+        status.put("cacheMisses", cacheMisses.get());
+        status.put("chatSystemReady", chatSystemReady.get());
+        status.put("moderationSystemReady", moderationSystemReady.get());
+        return status;
     }
 }

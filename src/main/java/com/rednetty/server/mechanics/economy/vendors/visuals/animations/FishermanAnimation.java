@@ -86,8 +86,8 @@ public class FishermanAnimation extends BaseVendorAnimation {
 
     @Override
     public void updateDisplayAnimations(Set<Entity> entities, Location centerLoc) {
-        // Use the animationTick from the base class
-        int tick = animationTick;
+        // Use the animationTick.get() from the base class
+        int tick = animationTick.get();
 
         // Iterate safely over the set
         Iterator<Entity> iterator = entities.iterator();
@@ -289,7 +289,7 @@ public class FishermanAnimation extends BaseVendorAnimation {
         World world = centerLoc.getWorld();
         if (world == null) return;
 
-        int tick = animationTick; // Use base class tick
+        int tick = animationTick.get(); // Use base class tick
 
         // --- Water Drip Particles (Near Fish) ---
         if (tick % 6 == 0) { // Slightly less frequent
@@ -376,7 +376,7 @@ public class FishermanAnimation extends BaseVendorAnimation {
         World world = loc.getWorld();
         if (world == null) return;
 
-        int tick = animationTick; // Use base class tick
+        int tick = animationTick.get(); // Use base class tick
 
         // --- Fishing Cast Splash Sound ---
         double rodCycle = (tick % ROD_CYCLE_TICKS) / (double) ROD_CYCLE_TICKS;

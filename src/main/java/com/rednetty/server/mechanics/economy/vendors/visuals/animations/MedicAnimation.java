@@ -54,7 +54,7 @@ public class MedicAnimation extends BaseVendorAnimation {
 
     @Override
     public void updateDisplayAnimations(Set<Entity> entities, Location loc) {
-        int tick = animationTick;
+        int tick = animationTick.get();
 
         for (Entity entity : entities) {
             if (!entity.isValid()) continue;
@@ -175,9 +175,9 @@ public class MedicAnimation extends BaseVendorAnimation {
         if (world == null) return;
 
         // Healing particles (green)
-        if (animationTick % 3 == 0) {
+        if (animationTick.get() % 3 == 0) {
             // Calculate position on helix based on tick
-            double angle = Math.toRadians(animationTick * 2);
+            double angle = Math.toRadians(animationTick.get() * 2);
             double radius = 0.7;
             double height = 1.2 + Math.sin(angle * 1.5) * 0.3;
 
@@ -201,7 +201,7 @@ public class MedicAnimation extends BaseVendorAnimation {
         }
 
         // Heart particles occasionally
-        if (animationTick % 20 == 0) {
+        if (animationTick.get() % 20 == 0) {
             Location heartLoc = loc.clone().add(
                     (random.nextDouble() - 0.5) * 0.6,
                     1.3 + random.nextDouble() * 0.4,
@@ -216,9 +216,9 @@ public class MedicAnimation extends BaseVendorAnimation {
         }
 
         // Special totem effect
-        if (animationTick % 80 == 0) {
+        if (animationTick.get() % 80 == 0) {
             // Calculate totem position (index 4)
-            double mainAngle = Math.toRadians(animationTick * 2 + (4 * 72));
+            double mainAngle = Math.toRadians(animationTick.get() * 2 + (4 * 72));
             double radius = 0.7;
             boolean isLeftStrand = 4 % 2 == 0;
             double offset = isLeftStrand ? 0 : Math.PI;
@@ -267,7 +267,7 @@ public class MedicAnimation extends BaseVendorAnimation {
         if (world == null) return;
 
         // Potion sounds
-        if (animationTick % 60 == 0 && random.nextBoolean()) {
+        if (animationTick.get() % 60 == 0 && random.nextBoolean()) {
             Sound sound = Sound.ENTITY_WITCH_DRINK;
             float volume = 0.2f;
             float pitch = 1.0f + random.nextFloat() * 0.5f;
@@ -276,7 +276,7 @@ public class MedicAnimation extends BaseVendorAnimation {
         }
 
         // Brewing stand sound
-        if (animationTick % 90 == 0) {
+        if (animationTick.get() % 90 == 0) {
             Sound sound = Sound.BLOCK_BREWING_STAND_BREW;
             float volume = 0.15f;
             float pitch = 0.8f + random.nextFloat() * 0.4f;
@@ -285,7 +285,7 @@ public class MedicAnimation extends BaseVendorAnimation {
         }
 
         // Special totem activation sound
-        if (animationTick % 160 < 3) {
+        if (animationTick.get() % 160 < 3) {
             Sound sound = Sound.ITEM_TOTEM_USE;
             float volume = 0.1f;
             float pitch = 1.2f;

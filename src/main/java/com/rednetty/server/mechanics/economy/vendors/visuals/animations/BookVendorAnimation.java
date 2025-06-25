@@ -87,8 +87,8 @@ public class BookVendorAnimation extends BaseVendorAnimation {
 
     @Override
     public void updateDisplayAnimations(Set<Entity> entities, Location centerLoc) {
-        // Use the animationTick from the base class
-        int tick = animationTick;
+        // Use the animationTick.get() from the base class
+        int tick = animationTick.get();
 
         // Iterate safely over the set
         Iterator<Entity> iterator = entities.iterator();
@@ -257,7 +257,7 @@ public class BookVendorAnimation extends BaseVendorAnimation {
         World world = centerLoc.getWorld();
         if (world == null) return;
 
-        int tick = animationTick; // Use base class tick
+        int tick = animationTick.get(); // Use base class tick
 
         // --- Enchantment Particles (Follow Enchanted Book) ---
         if (tick % 2 == 0) { // More frequent for enchanted book
@@ -324,7 +324,7 @@ public class BookVendorAnimation extends BaseVendorAnimation {
         World world = loc.getWorld();
         if (world == null) return;
 
-        int tick = animationTick; // Use base class tick
+        int tick = animationTick.get(); // Use base class tick
 
         // --- Book Page Flip Sound ---
         if (tick % 45 == 0 && random.nextInt(3) > 0) { // Slightly less frequent, chance-based

@@ -56,7 +56,7 @@ public class GamblerAnimation extends BaseVendorAnimation {
 
     @Override
     public void updateDisplayAnimations(Set<Entity> entities, Location loc) {
-        int tick = animationTick;
+        int tick = animationTick.get();
 
         for (Entity entity : entities) {
             if (!entity.isValid()) continue;
