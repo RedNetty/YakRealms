@@ -2,131 +2,161 @@ name: YakRealms
 version: 1.0.0
 main: com.rednetty.server.YakRealms
 api-version: 1.20
-description: YakRealms MMORPG Server Core
+description: YakRealms MMORPG Server Core - Complete fantasy MMORPG experience
 authors: [ RedNetty, YakDeveloper ]
 website: https://rednetty.com
+depend: []
+softdepend: []
+load: STARTUP
+prefix: YakRealms
 
 commands:
   # Economy Commands
   balance:
     description: Check your gem balance
     aliases: [ bal, money, gems ]
-    usage: /balance
+    usage: /balance [player]
+    permission: yakrealms.economy.balance
   pay:
     description: Send gems to another player
     usage: /pay <player> <amount>
+    permission: yakrealms.economy.pay
   bank:
     description: Access your gem bank
-    usage: /bank
+    usage: /bank [deposit|withdraw|info] [amount]
+    permission: yakrealms.economy.bank
   gems:
     description: Gem management commands
-    usage: /gems <subcommand>
+    usage: /gems <subcommand> [args]
+    permission: yakrealms.economy.gems
   gempouch:
     description: Open a gem pouch
-    usage: /gempouch
+    usage: /gempouch [amount]
+    permission: yakrealms.economy.gempouch
   eco:
     description: Economy admin commands
     usage: /eco <give|take|set> <player> <amount>
-    permission: yakrealms.admin
+    permission: yakrealms.admin.economy
   vendor:
     description: Vendor management commands
-    usage: /vendor <subcommand>
-    permission: yakrealms.admin
+    usage: /vendor <subcommand> [args]
+    permission: yakrealms.admin.vendor
+
+  # Market Commands
+  market:
+    description: Access the global market system
+    usage: /market [browse|list|search|mylistings|stats|help|admin] [args]
+    aliases: [ marketplace, shop, ah, auctionhouse ]
+    permission: yakrealms.market.use
 
   # Mob Commands
   spawner:
     description: Manage mob spawners
-    usage: /spawner <subcommand>
-    permission: yakrealms.admin
+    usage: /spawner <subcommand> [args]
+    permission: yakrealms.admin.spawner
   spawnmob:
     description: Spawn a mob
-    usage: /spawnmob <type> [level]
-    permission: yakrealms.admin
+    usage: /spawnmob <type> [level] [amount]
+    permission: yakrealms.admin.spawnmob
   mobinfo:
     description: Get information about a mob
-    usage: /mobinfo
+    usage: /mobinfo [target]
+    permission: yakrealms.player.mobinfo
   togglespawners:
     description: Toggle mob spawners on/off
-    usage: /togglespawners
-    permission: yakrealms.admin
+    usage: /togglespawners [on|off]
+    permission: yakrealms.admin.togglespawners
   boss:
     description: Spawn a boss
-    usage: /boss <type>
-    permission: yakrealms.admin
+    usage: /boss <type> [location]
+    permission: yakrealms.admin.boss
 
   # Drop Commands
   droprate:
     description: Manage drop rates
     usage: /droprate <tier> <rate>
-    permission: yakrealms.admin
+    permission: yakrealms.admin.droprate
   lootbuff:
     description: Apply a loot buff
-    usage: /lootbuff <type> <duration>
+    usage: /lootbuff <type> <duration> [player]
+    permission: yakrealms.player.lootbuff
   elitedrop:
     description: Create elite drops
-    usage: /elitedrop <subcommand>
-    permission: yakrealms.admin
+    usage: /elitedrop <subcommand> [args]
+    permission: yakrealms.admin.elitedrop
 
   # Teleport Commands
   teleportbook:
     description: Manage teleport books
-    usage: /teleportbook <subcommand>
+    usage: /teleportbook <subcommand> [args]
+    permission: yakrealms.player.teleportbook
   teleport:
     description: Teleport to a location or player
-    usage: /teleport <location|player>
+    usage: /teleport <location|player> [player]
     aliases: [ tp ]
+    permission: yakrealms.admin.teleport
 
   # Player Commands
   mount:
     description: Manage mounts
-    usage: /mount <subcommand>
+    usage: /mount <subcommand> [args]
+    permission: yakrealms.player.mount
   toggles:
     description: Toggle player settings
-    usage: /toggles <setting>
+    usage: /toggles [setting] [value]
+    permission: yakrealms.player.toggles
   invsee:
     description: View a player's inventory
     usage: /invsee <player>
-    permission: yakrealms.admin
+    permission: yakrealms.admin.invsee
   alignment:
     description: Manage player alignment
-    usage: /alignment <subcommand>
-    permission: yakrealms.admin
+    usage: /alignment <subcommand> [player] [args]
+    permission: yakrealms.admin.alignment
 
   # Item Commands
   item:
     description: Item management commands
-    usage: /item <subcommand>
-    permission: yakrealms.admin
+    usage: /item <subcommand> [args]
+    permission: yakrealms.admin.item
   journal:
     description: Access your quest journal
-    usage: /journal
+    usage: /journal [page]
+    permission: yakrealms.player.journal
   scroll:
     description: Manage scrolls
-    usage: /scroll <subcommand>
+    usage: /scroll <subcommand> [args]
+    permission: yakrealms.player.scroll
   speedfish:
     description: Use a speedfish
-    usage: /speedfish
+    usage: /speedfish [amount]
+    permission: yakrealms.player.speedfish
   orb:
     description: Manage orbs
-    usage: /orb <subcommand>
+    usage: /orb <subcommand> [args]
+    permission: yakrealms.player.orb
 
   # Chat Commands
   buddy:
     description: Manage your buddies list
-    usage: /buddy <add|remove|list>
-    aliases: [ add, buddies, friend, friends ]
+    usage: /buddy <add|remove|list|online> [player]
+    aliases: [ buddies, friend, friends ]
+    permission: yakrealms.player.buddy
   msg:
     description: Send a private message to a player
     usage: /msg <player> <message>
     aliases: [ m, w, whisper, tell ]
+    permission: yakrealms.player.msg
   r:
     description: Reply to the last person who messaged you
     usage: /r <message>
     aliases: [ reply ]
+    permission: yakrealms.player.reply
   global:
     description: Send a message to global chat
     usage: /global <message>
     aliases: [ gl, g ]
+    permission: yakrealms.player.global
   staffchat:
     description: Send a message to staff chat
     usage: /staffchat <message>
@@ -134,29 +164,36 @@ commands:
     permission: yakrealms.staff.chat
   chattag:
     description: Manage your chat tag
-    usage: /chattag <set|list>
+    usage: /chattag <set|list|remove> [tag]
+    permission: yakrealms.player.chattag
 
   # Party Commands
   p:
     description: Send a message to your party members
     usage: /p <message>
     aliases: [ partychat ]
+    permission: yakrealms.player.party
   paccept:
     description: Accept a party invitation
-    usage: /paccept
+    usage: /paccept [player]
+    permission: yakrealms.player.party
   pdecline:
     description: Decline a party invitation
-    usage: /pdecline
+    usage: /pdecline [player]
+    permission: yakrealms.player.party
   pinvite:
     description: Invite a player to your party
     usage: /pinvite <player>
+    permission: yakrealms.player.party
   pkick:
     description: Kick a player from your party
     usage: /pkick <player>
+    permission: yakrealms.player.party
   pquit:
     description: Leave your current party
     usage: /pquit
     aliases: [ pleave ]
+    permission: yakrealms.player.party
 
   # Moderation Commands
   kick:
@@ -170,7 +207,7 @@ commands:
   unban:
     description: Unban a player from the server
     usage: /unban <player>
-    permission: yakrealms.staff.ban
+    permission: yakrealms.staff.unban
   mute:
     description: Mute a player
     usage: /mute <player> <duration> [reason]
@@ -178,10 +215,10 @@ commands:
   unmute:
     description: Unmute a player
     usage: /unmute <player>
-    permission: yakrealms.staff.mute
+    permission: yakrealms.staff.unmute
   vanish:
     description: Toggle visibility to other players
-    usage: /vanish
+    usage: /vanish [on|off] [player]
     permission: yakrealms.staff.vanish
   setrank:
     description: Set a player's rank
@@ -191,25 +228,72 @@ commands:
   # Navigation Commands
   trail:
     description: Create a navigation trail to a destination
-    usage: /trail <to|click|cancel|style>
+    usage: /trail <to|click|cancel|style> [args]
+    permission: yakrealms.player.trail
   nodemap:
     description: Manage navigation node mapping
     usage: /nodemap <generate|progress|pause|cancel|help>
     permission: yakrealms.admin.nodemap
 
 permissions:
+  # Root Permissions
+  yakrealms.*:
+    description: Access to all YakRealms features
+    default: op
+    children:
+      yakrealms.player.*: true
+      yakrealms.staff.*: true
+      yakrealms.admin.*: true
+
+  # Admin Permissions
   yakrealms.admin:
     description: Grants access to all YakRealms administrator commands
     default: op
     children:
       yakrealms.admin.economy: true
+      yakrealms.admin.market: true
       yakrealms.admin.mobs: true
       yakrealms.admin.items: true
       yakrealms.admin.teleport: true
       yakrealms.admin.nodemap: true
+      yakrealms.admin.vendor: true
+      yakrealms.admin.spawner: true
+      yakrealms.admin.spawnmob: true
+      yakrealms.admin.togglespawners: true
+      yakrealms.admin.boss: true
+      yakrealms.admin.droprate: true
+      yakrealms.admin.elitedrop: true
+      yakrealms.admin.invsee: true
+      yakrealms.admin.alignment: true
+      yakrealms.admin.item: true
+
+  yakrealms.admin.*:
+    description: All admin permissions
+    default: op
+    children:
+      yakrealms.admin.economy: true
+      yakrealms.admin.market: true
+      yakrealms.admin.mobs: true
+      yakrealms.admin.items: true
+      yakrealms.admin.teleport: true
+      yakrealms.admin.nodemap: true
+      yakrealms.admin.vendor: true
+      yakrealms.admin.spawner: true
+      yakrealms.admin.spawnmob: true
+      yakrealms.admin.togglespawners: true
+      yakrealms.admin.boss: true
+      yakrealms.admin.droprate: true
+      yakrealms.admin.elitedrop: true
+      yakrealms.admin.invsee: true
+      yakrealms.admin.alignment: true
+      yakrealms.admin.item: true
 
   yakrealms.admin.economy:
     description: Grants access to economy admin commands
+    default: op
+
+  yakrealms.admin.market:
+    description: Grants access to market admin commands
     default: op
 
   yakrealms.admin.mobs:
@@ -228,13 +312,29 @@ permissions:
     description: Grants access to navigation system admin commands
     default: op
 
-  yakrealms.moderator:
+  # Staff Permissions
+  yakrealms.staff:
     description: Grants access to moderation commands
     default: op
     children:
       yakrealms.staff.kick: true
       yakrealms.staff.ban: true
+      yakrealms.staff.unban: true
       yakrealms.staff.mute: true
+      yakrealms.staff.unmute: true
+      yakrealms.staff.chat: true
+      yakrealms.staff.vanish: true
+      yakrealms.staff.setrank: true
+
+  yakrealms.staff.*:
+    description: All staff permissions
+    default: op
+    children:
+      yakrealms.staff.kick: true
+      yakrealms.staff.ban: true
+      yakrealms.staff.unban: true
+      yakrealms.staff.mute: true
+      yakrealms.staff.unmute: true
       yakrealms.staff.chat: true
       yakrealms.staff.vanish: true
       yakrealms.staff.setrank: true
@@ -266,10 +366,185 @@ permissions:
     description: Allows setting developer rank
     default: op
 
-  yakrealms.builder:
-    description: Grants access to building commands
-    default: op
-
+  # Player Permissions
   yakrealms.player:
     description: Basic player permissions
     default: true
+    children:
+      yakrealms.player.buddy: true
+      yakrealms.player.msg: true
+      yakrealms.player.reply: true
+      yakrealms.player.global: true
+      yakrealms.player.party: true
+      yakrealms.player.mount: true
+      yakrealms.player.toggles: true
+      yakrealms.player.journal: true
+      yakrealms.player.scroll: true
+      yakrealms.player.speedfish: true
+      yakrealms.player.orb: true
+      yakrealms.player.teleportbook: true
+      yakrealms.player.trail: true
+      yakrealms.player.chattag: true
+      yakrealms.player.lootbuff: true
+      yakrealms.player.mobinfo: true
+
+  yakrealms.player.*:
+    description: All basic player permissions
+    default: true
+    children:
+      yakrealms.player.buddy: true
+      yakrealms.player.msg: true
+      yakrealms.player.reply: true
+      yakrealms.player.global: true
+      yakrealms.player.party: true
+      yakrealms.player.mount: true
+      yakrealms.player.toggles: true
+      yakrealms.player.journal: true
+      yakrealms.player.scroll: true
+      yakrealms.player.speedfish: true
+      yakrealms.player.orb: true
+      yakrealms.player.teleportbook: true
+      yakrealms.player.trail: true
+      yakrealms.player.chattag: true
+      yakrealms.player.lootbuff: true
+      yakrealms.player.mobinfo: true
+
+  # Economy Permissions
+  yakrealms.economy.*:
+    description: All economy permissions
+    default: true
+    children:
+      yakrealms.economy.balance: true
+      yakrealms.economy.pay: true
+      yakrealms.economy.bank: true
+      yakrealms.economy.gems: true
+      yakrealms.economy.gempouch: true
+
+  yakrealms.economy.balance:
+    description: Check gem balance
+    default: true
+
+  yakrealms.economy.pay:
+    description: Send gems to other players
+    default: true
+
+  yakrealms.economy.bank:
+    description: Use the bank system
+    default: true
+
+  yakrealms.economy.gems:
+    description: Use gem commands
+    default: true
+
+  yakrealms.economy.gempouch:
+    description: Use gem pouches
+    default: true
+
+  # Market Permissions
+  yakrealms.market.*:
+    description: All market permissions
+    default: true
+    children:
+      yakrealms.market.use: true
+      yakrealms.market.sell: true
+      yakrealms.market.buy: true
+      yakrealms.market.featured: true
+
+  yakrealms.market.use:
+    description: Allows using the market system
+    default: true
+
+  yakrealms.market.sell:
+    description: Allows listing items for sale
+    default: true
+
+  yakrealms.market.buy:
+    description: Allows purchasing items
+    default: true
+
+  yakrealms.market.featured:
+    description: Allows creating featured listings
+    default: true
+
+  yakrealms.market.admin:
+    description: Allows using market admin commands
+    default: op
+
+  # VIP/Premium Permissions
+  yakrealms.vip:
+    description: VIP player benefits
+    default: false
+    children:
+      yakrealms.player.*: true
+      yakrealms.economy.*: true
+      yakrealms.market.*: true
+
+  yakrealms.premium:
+    description: Premium player benefits
+    default: false
+    children:
+      yakrealms.vip: true
+
+  # Builder Permissions
+  yakrealms.builder:
+    description: Grants access to building commands
+    default: op
+    children:
+      yakrealms.player.*: true
+      yakrealms.admin.nodemap: true
+
+  # Special Role Permissions
+  yakrealms.moderator:
+    description: Moderator permissions
+    default: op
+    children:
+      yakrealms.staff.*: true
+      yakrealms.player.*: true
+
+  yakrealms.developer:
+    description: Developer permissions
+    default: op
+    children:
+      yakrealms.*: true
+
+  # Feature-specific Permissions
+  yakrealms.bypass.*:
+    description: Bypass various restrictions
+    default: op
+    children:
+      yakrealms.bypass.cooldowns: true
+      yakrealms.bypass.limits: true
+      yakrealms.bypass.costs: true
+
+  yakrealms.bypass.cooldowns:
+    description: Bypass command cooldowns
+    default: op
+
+  yakrealms.bypass.limits:
+    description: Bypass system limits
+    default: op
+
+  yakrealms.bypass.costs:
+    description: Bypass costs for actions
+    default: op
+
+  # Notification Permissions
+  yakrealms.notify.*:
+    description: Receive various notifications
+    default: op
+    children:
+      yakrealms.notify.admin: true
+      yakrealms.notify.market: true
+      yakrealms.notify.economy: true
+
+  yakrealms.notify.admin:
+    description: Receive admin notifications
+    default: op
+
+  yakrealms.notify.market:
+    description: Receive market notifications
+    default: op
+
+  yakrealms.notify.economy:
+    description: Receive economy notifications
+    default: op

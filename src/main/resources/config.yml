@@ -1,28 +1,52 @@
-# YakRealms Configuration
+# YakRealms Server Configuration
+# Please restart the server after making changes to most settings
 
-# MongoDB Configuration
+# MongoDB Database Configuration
 mongodb:
   connection_string: "mongodb://205.209.114.118:27017"
   database: "yakrealms"
+  max_reconnect_attempts: 5
+  reconnect_delay_seconds: 30
+  max_connection_pool_size: 100
+  connection_timeout_seconds: 30
+  read_timeout_seconds: 15
+  heartbeat_frequency_seconds: 20
 
-# Player Configuration
+# Player System Configuration
 player:
   auto_save_interval: 300  # in seconds (5 minutes)
+  max_energy: 100
+  energy_regen_rate: 1
+  starting_gems: 100
+  max_gems: 2147483647
+  session_timeout_minutes: 120
+  buddy_system_enabled: true
+  max_buddies: 50
 
 # Game Settings
 game:
   t6-enabled: false  # Whether Tier 6 content is enabled
+  debug-mode: false
+  patch_lockdown: false
+  min_level_for_advanced_features: 5
 
 # Game Mechanics
 mechanics:
+  # PvP System
   pvp:
     enabled: true
     safe_zones: true
+    alignment_system_enabled: true
+    death_remnants_enabled: true
+    chaotic_time_penalty: 3600  # seconds (1 hour)
 
   # Mob System Settings
   mobs:
     enabled: true  # Global toggle for mob spawning
+    spawner-default-visibility: false
     cleanup_interval: 3600  # seconds (1 hour) - How often to clean up all mobs
+    max_spawner_distance: 64
+    spawner_hologram_update_interval: 40  # ticks (2 seconds)
 
   # World Boss Settings
   world_boss:
@@ -30,8 +54,131 @@ mechanics:
     kill_threshold: 450  # Number of mob kills before boss can spawn
     spawn_interval: 3600  # seconds (1 hour) - Minimum time between world boss spawns
     despawn_time: 6600  # seconds (1 hour 50 minutes) - Time until boss despawns
-# Vendor system configuration
+
+  # Economy System
+  economy:
+    enabled: true
+    starting_balance: 100
+    max_balance: 2147483647
+    transaction_logging: true
+
+  # Bank System
+  bank:
+    enabled: true
+    max_pages: 10
+    page_cost: 10000
+    interest_rate: 0.001
+    daily_interest: true
+    authorized_users_per_bank: 5
+
+  # Combat System
+  combat:
+    enabled: true
+    damage_indicators: true
+    critical_hit_chance: 0.15
+    magic_staff_enabled: true
+
+  # Mount System
+  mounts:
+    enabled: true
+    horse_speed_multiplier: 1.5
+    max_horse_tier: 6
+
+  # Item Systems
+  items:
+    custom_items_enabled: true
+    orb_system_enabled: true
+    scroll_system_enabled: true
+    journal_system_enabled: true
+    speedfish_enabled: true
+
+  # Party System
+  parties:
+    enabled: true
+    max_party_size: 8
+    party_chat_enabled: true
+    exp_sharing: true
+
+  # Teleport System
+  teleport:
+    enabled: true
+    cooldown_seconds: 5
+    warmup_seconds: 3
+    max_teleport_distance: 1000
+    teleport_book_enabled: true
+    hearthstone_enabled: true
+    portal_system_enabled: true
+
+  # Drop System
+  drops:
+    enabled: true
+    elite_drops_enabled: true
+    loot_buffs_enabled: true
+    # Tier drop rates (percentage)
+    tier_rates:
+      tier1: 50
+      tier2: 55
+      tier3: 60
+      tier4: 65
+      tier5: 70
+      tier6: 75
+
+# Market System Configuration
+market:
+  # Basic Settings
+  enabled: true
+  min_level_to_use: 5
+
+  # Listing Limits
+  max_listings_per_player: 10
+  max_listing_duration_days: 7
+  daily_listing_reset_hour: 0  # 0-23, hour when daily limits reset
+
+  # Price Limits
+  min_item_price: 1
+  max_item_price: 1000000
+
+  # Economic Settings
+  tax_rate: 0.05  # 5% tax on sales (0.05 = 5%)
+  featured_listing_cost: 1000
+
+  # Transaction Settings
+  cooldown_seconds: 3
+  max_transaction_retries: 3
+
+  # Banned Materials (cannot be sold on market)
+  banned_materials:
+    - "BEDROCK"
+    - "COMMAND_BLOCK"
+    - "STRUCTURE_BLOCK"
+    - "BARRIER"
+    - "DEBUG_STICK"
+    - "KNOWLEDGE_BOOK"
+    - "SPAWNER"
+    - "END_PORTAL_FRAME"
+    - "CHAIN_COMMAND_BLOCK"
+    - "REPEATING_COMMAND_BLOCK"
+    - "JIGSAW"
+    - "LIGHT"
+
+  # Database Settings
+  database:
+    cleanup_interval_minutes: 10
+    expired_item_retention_days: 30
+    cache_duration_minutes: 5
+    search_cache_duration_minutes: 2
+    backup_retention_count: 5
+
+  # Performance Settings
+  performance:
+    items_per_page: 28
+    max_search_results: 100
+    cache_cleanup_interval_minutes: 5
+    auto_refresh_interval_ticks: 40  # 2 seconds
+
+# Vendor System Configuration
 vendors:
+  enabled: true
   # Aura visual effects settings
   aura-render-distance: 48
   enable-particle-effects: true
@@ -39,18 +186,167 @@ vendors:
   enable-sound-effects: true
   # Particle density: 1=low, 2=medium, 3=high
   particle-density: 2
-
   # Performance settings
   debug-mode: false
   auto-fix-behaviors: true
-
   # Hologram settings
   hologram-height: 2.5
   hologram-line-spacing: 0.3
-
   # Default settings
   default-behavior-class: "com.rednetty.server.mechanics.economy.vendors.behaviors.ShopBehavior"
   default-hologram-text:
     - "&6&oVendor"
+
+# Chat System Configuration
+chat:
+  enabled: true
+  global_chat_enabled: true
+  staff_chat_enabled: true
+  buddy_chat_enabled: true
+  party_chat_enabled: true
+  max_message_length: 256
+  chat_tags_enabled: true
+  max_unlocked_tags: 10
+  filter_enabled: true
+
+# World System Configuration
+world:
+  # Trail System
+  trails:
+    enabled: true
+    particle_density: 1.0
+    max_trail_length: 100
+    trail_duration_seconds: 30
+
+  # Navigation System
+  navigation:
+    enabled: true
+    node_generation_enabled: true
+    pathfinding_enabled: true
+    max_pathfinding_distance: 500
+    node_map_auto_update: true
+
+  # Hologram System
+  holograms:
+    enabled: true
+    update_interval_ticks: 20
+    max_view_distance: 64
+
+# Moderation System Configuration
+moderation:
+  enabled: true
+  ban_system_enabled: true
+  mute_system_enabled: true
+  vanish_system_enabled: true
+  auto_save_logs: true
+  max_ban_duration_days: 365
+  max_mute_duration_hours: 168  # 1 week
+
+# Profession System Configuration
+professions:
+  enabled: true
+  mining_enabled: true
+  fishing_enabled: true
+  max_pickaxe_level: 10
+  max_fishing_level: 10
+  exp_multiplier: 1.0
+
+# Performance Settings
+performance:
+  # Task intervals (in ticks, 20 ticks = 1 second)
+  auto_save_interval_ticks: 6000  # 5 minutes
+  cleanup_interval_ticks: 12000   # 10 minutes
+  maintenance_interval_ticks: 24000  # 20 minutes
+
+  # Memory management
+  cache_cleanup_interval_ticks: 6000  # 5 minutes
+  max_cached_players: 100
+  player_cache_duration_minutes: 30
+
+  # Database
+  batch_save_size: 50
+  max_database_operations_per_tick: 10
+  database_operation_timeout_seconds: 30
+
+  # Threading
+  async_task_pool_size: 4
+  max_concurrent_database_operations: 20
+
+# Logging Configuration
+logging:
+  level: "INFO"  # SEVERE, WARNING, INFO, FINE, FINER, FINEST
+  log_player_actions: true
+  log_economy_transactions: true
+  log_market_transactions: true
+  log_chat_messages: false
+  log_database_operations: false
+  log_performance_metrics: true
+
+  # Log file settings
+  max_log_file_size_mb: 10
+  max_log_files: 5
+  compress_old_logs: true
+
+# Security Settings
+security:
+  # Rate limiting
+  max_commands_per_second: 10
+  max_chat_messages_per_minute: 20
+
+  # Protection
+  protect_against_item_duplication: true
+  validate_inventory_operations: true
+  secure_economy_transactions: true
+
+  # Monitoring
+  monitor_suspicious_activity: true
+  auto_flag_rapid_transactions: true
+
+# Integration Settings
+integration:
+  # External services
+  enable_web_api: false
+  web_api_port: 8080
+  web_api_auth_required: true
+
+  # Discord integration
+  discord_enabled: false
+  discord_webhook_url: ""
+
+  # Metrics
+  enable_metrics: true
+  metrics_interval_minutes: 5
+
+# Backup Settings
+backup:
+  enabled: true
+  auto_backup_interval_hours: 6
+  max_backup_files: 10
+  compress_backups: true
+  backup_location: "backups/"
+
+  # What to backup
+  backup_player_data: true
+  backup_market_data: true
+  backup_economy_data: true
+  backup_world_data: false
+
+# Feature Flags
+features:
+  # Experimental features
+  experimental_features_enabled: false
+  beta_testing_mode: false
+
+  # System toggles
+  energy_system_enabled: true
+  alignment_system_enabled: true
+  death_system_enabled: true
+  quest_system_enabled: false  # Not yet implemented
+  guild_system_enabled: false  # Not yet implemented
+  crafting_system_enabled: false  # Not yet implemented
+
 # Development Options
 debug: false
+development_mode: false
+verbose_logging: false
+enable_debug_commands: false
