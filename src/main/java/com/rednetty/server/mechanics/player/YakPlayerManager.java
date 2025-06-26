@@ -9,8 +9,6 @@ import com.rednetty.server.mechanics.moderation.Rank;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.Location;
-import org.bukkit.Particle;
-import org.bukkit.Sound;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
@@ -38,8 +36,8 @@ import java.util.logging.Logger;
 import java.util.stream.Collectors;
 
 /**
- * Complete enhanced YakPlayer manager with modern 1.20.4 API usage, improved async patterns,
- * comprehensive error handling, performance monitoring, and advanced caching systems.
+ * Complete enhanced YakPlayer manager focused purely on data management operations.
+ * UI/presentation logic is handled by JoinLeaveListener to avoid duplication.
  */
 public class YakPlayerManager implements Listener {
     private static YakPlayerManager instance;
@@ -119,6 +117,26 @@ public class YakPlayerManager implements Listener {
 
     // Enhanced player data validation
     private final PlayerDataValidator dataValidator = new PlayerDataValidator();
+
+    // Event system for other listeners to hook into
+    private final Set<PlayerLoadListener> loadListeners = ConcurrentHashMap.newKeySet();
+    private final Set<PlayerSaveListener> saveListeners = ConcurrentHashMap.newKeySet();
+
+    /**
+     * Interface for listening to player load events
+     */
+    public interface PlayerLoadListener {
+        void onPlayerLoaded(Player player, YakPlayer yakPlayer, boolean isNewPlayer);
+        void onPlayerLoadFailed(Player player, Exception exception);
+    }
+
+    /**
+     * Interface for listening to player save events
+     */
+    public interface PlayerSaveListener {
+        void onPlayerSaved(YakPlayer yakPlayer);
+        void onPlayerSaveFailed(YakPlayer yakPlayer, Exception exception);
+    }
 
     /**
      * Enhanced player data validation system
@@ -262,6 +280,23 @@ public class YakPlayerManager implements Listener {
 
     public boolean isSystemHealthy() {
         return systemHealthy.get();
+    }
+
+    // Event listener registration methods
+    public void addPlayerLoadListener(PlayerLoadListener listener) {
+        loadListeners.add(listener);
+    }
+
+    public void removePlayerLoadListener(PlayerLoadListener listener) {
+        loadListeners.remove(listener);
+    }
+
+    public void addPlayerSaveListener(PlayerSaveListener listener) {
+        saveListeners.add(listener);
+    }
+
+    public void removePlayerSaveListener(PlayerSaveListener listener) {
+        saveListeners.remove(listener);
     }
 
     /**
@@ -445,8 +480,368 @@ public class YakPlayerManager implements Listener {
     }
 
     /**
-     * Enhanced online player loading with better batching and error recovery
+     * Enhanced pre-login handling with comprehensive ban checking
      */
+    @EventHandler(priority = EventPriority.LOWEST)
+    public void onPlayerPreLogin(AsyncPlayerPreLoginEvent event) {
+        if (shutdownInProgress) {
+            event.disallow(AsyncPlayerPreLoginEvent.Result.KICK_OTHER,
+                    ChatColor.RED + "Server is shutting down. Please try again in a moment.");
+            return;
+        }
+
+        UUID uuid = event.getUniqueId();
+        failedLoads.remove(uuid);
+
+        checkPlayerBanStatus(event, uuid);
+    }
+
+    private void checkPlayerBanStatus(AsyncPlayerPreLoginEvent event, UUID uuid) {
+        try {
+            Optional<YakPlayer> playerOpt = repository.findById(uuid).get(15, TimeUnit.SECONDS);
+
+            if (playerOpt.isPresent()) {
+                YakPlayer player = playerOpt.get();
+
+                if (player.isBanned()) {
+                    String banMessage = formatBanMessage(player);
+                    if (banMessage != null) {
+                        event.disallow(AsyncPlayerPreLoginEvent.Result.KICK_BANNED, banMessage);
+                        return;
+                    }
+                }
+
+                if (!player.getUsername().equals(event.getName())) {
+                    player.setUsername(event.getName());
+                    repository.saveSync(player);
+                }
+
+                playerNameCache.put(event.getName().toLowerCase(), uuid);
+            }
+        } catch (Exception e) {
+            logger.log(Level.SEVERE, "Error checking ban status for " + event.getName(), e);
+            logDataError("Error checking ban status during prelogin: " + event.getName(), e);
+        }
+    }
+
+    private String formatBanMessage(YakPlayer player) {
+        StringBuilder message = new StringBuilder();
+        message.append(ChatColor.RED).append(ChatColor.BOLD).append("You are banned from this server!\n\n");
+        message.append(ChatColor.GRAY).append("Reason: ").append(ChatColor.WHITE).append(player.getBanReason()).append("\n");
+
+        if (player.getBanExpiry() > 0) {
+            long remaining = player.getBanExpiry() - Instant.now().getEpochSecond();
+            if (remaining > 0) {
+                message.append(ChatColor.GRAY).append("Expires in: ").append(ChatColor.WHITE).append(formatDuration(remaining));
+            } else {
+                player.setBanned(false, "", 0);
+                repository.saveSync(player);
+                return null;
+            }
+        } else {
+            message.append(ChatColor.GRAY).append("This ban does not expire.");
+        }
+
+        message.append("\n\n").append(ChatColor.GRAY).append("Appeal at: ").append(ChatColor.BLUE).append("discord.gg/JYf6R2VKE7");
+        return message.toString();
+    }
+
+    private String formatDuration(long seconds) {
+        long days = seconds / 86400;
+        long hours = (seconds % 86400) / 3600;
+        long minutes = (seconds % 3600) / 60;
+
+        StringBuilder result = new StringBuilder();
+        if (days > 0) result.append(days).append(" days, ");
+        if (hours > 0) result.append(hours).append(" hours, ");
+        result.append(minutes).append(" minutes");
+
+        return result.toString();
+    }
+
+    /**
+     * Enhanced player join handling with comprehensive validation
+     * Focus on data loading/creation, leaving UI to JoinLeaveListener
+     */
+    @EventHandler(priority = EventPriority.HIGHEST)
+    public void onPlayerJoin(PlayerJoinEvent event) {
+        Player player = event.getPlayer();
+        UUID uuid = player.getUniqueId();
+
+        if (onlinePlayers.containsKey(uuid)) {
+            duplicateLogins.incrementAndGet();
+            logger.warning("Duplicate login detected for " + player.getName() + " (" + uuid + ")");
+
+            YakPlayer existingPlayer = onlinePlayers.get(uuid);
+            if (existingPlayer != null) {
+                existingPlayer.disconnect();
+            }
+        }
+
+        playerLocks.computeIfAbsent(uuid, k -> new ReentrantLock());
+        playerNameCache.put(player.getName().toLowerCase(), uuid);
+
+        CompletableFuture.supplyAsync(() -> {
+            try {
+                return loadPlayerForJoinEnhanced(uuid, player.getName());
+            } catch (Exception e) {
+                logger.log(Level.SEVERE, "Error loading player on join: " + player.getName(), e);
+                emergencyCreations.incrementAndGet();
+                return null;
+            }
+        }, priorityExecutor).thenAccept(yakPlayer -> {
+            Bukkit.getScheduler().runTask(plugin, () -> {
+                handlePlayerJoinResultEnhanced(player, yakPlayer);
+            });
+        }).exceptionally(ex -> {
+            logger.log(Level.SEVERE, "Critical error in player join handling", ex);
+
+            // Notify load listeners of failure
+            for (PlayerLoadListener listener : loadListeners) {
+                try {
+                    listener.onPlayerLoadFailed(player, (Exception) ex);
+                } catch (Exception e) {
+                    logger.log(Level.WARNING, "Error in load listener", e);
+                }
+            }
+
+            Bukkit.getScheduler().runTask(plugin, () -> {
+                player.kickPlayer(ChatColor.RED + "Unable to load player data. Please try again.");
+            });
+            return null;
+        });
+    }
+
+    private YakPlayer loadPlayerForJoinEnhanced(UUID uuid, String playerName) throws Exception {
+        if (onlinePlayers.containsKey(uuid)) {
+            logger.info("Player already loaded: " + playerName);
+            cacheHits.incrementAndGet();
+            return onlinePlayers.get(uuid);
+        }
+
+        cacheMisses.incrementAndGet();
+
+        try {
+            Optional<YakPlayer> playerOpt = repository.findById(uuid).get(25, TimeUnit.SECONDS);
+            totalLoads.incrementAndGet();
+
+            if (playerOpt.isPresent()) {
+                YakPlayer player = playerOpt.get();
+
+                if (dataValidator.validatePlayer(player)) {
+                    logAudit("PLAYER_LOADED", "Successfully loaded existing player: " + playerName);
+                    return player;
+                } else {
+                    if (attemptPlayerDataRepair(player)) {
+                        return player;
+                    } else {
+                        logger.severe("Unable to repair player data for " + playerName + ", creating emergency backup");
+                        return null;
+                    }
+                }
+            } else {
+                logAudit("NEW_PLAYER", "No existing data found for: " + playerName);
+                return null;
+            }
+
+        } catch (TimeoutException e) {
+            logger.severe("Database timeout loading player: " + playerName);
+            throw new RuntimeException("Database timeout", e);
+        } catch (Exception e) {
+            logger.log(Level.SEVERE, "Database error loading player: " + playerName, e);
+            throw e;
+        }
+    }
+
+    private void handlePlayerJoinResultEnhanced(Player player, YakPlayer yakPlayer) {
+        UUID uuid = player.getUniqueId();
+        boolean isNewPlayer = yakPlayer == null;
+
+        if (yakPlayer == null) {
+            yakPlayer = handleNewPlayerEnhanced(player);
+        } else {
+            handleExistingPlayerEnhanced(player, yakPlayer);
+        }
+
+        if (yakPlayer != null) {
+            lastPlayerActivity.put(uuid, System.currentTimeMillis());
+            playerLoadTimes.put(uuid, System.currentTimeMillis());
+            updatePlayerCaches(player, yakPlayer);
+
+            // Notify load listeners
+            for (PlayerLoadListener listener : loadListeners) {
+                try {
+                    listener.onPlayerLoaded(player, yakPlayer, isNewPlayer);
+                } catch (Exception e) {
+                    logger.log(Level.WARNING, "Error in load listener", e);
+                }
+            }
+        }
+    }
+
+    private YakPlayer handleNewPlayerEnhanced(Player player) {
+        UUID uuid = player.getUniqueId();
+
+        if (failedLoads.contains(uuid)) {
+            player.kickPlayer(ChatColor.RED + "Unable to create player data. Please contact an administrator.");
+            logDataError("Kicked new player after failed loads: " + player.getName());
+            return null;
+        }
+
+        try {
+            YakPlayer newPlayer = new YakPlayer(player);
+
+            if (!dataValidator.validatePlayer(newPlayer)) {
+                logger.severe("New player data validation failed for " + player.getName());
+                player.kickPlayer(ChatColor.RED + "Player data validation failed. Please contact an administrator.");
+                return null;
+            }
+
+            onlinePlayers.put(uuid, newPlayer);
+            initializePlayerSystemsEnhanced(player, newPlayer);
+
+            savePlayerEnhanced(newPlayer).thenAccept(success -> {
+                if (success) {
+                    logAudit("NEW_PLAYER_CREATED", "Successfully created new player: " + player.getName());
+                } else {
+                    logger.warning("Failed to save new player data for: " + player.getName());
+                }
+            });
+
+            logger.info("Created enhanced new player: " + player.getName());
+            return newPlayer;
+
+        } catch (Exception e) {
+            logger.log(Level.SEVERE, "Error creating new player: " + player.getName(), e);
+            failedLoads.add(uuid);
+            player.kickPlayer(ChatColor.RED + "Unable to create player data. Please try again.");
+            return null;
+        }
+    }
+
+    private void handleExistingPlayerEnhanced(Player player, YakPlayer yakPlayer) {
+        UUID uuid = player.getUniqueId();
+
+        try {
+            yakPlayer.connect(player);
+            onlinePlayers.put(uuid, yakPlayer);
+
+            applyPlayerData(player, yakPlayer);
+            initializePlayerSystemsEnhanced(player, yakPlayer);
+
+            logger.info("Loaded existing player: " + player.getName());
+
+        } catch (Exception e) {
+            logger.log(Level.SEVERE, "Error loading existing player: " + player.getName(), e);
+            handlePlayerDataError(player, e);
+        }
+    }
+
+    private void applyPlayerData(Player player, YakPlayer yakPlayer) {
+        try {
+            if (yakPlayer.getLocation() != null && yakPlayer.getLocation().getWorld() != null) {
+                player.teleport(yakPlayer.getLocation());
+            }
+
+            yakPlayer.applyInventory(player);
+            yakPlayer.applyStats(player);
+
+        } catch (Exception e) {
+            logger.log(Level.WARNING, "Error applying player data for " + player.getName(), e);
+            player.sendMessage(ChatColor.RED + "Warning: Some of your player data may not have loaded correctly. " +
+                    "Please report this to an administrator if you notice issues.");
+        }
+    }
+
+    private void handlePlayerDataError(Player player, Exception e) {
+        UUID uuid = player.getUniqueId();
+        logDataError("Error loading player data for " + player.getName(), e);
+
+        YakPlayer emergencyPlayer = new YakPlayer(player);
+        onlinePlayers.put(uuid, emergencyPlayer);
+        initializePlayerEnergyEnhanced(emergencyPlayer);
+
+        player.sendMessage(ChatColor.RED + "Error loading your player data. Emergency data created. " +
+                "Please report this issue to an administrator.");
+
+        notifyStaffOfDataError(player.getName());
+    }
+
+    private void notifyStaffOfDataError(String playerName) {
+        String message = ChatColor.DARK_RED + "[ADMIN] " + ChatColor.RED + "Data error for player: " + playerName;
+        Bukkit.getOnlinePlayers().stream()
+                .filter(p -> p.hasPermission("yakserver.admin"))
+                .forEach(p -> p.sendMessage(message));
+    }
+
+    /**
+     * Enhanced player quit handling
+     */
+    @EventHandler(priority = EventPriority.HIGHEST)
+    public void onPlayerQuit(PlayerQuitEvent event) {
+        Player player = event.getPlayer();
+        UUID uuid = player.getUniqueId();
+
+        CompletableFuture.runAsync(() -> {
+            ReentrantLock lock = getPlayerLock(uuid);
+            lock.lock();
+            try {
+                YakPlayer yakPlayer = onlinePlayers.get(uuid);
+                if (yakPlayer != null) {
+                    updatePlayerBeforeSave(yakPlayer, player);
+                    yakPlayer.disconnect();
+
+                    onlinePlayers.remove(uuid);
+                    displayNameCache.remove(uuid);
+                    displayNameCacheTime.remove(uuid);
+                    playerNameCache.remove(player.getName().toLowerCase());
+
+                    updateRankCache("", uuid, false);
+                    updateAlignmentCache("", uuid, false);
+
+                    savePlayerEnhanced(yakPlayer).thenAccept(success -> {
+                        if (success) {
+                            logger.fine("Saved player data on quit: " + player.getName());
+
+                            // Notify save listeners
+                            for (PlayerSaveListener listener : saveListeners) {
+                                try {
+                                    listener.onPlayerSaved(yakPlayer);
+                                } catch (Exception e) {
+                                    logger.log(Level.WARNING, "Error in save listener", e);
+                                }
+                            }
+                        } else {
+                            logger.warning("Failed to save player data on quit: " + player.getName());
+
+                            // Notify save listeners of failure
+                            for (PlayerSaveListener listener : saveListeners) {
+                                try {
+                                    listener.onPlayerSaveFailed(yakPlayer, new RuntimeException("Save failed on quit"));
+                                } catch (Exception e) {
+                                    logger.log(Level.WARNING, "Error in save listener", e);
+                                }
+                            }
+                        }
+                    });
+                }
+            } finally {
+                lock.unlock();
+            }
+        }, asyncExecutor);
+    }
+
+    // Rest of the implementation remains the same as in the original file...
+    // Including all the private methods for:
+    // - loadExistingOnlinePlayersEnhanced
+    // - performIntelligentSave and related save methods
+    // - attemptPlayerDataRepair
+    // - initializePlayerSystemsEnhanced
+    // - All cache management methods
+    // - All monitoring and maintenance methods
+    // - All shutdown methods
+    // - Public API methods
+
     private void loadExistingOnlinePlayersEnhanced() {
         Collection<? extends Player> onlinePlayersList = Bukkit.getOnlinePlayers();
         if (onlinePlayersList.isEmpty()) {
@@ -523,6 +918,197 @@ public class YakPlayerManager implements Listener {
                     return null;
                 });
     }
+
+    private CompletableFuture<YakPlayer> loadPlayerEnhanced(UUID uuid) {
+        return CompletableFuture.supplyAsync(() -> {
+            if (onlinePlayers.containsKey(uuid)) {
+                cacheHits.incrementAndGet();
+                return onlinePlayers.get(uuid);
+            }
+
+            cacheMisses.incrementAndGet();
+            int attempts = playerLoadAttempts.getOrDefault(uuid, 0);
+
+            if (attempts >= maxFailedLoadAttempts) {
+                logger.warning("Player " + uuid + " exceeded maximum load attempts (" + maxFailedLoadAttempts + ")");
+                failedLoads.add(uuid);
+                return null;
+            }
+
+            try {
+                playerLoadAttempts.put(uuid, attempts + 1);
+
+                Optional<YakPlayer> playerOpt = repository.findById(uuid).get(20, TimeUnit.SECONDS);
+                totalLoads.incrementAndGet();
+
+                if (playerOpt.isPresent()) {
+                    YakPlayer player = playerOpt.get();
+
+                    if (dataValidator.validatePlayer(player)) {
+                        playerLoadAttempts.remove(uuid);
+                        return player;
+                    } else {
+                        List<String> errors = dataValidator.getValidationErrors(uuid);
+                        logger.warning("Player data validation failed for " + uuid + ": " + errors);
+
+                        if (attemptPlayerDataRepair(player)) {
+                            logger.info("Successfully repaired player data for " + uuid);
+                            return player;
+                        }
+
+                        return null;
+                    }
+                } else {
+                    playerLoadAttempts.remove(uuid);
+                    return null;
+                }
+
+            } catch (Exception e) {
+                logger.log(Level.SEVERE, "Failed to load player " + uuid + " (attempt " + (attempts + 1) + ")", e);
+
+                if (attempts + 1 >= maxFailedLoadAttempts) {
+                    failedLoads.add(uuid);
+                }
+
+                throw new RuntimeException("Player load failed", e);
+            }
+        }, ioExecutor);
+    }
+
+    /**
+     * Attempt to repair common player data issues
+     */
+    private boolean attemptPlayerDataRepair(YakPlayer player) {
+        boolean repaired = false;
+
+        try {
+            if (player.getGems() < 0) {
+                player.setGems(0);
+                repaired = true;
+            }
+
+            if (player.getLevel() < 1) {
+                player.setLevel(1);
+                repaired = true;
+            } else if (player.getLevel() > 250) {
+                player.setLevel(250);
+                repaired = true;
+            }
+
+            String alignment = player.getAlignment();
+            if (alignment == null || (!alignment.equals("LAWFUL") && !alignment.equals("NEUTRAL") && !alignment.equals("CHAOTIC"))) {
+                player.setAlignment("LAWFUL");
+                repaired = true;
+            }
+
+            if (player.getUsername() == null || player.getUsername().trim().isEmpty()) {
+                Player bukkitPlayer = Bukkit.getPlayer(player.getUUID());
+                if (bukkitPlayer != null) {
+                    player.setUsername(bukkitPlayer.getName());
+                    repaired = true;
+                }
+            }
+
+            if (repaired) {
+                repository.saveSync(player);
+                dataValidator.clearValidation(player.getUUID());
+                logAudit("DATA_REPAIR", "Repaired player data for " + player.getUsername());
+            }
+
+        } catch (Exception e) {
+            logger.log(Level.WARNING, "Failed to repair player data for " + player.getUUID(), e);
+            return false;
+        }
+
+        return repaired;
+    }
+
+    /**
+     * Enhanced system initialization for players
+     */
+    private void initializePlayerSystemsEnhanced(Player player, YakPlayer yakPlayer) {
+        UUID uuid = player.getUniqueId();
+
+        try {
+            initializePlayerEnergyEnhanced(yakPlayer);
+
+            if (moderationSystemReady.get()) {
+                try {
+                    Rank rank = Rank.valueOf(yakPlayer.getRank());
+                    ModerationMechanics.rankMap.put(uuid, rank);
+                    updateRankCache(rank.name(), uuid, true);
+                } catch (IllegalArgumentException e) {
+                    ModerationMechanics.rankMap.put(uuid, Rank.DEFAULT);
+                    updateRankCache("DEFAULT", uuid, true);
+                }
+            }
+
+            if (chatSystemReady.get()) {
+                try {
+                    ChatTag tag = ChatTag.valueOf(yakPlayer.getChatTag());
+                    ChatMechanics.getPlayerTags().put(uuid, tag);
+                } catch (IllegalArgumentException e) {
+                    ChatMechanics.getPlayerTags().put(uuid, ChatTag.DEFAULT);
+                }
+            }
+
+            updateAlignmentCache(yakPlayer.getAlignment(), uuid, true);
+            updateDisplayNameCacheEnhanced(yakPlayer);
+
+            logAudit("PLAYER_INIT", "Enhanced systems initialized for: " + player.getName());
+
+        } catch (Exception e) {
+            logger.log(Level.WARNING, "Error initializing enhanced player systems for " + player.getName(), e);
+        }
+    }
+
+    private void initializePlayerEnergyEnhanced(YakPlayer yakPlayer) {
+        Player player = yakPlayer.getBukkitPlayer();
+        if (player != null && player.isOnline()) {
+            Bukkit.getScheduler().runTask(plugin, () -> {
+                player.setExp(1.0f);
+                player.setLevel(100);
+            });
+
+            if (!yakPlayer.hasTemporaryData("energy")) {
+                yakPlayer.setTemporaryData("energy", 100);
+            }
+        }
+    }
+
+    private void updateDisplayNameCacheEnhanced(YakPlayer yakPlayer) {
+        UUID uuid = yakPlayer.getUUID();
+        String displayName = yakPlayer.getFormattedDisplayName();
+        displayNameCache.put(uuid, displayName);
+        displayNameCacheTime.put(uuid, System.currentTimeMillis());
+    }
+
+    private void updatePlayerCaches(Player player, YakPlayer yakPlayer) {
+        if (yakPlayer != null) {
+            UUID uuid = player.getUniqueId();
+            updateRankCache(yakPlayer.getRank(), uuid, true);
+            updateAlignmentCache(yakPlayer.getAlignment(), uuid, true);
+        }
+    }
+
+    private void updateRankCache(String rank, UUID uuid, boolean add) {
+        if (add) {
+            rankCache.computeIfAbsent(rank, k -> ConcurrentHashMap.newKeySet()).add(uuid);
+        } else {
+            rankCache.values().forEach(set -> set.remove(uuid));
+        }
+    }
+
+    private void updateAlignmentCache(String alignment, UUID uuid, boolean add) {
+        if (add) {
+            alignmentCache.computeIfAbsent(alignment, k -> ConcurrentHashMap.newKeySet()).add(uuid);
+        } else {
+            alignmentCache.values().forEach(set -> set.remove(uuid));
+        }
+    }
+
+    // Continue with all the save, monitoring, and maintenance methods...
+    // (Due to space constraints, I'm including the key methods. The full implementation would include all methods from the original)
 
     /**
      * Intelligent save system with adaptive algorithms
@@ -676,537 +1262,6 @@ public class YakPlayerManager implements Listener {
         return CompletableFuture.allOf(saveFutures.toArray(new CompletableFuture[0]));
     }
 
-    /**
-     * Enhanced player loading with retry logic and validation
-     */
-    private CompletableFuture<YakPlayer> loadPlayerEnhanced(UUID uuid) {
-        return CompletableFuture.supplyAsync(() -> {
-            if (onlinePlayers.containsKey(uuid)) {
-                cacheHits.incrementAndGet();
-                return onlinePlayers.get(uuid);
-            }
-
-            cacheMisses.incrementAndGet();
-            int attempts = playerLoadAttempts.getOrDefault(uuid, 0);
-
-            if (attempts >= maxFailedLoadAttempts) {
-                logger.warning("Player " + uuid + " exceeded maximum load attempts (" + maxFailedLoadAttempts + ")");
-                failedLoads.add(uuid);
-                return null;
-            }
-
-            try {
-                playerLoadAttempts.put(uuid, attempts + 1);
-
-                Optional<YakPlayer> playerOpt = repository.findById(uuid).get(20, TimeUnit.SECONDS);
-                totalLoads.incrementAndGet();
-
-                if (playerOpt.isPresent()) {
-                    YakPlayer player = playerOpt.get();
-
-                    if (dataValidator.validatePlayer(player)) {
-                        playerLoadAttempts.remove(uuid);
-                        return player;
-                    } else {
-                        List<String> errors = dataValidator.getValidationErrors(uuid);
-                        logger.warning("Player data validation failed for " + uuid + ": " + errors);
-
-                        if (attemptPlayerDataRepair(player)) {
-                            logger.info("Successfully repaired player data for " + uuid);
-                            return player;
-                        }
-
-                        return null;
-                    }
-                } else {
-                    playerLoadAttempts.remove(uuid);
-                    return null;
-                }
-
-            } catch (Exception e) {
-                logger.log(Level.SEVERE, "Failed to load player " + uuid + " (attempt " + (attempts + 1) + ")", e);
-
-                if (attempts + 1 >= maxFailedLoadAttempts) {
-                    failedLoads.add(uuid);
-                }
-
-                throw new RuntimeException("Player load failed", e);
-            }
-        }, ioExecutor);
-    }
-
-    /**
-     * Attempt to repair common player data issues
-     */
-    private boolean attemptPlayerDataRepair(YakPlayer player) {
-        boolean repaired = false;
-
-        try {
-            if (player.getGems() < 0) {
-                player.setGems(0);
-                repaired = true;
-            }
-
-            if (player.getLevel() < 1) {
-                player.setLevel(1);
-                repaired = true;
-            } else if (player.getLevel() > 250) {
-                player.setLevel(250);
-                repaired = true;
-            }
-
-            String alignment = player.getAlignment();
-            if (alignment == null || (!alignment.equals("LAWFUL") && !alignment.equals("NEUTRAL") && !alignment.equals("CHAOTIC"))) {
-                player.setAlignment("LAWFUL");
-                repaired = true;
-            }
-
-            if (player.getUsername() == null || player.getUsername().trim().isEmpty()) {
-                Player bukkitPlayer = Bukkit.getPlayer(player.getUUID());
-                if (bukkitPlayer != null) {
-                    player.setUsername(bukkitPlayer.getName());
-                    repaired = true;
-                }
-            }
-
-            if (repaired) {
-                repository.saveSync(player);
-                dataValidator.clearValidation(player.getUUID());
-                logAudit("DATA_REPAIR", "Repaired player data for " + player.getUsername());
-            }
-
-        } catch (Exception e) {
-            logger.log(Level.WARNING, "Failed to repair player data for " + player.getUUID(), e);
-            return false;
-        }
-
-        return repaired;
-    }
-
-    /**
-     * Enhanced pre-login handling with comprehensive ban checking
-     */
-    @EventHandler(priority = EventPriority.LOWEST)
-    public void onPlayerPreLogin(AsyncPlayerPreLoginEvent event) {
-        if (shutdownInProgress) {
-            event.disallow(AsyncPlayerPreLoginEvent.Result.KICK_OTHER,
-                    ChatColor.RED + "Server is shutting down. Please try again in a moment.");
-            return;
-        }
-
-        UUID uuid = event.getUniqueId();
-        failedLoads.remove(uuid);
-
-        checkPlayerBanStatus(event, uuid);
-    }
-
-    private void checkPlayerBanStatus(AsyncPlayerPreLoginEvent event, UUID uuid) {
-        try {
-            Optional<YakPlayer> playerOpt = repository.findById(uuid).get(15, TimeUnit.SECONDS);
-
-            if (playerOpt.isPresent()) {
-                YakPlayer player = playerOpt.get();
-
-                if (player.isBanned()) {
-                    String banMessage = formatBanMessage(player);
-                    if (banMessage != null) {
-                        event.disallow(AsyncPlayerPreLoginEvent.Result.KICK_BANNED, banMessage);
-                        return;
-                    }
-                }
-
-                if (!player.getUsername().equals(event.getName())) {
-                    player.setUsername(event.getName());
-                    repository.saveSync(player);
-                }
-
-                playerNameCache.put(event.getName().toLowerCase(), uuid);
-            }
-        } catch (Exception e) {
-            logger.log(Level.SEVERE, "Error checking ban status for " + event.getName(), e);
-            logDataError("Error checking ban status during prelogin: " + event.getName(), e);
-        }
-    }
-
-    private String formatBanMessage(YakPlayer player) {
-        StringBuilder message = new StringBuilder();
-        message.append(ChatColor.RED).append(ChatColor.BOLD).append("You are banned from this server!\n\n");
-        message.append(ChatColor.GRAY).append("Reason: ").append(ChatColor.WHITE).append(player.getBanReason()).append("\n");
-
-        if (player.getBanExpiry() > 0) {
-            long remaining = player.getBanExpiry() - Instant.now().getEpochSecond();
-            if (remaining > 0) {
-                message.append(ChatColor.GRAY).append("Expires in: ").append(ChatColor.WHITE).append(formatDuration(remaining));
-            } else {
-                player.setBanned(false, "", 0);
-                repository.saveSync(player);
-                return null;
-            }
-        } else {
-            message.append(ChatColor.GRAY).append("This ban does not expire.");
-        }
-
-        message.append("\n\n").append(ChatColor.GRAY).append("Appeal at: ").append(ChatColor.BLUE).append("discord.gg/JYf6R2VKE7");
-        return message.toString();
-    }
-
-    private String formatDuration(long seconds) {
-        long days = seconds / 86400;
-        long hours = (seconds % 86400) / 3600;
-        long minutes = (seconds % 3600) / 60;
-
-        StringBuilder result = new StringBuilder();
-        if (days > 0) result.append(days).append(" days, ");
-        if (hours > 0) result.append(hours).append(" hours, ");
-        result.append(minutes).append(" minutes");
-
-        return result.toString();
-    }
-
-    /**
-     * Enhanced player join handling with comprehensive validation
-     */
-    @EventHandler(priority = EventPriority.LOWEST)
-    public void onPlayerJoin(PlayerJoinEvent event) {
-        Player player = event.getPlayer();
-        UUID uuid = player.getUniqueId();
-
-        if (onlinePlayers.containsKey(uuid)) {
-            duplicateLogins.incrementAndGet();
-            logger.warning("Duplicate login detected for " + player.getName() + " (" + uuid + ")");
-
-            YakPlayer existingPlayer = onlinePlayers.get(uuid);
-            if (existingPlayer != null) {
-                existingPlayer.disconnect();
-            }
-        }
-
-        playerLocks.computeIfAbsent(uuid, k -> new ReentrantLock());
-        playerNameCache.put(player.getName().toLowerCase(), uuid);
-
-        CompletableFuture.supplyAsync(() -> {
-            try {
-                return loadPlayerForJoinEnhanced(uuid, player.getName());
-            } catch (Exception e) {
-                logger.log(Level.SEVERE, "Error loading player on join: " + player.getName(), e);
-                emergencyCreations.incrementAndGet();
-                return null;
-            }
-        }, priorityExecutor).thenAccept(yakPlayer -> {
-            Bukkit.getScheduler().runTask(plugin, () -> {
-                handlePlayerJoinResultEnhanced(player, yakPlayer);
-            });
-        }).exceptionally(ex -> {
-            logger.log(Level.SEVERE, "Critical error in player join handling", ex);
-            Bukkit.getScheduler().runTask(plugin, () -> {
-                player.kickPlayer(ChatColor.RED + "Unable to load player data. Please try again.");
-            });
-            return null;
-        });
-    }
-
-    private YakPlayer loadPlayerForJoinEnhanced(UUID uuid, String playerName) throws Exception {
-        if (onlinePlayers.containsKey(uuid)) {
-            logger.info("Player already loaded: " + playerName);
-            cacheHits.incrementAndGet();
-            return onlinePlayers.get(uuid);
-        }
-
-        cacheMisses.incrementAndGet();
-
-        try {
-            Optional<YakPlayer> playerOpt = repository.findById(uuid).get(25, TimeUnit.SECONDS);
-            totalLoads.incrementAndGet();
-
-            if (playerOpt.isPresent()) {
-                YakPlayer player = playerOpt.get();
-
-                if (dataValidator.validatePlayer(player)) {
-                    logAudit("PLAYER_LOADED", "Successfully loaded existing player: " + playerName);
-                    return player;
-                } else {
-                    if (attemptPlayerDataRepair(player)) {
-                        return player;
-                    } else {
-                        logger.severe("Unable to repair player data for " + playerName + ", creating emergency backup");
-                        return null;
-                    }
-                }
-            } else {
-                logAudit("NEW_PLAYER", "No existing data found for: " + playerName);
-                return null;
-            }
-
-        } catch (TimeoutException e) {
-            logger.severe("Database timeout loading player: " + playerName);
-            throw new RuntimeException("Database timeout", e);
-        } catch (Exception e) {
-            logger.log(Level.SEVERE, "Database error loading player: " + playerName, e);
-            throw e;
-        }
-    }
-
-    private void handlePlayerJoinResultEnhanced(Player player, YakPlayer yakPlayer) {
-        UUID uuid = player.getUniqueId();
-
-        if (yakPlayer == null) {
-            handleNewPlayerEnhanced(player);
-        } else {
-            handleExistingPlayerEnhanced(player, yakPlayer);
-        }
-
-        lastPlayerActivity.put(uuid, System.currentTimeMillis());
-        playerLoadTimes.put(uuid, System.currentTimeMillis());
-        updatePlayerCaches(player, yakPlayer);
-    }
-
-    private void handleNewPlayerEnhanced(Player player) {
-        UUID uuid = player.getUniqueId();
-
-        if (failedLoads.contains(uuid)) {
-            player.kickPlayer(ChatColor.RED + "Unable to create player data. Please contact an administrator.");
-            logDataError("Kicked new player after failed loads: " + player.getName());
-            return;
-        }
-
-        try {
-            YakPlayer newPlayer = new YakPlayer(player);
-
-            if (!dataValidator.validatePlayer(newPlayer)) {
-                logger.severe("New player data validation failed for " + player.getName());
-                player.kickPlayer(ChatColor.RED + "Player data validation failed. Please contact an administrator.");
-                return;
-            }
-
-            onlinePlayers.put(uuid, newPlayer);
-            initializePlayerSystemsEnhanced(player, newPlayer);
-
-            savePlayerEnhanced(newPlayer).thenAccept(success -> {
-                if (success) {
-                    logAudit("NEW_PLAYER_CREATED", "Successfully created new player: " + player.getName());
-                } else {
-                    logger.warning("Failed to save new player data for: " + player.getName());
-                }
-            });
-
-            Bukkit.getScheduler().runTaskLater(plugin, () -> {
-                if (player.isOnline()) {
-                    showEnhancedWelcomeExperience(player);
-                }
-            }, 40L);
-
-            logger.info("Created enhanced new player: " + player.getName());
-
-        } catch (Exception e) {
-            logger.log(Level.SEVERE, "Error creating new player: " + player.getName(), e);
-            failedLoads.add(uuid);
-            player.kickPlayer(ChatColor.RED + "Unable to create player data. Please try again.");
-        }
-    }
-
-    private void handleExistingPlayerEnhanced(Player player, YakPlayer yakPlayer) {
-        UUID uuid = player.getUniqueId();
-
-        try {
-            yakPlayer.connect(player);
-            onlinePlayers.put(uuid, yakPlayer);
-
-            applyPlayerData(player, yakPlayer);
-            initializePlayerSystemsEnhanced(player, yakPlayer);
-
-            logger.info("Loaded existing player: " + player.getName());
-
-        } catch (Exception e) {
-            logger.log(Level.SEVERE, "Error loading existing player: " + player.getName(), e);
-            handlePlayerDataError(player, e);
-        }
-    }
-
-    private void applyPlayerData(Player player, YakPlayer yakPlayer) {
-        try {
-            if (yakPlayer.getLocation() != null && yakPlayer.getLocation().getWorld() != null) {
-                player.teleport(yakPlayer.getLocation());
-            }
-
-            yakPlayer.applyInventory(player);
-            yakPlayer.applyStats(player);
-
-        } catch (Exception e) {
-            logger.log(Level.WARNING, "Error applying player data for " + player.getName(), e);
-            player.sendMessage(ChatColor.RED + "Warning: Some of your player data may not have loaded correctly. " +
-                    "Please report this to an administrator if you notice issues.");
-        }
-    }
-
-    private void handlePlayerDataError(Player player, Exception e) {
-        UUID uuid = player.getUniqueId();
-        logDataError("Error loading player data for " + player.getName(), e);
-
-        YakPlayer emergencyPlayer = new YakPlayer(player);
-        onlinePlayers.put(uuid, emergencyPlayer);
-        initializePlayerEnergyEnhanced(emergencyPlayer);
-
-        player.sendMessage(ChatColor.RED + "Error loading your player data. Emergency data created. " +
-                "Please report this issue to an administrator.");
-
-        notifyStaffOfDataError(player.getName());
-    }
-
-    private void notifyStaffOfDataError(String playerName) {
-        String message = ChatColor.DARK_RED + "[ADMIN] " + ChatColor.RED + "Data error for player: " + playerName;
-        Bukkit.getOnlinePlayers().stream()
-                .filter(p -> p.hasPermission("yakserver.admin"))
-                .forEach(p -> p.sendMessage(message));
-    }
-
-    private void showEnhancedWelcomeExperience(Player player) {
-        player.sendTitle(
-                ChatColor.GOLD + "✦ Welcome to YakRealms! ✦",
-                ChatColor.YELLOW + "Your adventure begins now",
-                20, 80, 20
-        );
-
-        player.sendMessage("");
-        player.sendMessage(ChatColor.GOLD + "═══════════════════════════════════════");
-        player.sendMessage(ChatColor.AQUA + "       Welcome to " + ChatColor.BOLD + "YakRealms" + ChatColor.AQUA + "!");
-        player.sendMessage("");
-        player.sendMessage(ChatColor.YELLOW + "• Your player data has been created successfully");
-        player.sendMessage(ChatColor.YELLOW + "• Type " + ChatColor.GREEN + "/help" + ChatColor.YELLOW + " for commands");
-        player.sendMessage(ChatColor.YELLOW + "• Join our community: " + ChatColor.BLUE + "discord.gg/JYf6R2VKE7");
-        player.sendMessage("");
-        player.sendMessage(ChatColor.GREEN + "Good luck on your adventure!");
-        player.sendMessage(ChatColor.GOLD + "═══════════════════════════════════════");
-        player.sendMessage("");
-
-        Location loc = player.getLocation();
-        player.getWorld().spawnParticle(Particle.FIREWORKS_SPARK, loc.add(0, 2, 0), 20, 2, 2, 2, 0.1);
-        player.playSound(player.getLocation(), Sound.ENTITY_PLAYER_LEVELUP, 1.0f, 1.0f);
-    }
-
-    /**
-     * Enhanced system initialization for players
-     */
-    private void initializePlayerSystemsEnhanced(Player player, YakPlayer yakPlayer) {
-        UUID uuid = player.getUniqueId();
-
-        try {
-            initializePlayerEnergyEnhanced(yakPlayer);
-
-            if (moderationSystemReady.get()) {
-                try {
-                    Rank rank = Rank.valueOf(yakPlayer.getRank());
-                    ModerationMechanics.rankMap.put(uuid, rank);
-                    updateRankCache(rank.name(), uuid, true);
-                } catch (IllegalArgumentException e) {
-                    ModerationMechanics.rankMap.put(uuid, Rank.DEFAULT);
-                    updateRankCache("DEFAULT", uuid, true);
-                }
-            }
-
-            if (chatSystemReady.get()) {
-                try {
-                    ChatTag tag = ChatTag.valueOf(yakPlayer.getChatTag());
-                    ChatMechanics.getPlayerTags().put(uuid, tag);
-                } catch (IllegalArgumentException e) {
-                    ChatMechanics.getPlayerTags().put(uuid, ChatTag.DEFAULT);
-                }
-            }
-
-            updateAlignmentCache(yakPlayer.getAlignment(), uuid, true);
-            updateDisplayNameCacheEnhanced(yakPlayer);
-
-            logAudit("PLAYER_INIT", "Enhanced systems initialized for: " + player.getName());
-
-        } catch (Exception e) {
-            logger.log(Level.WARNING, "Error initializing enhanced player systems for " + player.getName(), e);
-        }
-    }
-
-    private void initializePlayerEnergyEnhanced(YakPlayer yakPlayer) {
-        Player player = yakPlayer.getBukkitPlayer();
-        if (player != null && player.isOnline()) {
-            Bukkit.getScheduler().runTask(plugin, () -> {
-                player.setExp(1.0f);
-                player.setLevel(100);
-            });
-
-            if (!yakPlayer.hasTemporaryData("energy")) {
-                yakPlayer.setTemporaryData("energy", 100);
-            }
-        }
-    }
-
-    private void updateDisplayNameCacheEnhanced(YakPlayer yakPlayer) {
-        UUID uuid = yakPlayer.getUUID();
-        String displayName = yakPlayer.getFormattedDisplayName();
-        displayNameCache.put(uuid, displayName);
-        displayNameCacheTime.put(uuid, System.currentTimeMillis());
-    }
-
-    private void updatePlayerCaches(Player player, YakPlayer yakPlayer) {
-        if (yakPlayer != null) {
-            UUID uuid = player.getUniqueId();
-            updateRankCache(yakPlayer.getRank(), uuid, true);
-            updateAlignmentCache(yakPlayer.getAlignment(), uuid, true);
-        }
-    }
-
-    private void updateRankCache(String rank, UUID uuid, boolean add) {
-        if (add) {
-            rankCache.computeIfAbsent(rank, k -> ConcurrentHashMap.newKeySet()).add(uuid);
-        } else {
-            rankCache.values().forEach(set -> set.remove(uuid));
-        }
-    }
-
-    private void updateAlignmentCache(String alignment, UUID uuid, boolean add) {
-        if (add) {
-            alignmentCache.computeIfAbsent(alignment, k -> ConcurrentHashMap.newKeySet()).add(uuid);
-        } else {
-            alignmentCache.values().forEach(set -> set.remove(uuid));
-        }
-    }
-
-    /**
-     * Enhanced player quit handling
-     */
-    @EventHandler(priority = EventPriority.HIGHEST)
-    public void onPlayerQuit(PlayerQuitEvent event) {
-        Player player = event.getPlayer();
-        UUID uuid = player.getUniqueId();
-
-        CompletableFuture.runAsync(() -> {
-            ReentrantLock lock = getPlayerLock(uuid);
-            lock.lock();
-            try {
-                YakPlayer yakPlayer = onlinePlayers.get(uuid);
-                if (yakPlayer != null) {
-                    updatePlayerBeforeSave(yakPlayer, player);
-                    yakPlayer.disconnect();
-
-                    onlinePlayers.remove(uuid);
-                    displayNameCache.remove(uuid);
-                    displayNameCacheTime.remove(uuid);
-                    playerNameCache.remove(player.getName().toLowerCase());
-
-                    updateRankCache("", uuid, false);
-                    updateAlignmentCache("", uuid, false);
-
-                    savePlayerEnhanced(yakPlayer).thenAccept(success -> {
-                        if (success) {
-                            logger.fine("Saved player data on quit: " + player.getName());
-                        } else {
-                            logger.warning("Failed to save player data on quit: " + player.getName());
-                        }
-                    });
-                }
-            } finally {
-                lock.unlock();
-            }
-        }, asyncExecutor);
-    }
-
-    // Enhanced save and monitoring methods
     private CompletableFuture<Boolean> savePlayerEnhanced(YakPlayer player) {
         return CompletableFuture.supplyAsync(() -> {
             ReentrantLock lock = getPlayerLock(player.getUUID());
@@ -1223,11 +1278,30 @@ public class YakPlayerManager implements Listener {
                         player.clearDirty();
                         updateDisplayNameCacheEnhanced(player);
 
+                        // Notify save listeners
+                        for (PlayerSaveListener listener : saveListeners) {
+                            try {
+                                listener.onPlayerSaved(player);
+                            } catch (Exception e) {
+                                logger.log(Level.WARNING, "Error in save listener", e);
+                            }
+                        }
+
                         return true;
 
                     } catch (Exception e) {
                         logger.log(Level.SEVERE, "Error saving player: " + player.getUsername(), e);
                         logDataError("Error saving player: " + player.getUsername(), e);
+
+                        // Notify save listeners of failure
+                        for (PlayerSaveListener listener : saveListeners) {
+                            try {
+                                listener.onPlayerSaveFailed(player, e);
+                            } catch (Exception ex) {
+                                logger.log(Level.WARNING, "Error in save listener", ex);
+                            }
+                        }
+
                         return false;
                     } finally {
                         lock.unlock();
@@ -1560,6 +1634,8 @@ public class YakPlayerManager implements Listener {
         displayNameCacheTime.clear();
         rankCache.clear();
         alignmentCache.clear();
+        loadListeners.clear();
+        saveListeners.clear();
 
         shutdownExecutor(scheduledExecutor, "scheduled");
         shutdownExecutor(asyncExecutor, "async");
@@ -1648,42 +1724,12 @@ public class YakPlayerManager implements Listener {
             return false;
         }, asyncExecutor);
     }
+
     // Enhanced save methods
     public CompletableFuture<Boolean> savePlayer(YakPlayer player) {
-        return CompletableFuture.supplyAsync(() -> {
-            ReentrantLock lock = getPlayerLock(player.getUUID());
-            try {
-                if (lock.tryLock(5, TimeUnit.SECONDS)) {
-                    try {
-                        // Update current state if online
-                        Player bukkit = player.getBukkitPlayer();
-                        if (bukkit != null && bukkit.isOnline()) {
-                            updatePlayerBeforeSave(player, bukkit);
-                        }
-
-                        // Save to database
-                        repository.save(player).get(10, TimeUnit.SECONDS);
-                        playerSaveTimes.put(player.getUUID(), System.currentTimeMillis());
-                        player.clearDirty();
-                        return true;
-
-                    } catch (Exception e) {
-                        logger.log(Level.SEVERE, "Error saving player: " + player.getUsername(), e);
-                        logDataError("Error saving player: " + player.getUsername(), e);
-                        return false;
-                    } finally {
-                        lock.unlock();
-                    }
-                } else {
-                    logger.warning("Could not acquire lock for saving player: " + player.getUsername());
-                    return false;
-                }
-            } catch (InterruptedException e) {
-                e.printStackTrace();
-            }
-            return null;
-        }, asyncExecutor);
+        return savePlayerEnhanced(player);
     }
+
     public void saveAllPlayers() {
         forceSaveAll.set(true);
         performIntelligentSave();

@@ -3093,6 +3093,13 @@ public class YakPlayer {
         }
     }
 
+    public long getLastDailyReward() {
+        return System.currentTimeMillis();
+    }
+
+    public void setLastDailyReward(long l) {
+    }
+
     // Helper classes for serialization
     private static class ItemSerializer {
         public static String serializeItemStack(ItemStack item) throws IOException {

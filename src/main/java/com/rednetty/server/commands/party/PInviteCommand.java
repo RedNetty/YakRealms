@@ -36,7 +36,7 @@ public class PInviteCommand implements CommandExecutor {
             return true;
         }
 
-        PartyMechanics.getInstance().invitePlayerToParty(targetPlayer, player);
+        PartyMechanics.getInstance().invitePlayerToParty(targetPlayer, player, targetName);
         return true;
     }
 }

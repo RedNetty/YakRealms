@@ -1,9 +1,13 @@
 package com.rednetty.server.mechanics.party;
 
 import com.rednetty.server.YakRealms;
+import com.rednetty.server.mechanics.player.YakPlayer;
 import com.rednetty.server.mechanics.player.YakPlayerManager;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
+import org.bukkit.Location;
+import org.bukkit.Particle;
+import org.bukkit.Sound;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
@@ -12,32 +16,244 @@ import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.scheduler.BukkitTask;
 
+import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.logging.Logger;
 import java.util.stream.Collectors;
 
 /**
- * Main party system mechanics implementation
- * Manages player parties, invitations, and related functionality
+ * Enhanced party system mechanics implementation with advanced features
+ * Manages player parties, invitations, party roles, sharing systems, and related functionality
  */
 public class PartyMechanics implements Listener {
     private static PartyMechanics instance;
     private final Logger logger;
     private final YakPlayerManager playerManager;
 
-    // Core data structures
-    private final Map<UUID, List<UUID>> parties = new ConcurrentHashMap<>();
-    private final Map<UUID, UUID> invites = new ConcurrentHashMap<>();
-    private final Map<UUID, Long> inviteTimes = new ConcurrentHashMap<>();
+    // Core data structures with enhanced thread safety
+    private final Map<UUID, Party> parties = new ConcurrentHashMap<>();
+    private final Map<UUID, PartyInvite> invites = new ConcurrentHashMap<>();
+    private final Map<UUID, UUID> playerToPartyMap = new ConcurrentHashMap<>();
 
-    // Configuration
+    // Enhanced configuration
     private int maxPartySize = 8;
     private int inviteExpiryTimeSeconds = 30;
+    private boolean experienceSharing = true;
+    private boolean lootSharing = false;
+    private double experienceShareRadius = 50.0;
+    private double lootShareRadius = 30.0;
+    private int partyWarpCooldown = 300; // 5 minutes
+    private boolean allowCrossWorldParties = true;
 
-    // Tasks
+    // Tasks with enhanced functionality
     private BukkitTask scoreboardRefreshTask;
     private BukkitTask inviteCleanupTask;
+    private BukkitTask partyMaintenanceTask;
+    private BukkitTask experienceShareTask;
+
+    // Thread safety
+    private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
+
+    // Event system for other plugins to hook into
+    private final Set<PartyEventListener> eventListeners = ConcurrentHashMap.newKeySet();
+
+    // Statistics tracking
+    private final Map<UUID, PartyStatistics> partyStats = new ConcurrentHashMap<>();
+
+    /**
+     * Enhanced Party class with roles and advanced features
+     */
+    public static class Party {
+        private final UUID id;
+        private UUID leader;
+        private final Set<UUID> officers = ConcurrentHashMap.newKeySet();
+        private final Set<UUID> members = ConcurrentHashMap.newKeySet();
+        private final Map<String, Object> settings = new ConcurrentHashMap<>();
+        private final long creationTime;
+        private Location warpLocation;
+        private long lastWarpTime = 0;
+        private String motd = "";
+        private boolean isOpen = false; // Allow anyone to join
+        private int maxSize = 8;
+
+        public Party(UUID leaderId) {
+            this.id = UUID.randomUUID();
+            this.leader = leaderId;
+            this.members.add(leaderId);
+            this.creationTime = Instant.now().getEpochSecond();
+
+            // Default settings
+            this.settings.put("experience_sharing", true);
+            this.settings.put("loot_sharing", false);
+            this.settings.put("friendly_fire", false);
+            this.settings.put("auto_invite", false);
+            this.settings.put("public_chat", true);
+        }
+
+        // Getters and setters
+        public UUID getId() { return id; }
+        public UUID getLeader() { return leader; }
+        public void setLeader(UUID leader) { this.leader = leader; }
+        public Set<UUID> getOfficers() { return new HashSet<>(officers); }
+        public Set<UUID> getMembers() { return new HashSet<>(members); }
+        public long getCreationTime() { return creationTime; }
+        public Location getWarpLocation() { return warpLocation; }
+        public void setWarpLocation(Location location) { this.warpLocation = location; }
+        public long getLastWarpTime() { return lastWarpTime; }
+        public void setLastWarpTime(long time) { this.lastWarpTime = time; }
+        public String getMotd() { return motd; }
+        public void setMotd(String motd) { this.motd = motd != null ? motd : ""; }
+        public boolean isOpen() { return isOpen; }
+        public void setOpen(boolean open) { this.isOpen = open; }
+        public int getMaxSize() { return maxSize; }
+        public void setMaxSize(int maxSize) { this.maxSize = Math.max(2, Math.min(20, maxSize)); }
+
+        public List<UUID> getAllMembers() {
+            List<UUID> all = new ArrayList<>(members);
+            return all;
+        }
+
+        public int getSize() {
+            return members.size();
+        }
+
+        public boolean isLeader(UUID playerId) {
+            return leader.equals(playerId);
+        }
+
+        public boolean isOfficer(UUID playerId) {
+            return officers.contains(playerId);
+        }
+
+        public boolean isMember(UUID playerId) {
+            return members.contains(playerId);
+        }
+
+        public boolean hasPermission(UUID playerId, PartyPermission permission) {
+            if (isLeader(playerId)) return true;
+            if (isOfficer(playerId)) {
+                return permission != PartyPermission.DISBAND &&
+                        permission != PartyPermission.PROMOTE_OFFICER &&
+                        permission != PartyPermission.DEMOTE_OFFICER;
+            }
+            return permission == PartyPermission.LEAVE || permission == PartyPermission.CHAT;
+        }
+
+        public void addMember(UUID playerId) {
+            members.add(playerId);
+        }
+
+        public void removeMember(UUID playerId) {
+            members.remove(playerId);
+            officers.remove(playerId);
+            if (leader.equals(playerId) && !members.isEmpty()) {
+                // Promote first officer or first member to leader
+                UUID newLeader = officers.isEmpty() ? members.iterator().next() : officers.iterator().next();
+                setLeader(newLeader);
+                officers.remove(newLeader);
+            }
+        }
+
+        public void promoteToOfficer(UUID playerId) {
+            if (members.contains(playerId) && !leader.equals(playerId)) {
+                officers.add(playerId);
+            }
+        }
+
+        public void demoteFromOfficer(UUID playerId) {
+            officers.remove(playerId);
+        }
+
+        public Object getSetting(String key) {
+            return settings.get(key);
+        }
+
+        public void setSetting(String key, Object value) {
+            settings.put(key, value);
+        }
+
+        public boolean getBooleanSetting(String key, boolean defaultValue) {
+            Object value = settings.get(key);
+            return value instanceof Boolean ? (Boolean) value : defaultValue;
+        }
+    }
+
+    /**
+     * Party invite class with enhanced information
+     */
+    public static class PartyInvite {
+        private final UUID partyId;
+        private final UUID inviter;
+        private final UUID invited;
+        private final long inviteTime;
+        private final String message;
+
+        public PartyInvite(UUID partyId, UUID inviter, UUID invited, String message) {
+            this.partyId = partyId;
+            this.inviter = inviter;
+            this.invited = invited;
+            this.inviteTime = System.currentTimeMillis();
+            this.message = message != null ? message : "";
+        }
+
+        public UUID getPartyId() { return partyId; }
+        public UUID getInviter() { return inviter; }
+        public UUID getInvited() { return invited; }
+        public long getInviteTime() { return inviteTime; }
+        public String getMessage() { return message; }
+
+        public boolean isExpired(int expirySeconds) {
+            return System.currentTimeMillis() - inviteTime > expirySeconds * 1000;
+        }
+    }
+
+    /**
+     * Party permissions enum
+     */
+    public enum PartyPermission {
+        INVITE, KICK, PROMOTE_OFFICER, DEMOTE_OFFICER, SET_WARP, WARP,
+        DISBAND, CHANGE_SETTINGS, CHAT, LEAVE
+    }
+
+    /**
+     * Party event listener interface
+     */
+    public interface PartyEventListener {
+        default void onPartyCreate(Party party) {}
+        default void onPartyDisband(Party party) {}
+        default void onPlayerJoinParty(Party party, UUID playerId) {}
+        default void onPlayerLeaveParty(Party party, UUID playerId) {}
+        default void onPartyLeaderChange(Party party, UUID oldLeader, UUID newLeader) {}
+        default void onPartyMessage(Party party, UUID sender, String message) {}
+    }
+
+    /**
+     * Party statistics tracking
+     */
+    public static class PartyStatistics {
+        private int totalPartiesCreated = 0;
+        private int totalPartiesJoined = 0;
+        private long totalTimeInParty = 0;
+        private int messagesLent = 0;
+        private int experienceShared = 0;
+        private long lastPartyTime = 0;
+
+        // Getters and setters
+        public int getTotalPartiesCreated() { return totalPartiesCreated; }
+        public void incrementPartiesCreated() { this.totalPartiesCreated++; }
+        public int getTotalPartiesJoined() { return totalPartiesJoined; }
+        public void incrementPartiesJoined() { this.totalPartiesJoined++; }
+        public long getTotalTimeInParty() { return totalTimeInParty; }
+        public void addTimeInParty(long time) { this.totalTimeInParty += time; }
+        public int getMessagesLent() { return messagesLent; }
+        public void incrementMessages() { this.messagesLent++; }
+        public int getExperienceShared() { return experienceShared; }
+        public void addExperienceShared(int exp) { this.experienceShared += exp; }
+        public long getLastPartyTime() { return lastPartyTime; }
+        public void setLastPartyTime(long time) { this.lastPartyTime = time; }
+    }
 
     /**
      * Private constructor for singleton pattern
@@ -45,12 +261,11 @@ public class PartyMechanics implements Listener {
     private PartyMechanics() {
         this.logger = YakRealms.getInstance().getLogger();
         this.playerManager = YakPlayerManager.getInstance();
+        loadConfiguration();
     }
 
     /**
      * Gets the singleton instance
-     *
-     * @return The PartyMechanics instance
      */
     public static PartyMechanics getInstance() {
         if (instance == null) {
@@ -60,17 +275,36 @@ public class PartyMechanics implements Listener {
     }
 
     /**
-     * Initialize the party system
+     * Load configuration from plugin config
+     */
+    private void loadConfiguration() {
+        var config = YakRealms.getInstance().getConfig();
+        this.maxPartySize = config.getInt("party.max-size", 8);
+        this.inviteExpiryTimeSeconds = config.getInt("party.invite-expiry", 30);
+        this.experienceSharing = config.getBoolean("party.experience-sharing", true);
+        this.lootSharing = config.getBoolean("party.loot-sharing", false);
+        this.experienceShareRadius = config.getDouble("party.experience-share-radius", 50.0);
+        this.lootShareRadius = config.getDouble("party.loot-share-radius", 30.0);
+        this.partyWarpCooldown = config.getInt("party.warp-cooldown", 300);
+        this.allowCrossWorldParties = config.getBoolean("party.allow-cross-world", true);
+    }
+
+    /**
+     * Initialize the enhanced party system
      */
     public void onEnable() {
         // Register events
         Bukkit.getServer().getPluginManager().registerEvents(this, YakRealms.getInstance());
 
-        // Start tasks
+        // Start enhanced tasks
         startScoreboardRefreshTask();
         startInviteCleanupTask();
+        startPartyMaintenanceTask();
+        if (experienceSharing) {
+            startExperienceShareTask();
+        }
 
-        YakRealms.log("Party mechanics have been enabled.");
+        YakRealms.log("Enhanced party mechanics have been enabled.");
     }
 
     /**
@@ -78,24 +312,23 @@ public class PartyMechanics implements Listener {
      */
     public void onDisable() {
         // Cancel tasks
-        if (scoreboardRefreshTask != null) {
-            scoreboardRefreshTask.cancel();
-        }
+        cancelAllTasks();
 
-        if (inviteCleanupTask != null) {
-            inviteCleanupTask.cancel();
-        }
+        // Save party statistics
+        savePartyStatistics();
 
         // Clear data
         parties.clear();
         invites.clear();
-        inviteTimes.clear();
+        playerToPartyMap.clear();
+        partyStats.clear();
+        eventListeners.clear();
 
-        YakRealms.log("Party mechanics have been disabled.");
+        YakRealms.log("Enhanced party mechanics have been disabled.");
     }
 
     /**
-     * Start the scoreboard refresh task
+     * Start the enhanced scoreboard refresh task
      */
     private void startScoreboardRefreshTask() {
         scoreboardRefreshTask = new BukkitRunnable() {
@@ -109,151 +342,212 @@ public class PartyMechanics implements Listener {
                     }
                 }
             }
-        }.runTaskTimer(YakRealms.getInstance(), 20L, 20L); // Update every second for performance
+        }.runTaskTimer(YakRealms.getInstance(), 20L, 20L);
     }
 
     /**
-     * Start the invite cleanup task
+     * Start the enhanced invite cleanup task
      */
     private void startInviteCleanupTask() {
         inviteCleanupTask = new BukkitRunnable() {
             @Override
             public void run() {
                 try {
-                    long currentTime = System.currentTimeMillis();
                     List<UUID> expiredInvites = new ArrayList<>();
 
-                    for (Map.Entry<UUID, Long> entry : inviteTimes.entrySet()) {
-                        UUID invitedPlayer = entry.getKey();
-                        long inviteTime = entry.getValue();
-
-                        if (currentTime - inviteTime > inviteExpiryTimeSeconds * 1000) {
-                            expiredInvites.add(invitedPlayer);
+                    for (Map.Entry<UUID, PartyInvite> entry : invites.entrySet()) {
+                        PartyInvite invite = entry.getValue();
+                        if (invite.isExpired(inviteExpiryTimeSeconds)) {
+                            expiredInvites.add(entry.getKey());
                         }
                     }
 
                     for (UUID invitedPlayer : expiredInvites) {
-                        UUID inviter = invites.get(invitedPlayer);
-
-                        // Notify players if they're online
-                        Player invitedBukkit = Bukkit.getPlayer(invitedPlayer);
-                        if (invitedBukkit != null && invitedBukkit.isOnline()) {
-                            invitedBukkit.sendMessage(ChatColor.RED + "Party invite from " +
-                                    Bukkit.getPlayer(inviter).getName() + " expired.");
+                        PartyInvite invite = invites.remove(invitedPlayer);
+                        if (invite != null) {
+                            notifyInviteExpiry(invite);
                         }
-
-                        Player inviterBukkit = Bukkit.getPlayer(inviter);
-                        if (inviterBukkit != null && inviterBukkit.isOnline()) {
-                            inviterBukkit.sendMessage(ChatColor.RED + "Party invite to " +
-                                    Bukkit.getPlayer(invitedPlayer).getName() + " has expired.");
-                        }
-
-                        invites.remove(invitedPlayer);
-                        inviteTimes.remove(invitedPlayer);
                     }
                 } catch (Exception e) {
                     logger.warning("Error in party invite cleanup: " + e.getMessage());
                 }
             }
-        }.runTaskTimer(YakRealms.getInstance(), 20L, 20L); // Check every second
+        }.runTaskTimer(YakRealms.getInstance(), 20L, 20L);
     }
 
     /**
+     * Start party maintenance task for statistics and cleanup
+     */
+    private void startPartyMaintenanceTask() {
+        partyMaintenanceTask = new BukkitRunnable() {
+            @Override
+            public void run() {
+                try {
+                    // Update party statistics
+                    updatePartyStatistics();
+
+                    // Clean up empty parties
+                    cleanupEmptyParties();
+
+                    // Update party experience sharing
+                    if (experienceSharing) {
+                        processExperienceSharing();
+                    }
+                } catch (Exception e) {
+                    logger.warning("Error in party maintenance: " + e.getMessage());
+                }
+            }
+        }.runTaskTimerAsynchronously(YakRealms.getInstance(), 20L * 60, 20L * 60); // Every minute
+    }
+
+    /**
+     * Start experience sharing task
+     */
+    private void startExperienceShareTask() {
+        experienceShareTask = new BukkitRunnable() {
+            @Override
+            public void run() {
+                processExperienceSharing();
+            }
+        }.runTaskTimer(YakRealms.getInstance(), 20L, 20L * 5); // Every 5 seconds
+    }
+
+    /**
+     * Cancel all tasks
+     */
+    private void cancelAllTasks() {
+        if (scoreboardRefreshTask != null) {
+            scoreboardRefreshTask.cancel();
+        }
+        if (inviteCleanupTask != null) {
+            inviteCleanupTask.cancel();
+        }
+        if (partyMaintenanceTask != null) {
+            partyMaintenanceTask.cancel();
+        }
+        if (experienceShareTask != null) {
+            experienceShareTask.cancel();
+        }
+    }
+
+    // Event listener management
+    public void addEventListener(PartyEventListener listener) {
+        eventListeners.add(listener);
+    }
+
+    public void removeEventListener(PartyEventListener listener) {
+        eventListeners.remove(listener);
+    }
+
+    private void fireEvent(Runnable eventCall) {
+        for (PartyEventListener listener : eventListeners) {
+            try {
+                eventCall.run();
+            } catch (Exception e) {
+                logger.warning("Error in party event listener: " + e.getMessage());
+            }
+        }
+    }
+
+    // Enhanced party management methods
+
+    /**
      * Check if a player is a party leader
-     *
-     * @param player The player to check
-     * @return true if the player is a party leader
      */
     public boolean isPartyLeader(Player player) {
         return isPartyLeader(player.getUniqueId());
     }
 
-    /**
-     * Check if a player is a party leader
-     *
-     * @param playerId The UUID of the player to check
-     * @return true if the player is a party leader
-     */
     public boolean isPartyLeader(UUID playerId) {
-        return parties.containsKey(playerId);
+        lock.readLock().lock();
+        try {
+            UUID partyId = playerToPartyMap.get(playerId);
+            if (partyId == null) return false;
+            Party party = parties.get(partyId);
+            return party != null && party.isLeader(playerId);
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    /**
+     * Check if a player is a party officer
+     */
+    public boolean isPartyOfficer(Player player) {
+        return isPartyOfficer(player.getUniqueId());
+    }
+
+    public boolean isPartyOfficer(UUID playerId) {
+        lock.readLock().lock();
+        try {
+            UUID partyId = playerToPartyMap.get(playerId);
+            if (partyId == null) return false;
+            Party party = parties.get(partyId);
+            return party != null && party.isOfficer(playerId);
+        } finally {
+            lock.readLock().unlock();
+        }
     }
 
     /**
      * Get the party leader of a player
-     *
-     * @param player The player to get the leader for
-     * @return The party leader, or the player themselves if not in a party or if they are the leader
      */
     public Player getPartyLeader(Player player) {
         UUID leaderId = getPartyLeaderId(player.getUniqueId());
-        return leaderId != null ? Bukkit.getPlayer(leaderId) : player;
+        return leaderId != null ? Bukkit.getPlayer(leaderId) : null;
     }
 
-    /**
-     * Get the party leader's UUID of a player
-     *
-     * @param playerId The UUID of the player to get the leader for
-     * @return The party leader's UUID, or null if not in a party
-     */
     public UUID getPartyLeaderId(UUID playerId) {
-        // If the player is a leader, return them
-        if (isPartyLeader(playerId)) {
-            return playerId;
+        lock.readLock().lock();
+        try {
+            UUID partyId = playerToPartyMap.get(playerId);
+            if (partyId == null) return null;
+            Party party = parties.get(partyId);
+            return party != null ? party.getLeader() : null;
+        } finally {
+            lock.readLock().unlock();
         }
-
-        // Otherwise, find which party they're in
-        for (Map.Entry<UUID, List<UUID>> entry : parties.entrySet()) {
-            if (entry.getValue().contains(playerId)) {
-                return entry.getKey();
-            }
-        }
-
-        return null;
     }
 
     /**
      * Check if a player is in a party
-     *
-     * @param player The player to check
-     * @return true if the player is in a party
      */
     public boolean isInParty(Player player) {
         return isInParty(player.getUniqueId());
     }
 
-    /**
-     * Check if a player is in a party
-     *
-     * @param playerId The UUID of the player to check
-     * @return true if the player is in a party
-     */
     public boolean isInParty(UUID playerId) {
-        // Check if they're a leader
-        if (parties.containsKey(playerId)) {
-            return true;
+        lock.readLock().lock();
+        try {
+            return playerToPartyMap.containsKey(playerId);
+        } finally {
+            lock.readLock().unlock();
         }
-
-        // Check if they're a member of any party
-        for (List<UUID> partyMembers : parties.values()) {
-            if (partyMembers.contains(playerId)) {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     /**
-     * Get all members of a player's party (including the player)
-     *
-     * @param player The player to get party members for
-     * @return List of all party members, or null if not in a party
+     * Get the party of a player
+     */
+    public Party getParty(Player player) {
+        return getParty(player.getUniqueId());
+    }
+
+    public Party getParty(UUID playerId) {
+        lock.readLock().lock();
+        try {
+            UUID partyId = playerToPartyMap.get(playerId);
+            return partyId != null ? parties.get(partyId) : null;
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    /**
+     * Get all members of a player's party
      */
     public List<Player> getPartyMembers(Player player) {
         List<UUID> memberIds = getPartyMemberIds(player.getUniqueId());
-        if (memberIds == null) {
-            return null;
-        }
+        if (memberIds == null) return null;
 
         return memberIds.stream()
                 .map(Bukkit::getPlayer)
@@ -261,493 +555,1022 @@ public class PartyMechanics implements Listener {
                 .collect(Collectors.toList());
     }
 
-    /**
-     * Get all member UUIDs of a player's party (including the player)
-     *
-     * @param playerId The UUID of the player to get party members for
-     * @return List of all party member UUIDs, or null if not in a party
-     */
     public List<UUID> getPartyMemberIds(UUID playerId) {
-        // If the player is a leader, return their party members
-        if (parties.containsKey(playerId)) {
-            return new ArrayList<>(parties.get(playerId));
+        lock.readLock().lock();
+        try {
+            Party party = getParty(playerId);
+            return party != null ? party.getAllMembers() : null;
+        } finally {
+            lock.readLock().unlock();
         }
-
-        // Otherwise, find which party they're in
-        for (Map.Entry<UUID, List<UUID>> entry : parties.entrySet()) {
-            if (entry.getValue().contains(playerId)) {
-                return new ArrayList<>(entry.getValue());
-            }
-        }
-
-        return null;
     }
 
     /**
      * Check if two players are in the same party
-     *
-     * @param player1 The first player
-     * @param player2 The second player
-     * @return true if both players are in the same party
      */
     public boolean arePartyMembers(Player player1, Player player2) {
         return arePartyMembers(player1.getUniqueId(), player2.getUniqueId());
     }
 
-    /**
-     * Check if two players are in the same party
-     *
-     * @param player1Id The UUID of the first player
-     * @param player2Id The UUID of the second player
-     * @return true if both players are in the same party
-     */
     public boolean arePartyMembers(UUID player1Id, UUID player2Id) {
-        // Get the party members for player1
-        List<UUID> partyMembers = getPartyMemberIds(player1Id);
-
-        // If player1 isn't in a party, or player2 isn't in player1's party
-        return partyMembers != null && partyMembers.contains(player2Id);
+        lock.readLock().lock();
+        try {
+            UUID party1 = playerToPartyMap.get(player1Id);
+            UUID party2 = playerToPartyMap.get(player2Id);
+            return party1 != null && party1.equals(party2);
+        } finally {
+            lock.readLock().unlock();
+        }
     }
 
     /**
-     * Create a new party with the player as the leader
-     *
-     * @param player The player who will be the party leader
+     * Create a new party with enhanced features
      */
-    public void createParty(Player player) {
-        UUID playerId = player.getUniqueId();
-
-        // Check if already in a party
-        if (isInParty(playerId)) {
-            return;
-        }
-
-        // Create the party with the player as the only member
-        List<UUID> members = new ArrayList<>();
-        members.add(playerId);
-        parties.put(playerId, members);
-
-        // Update scoreboard
-        PartyScoreboards.updatePlayerScoreboard(player);
+    public boolean createParty(Player player) {
+        return createParty(player.getUniqueId());
     }
 
-    /**
-     * Add a player to a party
-     *
-     * @param player The player to add
-     * @param leader The party leader
-     */
-    public void addPlayerToParty(Player player, Player leader) {
-        addPlayerToParty(player.getUniqueId(), leader.getUniqueId());
-    }
-
-    /**
-     * Add a player to a party
-     *
-     * @param playerId The UUID of the player to add
-     * @param leaderId The UUID of the party leader
-     */
-    public void addPlayerToParty(UUID playerId, UUID leaderId) {
-        // Ensure the leader has a party
-        if (!parties.containsKey(leaderId)) {
-            return;
-        }
-
-        // Get the party members
-        List<UUID> members = parties.get(leaderId);
-
-        // Check if the player is already in the party
-        if (members.contains(playerId)) {
-            return;
-        }
-
-        // Add the player to the party
-        members.add(playerId);
-
-        // Update party
-        parties.put(leaderId, members);
-
-        // Update scoreboards for all party members
-        for (UUID memberId : members) {
-            Player memberPlayer = Bukkit.getPlayer(memberId);
-            if (memberPlayer != null && memberPlayer.isOnline()) {
-                PartyScoreboards.updatePlayerScoreboard(memberPlayer);
+    public boolean createParty(UUID playerId) {
+        lock.writeLock().lock();
+        try {
+            // Check if already in a party
+            if (isInParty(playerId)) {
+                return false;
             }
-        }
-    }
 
-    /**
-     * Remove a player from their party
-     *
-     * @param player The player to remove
-     */
-    public void removePlayerFromParty(Player player) {
-        removePlayerFromParty(player.getUniqueId());
-    }
+            // Create the party
+            Party party = new Party(playerId);
+            parties.put(party.getId(), party);
+            playerToPartyMap.put(playerId, party.getId());
 
-    /**
-     * Remove a player from their party
-     *
-     * @param playerId The UUID of the player to remove
-     */
-    public void removePlayerFromParty(UUID playerId) {
-        // If they're not in a party, do nothing
-        if (!isInParty(playerId)) {
-            return;
-        }
+            // Update statistics
+            PartyStatistics stats = partyStats.computeIfAbsent(playerId, k -> new PartyStatistics());
+            stats.incrementPartiesCreated();
+            stats.setLastPartyTime(System.currentTimeMillis());
 
-        // If they're the party leader
-        if (isPartyLeader(playerId)) {
-            List<UUID> members = parties.get(playerId);
-
-            // If there are other members, promote someone else to leader
-            if (members.size() > 1) {
-                // Remove the current leader
-                members.remove(playerId);
-
-                // Get the new leader
-                UUID newLeaderId = members.get(0);
-                Player newLeader = Bukkit.getPlayer(newLeaderId);
-
-                // Update party leadership
-                parties.put(newLeaderId, members);
-                parties.remove(playerId);
-
-                // Notify the new leader
-                if (newLeader != null && newLeader.isOnline()) {
-                    newLeader.sendMessage(ChatColor.RED + "You have been made the party leader!");
+            // Fire event
+            fireEvent(() -> {
+                for (PartyEventListener listener : eventListeners) {
+                    listener.onPartyCreate(party);
                 }
+            });
 
-                // Notify other members
-                Player oldLeader = Bukkit.getPlayer(playerId);
-                String oldLeaderName = oldLeader != null ? oldLeader.getName() : "Unknown";
-                String newLeaderName = newLeader != null ? newLeader.getName() : "Unknown";
+            // Update scoreboard
+            Player bukkitPlayer = Bukkit.getPlayer(playerId);
+            if (bukkitPlayer != null) {
+                PartyScoreboards.updatePlayerScoreboard(bukkitPlayer);
 
-                for (UUID memberId : members) {
-                    Player memberPlayer = Bukkit.getPlayer(memberId);
-                    if (memberPlayer != null && memberPlayer.isOnline()) {
-                        memberPlayer.sendMessage(ChatColor.LIGHT_PURPLE + "<" + ChatColor.BOLD + "P" + ChatColor.LIGHT_PURPLE + ">" +
-                                ChatColor.GRAY + " " + oldLeaderName + ChatColor.GRAY + " has " +
-                                ChatColor.LIGHT_PURPLE + ChatColor.UNDERLINE + "left" + ChatColor.GRAY + " your party.");
+                // Show creation effects
+                showPartyCreationEffects(bukkitPlayer);
+            }
 
-                        memberPlayer.sendMessage(ChatColor.LIGHT_PURPLE + "<" + ChatColor.BOLD + "P" + ChatColor.LIGHT_PURPLE + "> " +
-                                ChatColor.GRAY + ChatColor.LIGHT_PURPLE + newLeaderName + ChatColor.GRAY +
-                                " has been promoted to " + ChatColor.UNDERLINE + "Party Leader");
+            return true;
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
 
-                        // Update scoreboard
-                        PartyScoreboards.updatePlayerScoreboard(memberPlayer);
+    /**
+     * Add a player to a party with enhanced validation
+     */
+    public boolean addPlayerToParty(Player player, UUID partyId) {
+        return addPlayerToParty(player.getUniqueId(), partyId);
+    }
+
+    public boolean addPlayerToParty(UUID playerId, UUID partyId) {
+        lock.writeLock().lock();
+        try {
+            Party party = parties.get(partyId);
+            if (party == null) return false;
+
+            // Check if player is already in this party
+            if (party.isMember(playerId)) return false;
+
+            // Check if player is in another party
+            if (isInParty(playerId)) return false;
+
+            // Check party size limit
+            if (party.getSize() >= party.getMaxSize()) return false;
+
+            // Add player to party
+            party.addMember(playerId);
+            playerToPartyMap.put(playerId, partyId);
+
+            // Update statistics
+            PartyStatistics stats = partyStats.computeIfAbsent(playerId, k -> new PartyStatistics());
+            stats.incrementPartiesJoined();
+            stats.setLastPartyTime(System.currentTimeMillis());
+
+            // Fire event
+            fireEvent(() -> {
+                for (PartyEventListener listener : eventListeners) {
+                    listener.onPlayerJoinParty(party, playerId);
+                }
+            });
+
+            // Update scoreboards for all party members
+            updatePartyScoreboards(party);
+
+            // Show join effects
+            Player bukkitPlayer = Bukkit.getPlayer(playerId);
+            if (bukkitPlayer != null) {
+                showPartyJoinEffects(bukkitPlayer);
+
+                // Send MOTD if available
+                if (!party.getMotd().isEmpty()) {
+                    bukkitPlayer.sendMessage(ChatColor.LIGHT_PURPLE + "Party MOTD: " + ChatColor.WHITE + party.getMotd());
+                }
+            }
+
+            // Notify party members
+            notifyPartyMembers(party, ChatColor.LIGHT_PURPLE + "<" + ChatColor.BOLD + "P" + ChatColor.LIGHT_PURPLE + ">" +
+                    ChatColor.GRAY + " " + getPlayerName(playerId) + ChatColor.GRAY + " has " +
+                    ChatColor.GREEN + ChatColor.UNDERLINE + "joined" + ChatColor.GRAY + " the party.");
+
+            return true;
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    /**
+     * Remove a player from their party with enhanced handling
+     */
+    public boolean removePlayerFromParty(Player player) {
+        return removePlayerFromParty(player.getUniqueId());
+    }
+
+    public boolean removePlayerFromParty(UUID playerId) {
+        lock.writeLock().lock();
+        try {
+            UUID partyId = playerToPartyMap.get(playerId);
+            if (partyId == null) return false;
+
+            Party party = parties.get(partyId);
+            if (party == null) return false;
+
+            boolean wasLeader = party.isLeader(playerId);
+            UUID oldLeader = party.getLeader();
+
+            // Remove player from party
+            party.removeMember(playerId);
+            playerToPartyMap.remove(playerId);
+
+            // Update statistics
+            PartyStatistics stats = partyStats.get(playerId);
+            if (stats != null) {
+                long timeInParty = System.currentTimeMillis() - stats.getLastPartyTime();
+                stats.addTimeInParty(timeInParty);
+            }
+
+            // Fire events
+            fireEvent(() -> {
+                for (PartyEventListener listener : eventListeners) {
+                    listener.onPlayerLeaveParty(party, playerId);
+                }
+            });
+
+            if (wasLeader && !party.getLeader().equals(oldLeader)) {
+                // Leader changed
+                fireEvent(() -> {
+                    for (PartyEventListener listener : eventListeners) {
+                        listener.onPartyLeaderChange(party, oldLeader, party.getLeader());
                     }
+                });
+
+                // Notify new leader
+                Player newLeader = Bukkit.getPlayer(party.getLeader());
+                if (newLeader != null) {
+                    newLeader.sendMessage(ChatColor.GOLD + "★ You have been promoted to party leader!");
+                    showLeaderPromotionEffects(newLeader);
                 }
+            }
+
+            if (party.getSize() == 0) {
+                // Disband empty party
+                disbandParty(partyId);
             } else {
-                // If they're the only member, just remove the party
-                parties.remove(playerId);
+                // Update scoreboards for remaining members
+                updatePartyScoreboards(party);
+
+                // Notify remaining members
+                notifyPartyMembers(party, ChatColor.LIGHT_PURPLE + "<" + ChatColor.BOLD + "P" + ChatColor.LIGHT_PURPLE + ">" +
+                        ChatColor.GRAY + " " + getPlayerName(playerId) + ChatColor.GRAY + " has " +
+                        ChatColor.RED + ChatColor.UNDERLINE + "left" + ChatColor.GRAY + " the party.");
             }
-        } else {
-            // If they're not the leader, find their party and remove them
-            UUID leaderId = getPartyLeaderId(playerId);
-            if (leaderId != null) {
-                List<UUID> members = parties.get(leaderId);
-                members.remove(playerId);
-                parties.put(leaderId, members);
 
-                // Notify party members
-                Player leavingPlayer = Bukkit.getPlayer(playerId);
-                String leavingPlayerName = leavingPlayer != null ? leavingPlayer.getName() : "Unknown";
-
-                for (UUID memberId : members) {
-                    Player memberPlayer = Bukkit.getPlayer(memberId);
-                    if (memberPlayer != null && memberPlayer.isOnline()) {
-                        memberPlayer.sendMessage(ChatColor.LIGHT_PURPLE + "<" + ChatColor.BOLD + "P" + ChatColor.LIGHT_PURPLE + ">" +
-                                ChatColor.GRAY + " " + leavingPlayerName + ChatColor.GRAY + " has " +
-                                ChatColor.RED + ChatColor.UNDERLINE + "left" + ChatColor.GRAY + " your party.");
-
-                        // Update scoreboard
-                        PartyScoreboards.updatePlayerScoreboard(memberPlayer);
-                    }
-                }
+            // Update leaving player's scoreboard
+            Player leavingPlayer = Bukkit.getPlayer(playerId);
+            if (leavingPlayer != null) {
+                PartyScoreboards.clearPlayerScoreboard(leavingPlayer);
+                showPartyLeaveEffects(leavingPlayer);
             }
-        }
 
-        // Update the leaving player's scoreboard
-        Player leavingPlayer = Bukkit.getPlayer(playerId);
-        if (leavingPlayer != null && leavingPlayer.isOnline()) {
-            PartyScoreboards.clearPlayerScoreboard(leavingPlayer);
+            return true;
+        } finally {
+            lock.writeLock().unlock();
         }
     }
 
     /**
-     * Invite a player to join a party
-     *
-     * @param invited The player being invited
-     * @param inviter The player doing the inviting
+     * Disband a party
      */
-    public void invitePlayerToParty(Player invited, Player inviter) {
-        if (invited.equals(inviter)) {
-            inviter.sendMessage(ChatColor.RED + "You cannot invite yourself to your own party.");
-            return;
-        }
+    public boolean disbandParty(UUID partyId) {
+        lock.writeLock().lock();
+        try {
+            Party party = parties.remove(partyId);
+            if (party == null) return false;
 
-        // Check if the inviter is in a party but not the leader
-        if (isInParty(inviter) && !isPartyLeader(inviter)) {
-            inviter.sendMessage(ChatColor.RED + "You are NOT the leader of your party.");
-            inviter.sendMessage(ChatColor.GRAY + "Type " + ChatColor.BOLD + "/pquit" + ChatColor.GRAY + " to quit your current party.");
-            return;
-        }
+            // Remove all members from party map
+            for (UUID memberId : party.getAllMembers()) {
+                playerToPartyMap.remove(memberId);
 
-        // Check if the party is full
-        if (isPartyLeader(inviter) && parties.get(inviter.getUniqueId()).size() >= maxPartySize) {
-            inviter.sendMessage(ChatColor.RED + "You cannot have more than " + ChatColor.ITALIC + maxPartySize + " players" + ChatColor.RED + " in a party.");
-            inviter.sendMessage(ChatColor.GRAY + "You may use /pkick to kick out unwanted members.");
-            return;
-        }
-
-        // Check if the invited player is already in a party
-        if (isInParty(invited)) {
-            if (arePartyMembers(inviter, invited)) {
-                inviter.sendMessage(ChatColor.RED + ChatColor.BOLD.toString() + invited.getName() + ChatColor.RED + " is already in your party.");
-                inviter.sendMessage(ChatColor.GRAY + "Type /pkick " + invited.getName() + " to kick them out.");
-            } else {
-                inviter.sendMessage(ChatColor.RED + ChatColor.BOLD.toString() + invited.getName() + ChatColor.RED + " is already in another party.");
+                // Update member statistics
+                PartyStatistics stats = partyStats.get(memberId);
+                if (stats != null) {
+                    long timeInParty = System.currentTimeMillis() - stats.getLastPartyTime();
+                    stats.addTimeInParty(timeInParty);
+                }
             }
-            return;
+
+            // Fire event
+            fireEvent(() -> {
+                for (PartyEventListener listener : eventListeners) {
+                    listener.onPartyDisband(party);
+                }
+            });
+
+            // Notify all members and clear scoreboards
+            for (UUID memberId : party.getAllMembers()) {
+                Player member = Bukkit.getPlayer(memberId);
+                if (member != null && member.isOnline()) {
+                    member.sendMessage(ChatColor.RED + "The party has been disbanded.");
+                    PartyScoreboards.clearPlayerScoreboard(member);
+                    showPartyDisbandEffects(member);
+                }
+            }
+
+            return true;
+        } finally {
+            lock.writeLock().unlock();
         }
-
-        // Check if the invited player already has a pending invite
-        if (invites.containsKey(invited.getUniqueId())) {
-            inviter.sendMessage(ChatColor.RED + invited.getName() + " has a pending party invite.");
-            return;
-        }
-
-        // Create a party for the inviter if they don't have one
-        if (!isInParty(inviter)) {
-            inviter.sendMessage(ChatColor.GREEN + ChatColor.BOLD.toString() + "Party created.");
-            inviter.sendMessage(ChatColor.GRAY + "To invite more people to join your party, " + ChatColor.UNDERLINE + "Left Click" +
-                    ChatColor.GRAY + " them with your character journal or use " + ChatColor.BOLD + "/pinvite" +
-                    ChatColor.GRAY + ". To kick, use " + ChatColor.BOLD + "/pkick" + ChatColor.GRAY + ".");
-            createParty(inviter);
-        }
-
-        // Send invite messages
-        invited.sendMessage(ChatColor.LIGHT_PURPLE + ChatColor.UNDERLINE.toString() + inviter.getName() +
-                ChatColor.GRAY + " has invited you to join their party. To accept, type " +
-                ChatColor.LIGHT_PURPLE + "/paccept" + ChatColor.GRAY + " or to decline, type " +
-                ChatColor.LIGHT_PURPLE + "/pdecline");
-
-        inviter.sendMessage(ChatColor.GRAY + "You have invited " + ChatColor.LIGHT_PURPLE + invited.getName() +
-                ChatColor.GRAY + " to join your party.");
-
-        // Register the invite
-        invites.put(invited.getUniqueId(), inviter.getUniqueId());
-        inviteTimes.put(invited.getUniqueId(), System.currentTimeMillis());
     }
 
     /**
-     * Accept a party invitation
-     *
-     * @param player The player accepting the invitation
-     * @return true if the invitation was successfully accepted, false otherwise
+     * Enhanced party invitation system
+     */
+    public boolean invitePlayerToParty(Player invited, Player inviter, String message) {
+        return invitePlayerToParty(invited.getUniqueId(), inviter.getUniqueId(), message);
+    }
+
+    public boolean invitePlayerToParty(UUID invitedId, UUID inviterId, String message) {
+        lock.writeLock().lock();
+        try {
+            if (invitedId.equals(inviterId)) {
+                sendMessage(inviterId, ChatColor.RED + "You cannot invite yourself to your own party.");
+                return false;
+            }
+
+            // Check if inviter is in a party and has permission
+            Party party = getParty(inviterId);
+            if (party == null) {
+                // Create party for inviter
+                if (!createParty(inviterId)) {
+                    sendMessage(inviterId, ChatColor.RED + "Failed to create party.");
+                    return false;
+                }
+                party = getParty(inviterId);
+            }
+
+            if (!party.hasPermission(inviterId, PartyPermission.INVITE)) {
+                sendMessage(inviterId, ChatColor.RED + "You don't have permission to invite players.");
+                return false;
+            }
+
+            // Check if party is full
+            if (party.getSize() >= party.getMaxSize()) {
+                sendMessage(inviterId, ChatColor.RED + "Your party is full (" + party.getMaxSize() + " players max).");
+                return false;
+            }
+
+            // Check if invited player is already in a party
+            if (isInParty(invitedId)) {
+                if (arePartyMembers(inviterId, invitedId)) {
+                    sendMessage(inviterId, ChatColor.RED + getPlayerName(invitedId) + " is already in your party.");
+                } else {
+                    sendMessage(inviterId, ChatColor.RED + getPlayerName(invitedId) + " is already in another party.");
+                }
+                return false;
+            }
+
+            // Check if player already has a pending invite
+            if (invites.containsKey(invitedId)) {
+                sendMessage(inviterId, ChatColor.RED + getPlayerName(invitedId) + " already has a pending party invite.");
+                return false;
+            }
+
+            // Check cross-world restrictions
+            if (!allowCrossWorldParties) {
+                Player inviterPlayer = Bukkit.getPlayer(inviterId);
+                Player invitedPlayer = Bukkit.getPlayer(invitedId);
+                if (inviterPlayer != null && invitedPlayer != null &&
+                        !inviterPlayer.getWorld().equals(invitedPlayer.getWorld())) {
+                    sendMessage(inviterId, ChatColor.RED + "Cannot invite players from different worlds.");
+                    return false;
+                }
+            }
+
+            // Create and send invite
+            PartyInvite invite = new PartyInvite(party.getId(), inviterId, invitedId, message);
+            invites.put(invitedId, invite);
+
+            // Send invite messages
+            String inviterName = getPlayerName(inviterId);
+            String invitedName = getPlayerName(invitedId);
+
+            sendMessage(invitedId, ChatColor.LIGHT_PURPLE + "✦ Party Invitation ✦");
+            sendMessage(invitedId, ChatColor.GRAY + inviterName + ChatColor.YELLOW + " has invited you to join their party!");
+            if (!message.isEmpty()) {
+                sendMessage(invitedId, ChatColor.GRAY + "Message: " + ChatColor.WHITE + message);
+            }
+            sendMessage(invitedId, ChatColor.GRAY + "Party size: " + ChatColor.WHITE + party.getSize() + "/" + party.getMaxSize());
+            sendMessage(invitedId, ChatColor.GREEN + "Type " + ChatColor.BOLD + "/paccept" + ChatColor.GREEN + " to accept");
+            sendMessage(invitedId, ChatColor.RED + "Type " + ChatColor.BOLD + "/pdecline" + ChatColor.RED + " to decline");
+            sendMessage(invitedId, ChatColor.GRAY + "This invite expires in " + inviteExpiryTimeSeconds + " seconds.");
+
+            sendMessage(inviterId, ChatColor.GREEN + "Sent party invitation to " + ChatColor.BOLD + invitedName + ChatColor.GREEN + ".");
+
+            // Play sounds
+            playSound(invitedId, Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 1.0f, 1.2f);
+            playSound(inviterId, Sound.ENTITY_ITEM_PICKUP, 1.0f, 1.0f);
+
+            return true;
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    /**
+     * Accept a party invitation with enhanced feedback
      */
     public boolean acceptPartyInvite(Player player) {
-        UUID playerId = player.getUniqueId();
+        return acceptPartyInvite(player.getUniqueId());
+    }
 
-        // Check if the player has a pending invite
-        if (!invites.containsKey(playerId)) {
-            player.sendMessage(ChatColor.RED + "No pending party invites.");
-            return false;
+    public boolean acceptPartyInvite(UUID playerId) {
+        lock.writeLock().lock();
+        try {
+            PartyInvite invite = invites.remove(playerId);
+            if (invite == null) {
+                sendMessage(playerId, ChatColor.RED + "You don't have any pending party invites.");
+                return false;
+            }
+
+            if (invite.isExpired(inviteExpiryTimeSeconds)) {
+                sendMessage(playerId, ChatColor.RED + "That party invite has expired.");
+                return false;
+            }
+
+            Party party = parties.get(invite.getPartyId());
+            if (party == null) {
+                sendMessage(playerId, ChatColor.RED + "That party no longer exists.");
+                return false;
+            }
+
+            if (party.getSize() >= party.getMaxSize()) {
+                sendMessage(playerId, ChatColor.RED + "That party is now full.");
+                return false;
+            }
+
+            // Add player to party
+            if (addPlayerToParty(playerId, invite.getPartyId())) {
+                // Success messages handled in addPlayerToParty
+                return true;
+            } else {
+                sendMessage(playerId, ChatColor.RED + "Failed to join the party.");
+                return false;
+            }
+        } finally {
+            lock.writeLock().unlock();
         }
+    }
 
-        // Get the inviter
-        UUID inviterId = invites.get(playerId);
-        Player inviter = Bukkit.getPlayer(inviterId);
+    /**
+     * Decline a party invitation with enhanced feedback
+     */
+    public boolean declinePartyInvite(Player player) {
+        return declinePartyInvite(player.getUniqueId());
+    }
 
-        // Check if the inviter is still online and still a party leader
-        if (inviter == null || !isPartyLeader(inviterId)) {
-            player.sendMessage(ChatColor.RED + "This party invite is no longer available.");
-            invites.remove(playerId);
-            inviteTimes.remove(playerId);
-            return false;
+    public boolean declinePartyInvite(UUID playerId) {
+        lock.writeLock().lock();
+        try {
+            PartyInvite invite = invites.remove(playerId);
+            if (invite == null) {
+                sendMessage(playerId, ChatColor.RED + "You don't have any pending party invites.");
+                return false;
+            }
+
+            String inviterName = getPlayerName(invite.getInviter());
+            String invitedName = getPlayerName(playerId);
+
+            // Notify both players
+            sendMessage(playerId, ChatColor.RED + "Declined party invitation from " + ChatColor.BOLD + inviterName + ChatColor.RED + ".");
+            sendMessage(invite.getInviter(), ChatColor.RED + invitedName + " has " + ChatColor.UNDERLINE + "declined" +
+                    ChatColor.RED + " your party invitation.");
+
+            // Play sounds
+            playSound(playerId, Sound.BLOCK_NOTE_BLOCK_BASS, 1.0f, 1.0f);
+            playSound(invite.getInviter(), Sound.ENTITY_VILLAGER_NO, 1.0f, 1.0f);
+
+            return true;
+        } finally {
+            lock.writeLock().unlock();
         }
+    }
 
-        // Check if the party is full
-        List<UUID> partyMembers = parties.get(inviterId);
-        if (partyMembers.size() >= maxPartySize) {
-            player.sendMessage(ChatColor.RED + "This party is currently full.");
-            invites.remove(playerId);
-            inviteTimes.remove(playerId);
-            return false;
+    /**
+     * Kick a player from party with enhanced permissions
+     */
+    public boolean kickPlayerFromParty(Player leader, Player playerToKick) {
+        return kickPlayerFromParty(leader.getUniqueId(), playerToKick.getUniqueId());
+    }
+
+    public boolean kickPlayerFromParty(UUID kickerId, UUID playerToKickId) {
+        lock.writeLock().lock();
+        try {
+            Party party = getParty(kickerId);
+            if (party == null) {
+                sendMessage(kickerId, ChatColor.RED + "You are not in a party.");
+                return false;
+            }
+
+            if (!party.hasPermission(kickerId, PartyPermission.KICK)) {
+                sendMessage(kickerId, ChatColor.RED + "You don't have permission to kick players.");
+                return false;
+            }
+
+            if (!party.isMember(playerToKickId)) {
+                sendMessage(kickerId, ChatColor.RED + getPlayerName(playerToKickId) + " is not in your party.");
+                return false;
+            }
+
+            if (kickerId.equals(playerToKickId)) {
+                sendMessage(kickerId, ChatColor.RED + "You cannot kick yourself! Use /pquit to leave.");
+                return false;
+            }
+
+            // Cannot kick the leader
+            if (party.isLeader(playerToKickId)) {
+                sendMessage(kickerId, ChatColor.RED + "You cannot kick the party leader!");
+                return false;
+            }
+
+            // Officers cannot kick other officers (only leader can)
+            if (party.isOfficer(playerToKickId) && !party.isLeader(kickerId)) {
+                sendMessage(kickerId, ChatColor.RED + "You cannot kick another officer!");
+                return false;
+            }
+
+            String kickerName = getPlayerName(kickerId);
+            String kickedName = getPlayerName(playerToKickId);
+
+            // Notify the kicked player
+            sendMessage(playerToKickId, ChatColor.RED + "You have been kicked from the party by " +
+                    ChatColor.BOLD + kickerName + ChatColor.RED + ".");
+
+            // Remove player
+            removePlayerFromParty(playerToKickId);
+
+            // Notify party
+            notifyPartyMembers(party, ChatColor.LIGHT_PURPLE + "<" + ChatColor.BOLD + "P" + ChatColor.LIGHT_PURPLE + ">" +
+                    ChatColor.GRAY + " " + kickedName + " was " + ChatColor.RED + "kicked" + ChatColor.GRAY + " by " + kickerName + ".");
+
+            return true;
+        } finally {
+            lock.writeLock().unlock();
         }
+    }
 
-        // Add the player to the party
-        addPlayerToParty(playerId, inviterId);
+    /**
+     * Enhanced party messaging with formatting
+     */
+    public boolean sendPartyMessage(Player sender, String message) {
+        return sendPartyMessage(sender.getUniqueId(), message);
+    }
 
-        // Notify party members
-        for (UUID memberId : partyMembers) {
-            Player memberPlayer = Bukkit.getPlayer(memberId);
-            if (memberPlayer != null && memberPlayer.isOnline()) {
-                memberPlayer.sendMessage(ChatColor.LIGHT_PURPLE + "<" + ChatColor.BOLD + "P" + ChatColor.LIGHT_PURPLE + ">" +
-                        ChatColor.GRAY + " " + player.getName() + ChatColor.GRAY + " has " +
-                        ChatColor.LIGHT_PURPLE + ChatColor.UNDERLINE + "joined" + ChatColor.GRAY + " your party.");
+    public boolean sendPartyMessage(UUID senderId, String message) {
+        lock.readLock().lock();
+        try {
+            Party party = getParty(senderId);
+            if (party == null) {
+                sendMessage(senderId, ChatColor.RED + "You are not in a party.");
+                return false;
+            }
+
+            if (!party.hasPermission(senderId, PartyPermission.CHAT)) {
+                sendMessage(senderId, ChatColor.RED + "You don't have permission to chat in this party.");
+                return false;
+            }
+
+            String senderName = getPlayerName(senderId);
+            String formattedMessage = formatPartyMessage(party, senderId, senderName, message);
+
+            // Send to all party members
+            for (UUID memberId : party.getAllMembers()) {
+                Player member = Bukkit.getPlayer(memberId);
+                if (member != null && member.isOnline()) {
+                    member.sendMessage(formattedMessage);
+                }
+            }
+
+            // Update statistics
+            PartyStatistics stats = partyStats.computeIfAbsent(senderId, k -> new PartyStatistics());
+            stats.incrementMessages();
+
+            // Fire event
+            fireEvent(() -> {
+                for (PartyEventListener listener : eventListeners) {
+                    listener.onPartyMessage(party, senderId, message);
+                }
+            });
+
+            return true;
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    /**
+     * Enhanced party warping system
+     */
+    public boolean setPartyWarp(Player player) {
+        return setPartyWarp(player.getUniqueId(), player.getLocation());
+    }
+
+    public boolean setPartyWarp(UUID playerId, Location location) {
+        lock.writeLock().lock();
+        try {
+            Party party = getParty(playerId);
+            if (party == null) {
+                sendMessage(playerId, ChatColor.RED + "You are not in a party.");
+                return false;
+            }
+
+            if (!party.hasPermission(playerId, PartyPermission.SET_WARP)) {
+                sendMessage(playerId, ChatColor.RED + "You don't have permission to set the party warp.");
+                return false;
+            }
+
+            party.setWarpLocation(location.clone());
+
+            String playerName = getPlayerName(playerId);
+            notifyPartyMembers(party, ChatColor.GREEN + "Party warp set by " + ChatColor.BOLD + playerName +
+                    ChatColor.GREEN + " at " + formatLocation(location) + ".");
+
+            return true;
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    public boolean warpToParty(Player player) {
+        return warpToParty(player.getUniqueId());
+    }
+
+    public boolean warpToParty(UUID playerId) {
+        lock.writeLock().lock();
+        try {
+            Party party = getParty(playerId);
+            if (party == null) {
+                sendMessage(playerId, ChatColor.RED + "You are not in a party.");
+                return false;
+            }
+
+            if (!party.hasPermission(playerId, PartyPermission.WARP)) {
+                sendMessage(playerId, ChatColor.RED + "You don't have permission to use party warp.");
+                return false;
+            }
+
+            Location warpLocation = party.getWarpLocation();
+            if (warpLocation == null) {
+                sendMessage(playerId, ChatColor.RED + "No party warp location set.");
+                return false;
+            }
+
+            // Check cooldown
+            long currentTime = System.currentTimeMillis();
+            if (currentTime - party.getLastWarpTime() < partyWarpCooldown * 1000) {
+                long remaining = (partyWarpCooldown * 1000 - (currentTime - party.getLastWarpTime())) / 1000;
+                sendMessage(playerId, ChatColor.RED + "Party warp is on cooldown for " + remaining + " seconds.");
+                return false;
+            }
+
+            Player bukkitPlayer = Bukkit.getPlayer(playerId);
+            if (bukkitPlayer == null) return false;
+
+            // Teleport player
+            bukkitPlayer.teleport(warpLocation);
+            party.setLastWarpTime(currentTime);
+
+            sendMessage(playerId, ChatColor.GREEN + "Warped to party location!");
+            playSound(playerId, Sound.ENTITY_ENDERMAN_TELEPORT, 1.0f, 1.0f);
+
+            // Show particles
+            warpLocation.getWorld().spawnParticle(Particle.PORTAL, warpLocation, 20, 1, 1, 1, 0.1);
+
+            return true;
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    /**
+     * Promote a player to officer
+     */
+    public boolean promoteToOfficer(UUID promoterId, UUID playerId) {
+        lock.writeLock().lock();
+        try {
+            Party party = getParty(promoterId);
+            if (party == null) {
+                sendMessage(promoterId, ChatColor.RED + "You are not in a party.");
+                return false;
+            }
+
+            if (!party.hasPermission(promoterId, PartyPermission.PROMOTE_OFFICER)) {
+                sendMessage(promoterId, ChatColor.RED + "You don't have permission to promote officers.");
+                return false;
+            }
+
+            if (!party.isMember(playerId)) {
+                sendMessage(promoterId, ChatColor.RED + getPlayerName(playerId) + " is not in your party.");
+                return false;
+            }
+
+            if (party.isLeader(playerId)) {
+                sendMessage(promoterId, ChatColor.RED + "The party leader cannot be promoted to officer.");
+                return false;
+            }
+
+            if (party.isOfficer(playerId)) {
+                sendMessage(promoterId, ChatColor.RED + getPlayerName(playerId) + " is already an officer.");
+                return false;
+            }
+
+            party.promoteToOfficer(playerId);
+
+            String promoterName = getPlayerName(promoterId);
+            String promotedName = getPlayerName(playerId);
+
+            notifyPartyMembers(party, ChatColor.GOLD + promotedName + " has been promoted to officer by " + promoterName + "!");
+
+            // Special notification to promoted player
+            sendMessage(playerId, ChatColor.GOLD + "★ You have been promoted to party officer! ★");
+            playSound(playerId, Sound.ENTITY_PLAYER_LEVELUP, 1.0f, 1.5f);
+
+            updatePartyScoreboards(party);
+            return true;
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    /**
+     * Demote an officer to member
+     */
+    public boolean demoteFromOfficer(UUID demoterId, UUID playerId) {
+        lock.writeLock().lock();
+        try {
+            Party party = getParty(demoterId);
+            if (party == null) {
+                sendMessage(demoterId, ChatColor.RED + "You are not in a party.");
+                return false;
+            }
+
+            if (!party.hasPermission(demoterId, PartyPermission.DEMOTE_OFFICER)) {
+                sendMessage(demoterId, ChatColor.RED + "You don't have permission to demote officers.");
+                return false;
+            }
+
+            if (!party.isOfficer(playerId)) {
+                sendMessage(demoterId, ChatColor.RED + getPlayerName(playerId) + " is not an officer.");
+                return false;
+            }
+
+            party.demoteFromOfficer(playerId);
+
+            String demoterName = getPlayerName(demoterId);
+            String demotedName = getPlayerName(playerId);
+
+            notifyPartyMembers(party, ChatColor.YELLOW + demotedName + " has been demoted from officer by " + demoterName + ".");
+
+            sendMessage(playerId, ChatColor.YELLOW + "You have been demoted from party officer.");
+            playSound(playerId, Sound.BLOCK_NOTE_BLOCK_BASS, 1.0f, 1.0f);
+
+            updatePartyScoreboards(party);
+            return true;
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    // Enhanced utility methods
+
+    /**
+     * Update party statistics
+     */
+    private void updatePartyStatistics() {
+        for (Map.Entry<UUID, UUID> entry : playerToPartyMap.entrySet()) {
+            UUID playerId = entry.getKey();
+            PartyStatistics stats = partyStats.computeIfAbsent(playerId, k -> new PartyStatistics());
+
+            // Update time in party for active members
+            if (stats.getLastPartyTime() > 0) {
+                long currentTime = System.currentTimeMillis();
+                long sessionTime = currentTime - stats.getLastPartyTime();
+                stats.addTimeInParty(sessionTime);
+                stats.setLastPartyTime(currentTime);
+            }
+        }
+    }
+
+    /**
+     * Clean up empty parties
+     */
+    private void cleanupEmptyParties() {
+        List<UUID> emptyParties = new ArrayList<>();
+
+        for (Map.Entry<UUID, Party> entry : parties.entrySet()) {
+            Party party = entry.getValue();
+            if (party.getSize() == 0) {
+                emptyParties.add(entry.getKey());
             }
         }
 
-        // Notify the player
-        player.sendMessage("");
-        player.sendMessage(ChatColor.LIGHT_PURPLE + "You have joined " + ChatColor.BOLD + inviter.getName() + "'s" +
-                ChatColor.LIGHT_PURPLE + " party.");
-        player.sendMessage(ChatColor.GRAY + "To chat with your party, use " + ChatColor.BOLD + "/p" +
-                ChatColor.GRAY + " OR " + ChatColor.BOLD + " /p <message>");
-
-        // Remove the invite
-        invites.remove(playerId);
-        inviteTimes.remove(playerId);
-
-        return true;
+        for (UUID partyId : emptyParties) {
+            disbandParty(partyId);
+        }
     }
 
     /**
-     * Decline a party invitation
-     *
-     * @param player The player declining the invitation
-     * @return true if the invitation was successfully declined, false otherwise
+     * Process experience sharing
      */
-    public boolean declinePartyInvite(Player player) {
+    private void processExperienceSharing() {
+        for (Party party : parties.values()) {
+            if (!party.getBooleanSetting("experience_sharing", true)) continue;
+            if (party.getSize() < 2) continue;
+
+            List<Player> nearbyMembers = new ArrayList<>();
+
+            // Find nearby members
+            for (UUID memberId : party.getAllMembers()) {
+                Player member = Bukkit.getPlayer(memberId);
+                if (member != null && member.isOnline()) {
+                    nearbyMembers.add(member);
+                }
+            }
+
+            if (nearbyMembers.size() < 2) continue;
+
+            // Check if members are within sharing radius
+            for (int i = 0; i < nearbyMembers.size(); i++) {
+                Player player1 = nearbyMembers.get(i);
+                for (int j = i + 1; j < nearbyMembers.size(); j++) {
+                    Player player2 = nearbyMembers.get(j);
+
+                    if (player1.getWorld().equals(player2.getWorld()) &&
+                            player1.getLocation().distance(player2.getLocation()) <= experienceShareRadius) {
+
+                        // Share experience bonus
+                        int bonusExp = calculateExperienceBonus(party.getSize());
+                        if (bonusExp > 0) {
+                            player1.giveExp(bonusExp);
+                            player2.giveExp(bonusExp);
+
+                            // Update statistics
+                            PartyStatistics stats1 = partyStats.computeIfAbsent(player1.getUniqueId(), k -> new PartyStatistics());
+                            PartyStatistics stats2 = partyStats.computeIfAbsent(player2.getUniqueId(), k -> new PartyStatistics());
+                            stats1.addExperienceShared(bonusExp);
+                            stats2.addExperienceShared(bonusExp);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Calculate experience bonus based on party size
+     */
+    private int calculateExperienceBonus(int partySize) {
+        return Math.max(0, partySize - 1); // 1 bonus exp per extra member
+    }
+
+    /**
+     * Notify party invite expiry
+     */
+    private void notifyInviteExpiry(PartyInvite invite) {
+        String inviterName = getPlayerName(invite.getInviter());
+        sendMessage(invite.getInvited(), ChatColor.RED + "Party invite from " + inviterName + " has expired.");
+        sendMessage(invite.getInviter(), ChatColor.RED + "Party invite to " + getPlayerName(invite.getInvited()) + " has expired.");
+    }
+
+    /**
+     * Update scoreboards for all party members
+     */
+    private void updatePartyScoreboards(Party party) {
+        for (UUID memberId : party.getAllMembers()) {
+            Player member = Bukkit.getPlayer(memberId);
+            if (member != null && member.isOnline()) {
+                PartyScoreboards.updatePlayerScoreboard(member);
+            }
+        }
+    }
+
+    /**
+     * Notify all party members with a message
+     */
+    private void notifyPartyMembers(Party party, String message) {
+        for (UUID memberId : party.getAllMembers()) {
+            Player member = Bukkit.getPlayer(memberId);
+            if (member != null && member.isOnline()) {
+                member.sendMessage(message);
+            }
+        }
+    }
+
+    /**
+     * Format party message with enhanced styling
+     */
+    private String formatPartyMessage(Party party, UUID senderId, String senderName, String message) {
+        StringBuilder formatted = new StringBuilder();
+
+        formatted.append(ChatColor.LIGHT_PURPLE).append("<").append(ChatColor.BOLD).append("P").append(ChatColor.LIGHT_PURPLE).append(">");
+
+        // Add role indicators
+        if (party.isLeader(senderId)) {
+            formatted.append(ChatColor.GOLD).append("★");
+        } else if (party.isOfficer(senderId)) {
+            formatted.append(ChatColor.YELLOW).append("♦");
+        }
+
+        formatted.append(" ").append(senderName).append(": ").append(ChatColor.WHITE).append(message);
+
+        return formatted.toString();
+    }
+
+    /**
+     * Visual effects methods
+     */
+    private void showPartyCreationEffects(Player player) {
+        player.playSound(player.getLocation(), Sound.ENTITY_PLAYER_LEVELUP, 1.0f, 1.2f);
+        player.getWorld().spawnParticle(Particle.VILLAGER_HAPPY, player.getLocation(), 10, 1, 1, 1, 0.1);
+    }
+
+    private void showPartyJoinEffects(Player player) {
+        PartyScoreboards.showPartyJoinEffects(player);
+    }
+
+    private void showPartyLeaveEffects(Player player) {
+        player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_BASS, 1.0f, 1.0f);
+    }
+
+    private void showPartyDisbandEffects(Player player) {
+        player.playSound(player.getLocation(), Sound.ENTITY_WITHER_SPAWN, 0.5f, 2.0f);
+    }
+
+    private void showLeaderPromotionEffects(Player player) {
+        PartyScoreboards.showLeaderPromotionEffects(player);
+    }
+
+    /**
+     * Utility methods
+     */
+    private String getPlayerName(UUID playerId) {
+        Player player = Bukkit.getPlayer(playerId);
+        if (player != null) {
+            return player.getName();
+        }
+
+        YakPlayer yakPlayer = playerManager.getPlayer(playerId);
+        if (yakPlayer != null) {
+            return yakPlayer.getUsername();
+        }
+
+        return "Unknown";
+    }
+
+    private void sendMessage(UUID playerId, String message) {
+        Player player = Bukkit.getPlayer(playerId);
+        if (player != null && player.isOnline()) {
+            player.sendMessage(message);
+        }
+    }
+
+    private void playSound(UUID playerId, Sound sound, float volume, float pitch) {
+        Player player = Bukkit.getPlayer(playerId);
+        if (player != null && player.isOnline()) {
+            player.playSound(player.getLocation(), sound, volume, pitch);
+        }
+    }
+
+    private String formatLocation(Location location) {
+        return String.format("%s (%.0f, %.0f, %.0f)",
+                location.getWorld().getName(),
+                location.getX(),
+                location.getY(),
+                location.getZ());
+    }
+
+    /**
+     * Save party statistics
+     */
+    private void savePartyStatistics() {
+        // This would save to database in a real implementation
+        logger.info("Saving party statistics for " + partyStats.size() + " players");
+    }
+
+    /**
+     * Handle player quit event to remove them from their party
+     */
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onPlayerQuit(PlayerQuitEvent event) {
+        Player player = event.getPlayer();
         UUID playerId = player.getUniqueId();
 
-        // Check if the player has a pending invite
-        if (!invites.containsKey(playerId)) {
-            player.sendMessage(ChatColor.RED + "No pending party invites.");
-            return false;
+        if (isInParty(playerId)) {
+            // Update statistics before leaving
+            PartyStatistics stats = partyStats.get(playerId);
+            if (stats != null) {
+                long timeInParty = System.currentTimeMillis() - stats.getLastPartyTime();
+                stats.addTimeInParty(timeInParty);
+            }
+
+            removePlayerFromParty(playerId);
         }
-
-        // Get the inviter
-        UUID inviterId = invites.get(playerId);
-        Player inviter = Bukkit.getPlayer(inviterId);
-
-        // Notify the player
-        player.sendMessage(ChatColor.RED + "Declined " + ChatColor.BOLD +
-                (inviter != null ? inviter.getName() : "Unknown") + "'s" +
-                ChatColor.RED + " party invitation.");
-
-        // Notify the inviter if they're online
-        if (inviter != null && inviter.isOnline()) {
-            inviter.sendMessage(ChatColor.RED + ChatColor.BOLD.toString() + player.getName() +
-                    ChatColor.RED + " has " + ChatColor.UNDERLINE + "DECLINED" +
-                    ChatColor.RED + " your party invitation.");
-        }
-
-        // Remove the invite
-        invites.remove(playerId);
-        inviteTimes.remove(playerId);
-
-        return true;
     }
 
+    // Public API methods for external use
+
+    public int getMaxPartySize() { return maxPartySize; }
+    public void setMaxPartySize(int maxPartySize) { this.maxPartySize = maxPartySize; }
+    public int getInviteExpiryTimeSeconds() { return inviteExpiryTimeSeconds; }
+    public void setInviteExpiryTimeSeconds(int inviteExpiryTimeSeconds) { this.inviteExpiryTimeSeconds = inviteExpiryTimeSeconds; }
+    public boolean isExperienceSharing() { return experienceSharing; }
+    public void setExperienceSharing(boolean experienceSharing) { this.experienceSharing = experienceSharing; }
+    public boolean isLootSharing() { return lootSharing; }
+    public void setLootSharing(boolean lootSharing) { this.lootSharing = lootSharing; }
+    public double getExperienceShareRadius() { return experienceShareRadius; }
+    public void setExperienceShareRadius(double experienceShareRadius) { this.experienceShareRadius = experienceShareRadius; }
+    public double getLootShareRadius() { return lootShareRadius; }
+    public void setLootShareRadius(double lootShareRadius) { this.lootShareRadius = lootShareRadius; }
+
     /**
-     * Kick a player from a party
-     *
-     * @param leader       The party leader
-     * @param playerToKick The player to kick
-     * @return true if the player was successfully kicked, false otherwise
+     * Get party statistics for a player
      */
-    public boolean kickPlayerFromParty(Player leader, Player playerToKick) {
-        // Check if the leader is actually a party leader
-        if (!isPartyLeader(leader)) {
-            leader.sendMessage(ChatColor.RED + "You are NOT the leader of your party.");
-            leader.sendMessage(ChatColor.GRAY + "Type " + ChatColor.BOLD + "/pquit" +
-                    ChatColor.GRAY + " to quit your current party.");
-            return false;
-        }
-
-        // Check if the player to kick is in the leader's party
-        if (!arePartyMembers(leader, playerToKick)) {
-            leader.sendMessage(ChatColor.RED + ChatColor.BOLD.toString() +
-                    playerToKick.getName() + " is not in your party.");
-            return false;
-        }
-
-        // Notify the kicked player
-        playerToKick.sendMessage(ChatColor.RED + ChatColor.BOLD.toString() +
-                "You have been kicked out of the party.");
-
-        // Remove the player from the party
-        removePlayerFromParty(playerToKick);
-
-        return true;
+    public PartyStatistics getPartyStatistics(UUID playerId) {
+        return partyStats.computeIfAbsent(playerId, k -> new PartyStatistics());
     }
 
     /**
-     * Send a message to all members of a party
-     *
-     * @param sender  The player sending the message
-     * @param message The message to send
-     * @return true if the message was sent, false otherwise
+     * Get all active parties
      */
-    public boolean sendPartyMessage(Player sender, String message) {
-        // Check if the player is in a party
-        if (!isInParty(sender)) {
-            sender.sendMessage(ChatColor.RED + "You are not in a party.");
-            return false;
-        }
-
-        // Get party members
-        List<Player> partyMembers = getPartyMembers(sender);
-        if (partyMembers == null || partyMembers.isEmpty()) {
-            return false;
-        }
-
-        // Send the message to all party members
-        for (Player member : partyMembers) {
-            member.sendMessage(ChatColor.LIGHT_PURPLE + "<" + ChatColor.BOLD + "P" + ChatColor.LIGHT_PURPLE + ">" +
-                    " " + sender.getDisplayName() + ": " + ChatColor.GRAY + message);
-        }
-
-        return true;
+    public Collection<Party> getAllParties() {
+        return new ArrayList<>(parties.values());
     }
 
     /**
-     * Get the maximum party size
-     *
-     * @return The maximum party size
+     * Get party count
      */
-    public int getMaxPartySize() {
-        return maxPartySize;
+    public int getPartyCount() {
+        return parties.size();
     }
 
     /**
-     * Set the maximum party size
-     *
-     * @param maxPartySize The new maximum party size
-     */
-    public void setMaxPartySize(int maxPartySize) {
-        this.maxPartySize = maxPartySize;
-    }
-
-    /**
-     * Get the invite expiry time in seconds
-     *
-     * @return The invite expiry time in seconds
-     */
-    public int getInviteExpiryTimeSeconds() {
-        return inviteExpiryTimeSeconds;
-    }
-
-    /**
-     * Set the invite expiry time in seconds
-     *
-     * @param inviteExpiryTimeSeconds The new invite expiry time in seconds
-     */
-    public void setInviteExpiryTimeSeconds(int inviteExpiryTimeSeconds) {
-        this.inviteExpiryTimeSeconds = inviteExpiryTimeSeconds;
-    }
-
-    /**
-     * Clear all parties
+     * Clear all parties (admin command)
      */
     public void clearAllParties() {
-        for (Player player : Bukkit.getOnlinePlayers()) {
-            PartyScoreboards.clearPlayerScoreboard(player);
+        lock.writeLock().lock();
+        try {
+            for (Player player : Bukkit.getOnlinePlayers()) {
+                PartyScoreboards.clearPlayerScoreboard(player);
+            }
+
+            // Fire disband events for all parties
+            for (Party party : parties.values()) {
+                fireEvent(() -> {
+                    for (PartyEventListener listener : eventListeners) {
+                        listener.onPartyDisband(party);
+                    }
+                });
+            }
+
+            parties.clear();
+            playerToPartyMap.clear();
+            invites.clear();
+        } finally {
+            lock.writeLock().unlock();
         }
-        parties.clear();
     }
 
     /**
@@ -758,18 +1581,6 @@ public class PartyMechanics implements Listener {
             if (!isInParty(player)) {
                 createParty(player);
             }
-        }
-    }
-
-    /**
-     * Handle player quit event to remove them from their party
-     */
-    @EventHandler(priority = EventPriority.MONITOR)
-    public void onPlayerQuit(PlayerQuitEvent event) {
-        Player player = event.getPlayer();
-
-        if (isInParty(player)) {
-            removePlayerFromParty(player);
         }
     }
 }
