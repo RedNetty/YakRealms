@@ -17,9 +17,6 @@ import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.logging.Logger;
 
-/**
- * Enhanced rewards manager for crate contents
- */
 public class CrateRewardsManager {
     private final YakRealms plugin;
     private final Logger logger;

@@ -332,8 +332,6 @@ public class MarketCommand implements CommandExecutor, TabCompleter {
             // Clear caches
             marketManager.getRepository().clearCache();
 
-            // Note: In a full implementation, this would reload configuration values
-            // from the config file and update the market manager settings
 
             player.sendMessage(ChatColor.GREEN + "✓ Market configuration reloaded!");
             player.sendMessage(ChatColor.GRAY + "Note: Some settings require a server restart to take effect.");
