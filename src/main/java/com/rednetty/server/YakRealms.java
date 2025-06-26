@@ -18,6 +18,7 @@ import com.rednetty.server.mechanics.combat.MagicStaff;
 import com.rednetty.server.mechanics.combat.death.RespawnManager;
 import com.rednetty.server.mechanics.combat.death.remnant.DeathRemnantManager;
 import com.rednetty.server.mechanics.combat.pvp.AlignmentMechanics;
+import com.rednetty.server.mechanics.crates.CrateManager;
 import com.rednetty.server.mechanics.drops.DropsHandler;
 import com.rednetty.server.mechanics.drops.DropsManager;
 import com.rednetty.server.mechanics.drops.buff.LootBuffManager;
@@ -65,7 +66,7 @@ import java.util.logging.Level;
  * Handles initialization of all core systems
  */
 public class YakRealms extends JavaPlugin {
-    //TODO: Professions, Merchant, Gamblers, Worldboss, Races, Crates
+    //TODO: Professions, Merchant, Gamblers, Worldboss, Races
     private static YakRealms instance;
     private MongoDBManager mongoDBManager;
     private YakPlayerManager playerManager;
@@ -119,6 +120,9 @@ public class YakRealms extends JavaPlugin {
     private TrailSystem trailSystem;
     private ParticleSystem particleSystem;
     private PathManager pathManager;
+
+    // Crate system
+    private CrateManager crateManager;
 
     // Game settings
     private static boolean patchLockdown = false;
@@ -203,6 +207,9 @@ public class YakRealms extends JavaPlugin {
 
         // Initialize drops system
         initializeDropsSystem();
+
+        // Initialize crate system
+        initializeCrateSystem();
 
         // Register event handlers
         registerEventHandlers();
@@ -336,6 +343,11 @@ public class YakRealms extends JavaPlugin {
 
         if (lootBuffManager != null) {
             lootBuffManager.shutdown();
+        }
+
+        // Shutdown crate system
+        if (crateManager != null) {
+            crateManager.shutdown();
         }
 
         // Shutdown world mechanics
@@ -733,6 +745,20 @@ public class YakRealms extends JavaPlugin {
     }
 
     /**
+     * Initializes the crate system
+     */
+    private void initializeCrateSystem() {
+        try {
+            // Initialize crate manager
+            crateManager = CrateManager.getInstance();
+            crateManager.initialize();
+            getLogger().info("Crate system initialized successfully!");
+        } catch (Exception e) {
+            getLogger().log(Level.SEVERE, "Error initializing crate system", e);
+        }
+    }
+
+    /**
      * Registers all event handlers
      */
     private void registerEventHandlers() {
@@ -772,6 +798,11 @@ public class YakRealms extends JavaPlugin {
         getCommand("droprate").setExecutor(new DropRateCommand(dropsManager));
         getCommand("lootbuff").setExecutor(new LootBuffCommand(lootBuffManager));
         getCommand("elitedrop").setExecutor(new EliteDropsCommand());
+
+ /*       // Register crate-related commands
+        CrateCommand crateCommand = new CrateCommand();
+        getCommand("crate").setExecutor(crateCommand);
+        getCommand("crate").setTabCompleter(crateCommand);*/
 
         // Register teleport-related commands
         getCommand("teleportbook").setExecutor(new TeleportBookCommand());
@@ -1086,6 +1117,15 @@ public class YakRealms extends JavaPlugin {
      */
     public LootBuffManager getLootBuffManager() {
         return lootBuffManager;
+    }
+
+    /**
+     * Gets the crate manager
+     *
+     * @return The crate manager
+     */
+    public CrateManager getCrateManager() {
+        return crateManager;
     }
 
     /**
