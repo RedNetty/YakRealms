@@ -1648,7 +1648,42 @@ public class YakPlayerManager implements Listener {
             return false;
         }, asyncExecutor);
     }
+    // Enhanced save methods
+    public CompletableFuture<Boolean> savePlayer(YakPlayer player) {
+        return CompletableFuture.supplyAsync(() -> {
+            ReentrantLock lock = getPlayerLock(player.getUUID());
+            try {
+                if (lock.tryLock(5, TimeUnit.SECONDS)) {
+                    try {
+                        // Update current state if online
+                        Player bukkit = player.getBukkitPlayer();
+                        if (bukkit != null && bukkit.isOnline()) {
+                            updatePlayerBeforeSave(player, bukkit);
+                        }
 
+                        // Save to database
+                        repository.save(player).get(10, TimeUnit.SECONDS);
+                        playerSaveTimes.put(player.getUUID(), System.currentTimeMillis());
+                        player.clearDirty();
+                        return true;
+
+                    } catch (Exception e) {
+                        logger.log(Level.SEVERE, "Error saving player: " + player.getUsername(), e);
+                        logDataError("Error saving player: " + player.getUsername(), e);
+                        return false;
+                    } finally {
+                        lock.unlock();
+                    }
+                } else {
+                    logger.warning("Could not acquire lock for saving player: " + player.getUsername());
+                    return false;
+                }
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+            return null;
+        }, asyncExecutor);
+    }
     public void saveAllPlayers() {
         forceSaveAll.set(true);
         performIntelligentSave();
