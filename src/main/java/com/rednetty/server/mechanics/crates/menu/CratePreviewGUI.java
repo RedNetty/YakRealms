@@ -2,7 +2,7 @@ package com.rednetty.server.mechanics.crates.menu;
 
 import com.rednetty.server.YakRealms;
 import com.rednetty.server.mechanics.crates.CrateManager;
-import com.rednetty.server.mechanics.crates.factory.CrateFactory;
+import com.rednetty.server.mechanics.crates.CrateFactory;
 import com.rednetty.server.mechanics.crates.types.CrateType;
 import com.rednetty.server.mechanics.drops.DropFactory;
 import com.rednetty.server.mechanics.drops.DropsManager;

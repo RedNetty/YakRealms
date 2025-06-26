@@ -1,4 +1,4 @@
-package com.rednetty.server.mechanics.crates.factory;
+package com.rednetty.server.mechanics.crates;
 
 import com.rednetty.server.YakRealms;
 import com.rednetty.server.mechanics.crates.types.CrateType;
@@ -120,13 +120,13 @@ public class CrateFactory {
             meta.setLore(lore);
 
             // Add subtle enchantment glow
-            meta.addEnchant(Enchantment.UNBREAKING, 1, true);
+            meta.addEnchant(Enchantment.DURABILITY, 1, true);
             meta.addItemFlags(ItemFlag.HIDE_ENCHANTS);
 
             // Store NBT data
             NBTAccessor nbt = new NBTAccessor(key);
             nbt.setString(NBT_CRATE_KEY, "true");
-            nbt.setLong(NBT_CREATION_TIME, System.currentTimeMillis());
+            nbt.setDouble(NBT_CREATION_TIME, System.currentTimeMillis());
 
             key.setItemMeta(meta);
             return nbt.update();
@@ -379,7 +379,7 @@ public class CrateFactory {
     private void enhanceCrateVisuals(ItemMeta meta, CrateType crateType, boolean isHalloween) {
         // Add enchantment glow for higher tier crates or Halloween variants
         if (crateType.getTier() >= 4 || isHalloween) {
-            meta.addEnchant(Enchantment.UNBREAKING, 1, true);
+            meta.addEnchant(Enchantment.DURABILITY, 1, true);
             meta.addItemFlags(ItemFlag.HIDE_ENCHANTS);
         }
 

@@ -1,3 +1,4 @@
+/*
 package com.rednetty.server.mechanics.stattrak;
 
 import com.rednetty.server.YakRealms;
@@ -17,10 +18,12 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Logger;
 
+*/
 /**
  * Enhanced StatTrak System Manager
  * Tracks statistics on weapons and tools with improved functionality
- */
+ *//*
+
 public class StatTrakManager {
     private static StatTrakManager instance;
     private final YakRealms plugin;
@@ -40,19 +43,23 @@ public class StatTrakManager {
     private static final long KILL_TRACKING_WINDOW = 5000; // 5 seconds
     private static final long MINING_TRACKING_WINDOW = 1000; // 1 second
 
-    /**
+    */
+/**
      * Private constructor for singleton pattern
-     */
+     *//*
+
     private StatTrakManager() {
         this.plugin = YakRealms.getInstance();
         this.logger = plugin.getLogger();
     }
 
-    /**
+    */
+/**
      * Gets the singleton instance
      *
      * @return The StatTrakManager instance
-     */
+     *//*
+
     public static synchronized StatTrakManager getInstance() {
         if (instance == null) {
             instance = new StatTrakManager();
@@ -60,9 +67,11 @@ public class StatTrakManager {
         return instance;
     }
 
-    /**
+    */
+/**
      * Initializes the StatTrak system
-     */
+     *//*
+
     public void initialize() {
         try {
             // Initialize components
@@ -84,31 +93,37 @@ public class StatTrakManager {
         }
     }
 
-    /**
+    */
+/**
      * Creates a weapon stat tracker item
      *
      * @return The weapon stat tracker item
-     */
+     *//*
+
     public ItemStack createWeaponStatTracker() {
         return factory.createWeaponStatTracker();
     }
 
-    /**
+    */
+/**
      * Creates a pickaxe stat tracker item
      *
      * @return The pickaxe stat tracker item
-     */
+     *//*
+
     public ItemStack createPickaxeStatTracker() {
         return factory.createPickaxeStatTracker();
     }
 
-    /**
+    */
+/**
      * Applies a stat tracker to an item
      *
      * @param item        The item to apply the tracker to
      * @param trackerType The type of tracker
      * @return The modified item with stat tracking
-     */
+     *//*
+
     public ItemStack applyStatTracker(ItemStack item, StatTrakItem trackerType) {
         if (item == null || !isValidItemForTracker(item, trackerType)) {
             return item;
@@ -130,13 +145,15 @@ public class StatTrakManager {
         }
     }
 
-    /**
+    */
+/**
      * Records a player kill for weapon stat tracking
      *
      * @param killer     The player who made the kill
      * @param weaponSlot The slot containing the weapon used
      * @param isPlayer   Whether the kill was a player or mob
-     */
+     *//*
+
     public void recordKill(Player killer, int weaponSlot, boolean isPlayer) {
         if (killer == null) return;
 
@@ -166,14 +183,16 @@ public class StatTrakManager {
         }
     }
 
-    /**
+    */
+/**
      * Records mining activity for pickaxe stat tracking
      *
      * @param player    The player who mined
      * @param itemSlot  The slot containing the pickaxe
      * @param material  The material that was mined
      * @param isGem     Whether the mined material is considered a gem
-     */
+     *//*
+
     public void recordMining(Player player, int itemSlot, Material material, boolean isGem) {
         if (player == null) return;
 
@@ -205,13 +224,15 @@ public class StatTrakManager {
         }
     }
 
-    /**
+    */
+/**
      * Records orb usage for weapon stat tracking
      *
      * @param player     The player using the orb
      * @param weaponSlot The slot containing the weapon
      * @param isLegendary Whether it's a legendary orb
-     */
+     *//*
+
     public void recordOrbUsage(Player player, int weaponSlot, boolean isLegendary) {
         if (player == null) return;
 
@@ -229,13 +250,15 @@ public class StatTrakManager {
         }
     }
 
-    /**
+    */
+/**
      * Checks if an item has stat tracking of a specific type
      *
      * @param item        The item to check
      * @param trackerType The tracker type to look for
      * @return true if the item has the specified stat tracking
-     */
+     *//*
+
     public boolean hasStatTracking(ItemStack item, StatTrakItem trackerType) {
         if (item == null || !item.hasItemMeta() || !item.getItemMeta().hasLore()) {
             return false;
@@ -250,13 +273,15 @@ public class StatTrakManager {
                 .anyMatch(line -> line.contains(trackerIndicator));
     }
 
-    /**
+    */
+/**
      * Gets the current stat value for a specific stat type from an item
      *
      * @param item     The item to check
      * @param statType The stat type to get
      * @return The current stat value, or 0 if not found
-     */
+     *//*
+
     public int getStatValue(ItemStack item, StatType statType) {
         if (item == null || !item.hasItemMeta() || !item.getItemMeta().hasLore()) {
             return 0;
@@ -277,13 +302,15 @@ public class StatTrakManager {
                 .orElse(0);
     }
 
-    /**
+    */
+/**
      * Checks if an item is valid for a specific tracker type
      *
      * @param item        The item to check
      * @param trackerType The tracker type
      * @return true if the item is valid for the tracker
-     */
+     *//*
+
     private boolean isValidItemForTracker(ItemStack item, StatTrakItem trackerType) {
         if (item == null || item.getType() == Material.AIR) {
             return false;
@@ -297,12 +324,14 @@ public class StatTrakManager {
         };
     }
 
-    /**
+    */
+/**
      * Checks if a material name represents a weapon
      *
      * @param materialName The material name
      * @return true if it's a weapon
-     */
+     *//*
+
     private boolean isWeapon(String materialName) {
         return materialName.contains("_SWORD") ||
                 materialName.contains("_AXE") ||
@@ -310,22 +339,26 @@ public class StatTrakManager {
                 materialName.contains("_SHOVEL");
     }
 
-    /**
+    */
+/**
      * Checks if a material name represents a pickaxe
      *
      * @param materialName The material name
      * @return true if it's a pickaxe
-     */
+     *//*
+
     private boolean isPickaxe(String materialName) {
         return materialName.contains("_PICKAXE");
     }
 
-    /**
+    */
+/**
      * Plays visual and audio effects when stats are updated
      *
      * @param player   The player to show effects to
      * @param statName The name of the stat that was updated
-     */
+     *//*
+
     private void playStatUpdateEffects(Player player, String statName) {
         // Subtle sound effect
         player.playSound(player.getLocation(), Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 0.5f, 1.5f);
@@ -337,9 +370,11 @@ public class StatTrakManager {
         }
     }
 
-    /**
+    */
+/**
      * Starts the cleanup task for expired tracking data
-     */
+     *//*
+
     private void startCleanupTask() {
         Bukkit.getScheduler().runTaskTimerAsynchronously(plugin, () -> {
             long currentTime = System.currentTimeMillis();
@@ -355,9 +390,11 @@ public class StatTrakManager {
         }, 1200L, 1200L); // Run every minute
     }
 
-    /**
+    */
+/**
      * Shuts down the StatTrak system
-     */
+     *//*
+
     public void shutdown() {
         recentKills.clear();
         recentMining.clear();
@@ -370,11 +407,13 @@ public class StatTrakManager {
     public StatTrakHandler getEventHandler() { return eventHandler; }
     public StatTrakFactory getFactory() { return factory; }
 
-    /**
+    */
+/**
      * Gets manager statistics for debugging
      *
      * @return Statistics map
-     */
+     *//*
+
     public Map<String, Object> getStatistics() {
         Map<String, Object> stats = new java.util.HashMap<>();
         stats.put("recentKills", recentKills.size());
@@ -385,3 +424,4 @@ public class StatTrakManager {
     }
 }
 
+*/
