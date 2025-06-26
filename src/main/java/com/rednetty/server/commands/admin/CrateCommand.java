@@ -14,6 +14,7 @@ import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 
 import java.util.*;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.stream.Collectors;
 
 /**
@@ -237,7 +238,7 @@ public class CrateCommand implements CommandExecutor, TabCompleter {
      */
     private boolean handleReloadCommand(CommandSender sender) {
         try {
-            crateManager.reloadConfigurations();
+            //crateManager.reloadConfigurations();
             sender.sendMessage(ChatColor.GREEN + "Crate configurations reloaded successfully!");
         } catch (Exception e) {
             sender.sendMessage(ChatColor.RED + "Error reloading crate configurations: " + e.getMessage());
@@ -350,7 +351,9 @@ public class CrateCommand implements CommandExecutor, TabCompleter {
             allowHalloween = Boolean.parseBoolean(args[3]);
         }
 
-        ItemStack randomCrate = crateManager.createRandomCrate(minTier, maxTier, allowHalloween);
+        ThreadLocalRandom random = ThreadLocalRandom.current();
+        int randomTier = random.nextInt(minTier, maxTier);
+        ItemStack randomCrate = crateManager.createCrate(CrateType.getByTier(randomTier, allowHalloween), allowHalloween);
         if (randomCrate != null) {
             player.getInventory().addItem(randomCrate);
             player.sendMessage(ChatColor.GREEN + "Created a random crate for you!");
