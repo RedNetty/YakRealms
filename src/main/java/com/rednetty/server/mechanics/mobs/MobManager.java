@@ -28,10 +28,11 @@ import org.bukkit.util.Vector;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.logging.Logger;
 
 /**
- * Enhanced central manager for all mob-related operations with improved performance and functionality
+ * Enhanced central manager for all mob-related operations with improved performance and 1.20.2 compatibility
  */
 public class MobManager implements Listener {
 
@@ -49,37 +50,76 @@ public class MobManager implements Listener {
     /** Position check interval in ticks (5 seconds) */
     private static final long POSITION_CHECK_INTERVAL = 100L;
 
-    /** Name visibility timeout (6.5 seconds) - FIXED */
+    /** Name visibility timeout (6.5 seconds) - FIXED for 1.20.2 */
     private static final long NAME_VISIBILITY_TIMEOUT = 6500L;
 
     /** Critical state task interval (8 ticks) */
     private static final long CRITICAL_STATE_INTERVAL = 8L;
 
-    /** Health bar visibility timeout - FIXED */
+    /** Health bar visibility timeout - FIXED for 1.20.2 */
     private static final long HEALTH_BAR_TIMEOUT = 6500L;
+
+    /** Critical sound interval (2 seconds between piston sounds) */
+    private static final long CRITICAL_SOUND_INTERVAL = 2000L;
+
+    /** Entity tracking validation interval */
+    private static final long ENTITY_VALIDATION_INTERVAL = 5000L;
 
     // ================ SINGLETON ================
 
     private static volatile MobManager instance;
 
-    // ================ CORE MAPS ================
+    // ================ CORE MAPS WITH THREAD SAFETY ================
 
     private final Map<UUID, CustomMob> activeMobs = new ConcurrentHashMap<>();
     private final Map<LivingEntity, Integer> critMobs = new ConcurrentHashMap<>();
     private final Map<UUID, Long> soundTimes = new ConcurrentHashMap<>();
-    private final Map<UUID, Long> nameTimes = new ConcurrentHashMap<>();
+    private final Map<UUID, NameTrackingData> nameTrackingData = new ConcurrentHashMap<>();
     private final Map<UUID, Map<UUID, Double>> damageContributions = new ConcurrentHashMap<>();
     private final Map<Entity, Player> mobTargets = new ConcurrentHashMap<>();
     private final Set<UUID> processedEntities = Collections.synchronizedSet(new HashSet<>());
     private final Map<UUID, Long> lastSafespotCheck = new ConcurrentHashMap<>();
     private final Map<UUID, String> entityToSpawner = new ConcurrentHashMap<>();
 
+    // ================ IMPROVED NAME TRACKING ================
+
+    /**
+     * Enhanced name tracking data structure
+     */
+    private static class NameTrackingData {
+        private final String originalName;
+        private final long lastDamageTime;
+        private final boolean isInCriticalState;
+        private volatile boolean nameVisible;
+        private volatile boolean isHealthBarActive;
+
+        public NameTrackingData(String originalName, long lastDamageTime, boolean isInCriticalState) {
+            this.originalName = originalName;
+            this.lastDamageTime = lastDamageTime;
+            this.isInCriticalState = isInCriticalState;
+            this.nameVisible = true;
+            this.isHealthBarActive = true;
+        }
+
+        public String getOriginalName() { return originalName; }
+        public long getLastDamageTime() { return lastDamageTime; }
+        public boolean isInCriticalState() { return isInCriticalState; }
+        public boolean isNameVisible() { return nameVisible; }
+        public void setNameVisible(boolean visible) { this.nameVisible = visible; }
+        public boolean isHealthBarActive() { return isHealthBarActive; }
+        public void setHealthBarActive(boolean active) { this.isHealthBarActive = active; }
+    }
+
+    // ================ THREAD SAFETY ================
+
+    private final ReentrantReadWriteLock mobLock = new ReentrantReadWriteLock();
+    private final ReentrantReadWriteLock nameLock = new ReentrantReadWriteLock();
+
     // ================ RESPAWN TRACKING ================
 
     private final Map<String, Long> respawnTimes = new ConcurrentHashMap<>();
     private final Map<String, Long> mobTypeLastDeath = new ConcurrentHashMap<>();
     private final Map<UUID, Location> mobSpawnerLocations = new ConcurrentHashMap<>();
-    private final Map<UUID, String> originalNames = new ConcurrentHashMap<>();
 
     // ================ COMPONENTS ================
 
@@ -100,12 +140,8 @@ public class MobManager implements Listener {
 
     private final TaskManager taskManager = new TaskManager();
 
-    // ================ CRITICAL SOUND TRACKING ================
-    private final Map<UUID, Long> lastCriticalSoundTime = new ConcurrentHashMap<>();
-    private static final long CRITICAL_SOUND_INTERVAL = 2000L; // 2 seconds between piston sounds
-
     /**
-     * Inner class to manage all recurring tasks
+     * Inner class to manage all recurring tasks with enhanced 1.20.2 compatibility
      */
     private class TaskManager {
         private BukkitTask criticalStateTask;
@@ -113,21 +149,24 @@ public class MobManager implements Listener {
         private BukkitTask activeMobsTask;
         private BukkitTask cleanupTask;
         private BukkitTask mobPositionTask;
+        private BukkitTask entityValidationTask;
 
         void startAllTasks() {
-            logger.info("§6[MobManager] §7Starting background tasks...");
+            logger.info("§6[MobManager] §7Starting background tasks with 1.20.2 optimizations...");
 
             criticalStateTask = createCriticalStateTask();
             nameVisibilityTask = createNameVisibilityTask();
             activeMobsTask = createActiveMobsTask();
             cleanupTask = createCleanupTask();
             mobPositionTask = createMobPositionTask();
+            entityValidationTask = createEntityValidationTask();
 
             logger.info("§a[MobManager] §7All background tasks started successfully");
         }
 
         void cancelAllTasks() {
-            Arrays.asList(criticalStateTask, nameVisibilityTask, activeMobsTask, cleanupTask, mobPositionTask)
+            Arrays.asList(criticalStateTask, nameVisibilityTask, activeMobsTask,
+                            cleanupTask, mobPositionTask, entityValidationTask)
                     .forEach(task -> { if (task != null) task.cancel(); });
         }
 
@@ -146,7 +185,7 @@ public class MobManager implements Listener {
                 public void run() {
                     updateNameVisibility();
                 }
-            }.runTaskTimer(plugin, 10L, 10L);
+            }.runTaskTimer(plugin, 10L, 10L); // More frequent updates for better responsiveness
         }
 
         private BukkitTask createActiveMobsTask() {
@@ -174,6 +213,15 @@ public class MobManager implements Listener {
                     checkMobPositions();
                 }
             }.runTaskTimer(plugin, 60L, POSITION_CHECK_INTERVAL);
+        }
+
+        private BukkitTask createEntityValidationTask() {
+            return new BukkitRunnable() {
+                @Override
+                public void run() {
+                    validateEntityTracking();
+                }
+            }.runTaskTimer(plugin, 100L, ENTITY_VALIDATION_INTERVAL / 50); // Convert to ticks
         }
     }
 
@@ -215,13 +263,12 @@ public class MobManager implements Listener {
             spawner.initialize();
             plugin.getServer().getPluginManager().registerEvents(this, plugin);
             taskManager.startAllTasks();
-            startMobPositionMonitoringTask();
 
-            logger.info(String.format("§a[MobManager] §7Initialized with §e%d §7active spawners",
+            logger.info(String.format("§a[MobManager] §7Initialized with §e%d §7active spawners for Spigot 1.20.2",
                     spawner.getAllSpawners().size()));
 
             if (debug) {
-                logger.info("§6[MobManager] §7Debug mode enabled");
+                logger.info("§6[MobManager] §7Debug mode enabled with enhanced entity tracking");
             }
         } catch (Exception e) {
             logger.severe("§c[MobManager] Failed to initialize: " + e.getMessage());
@@ -229,10 +276,359 @@ public class MobManager implements Listener {
         }
     }
 
-    private void startMobPositionMonitoringTask() {
-        if (debug) {
-            logger.info("§6[MobManager] §7Starting mob position monitoring...");
+    // ================ ENHANCED ENTITY VALIDATION FOR 1.20.2 ================
+
+    /**
+     * Validate entity tracking - ensures entities are properly tracked by the server
+     */
+    private void validateEntityTracking() {
+        try {
+            mobLock.readLock().lock();
+            Set<UUID> invalidEntities = new HashSet<>();
+
+            for (Map.Entry<UUID, CustomMob> entry : activeMobs.entrySet()) {
+                UUID entityId = entry.getKey();
+                CustomMob mob = entry.getValue();
+
+                if (!isEntityValidAndTracked(mob.getEntity())) {
+                    invalidEntities.add(entityId);
+                    if (debug) {
+                        logger.info("§6[MobManager] §7Found invalid entity: " + entityId);
+                    }
+                }
+            }
+
+            if (!invalidEntities.isEmpty()) {
+                mobLock.readLock().unlock();
+                mobLock.writeLock().lock();
+                try {
+                    for (UUID invalidId : invalidEntities) {
+                        CustomMob removed = activeMobs.remove(invalidId);
+                        if (removed != null && debug) {
+                            logger.info("§6[MobManager] §7Removed invalid mob: " + removed.getType().getId());
+                        }
+                    }
+                } finally {
+                    mobLock.readLock().lock();
+                    mobLock.writeLock().unlock();
+                }
+            }
+        } finally {
+            mobLock.readLock().unlock();
         }
+    }
+
+    /**
+     * Enhanced entity validation for 1.20.2
+     */
+    private boolean isEntityValidAndTracked(LivingEntity entity) {
+        if (entity == null || !entity.isValid() || entity.isDead()) {
+            return false;
+        }
+
+        // Check if entity is properly tracked by server
+        try {
+            // Verify entity can be found by server
+            Entity foundEntity = Bukkit.getEntity(entity.getUniqueId());
+            if (foundEntity == null || !foundEntity.equals(entity)) {
+                return false;
+            }
+
+            // Verify world is loaded and entity is in world
+            World world = entity.getWorld();
+            if (world == null || !entity.isInWorld()) {
+                return false;
+            }
+
+            // Check if chunk is loaded (important for 1.20.2)
+            Location loc = entity.getLocation();
+            if (!world.isChunkLoaded(loc.getBlockX() >> 4, loc.getBlockZ() >> 4)) {
+                return false;
+            }
+
+            return true;
+        } catch (Exception e) {
+            if (debug) {
+                logger.warning("§c[MobManager] Entity validation error: " + e.getMessage());
+            }
+            return false;
+        }
+    }
+
+    // ================ ENHANCED NAME VISIBILITY SYSTEM ================
+
+    /**
+     * FIXED: Enhanced name visibility management for 1.20.2
+     */
+    public void updateNameVisibility() {
+        try {
+            long currentTime = System.currentTimeMillis();
+            nameLock.writeLock().lock();
+
+            Set<UUID> toRemove = new HashSet<>();
+
+            for (Map.Entry<UUID, NameTrackingData> entry : nameTrackingData.entrySet()) {
+                UUID entityId = entry.getKey();
+                NameTrackingData trackingData = entry.getValue();
+
+                Entity entity = Bukkit.getEntity(entityId);
+                if (!(entity instanceof LivingEntity livingEntity) || !isEntityValidAndTracked(livingEntity)) {
+                    toRemove.add(entityId);
+                    continue;
+                }
+
+                // Skip players
+                if (livingEntity instanceof Player) {
+                    continue;
+                }
+
+                long timeSinceLastDamage = currentTime - trackingData.getLastDamageTime();
+                boolean shouldShowHealthBar = timeSinceLastDamage < HEALTH_BAR_TIMEOUT || trackingData.isInCriticalState();
+
+                if (shouldShowHealthBar && trackingData.isNameVisible()) {
+                    // Keep showing health bar
+                    if (!trackingData.isHealthBarActive()) {
+                        updateEntityHealthBar(livingEntity);
+                        trackingData.setHealthBarActive(true);
+                    }
+                } else if (!shouldShowHealthBar && trackingData.isNameVisible()) {
+                    // Time to restore original name
+                    restoreOriginalName(livingEntity, trackingData);
+                    trackingData.setNameVisible(false);
+                    trackingData.setHealthBarActive(false);
+                    toRemove.add(entityId); // Remove from tracking after restoration
+                }
+            }
+
+            // Clean up finished tracking entries
+            for (UUID entityId : toRemove) {
+                nameTrackingData.remove(entityId);
+            }
+
+            // Update CustomMob instances
+            mobLock.readLock().lock();
+            try {
+                for (CustomMob mob : activeMobs.values()) {
+                    if (mob.isValid()) {
+                        mob.updateNameVisibility();
+                    }
+                }
+            } finally {
+                mobLock.readLock().unlock();
+            }
+
+        } catch (Exception e) {
+            logger.warning("§c[MobManager] Name visibility update error: " + e.getMessage());
+            if (debug) e.printStackTrace();
+        } finally {
+            nameLock.writeLock().unlock();
+        }
+    }
+
+    /**
+     * FIXED: Enhanced health bar update for 1.20.2 compatibility
+     */
+    public void updateEntityHealthBar(LivingEntity entity) {
+        if (!isEntityValidAndTracked(entity) || entity instanceof Player) {
+            return;
+        }
+
+        try {
+            // Store original name if not already stored
+            storeOriginalNameIfNeeded(entity);
+
+            int tier = getMobTier(entity);
+            boolean inCritical = isInCriticalState(entity);
+
+            String healthBar = MobUtils.generateHealthBar(entity, entity.getHealth(), entity.getMaxHealth(), tier, inCritical);
+
+            // FIXED: Ensure name is actually set and visible
+            entity.setCustomName(healthBar);
+            entity.setCustomNameVisible(true);
+
+            // Update tracking data
+            UUID entityId = entity.getUniqueId();
+            nameLock.writeLock().lock();
+            try {
+                NameTrackingData existing = nameTrackingData.get(entityId);
+                if (existing != null) {
+                    existing.setHealthBarActive(true);
+                    existing.setNameVisible(true);
+                } else {
+                    String originalName = getStoredOriginalName(entity);
+                    nameTrackingData.put(entityId, new NameTrackingData(originalName, System.currentTimeMillis(), inCritical));
+                }
+            } finally {
+                nameLock.writeLock().unlock();
+            }
+
+            if (debug) {
+                logger.info("§6[MobManager] §7Updated health bar for " + entity.getType() + " (Critical: " + inCritical + ")");
+            }
+
+        } catch (Exception e) {
+            logger.warning("§c[MobManager] Health bar update failed: " + e.getMessage());
+            if (debug) e.printStackTrace();
+        }
+    }
+
+    /**
+     * Store original name if needed, with enhanced validation
+     */
+    private void storeOriginalNameIfNeeded(LivingEntity entity) {
+        if (!isEntityValidAndTracked(entity)) return;
+
+        UUID entityId = entity.getUniqueId();
+
+        // Check if we already have tracking data
+        nameLock.readLock().lock();
+        try {
+            if (nameTrackingData.containsKey(entityId)) {
+                return; // Already stored
+            }
+        } finally {
+            nameLock.readLock().unlock();
+        }
+
+        // Store the original name
+        String currentName = entity.getCustomName();
+        if (currentName != null && !isHealthBar(currentName)) {
+            nameLock.writeLock().lock();
+            try {
+                if (!nameTrackingData.containsKey(entityId)) {
+                    nameTrackingData.put(entityId, new NameTrackingData(currentName, System.currentTimeMillis(), false));
+                }
+            } finally {
+                nameLock.writeLock().unlock();
+            }
+        }
+    }
+
+    /**
+     * Enhanced original name restoration
+     */
+    private void restoreOriginalName(LivingEntity entity, NameTrackingData trackingData) {
+        if (!isEntityValidAndTracked(entity) || isInCriticalState(entity)) {
+            return;
+        }
+
+        try {
+            String nameToRestore = trackingData.getOriginalName();
+
+            if (nameToRestore == null || nameToRestore.isEmpty()) {
+                nameToRestore = generateDefaultName(entity);
+            }
+
+            if (nameToRestore != null && !nameToRestore.isEmpty()) {
+                // Apply proper tier colors when restoring name
+                String restoredName = applyTierColorsToName(entity, nameToRestore);
+
+                // FIXED: Ensure name is properly set
+                entity.setCustomName(restoredName);
+                entity.setCustomNameVisible(true);
+
+                if (debug) {
+                    logger.info("§6[MobManager] §7Restored name for " + entity.getType() + ": " + restoredName);
+                }
+            }
+        } catch (Exception e) {
+            logger.warning("§c[MobManager] Name restoration failed: " + e.getMessage());
+            if (debug) e.printStackTrace();
+        }
+    }
+
+    private String getStoredOriginalName(LivingEntity entity) {
+        UUID entityId = entity.getUniqueId();
+
+        nameLock.readLock().lock();
+        try {
+            NameTrackingData data = nameTrackingData.get(entityId);
+            if (data != null && data.getOriginalName() != null) {
+                return data.getOriginalName();
+            }
+        } finally {
+            nameLock.readLock().unlock();
+        }
+
+        // Fallback to metadata
+        if (entity.hasMetadata("name")) {
+            return entity.getMetadata("name").get(0).asString();
+        }
+
+        if (entity.hasMetadata("LightningMob")) {
+            return entity.getMetadata("LightningMob").get(0).asString();
+        }
+
+        return generateDefaultName(entity);
+    }
+
+    private boolean isHealthBar(String name) {
+        return name != null && (name.contains(ChatColor.GREEN + "|") || name.contains(ChatColor.GRAY + "|"));
+    }
+
+    private String applyTierColorsToName(LivingEntity entity, String baseName) {
+        if (baseName.contains("§")) {
+            return baseName; // Already has colors
+        }
+
+        String cleanName = ChatColor.stripColor(baseName);
+        int tier = getMobTier(entity);
+        boolean elite = isElite(entity);
+        ChatColor tierColor = getTierColorFromTier(tier);
+
+        return elite ?
+                tierColor.toString() + ChatColor.BOLD + cleanName :
+                tierColor + cleanName;
+    }
+
+    private ChatColor getTierColorFromTier(int tier) {
+        switch (tier) {
+            case 1: return ChatColor.WHITE;
+            case 2: return ChatColor.GREEN;
+            case 3: return ChatColor.AQUA;
+            case 4: return ChatColor.LIGHT_PURPLE;
+            case 5: return ChatColor.YELLOW;
+            case 6: return ChatColor.BLUE;
+            default: return ChatColor.WHITE;
+        }
+    }
+
+    private String generateDefaultName(LivingEntity entity) {
+        if (entity == null) return "";
+
+        String typeId = getEntityTypeId(entity);
+        int tier = getMobTier(entity);
+        boolean isElite = isElite(entity);
+
+        MobType mobType = MobType.getById(typeId);
+        if (mobType != null) {
+            String tierName = mobType.getTierSpecificName(tier);
+            ChatColor color = getTierColorFromTier(tier);
+            return isElite ? color.toString() + ChatColor.BOLD + tierName : color + tierName;
+        }
+
+        ChatColor color = getTierColorFromTier(tier);
+        String typeName = capitalizeEntityType(entity.getType());
+        return isElite ? color.toString() + ChatColor.BOLD + typeName : color + typeName;
+    }
+
+    private String getEntityTypeId(LivingEntity entity) {
+        if (entity.hasMetadata("type")) {
+            return entity.getMetadata("type").get(0).asString();
+        }
+        if (entity.hasMetadata("customName")) {
+            return entity.getMetadata("customName").get(0).asString();
+        }
+        return "unknown";
+    }
+
+    private String capitalizeEntityType(EntityType type) {
+        if (type == null) return "Unknown";
+
+        return Arrays.stream(type.name().toLowerCase().split("_"))
+                .map(word -> Character.toUpperCase(word.charAt(0)) + word.substring(1))
+                .reduce((a, b) -> a + " " + b)
+                .orElse("Unknown");
     }
 
     // ================ CRITICAL STATE PROCESSING ================
@@ -248,16 +644,21 @@ public class MobManager implements Listener {
     }
 
     private void processCustomMobCriticals() {
-        activeMobs.values().parallelStream()
-                .filter(Objects::nonNull)
-                .filter(CustomMob::isInCriticalState)
-                .forEach(this::processCustomMobCritical);
+        mobLock.readLock().lock();
+        try {
+            activeMobs.values().parallelStream()
+                    .filter(Objects::nonNull)
+                    .filter(CustomMob::isInCriticalState)
+                    .forEach(this::processCustomMobCritical);
+        } finally {
+            mobLock.readLock().unlock();
+        }
     }
 
     private void processCustomMobCritical(CustomMob mob) {
         try {
             LivingEntity entity = mob.getEntity();
-            if (entity == null || !entity.isValid()) return;
+            if (!isEntityValidAndTracked(entity)) return;
 
             boolean wasReadyState = mob.getCriticalStateDuration() < 0;
             boolean criticalEnded = mob.processCriticalStateTick();
@@ -316,10 +717,8 @@ public class MobManager implements Listener {
             LivingEntity entity = entry.getKey();
             int step = entry.getValue();
 
-            if (!isValidEntity(entity)) {
+            if (!isEntityValidAndTracked(entity)) {
                 iterator.remove();
-                // Clean up sound tracking for invalid entities
-                lastCriticalSoundTime.remove(entity.getUniqueId());
                 continue;
             }
 
@@ -330,10 +729,6 @@ public class MobManager implements Listener {
 
             processLegacyMobCritical(entity, step);
         }
-    }
-
-    private boolean isValidEntity(LivingEntity entity) {
-        return entity != null && entity.isValid() && !entity.isDead();
     }
 
     private void handleReadyToAttackState(LivingEntity entity) {
@@ -421,11 +816,11 @@ public class MobManager implements Listener {
         // FIXED: Play piston sound only every 2 seconds instead of every tick
         UUID entityId = entity.getUniqueId();
         long currentTime = System.currentTimeMillis();
-        Long lastSoundTime = lastCriticalSoundTime.get(entityId);
+        Long lastSoundTime = soundTimes.get(entityId);
 
         if (lastSoundTime == null || (currentTime - lastSoundTime) >= CRITICAL_SOUND_INTERVAL) {
             entity.getWorld().playSound(entity.getLocation(), Sound.BLOCK_PISTON_EXTEND, 1.0f, 2.0f);
-            lastCriticalSoundTime.put(entityId, currentTime);
+            soundTimes.put(entityId, currentTime);
         }
 
         entity.getWorld().spawnParticle(Particle.CRIT,
@@ -444,7 +839,21 @@ public class MobManager implements Listener {
                 entity.getLocation().clone().add(0.0, 1.0, 0.0),
                 15, 0.3, 0.3, 0.3, 0.1);
 
-        nameTimes.put(entity.getUniqueId(), System.currentTimeMillis());
+        // FIXED: Use enhanced name tracking
+        UUID entityId = entity.getUniqueId();
+        nameLock.writeLock().lock();
+        try {
+            NameTrackingData existing = nameTrackingData.get(entityId);
+            if (existing != null) {
+                nameTrackingData.put(entityId, new NameTrackingData(existing.getOriginalName(), System.currentTimeMillis(), true));
+            } else {
+                String originalName = getStoredOriginalName(entity);
+                nameTrackingData.put(entityId, new NameTrackingData(originalName, System.currentTimeMillis(), true));
+            }
+        } finally {
+            nameLock.writeLock().unlock();
+        }
+
         updateEntityHealthBar(entity);
     }
 
@@ -453,8 +862,7 @@ public class MobManager implements Listener {
     private void executeEliteCriticalAttack(LivingEntity entity) {
         try {
             critMobs.remove(entity);
-            // Clean up sound tracking
-            lastCriticalSoundTime.remove(entity.getUniqueId());
+            soundTimes.remove(entity.getUniqueId());
 
             if (MobUtils.isFrozenBoss(entity) &&
                     entity.getHealth() < (YakRealms.isT6Enabled() ? 100000 : 50000)) {
@@ -469,7 +877,6 @@ public class MobManager implements Listener {
 
             playEliteCriticalAttackEffects(entity);
             resetElitePotionEffects(entity);
-            restoreOriginalName(entity);
 
             if (debug) {
                 logger.info(String.format("§6[MobManager] §7Elite critical hit §e%d §7players for §c%d §7damage",
@@ -572,8 +979,7 @@ public class MobManager implements Listener {
     private int executeNormalMobCriticalAttack(LivingEntity entity, Player player, int baseDamage) {
         try {
             critMobs.remove(entity);
-            // Clean up sound tracking
-            lastCriticalSoundTime.remove(entity.getUniqueId());
+            soundTimes.remove(entity.getUniqueId());
 
             if (entity.hasMetadata("criticalState")) {
                 entity.removeMetadata("criticalState", plugin);
@@ -582,7 +988,6 @@ public class MobManager implements Listener {
             int critDamage = baseDamage * 3;
 
             playNormalCriticalEffects(entity, player);
-            restoreOriginalName(entity);
 
             if (debug) {
                 logger.info("§6[MobManager] §7Normal critical hit executed! Damage: §c" + critDamage);
@@ -609,211 +1014,6 @@ public class MobManager implements Listener {
         }
     }
 
-    // ================ NAME VISIBILITY & HEALTH BAR MANAGEMENT ================
-
-    private void updateNameVisibility() {
-        try {
-            long now = System.currentTimeMillis();
-
-            // Update CustomMob instances
-            activeMobs.values().parallelStream()
-                    .filter(CustomMob::isValid)
-                    .forEach(CustomMob::updateNameVisibility);
-
-            // Update legacy mobs
-            updateLegacyMobNames(now);
-
-        } catch (Exception e) {
-            logger.warning("§c[MobManager] Name visibility update error: " + e.getMessage());
-        }
-    }
-
-    private void updateLegacyMobNames(long currentTime) {
-        Iterator<Map.Entry<UUID, Long>> iterator = nameTimes.entrySet().iterator();
-
-        while (iterator.hasNext()) {
-            Map.Entry<UUID, Long> entry = iterator.next();
-            UUID entityId = entry.getKey();
-            long lastDamageTime = entry.getValue();
-
-            if (currentTime - lastDamageTime < HEALTH_BAR_TIMEOUT) {
-                continue;
-            }
-
-            Entity entity = Bukkit.getEntity(entityId);
-            if (entity instanceof LivingEntity livingEntity && !(entity instanceof Player)) {
-                if (!isInCriticalState(livingEntity)) {
-                    iterator.remove();
-                    restoreOriginalName(livingEntity);
-                }
-            } else {
-                iterator.remove();
-            }
-        }
-    }
-
-    private boolean isInCriticalState(LivingEntity entity) {
-        return critMobs.containsKey(entity) || entity.hasMetadata("criticalState");
-    }
-
-    public void updateEntityHealthBar(LivingEntity entity) {
-        if (!isValidEntity(entity) || entity.getType() == EntityType.ARMOR_STAND) {
-            return;
-        }
-
-        storeOriginalNameIfNeeded(entity);
-
-        int tier = getMobTier(entity);
-        boolean inCritical = isInCriticalState(entity);
-
-        String healthBar = MobUtils.generateHealthBar(entity, entity.getHealth(), entity.getMaxHealth(), tier, inCritical);
-
-        entity.setCustomName(healthBar);
-        entity.setCustomNameVisible(true);
-        nameTimes.put(entity.getUniqueId(), System.currentTimeMillis());
-    }
-
-    private void storeOriginalNameIfNeeded(LivingEntity entity) {
-        UUID id = entity.getUniqueId();
-        if (!originalNames.containsKey(id) && entity.getCustomName() != null) {
-            String currentName = entity.getCustomName();
-            if (!isHealthBar(currentName)) {
-                originalNames.put(id, currentName);
-            }
-        }
-    }
-
-    private boolean isHealthBar(String name) {
-        return name.contains(ChatColor.GREEN + "|") || name.contains(ChatColor.GRAY + "|");
-    }
-
-    private void restoreOriginalName(LivingEntity entity) {
-        if (!isValidEntity(entity) || entity.getType() == EntityType.ARMOR_STAND) {
-            return;
-        }
-
-        if (isInCriticalState(entity)) {
-            return;
-        }
-
-        String originalName = getOriginalName(entity);
-        if (originalName != null && !originalName.isEmpty()) {
-            // FIXED: Apply proper tier colors when restoring name
-            String restoredName = applyTierColorsToName(entity, originalName);
-            entity.setCustomName(restoredName);
-            entity.setCustomNameVisible(true);
-
-            if (debug) {
-                logger.info("§6[MobManager] §7Restored name for " + entity.getType() + ": " + restoredName);
-            }
-        }
-    }
-
-    private String applyTierColorsToName(LivingEntity entity, String baseName) {
-        // If name already has colors, return as-is
-        if (baseName.contains("§")) {
-            return baseName;
-        }
-
-        // Strip any existing colors and apply tier colors
-        String cleanName = ChatColor.stripColor(baseName);
-        int tier = getMobTier(entity);
-        boolean elite = isElite(entity);
-        ChatColor tierColor = getTierColorFromTier(tier);
-
-        return elite ?
-                tierColor.toString() + ChatColor.BOLD + cleanName :
-                tierColor + cleanName;
-    }
-
-    private ChatColor getTierColorFromTier(int tier) {
-        switch (tier) {
-            case 1: return ChatColor.WHITE;
-            case 2: return ChatColor.GREEN;
-            case 3: return ChatColor.AQUA;
-            case 4: return ChatColor.LIGHT_PURPLE;
-            case 5: return ChatColor.YELLOW;
-            case 6: return ChatColor.BLUE;
-            default: return ChatColor.WHITE;
-        }
-    }
-
-    private String getOriginalName(LivingEntity entity) {
-        UUID id = entity.getUniqueId();
-
-        // Check cached names
-        if (originalNames.containsKey(id)) {
-            return originalNames.get(id);
-        }
-
-        // Check metadata
-        if (entity.hasMetadata("name")) {
-            String name = entity.getMetadata("name").get(0).asString();
-            originalNames.put(id, name);
-            return name;
-        }
-
-        if (entity.hasMetadata("LightningMob")) {
-            String name = entity.getMetadata("LightningMob").get(0).asString();
-            originalNames.put(id, name);
-            return name;
-        }
-
-        // Generate default name
-        String defaultName = generateDefaultName(entity);
-        if (defaultName != null && !defaultName.isEmpty()) {
-            originalNames.put(id, defaultName);
-            return defaultName;
-        }
-
-        return null;
-    }
-
-    public String getDefaultNameForEntity(LivingEntity entity) {
-        return generateDefaultName(entity);
-    }
-
-    private String generateDefaultName(LivingEntity entity) {
-        if (entity == null) return "";
-
-        String typeId = getEntityTypeId(entity);
-        int tier = getMobTier(entity);
-        boolean isElite = isElite(entity);
-
-        MobType mobType = MobType.getById(typeId);
-        if (mobType != null) {
-            String tierName = mobType.getTierSpecificName(tier);
-            ChatColor color = getTierColorFromTier(tier);
-
-            return isElite ? color.toString() + ChatColor.BOLD + tierName : color + tierName;
-        }
-
-        // Fallback
-        ChatColor color = getTierColorFromTier(tier);
-        String typeName = capitalizeEntityType(entity.getType());
-
-        return isElite ? color.toString() + ChatColor.BOLD + typeName : color + typeName;
-    }
-
-    private String getEntityTypeId(LivingEntity entity) {
-        if (entity.hasMetadata("type")) {
-            return entity.getMetadata("type").get(0).asString();
-        }
-        if (entity.hasMetadata("customName")) {
-            return entity.getMetadata("customName").get(0).asString();
-        }
-        return "unknown";
-    }
-
-    private String capitalizeEntityType(EntityType type) {
-        if (type == null) return "Unknown";
-
-        return Arrays.stream(type.name().toLowerCase().split("_"))
-                .map(word -> Character.toUpperCase(word.charAt(0)) + word.substring(1))
-                .reduce((a, b) -> a + " " + b)
-                .orElse("Unknown");
-    }
-
     // ================ ACTIVE MOBS MANAGEMENT ================
 
     private void updateActiveMobs() {
@@ -829,10 +1029,15 @@ public class MobManager implements Listener {
     }
 
     private void removeInvalidMobs() {
-        activeMobs.entrySet().removeIf(entry -> {
-            CustomMob mob = entry.getValue();
-            return mob == null || !mob.isValid();
-        });
+        mobLock.writeLock().lock();
+        try {
+            activeMobs.entrySet().removeIf(entry -> {
+                CustomMob mob = entry.getValue();
+                return mob == null || !mob.isValid();
+            });
+        } finally {
+            mobLock.writeLock().unlock();
+        }
     }
 
     // ================ POSITION MONITORING ================
@@ -841,7 +1046,15 @@ public class MobManager implements Listener {
         try {
             int teleported = 0;
 
-            for (CustomMob mob : new ArrayList<>(activeMobs.values())) {
+            mobLock.readLock().lock();
+            List<CustomMob> mobsToCheck;
+            try {
+                mobsToCheck = new ArrayList<>(activeMobs.values());
+            } finally {
+                mobLock.readLock().unlock();
+            }
+
+            for (CustomMob mob : mobsToCheck) {
                 if (mob.isValid()) {
                     if (handleMobPositionCheck(mob)) {
                         teleported++;
@@ -860,7 +1073,7 @@ public class MobManager implements Listener {
 
     private boolean handleMobPositionCheck(CustomMob mob) {
         LivingEntity entity = mob.getEntity();
-        if (entity == null || !entity.isValid()) return false;
+        if (!isEntityValidAndTracked(entity)) return false;
 
         Location spawnerLoc = getSpawnerLocation(entity);
         if (spawnerLoc == null) return false;
@@ -996,7 +1209,7 @@ public class MobManager implements Listener {
             mob.setAware(false);
 
             Bukkit.getScheduler().runTaskLater(plugin, () -> {
-                if (entity.isValid()) {
+                if (isEntityValidAndTracked(entity)) {
                     mob.setAware(wasAware);
                 }
             }, 10L);
@@ -1082,7 +1295,21 @@ public class MobManager implements Listener {
             applyCriticalToLegacyMob(entity);
         }
 
-        nameTimes.put(entity.getUniqueId(), System.currentTimeMillis());
+        // FIXED: Use enhanced name tracking
+        UUID entityId = entity.getUniqueId();
+        nameLock.writeLock().lock();
+        try {
+            NameTrackingData existing = nameTrackingData.get(entityId);
+            if (existing != null) {
+                nameTrackingData.put(entityId, new NameTrackingData(existing.getOriginalName(), System.currentTimeMillis(), true));
+            } else {
+                String originalName = getStoredOriginalName(entity);
+                nameTrackingData.put(entityId, new NameTrackingData(originalName, System.currentTimeMillis(), true));
+            }
+        } finally {
+            nameLock.writeLock().unlock();
+        }
+
         addCriticalVisualEffects(entity);
     }
 
@@ -1241,7 +1468,13 @@ public class MobManager implements Listener {
         if (mob == null || mob.getEntity() == null) return;
 
         LivingEntity entity = mob.getEntity();
-        activeMobs.put(entity.getUniqueId(), mob);
+
+        mobLock.writeLock().lock();
+        try {
+            activeMobs.put(entity.getUniqueId(), mob);
+        } finally {
+            mobLock.writeLock().unlock();
+        }
 
         storeSpawnerLocation(entity);
 
@@ -1249,8 +1482,17 @@ public class MobManager implements Listener {
             activeWorldBoss = (WorldBoss) mob;
         }
 
+        // FIXED: Enhanced original name storage
         if (entity.getCustomName() != null) {
-            originalNames.put(entity.getUniqueId(), entity.getCustomName());
+            UUID entityId = entity.getUniqueId();
+            nameLock.writeLock().lock();
+            try {
+                if (!nameTrackingData.containsKey(entityId)) {
+                    nameTrackingData.put(entityId, new NameTrackingData(entity.getCustomName(), 0, false));
+                }
+            } finally {
+                nameLock.writeLock().unlock();
+            }
         }
     }
 
@@ -1280,11 +1522,23 @@ public class MobManager implements Listener {
         LivingEntity entity = mob.getEntity();
         UUID entityId = entity.getUniqueId();
 
-        activeMobs.remove(entityId);
-        originalNames.remove(entityId);
-        nameTimes.remove(entityId);
+        mobLock.writeLock().lock();
+        try {
+            activeMobs.remove(entityId);
+        } finally {
+            mobLock.writeLock().unlock();
+        }
+
+        // Clean up tracking data
+        nameLock.writeLock().lock();
+        try {
+            nameTrackingData.remove(entityId);
+        } finally {
+            nameLock.writeLock().unlock();
+        }
+
         mobSpawnerLocations.remove(entityId);
-        lastCriticalSoundTime.remove(entityId); // Clean up sound tracking
+        soundTimes.remove(entityId);
 
         if (mob instanceof WorldBoss) {
             unregisterWorldBoss();
@@ -1303,17 +1557,32 @@ public class MobManager implements Listener {
         }
 
         activeWorldBoss = boss;
-        activeMobs.put(boss.getEntity().getUniqueId(), boss);
 
+        mobLock.writeLock().lock();
+        try {
+            activeMobs.put(boss.getEntity().getUniqueId(), boss);
+        } finally {
+            mobLock.writeLock().unlock();
+        }
+
+        // FIXED: Enhanced original name storage
         if (boss.getEntity().getCustomName() != null) {
-            originalNames.put(boss.getEntity().getUniqueId(), boss.getEntity().getCustomName());
+            UUID entityId = boss.getEntity().getUniqueId();
+            nameLock.writeLock().lock();
+            try {
+                if (!nameTrackingData.containsKey(entityId)) {
+                    nameTrackingData.put(entityId, new NameTrackingData(boss.getEntity().getCustomName(), 0, false));
+                }
+            } finally {
+                nameLock.writeLock().unlock();
+            }
         }
     }
 
     // ================ DAMAGE PROCESSING ================
 
     public double damageEntity(LivingEntity entity, double damage) {
-        if (!isValidEntity(entity)) return 0;
+        if (!isEntityValidAndTracked(entity)) return 0;
 
         CustomMob mob = getCustomMob(entity);
         if (mob != null) {
@@ -1380,11 +1649,11 @@ public class MobManager implements Listener {
             cleanupDamageTracking();
             cleanupEntityMappings();
             cleanupMobLocations();
-            cleanupCriticalSoundTracking(); // Clean up sound tracking
+            cleanupNameTracking();
             processedEntities.clear();
 
             if (debug) {
-                logger.info("§6[MobManager] §7Performed maintenance cleanup");
+                logger.info("§6[MobManager] §7Performed maintenance cleanup with enhanced 1.20.2 compatibility");
             }
         } catch (Exception e) {
             logger.severe("§c[MobManager] Cleanup error: " + e.getMessage());
@@ -1416,12 +1685,17 @@ public class MobManager implements Listener {
         invalidIds.forEach(mobSpawnerLocations::remove);
     }
 
-    private void cleanupCriticalSoundTracking() {
-        Set<UUID> invalidIds = lastCriticalSoundTime.keySet().stream()
-                .filter(id -> !isEntityValid(id))
-                .collect(HashSet::new, Set::add, Set::addAll);
+    private void cleanupNameTracking() {
+        nameLock.writeLock().lock();
+        try {
+            Set<UUID> invalidIds = nameTrackingData.keySet().stream()
+                    .filter(id -> !isEntityValid(id))
+                    .collect(HashSet::new, Set::add, Set::addAll);
 
-        invalidIds.forEach(lastCriticalSoundTime::remove);
+            invalidIds.forEach(nameTrackingData::remove);
+        } finally {
+            nameLock.writeLock().unlock();
+        }
     }
 
     private boolean isEntityValid(UUID entityId) {
@@ -1537,11 +1811,22 @@ public class MobManager implements Listener {
     }
 
     public CustomMob getCustomMob(LivingEntity entity) {
-        return entity != null ? activeMobs.get(entity.getUniqueId()) : null;
+        if (entity == null) return null;
+
+        mobLock.readLock().lock();
+        try {
+            return activeMobs.get(entity.getUniqueId());
+        } finally {
+            mobLock.readLock().unlock();
+        }
     }
 
     public WorldBoss getActiveWorldBoss() {
         return activeWorldBoss;
+    }
+
+    private boolean isInCriticalState(LivingEntity entity) {
+        return critMobs.containsKey(entity) || entity.hasMetadata("criticalState");
     }
 
     // ================ SPAWNER DELEGATION ================
@@ -1835,7 +2120,20 @@ public class MobManager implements Listener {
             mob.updateHealthBar();
         } else {
             damageEntity(entity, damage);
-            nameTimes.put(entity.getUniqueId(), System.currentTimeMillis());
+            // FIXED: Use enhanced name tracking
+            UUID entityId = entity.getUniqueId();
+            nameLock.writeLock().lock();
+            try {
+                NameTrackingData existing = nameTrackingData.get(entityId);
+                if (existing != null) {
+                    nameTrackingData.put(entityId, new NameTrackingData(existing.getOriginalName(), System.currentTimeMillis(), existing.isInCriticalState()));
+                } else {
+                    String originalName = getStoredOriginalName(entity);
+                    nameTrackingData.put(entityId, new NameTrackingData(originalName, System.currentTimeMillis(), false));
+                }
+            } finally {
+                nameLock.writeLock().unlock();
+            }
             updateEntityHealthBar(entity);
         }
     }
@@ -1944,13 +2242,12 @@ public class MobManager implements Listener {
         int damage = baseDamage * 4;
 
         critMobs.remove(mob);
-        lastCriticalSoundTime.remove(mob.getUniqueId()); // Clean up sound tracking
+        soundTimes.remove(mob.getUniqueId());
         if (mob.hasMetadata("criticalState")) {
             mob.removeMetadata("criticalState", plugin);
         }
 
         player.playSound(player.getLocation(), Sound.ENTITY_GENERIC_EXPLODE, 1.0f, 0.3f);
-        restoreOriginalName(mob);
 
         return damage;
     }
@@ -2030,9 +2327,16 @@ public class MobManager implements Listener {
                 handleMobDeath(entity);
             }
 
-            // Cleanup
+            // Cleanup tracking data
             mobSpawnerLocations.remove(entityId);
-            lastCriticalSoundTime.remove(entityId); // Clean up sound tracking
+            soundTimes.remove(entityId);
+
+            nameLock.writeLock().lock();
+            try {
+                nameTrackingData.remove(entityId);
+            } finally {
+                nameLock.writeLock().unlock();
+            }
 
         } catch (Exception e) {
             logger.warning("§c[MobManager] Entity death error: " + e.getMessage());
@@ -2145,14 +2449,19 @@ public class MobManager implements Listener {
             spawner.shutdown();
 
             // Clean up all active mobs
-            activeMobs.values().forEach(CustomMob::remove);
+            mobLock.readLock().lock();
+            try {
+                activeMobs.values().forEach(CustomMob::remove);
+            } finally {
+                mobLock.readLock().unlock();
+            }
 
             // Clear all collections
             clearAllCollections();
 
             activeWorldBoss = null;
 
-            logger.info("§a[MobManager] §7Shutdown completed successfully");
+            logger.info("§a[MobManager] §7Shutdown completed successfully with enhanced 1.20.2 cleanup");
         } catch (Exception e) {
             logger.severe("§c[MobManager] Shutdown error: " + e.getMessage());
             if (debug) e.printStackTrace();
@@ -2160,11 +2469,23 @@ public class MobManager implements Listener {
     }
 
     private void clearAllCollections() {
-        activeMobs.clear();
+        mobLock.writeLock().lock();
+        try {
+            activeMobs.clear();
+        } finally {
+            mobLock.writeLock().unlock();
+        }
+
         critMobs.clear();
         soundTimes.clear();
-        nameTimes.clear();
-        originalNames.clear();
+
+        nameLock.writeLock().lock();
+        try {
+            nameTrackingData.clear();
+        } finally {
+            nameLock.writeLock().unlock();
+        }
+
         damageContributions.clear();
         mobTargets.clear();
         processedEntities.clear();
@@ -2173,6 +2494,5 @@ public class MobManager implements Listener {
         mobTypeLastDeath.clear();
         mobSpawnerLocations.clear();
         entityToSpawner.clear();
-        lastCriticalSoundTime.clear(); // Clean up sound tracking
     }
 }
