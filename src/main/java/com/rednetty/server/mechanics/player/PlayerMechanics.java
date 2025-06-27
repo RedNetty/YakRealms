@@ -12,7 +12,6 @@ import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
-import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.scheduler.BukkitTask;
@@ -25,10 +24,8 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
- * FIXED: Enhanced main coordinator for all player-related mechanics with improved
- * initialization, error handling, and performance monitoring.
- *
- * Removed duplicate PlayerJoinEvent handler to prevent conflicts!
+ * FIXED: Main coordinator for all player-related mechanics
+ * Removed duplicate event handlers - those are now handled by PlayerListenerManager
  */
 public class PlayerMechanics implements Listener {
     private static PlayerMechanics instance;
@@ -84,7 +81,7 @@ public class PlayerMechanics implements Listener {
     }
 
     /**
-     * Enhanced initialization with proper dependency ordering and error handling
+     * FIXED: Initialize without duplicate event handling
      */
     public void onEnable() {
         if (!initialized.compareAndSet(false, true)) {
@@ -98,8 +95,8 @@ public class PlayerMechanics implements Listener {
             // Initialize core subsystems in proper order
             initializeCoreSubsystems();
 
-            // Register event listeners
-            registerEventListeners();
+            // Register ONLY this class's events (minimal coordination events)
+            Bukkit.getServer().getPluginManager().registerEvents(this, YakRealms.getInstance());
 
             // Start monitoring tasks
             startMonitoringTasks();
@@ -112,8 +109,6 @@ public class PlayerMechanics implements Listener {
 
         } catch (Exception e) {
             logger.log(Level.SEVERE, "Failed to initialize PlayerMechanics", e);
-
-            // Attempt cleanup on failure
             emergencyCleanup();
             throw new RuntimeException("PlayerMechanics initialization failed", e);
         }
@@ -124,8 +119,6 @@ public class PlayerMechanics implements Listener {
      */
     private void initializeCoreSubsystems() {
         logger.info("Initializing core player subsystems...");
-
-        // Initialize in dependency order
 
         // 1. Player Manager (core dependency)
         logger.info("Initializing YakPlayerManager...");
@@ -158,15 +151,6 @@ public class PlayerMechanics implements Listener {
         this.listenerManager.onEnable();
 
         logger.info("All core subsystems initialized successfully");
-    }
-
-    /**
-     * Register event listeners for PlayerMechanics coordination
-     * FIXED: Only register events that this class should handle
-     */
-    private void registerEventListeners() {
-        Bukkit.getServer().getPluginManager().registerEvents(this, YakRealms.getInstance());
-        logger.info("PlayerMechanics event listeners registered");
     }
 
     /**
@@ -245,36 +229,11 @@ public class PlayerMechanics implements Listener {
     }
 
     /**
-     * REMOVED: PlayerJoinEvent handler - this is now handled by JoinLeaveListener
-     * to prevent duplicate processing and MOTD spam
-     */
-
-    /**
-     * FIXED: Only handle quit events for coordination purposes
-     * The actual data saving is handled by YakPlayerManager
+     * MINIMAL event handling - only track metrics
      */
     @EventHandler(priority = EventPriority.MONITOR)
     public void onPlayerQuit(PlayerQuitEvent event) {
         totalPlayerQuits.incrementAndGet();
-
-        // Coordinate any cross-subsystem player quit logic here
-        Player player = event.getPlayer();
-        cleanupPlayerSystems(player);
-    }
-
-    /**
-     * Clean up player-specific systems
-     */
-    private void cleanupPlayerSystems(Player player) {
-        try {
-            // Perform any cross-system cleanup here
-            UUID uuid = player.getUniqueId();
-
-            // Example: Clean up any temporary data or caches
-            logger.fine("Cleaned up cross-systems for player: " + player.getName());
-        } catch (Exception e) {
-            logger.log(Level.WARNING, "Error cleaning up player systems for " + player.getName(), e);
-        }
     }
 
     /**
@@ -330,8 +289,6 @@ public class PlayerMechanics implements Listener {
      */
     private void shutdownSubsystems() {
         logger.info("Shutting down subsystems...");
-
-        // Shutdown in reverse dependency order
 
         // 1. Listener Manager (stop processing events first)
         if (listenerManager != null) {
@@ -516,8 +473,6 @@ public class PlayerMechanics implements Listener {
 
             if (!allHealthy) {
                 logger.warning(healthReport.toString());
-
-                // Notify administrators if issues detected
                 notifyAdministrators("PlayerMechanics health check detected issues!");
             } else {
                 logger.info("Health check passed - all systems operational");
@@ -551,53 +506,32 @@ public class PlayerMechanics implements Listener {
         });
     }
 
-    // Public API methods for other systems
+    // Public API methods
 
-    /**
-     * Check if PlayerMechanics is properly initialized
-     */
     public boolean isInitialized() {
         return initialized.get() && !shutdownInProgress.get();
     }
 
-    /**
-     * Get the player manager instance
-     */
     public YakPlayerManager getPlayerManager() {
         return playerManager;
     }
 
-    /**
-     * Get the energy system instance
-     */
     public Energy getEnergySystem() {
         return energySystem;
     }
 
-    /**
-     * Get the toggle system instance
-     */
     public Toggles getToggleSystem() {
         return toggleSystem;
     }
 
-    /**
-     * Get the buddy system instance
-     */
     public Buddies getBuddySystem() {
         return buddySystem;
     }
 
-    /**
-     * Get the dash mechanics instance
-     */
     public DashMechanics getDashMechanics() {
         return dashMechanics;
     }
 
-    /**
-     * Get the listener manager instance
-     */
     public PlayerListenerManager getListenerManager() {
         return listenerManager;
     }
