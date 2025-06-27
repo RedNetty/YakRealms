@@ -21,117 +21,168 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.logging.Level;
 import java.util.logging.Logger;
-import java.util.stream.Collectors;
 
 /**
- * FIXED Repository for YakPlayer entities using MongoDB
+ * Enhanced YakPlayer repository with improved error handling, caching, and data integrity
  */
 public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
     private static final String COLLECTION_NAME = "players";
     private static final String BACKUP_COLLECTION_NAME = "players_backup";
     private static final int MAX_RETRY_ATTEMPTS = 3;
-    private static final long RETRY_DELAY_MS = 1000; // 1 second
+    private static final long RETRY_DELAY_MS = 1000;
+    private static final long CACHE_EXPIRY_TIME = TimeUnit.MINUTES.toMillis(30);
+    private static final long CACHE_CLEANUP_INTERVAL = TimeUnit.MINUTES.toMillis(5);
 
-    private MongoCollection<Document> collection;
-    private MongoCollection<Document> backupCollection;
+    // Core dependencies
     private final Logger logger;
     private final Plugin plugin;
     private final File backupDir;
-    private final AtomicBoolean performingBatchOperation = new AtomicBoolean(false);
+    private final DocumentConverter documentConverter;
+
+    // Database collections
+    private MongoCollection<Document> collection;
+    private MongoCollection<Document> backupCollection;
+
+    // Repository state
     private final AtomicBoolean repositoryInitialized = new AtomicBoolean(false);
+    private final AtomicBoolean performingBatchOperation = new AtomicBoolean(false);
+    private final ReentrantReadWriteLock repositoryLock = new ReentrantReadWriteLock();
 
-    // Cache players by UUID with expiration time
+    // Enhanced caching system
     private final Map<UUID, CachedPlayer> playerCache = new ConcurrentHashMap<>();
-    // Cache player UUID by name
     private final Map<String, UUID> nameToUuidCache = new ConcurrentHashMap<>();
+    private final Set<UUID> pendingSaves = ConcurrentHashMap.newKeySet();
 
-    // Class to hold cached player with expiration time
+    // Background tasks
+    private int cacheCleanupTaskId = -1;
+    private int autoSaveTaskId = -1;
+
+    /**
+     * Enhanced cached player with better state tracking
+     */
     private static class CachedPlayer {
         private final YakPlayer player;
-        private long lastAccessed;
-        private long lastModified;
-        private boolean dirty;
+        private volatile long lastAccessed;
+        private volatile long lastModified;
+        private volatile long cacheTime;
+        private volatile boolean dirty;
+        private final ReentrantReadWriteLock playerLock = new ReentrantReadWriteLock();
 
         public CachedPlayer(YakPlayer player) {
             this.player = player;
-            this.lastAccessed = System.currentTimeMillis();
-            this.lastModified = this.lastAccessed;
+            long now = System.currentTimeMillis();
+            this.lastAccessed = now;
+            this.lastModified = now;
+            this.cacheTime = now;
             this.dirty = false;
         }
 
         public YakPlayer getPlayer() {
-            this.lastAccessed = System.currentTimeMillis();
-            return player;
-        }
-
-        public long getLastAccessed() {
-            return lastAccessed;
+            playerLock.readLock().lock();
+            try {
+                this.lastAccessed = System.currentTimeMillis();
+                return player;
+            } finally {
+                playerLock.readLock().unlock();
+            }
         }
 
         public void markDirty() {
-            this.dirty = true;
-            this.lastModified = System.currentTimeMillis();
-        }
-
-        public boolean isDirty() {
-            return dirty;
+            playerLock.writeLock().lock();
+            try {
+                this.dirty = true;
+                this.lastModified = System.currentTimeMillis();
+            } finally {
+                playerLock.writeLock().unlock();
+            }
         }
 
         public void clearDirty() {
-            this.dirty = false;
+            playerLock.writeLock().lock();
+            try {
+                this.dirty = false;
+            } finally {
+                playerLock.writeLock().unlock();
+            }
+        }
+
+        public boolean isDirty() {
+            playerLock.readLock().lock();
+            try {
+                return dirty;
+            } finally {
+                playerLock.readLock().unlock();
+            }
+        }
+
+        public boolean isExpired() {
+            playerLock.readLock().lock();
+            try {
+                return System.currentTimeMillis() - lastAccessed > CACHE_EXPIRY_TIME;
+            } finally {
+                playerLock.readLock().unlock();
+            }
         }
 
         public long getLastModified() {
-            return lastModified;
+            playerLock.readLock().lock();
+            try {
+                return lastModified;
+            } finally {
+                playerLock.readLock().unlock();
+            }
+        }
+
+        public long getLastAccessed() {
+            playerLock.readLock().lock();
+            try {
+                return lastAccessed;
+            } finally {
+                playerLock.readLock().unlock();
+            }
         }
     }
 
-    /**
-     * Constructor
-     */
     public YakPlayerRepository() {
         this.plugin = YakRealms.getInstance();
         this.logger = plugin.getLogger();
+        this.documentConverter = new DocumentConverter();
 
         // Create backup directory
         this.backupDir = new File(plugin.getDataFolder(), "backups/players");
         if (!backupDir.exists()) {
-            backupDir.mkdirs();
+            if (!backupDir.mkdirs()) {
+                logger.warning("Failed to create backup directory: " + backupDir.getPath());
+            }
         }
 
-        // Initialize repository connection
+        // Initialize repository
         initializeRepository();
-
-        // Start the cache cleaning task
-        startCacheCleaningTask();
+        startBackgroundTasks();
     }
 
     /**
-     * FIXED: Initialize repository connection with proper error handling
+     * Enhanced repository initialization with better error handling
      */
     private void initializeRepository() {
         try {
-            // Wait a bit for MongoDB to be initialized
             Bukkit.getScheduler().runTaskLater(plugin, () -> {
+                repositoryLock.writeLock().lock();
                 try {
                     MongoDBManager mongoDBManager = MongoDBManager.getInstance();
                     if (mongoDBManager == null) {
-                        logger.severe("MongoDBManager instance is null! Cannot initialize repository.");
+                        logger.severe("MongoDBManager instance is null during repository initialization");
                         return;
                     }
 
-                    // Ensure MongoDB is connected
-                    if (!mongoDBManager.isConnected()) {
-                        logger.warning("MongoDB is not connected. Attempting to connect...");
-                        if (!mongoDBManager.connect()) {
-                            logger.severe("Failed to connect to MongoDB!");
-                            return;
-                        }
+                    if (!mongoDBManager.isConnected() && !mongoDBManager.connect()) {
+                        logger.severe("Failed to connect to MongoDB during repository initialization");
+                        return;
                     }
 
-                    // Get collections
                     this.collection = mongoDBManager.getCollection(COLLECTION_NAME);
                     this.backupCollection = mongoDBManager.getCollection(BACKUP_COLLECTION_NAME);
 
@@ -140,11 +191,9 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
                         return;
                     }
 
-                    // Test the connection
+                    // Test connection and create indexes
                     testConnection();
-
-                    // Create indexes for better performance
-                    createIndexes();
+                    createOptimizedIndexes();
 
                     repositoryInitialized.set(true);
                     logger.info("YakPlayerRepository initialized successfully");
@@ -152,23 +201,56 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
                 } catch (Exception e) {
                     logger.log(Level.SEVERE, "Failed to initialize YakPlayerRepository", e);
                     repositoryInitialized.set(false);
+                } finally {
+                    repositoryLock.writeLock().unlock();
                 }
-            }, 20L); // 1 second delay
+            }, 20L);
 
         } catch (Exception e) {
             logger.log(Level.SEVERE, "Error scheduling repository initialization", e);
-            repositoryInitialized.set(false);
         }
     }
 
     /**
-     * FIXED: Ensure collection is available before operations
+     * Start background maintenance tasks
+     */
+    private void startBackgroundTasks() {
+        // Cache cleanup task
+        cacheCleanupTaskId = Bukkit.getScheduler().runTaskTimerAsynchronously(plugin,
+                this::performCacheCleanup,
+                20L * 60 * 5, // 5 minutes initial delay
+                20L * 60 * 5  // 5 minutes interval
+        ).getTaskId();
+
+        // Auto-save dirty players task
+        autoSaveTaskId = Bukkit.getScheduler().runTaskTimerAsynchronously(plugin,
+                this::performAutoSave,
+                20L * 60,     // 1 minute initial delay
+                20L * 60 * 3  // 3 minutes interval
+        ).getTaskId();
+
+        logger.info("Repository background tasks started");
+    }
+
+    /**
+     * Enhanced connection validation
      */
     private boolean ensureCollection() {
-        if (!repositoryInitialized.get() || collection == null) {
-            logger.warning("Repository not properly initialized, attempting to reinitialize...");
+        repositoryLock.readLock().lock();
+        try {
+            if (repositoryInitialized.get() && collection != null) {
+                return true;
+            }
+        } finally {
+            repositoryLock.readLock().unlock();
+        }
 
-            try {
+        // Try to reinitialize
+        repositoryLock.writeLock().lock();
+        try {
+            if (!repositoryInitialized.get() || collection == null) {
+                logger.warning("Repository not properly initialized, attempting to reinitialize...");
+
                 MongoDBManager mongoDBManager = MongoDBManager.getInstance();
                 if (mongoDBManager != null && mongoDBManager.isConnected()) {
                     this.collection = mongoDBManager.getCollection(COLLECTION_NAME);
@@ -179,22 +261,21 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
                         return true;
                     }
                 }
-            } catch (Exception e) {
-                logger.log(Level.WARNING, "Failed to reinitialize repository", e);
             }
-
             return false;
+        } catch (Exception e) {
+            logger.log(Level.WARNING, "Failed to reinitialize repository", e);
+            return false;
+        } finally {
+            repositoryLock.writeLock().unlock();
         }
-
-        return true;
     }
 
     /**
-     * Test the repository connection
+     * Test repository connection with comprehensive checks
      */
     private void testConnection() {
         try {
-            // Perform a simple count operation to test connection
             long count = collection.countDocuments();
             logger.info("Repository connection test successful. Document count: " + count);
         } catch (Exception e) {
@@ -204,108 +285,48 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
     }
 
     /**
-     * Creates MongoDB indexes for better performance
+     * Create optimized indexes for better performance
      */
-    private void createIndexes() {
+    private void createOptimizedIndexes() {
         try {
             if (collection != null) {
-                // Create index on username for faster lookups by name
-                collection.createIndex(new Document("username", 1));
-                // Create index on uuid for faster lookups by ID
+                // Primary indexes
                 collection.createIndex(new Document("uuid", 1));
-                logger.info("Created indexes for player collection");
+                collection.createIndex(new Document("username", 1));
+                collection.createIndex(new Document("last_login", -1));
+
+                // Compound indexes for common queries
+                collection.createIndex(new Document("username", 1).append("uuid", 1));
+
+                logger.info("Created optimized indexes for player collection");
             }
 
             if (backupCollection != null) {
-                // Create indexes on backup collection
                 backupCollection.createIndex(new Document("uuid", 1));
                 backupCollection.createIndex(new Document("timestamp", -1));
-                logger.info("Created indexes for backup collection");
+                backupCollection.createIndex(new Document("uuid", 1).append("timestamp", -1));
+
+                logger.info("Created optimized indexes for backup collection");
             }
         } catch (Exception e) {
-            logger.log(Level.WARNING, "Failed to create indexes (they may already exist)", e);
+            logger.log(Level.WARNING, "Failed to create optimized indexes", e);
         }
     }
 
     /**
-     * Start a task to clean expired cache entries
-     */
-    private void startCacheCleaningTask() {
-        Bukkit.getScheduler().runTaskTimerAsynchronously(plugin, () -> {
-            try {
-                cleanCache();
-            } catch (Exception e) {
-                logger.log(Level.WARNING, "Error during cache cleaning", e);
-            }
-        }, 6000L, 6000L); // Run every 5 minutes
-    }
-
-    /**
-     * Clean expired cache entries and save dirty entries
-     */
-    private void cleanCache() {
-        int expiredCount = 0;
-        int savedCount = 0;
-        long now = System.currentTimeMillis();
-
-        // Don't clean cache during batch operations
-        if (performingBatchOperation.get()) {
-            return;
-        }
-
-        // Clean cache based on expiration and save dirty entries
-        for (Iterator<Map.Entry<UUID, CachedPlayer>> it = playerCache.entrySet().iterator(); it.hasNext(); ) {
-            Map.Entry<UUID, CachedPlayer> entry = it.next();
-            CachedPlayer cachedPlayer = entry.getValue();
-
-            // Check if the player is online
-            boolean isOnline = Bukkit.getPlayer(entry.getKey()) != null;
-
-            // Don't expire online players
-            if (!isOnline) {
-                // Expire cache entries not accessed in 30 minutes
-                if (now - cachedPlayer.getLastAccessed() > TimeUnit.MINUTES.toMillis(30)) {
-                    // Save if dirty before removing
-                    if (cachedPlayer.isDirty()) {
-                        savePlayerToDatabase(cachedPlayer.getPlayer());
-                        savedCount++;
-                    }
-
-                    // Remove from UUID cache
-                    it.remove();
-
-                    // Remove from name cache
-                    nameToUuidCache.values().remove(entry.getKey());
-                    expiredCount++;
-                }
-            }
-
-            // Save dirty entries that haven't been saved in 5 minutes
-            if (cachedPlayer.isDirty() && (now - cachedPlayer.getLastModified() > TimeUnit.MINUTES.toMillis(5))) {
-                savePlayerToDatabase(cachedPlayer.getPlayer());
-                cachedPlayer.clearDirty();
-                savedCount++;
-            }
-        }
-
-        if (expiredCount > 0 || savedCount > 0) {
-            logger.fine("Cache cleaning: removed " + expiredCount + " expired entries, saved " + savedCount + " dirty entries");
-        }
-    }
-
-    /**
-     * FIXED: Find a player by UUID with proper error handling
+     * Enhanced findById with improved caching and error handling
      */
     @Override
     public CompletableFuture<Optional<YakPlayer>> findById(UUID id) {
         return CompletableFuture.supplyAsync(() -> {
             if (id == null) {
+                logger.warning("Attempted to find player with null UUID");
                 return Optional.empty();
             }
 
             // Check cache first
             CachedPlayer cachedPlayer = playerCache.get(id);
-            if (cachedPlayer != null) {
+            if (cachedPlayer != null && !cachedPlayer.isExpired()) {
                 logger.fine("Found player in cache: " + id);
                 return Optional.of(cachedPlayer.getPlayer());
             }
@@ -315,72 +336,58 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
                 return Optional.empty();
             }
 
-            for (int attempt = 0; attempt < MAX_RETRY_ATTEMPTS; attempt++) {
-                try {
-                    logger.fine("Finding player by UUID (attempt " + (attempt + 1) + "): " + id);
-
-                    Document doc = MongoDBManager.getInstance().performSafeOperation(() ->
-                            collection.find(Filters.eq("uuid", id.toString())).first()
-                    );
-
-                    if (doc != null) {
-                        logger.fine("Found player document in database: " + id);
-                        YakPlayer player = documentToPlayer(doc);
-
-                        // Cache the player if successfully loaded
-                        if (player != null) {
-                            cachePlayer(player);
-                            logger.fine("Successfully loaded and cached player: " + id);
-                            return Optional.of(player);
-                        } else {
-                            logger.warning("Failed to convert document to player: " + id);
-                        }
-                    } else {
-                        logger.fine("No document found for player: " + id);
-                    }
-
-                    // If not found and this is not the first attempt, break
-                    if (doc == null && attempt > 0) {
-                        break;
-                    }
-
-                } catch (Exception e) {
-                    logger.log(Level.SEVERE, "Error finding player by UUID: " + id + " (attempt " + (attempt + 1) + ")", e);
-
-                    if (attempt < MAX_RETRY_ATTEMPTS - 1) {
-                        try {
-                            Thread.sleep(RETRY_DELAY_MS);
-                        } catch (InterruptedException ie) {
-                            Thread.currentThread().interrupt();
-                            break;
-                        }
-                    }
-                }
-            }
-
-            logger.fine("Player not found: " + id);
-            return Optional.empty();
+            return performDatabaseFind(id);
         });
     }
 
     /**
-     * Cache a player
+     * Perform database find operation with retries
      */
-    private void cachePlayer(YakPlayer player) {
-        if (player == null || player.getUUID() == null) {
-            logger.warning("Attempted to cache null player or player with null UUID");
-            return;
+    private Optional<YakPlayer> performDatabaseFind(UUID id) {
+        for (int attempt = 1; attempt <= MAX_RETRY_ATTEMPTS; attempt++) {
+            try {
+                logger.fine("Finding player by UUID (attempt " + attempt + "): " + id);
+
+                Document doc = MongoDBManager.getInstance().performSafeOperation(() ->
+                        collection.find(Filters.eq("uuid", id.toString())).first()
+                );
+
+                if (doc != null) {
+                    logger.fine("Found player document in database: " + id);
+                    YakPlayer player = documentConverter.documentToPlayer(doc);
+
+                    if (player != null) {
+                        cachePlayer(player);
+                        logger.fine("Successfully loaded and cached player: " + id);
+                        return Optional.of(player);
+                    } else {
+                        logger.warning("Failed to convert document to player: " + id);
+                    }
+                } else {
+                    logger.fine("No document found for player: " + id);
+                    return Optional.empty();
+                }
+
+            } catch (Exception e) {
+                logger.log(Level.WARNING, "Error finding player by UUID: " + id + " (attempt " + attempt + ")", e);
+
+                if (attempt < MAX_RETRY_ATTEMPTS) {
+                    try {
+                        Thread.sleep(RETRY_DELAY_MS * attempt);
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        break;
+                    }
+                }
+            }
         }
 
-        playerCache.put(player.getUUID(), new CachedPlayer(player));
-        if (player.getUsername() != null) {
-            nameToUuidCache.put(player.getUsername().toLowerCase(), player.getUUID());
-        }
-        logger.fine("Cached player: " + player.getUUID() + " (" + player.getUsername() + ")");
+        logger.warning("Failed to find player after " + MAX_RETRY_ATTEMPTS + " attempts: " + id);
+        return Optional.empty();
     }
 
     /**
-     * FIXED: Save a player with proper error handling
+     * Enhanced save operation with improved error handling and validation
      */
     @Override
     public CompletableFuture<YakPlayer> save(YakPlayer player) {
@@ -390,19 +397,18 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
                 return null;
             }
 
-            // Validate player data
             if (!validatePlayerData(player)) {
-                logger.warning("Invalid player data for " + player.getUsername() + ", skipping save");
+                logger.warning("Invalid player data for " + player.getUsername() + ", creating local backup only");
+                createLocalBackup(player);
                 return player;
             }
 
-            // Always update cache
+            // Update cache
             cachePlayer(player);
 
-            // Check if MongoDB is available
+            // Check MongoDB availability
             if (!ensureCollection()) {
-                logger.warning("Could not save player " + player.getUsername() + " - MongoDB not connected");
-                // Create local backup if database is not available
+                logger.warning("Cannot save player to database - MongoDB not available: " + player.getUsername());
                 createLocalBackup(player);
                 return player;
             }
@@ -412,90 +418,90 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
     }
 
     /**
-     * FIXED: Save player to database with retries
+     * Enhanced database save operation with comprehensive error handling
      */
     private YakPlayer savePlayerToDatabase(YakPlayer player) {
-        if (player == null) {
-            logger.warning("Attempted to save null player to database");
-            return null;
-        }
-
-        if (!ensureCollection()) {
-            logger.warning("Cannot save player - collection not available");
-            createLocalBackup(player);
+        if (player == null || !validatePlayerData(player)) {
             return player;
         }
 
-        for (int attempt = 0; attempt < MAX_RETRY_ATTEMPTS; attempt++) {
-            try {
-                logger.fine("Saving player to database (attempt " + (attempt + 1) + "): " + player.getUsername());
+        UUID playerId = player.getUUID();
+        if (pendingSaves.contains(playerId)) {
+            logger.fine("Save already in progress for player: " + player.getUsername());
+            return player;
+        }
 
-                Document doc = playerToDocument(player);
-                if (doc == null) {
-                    logger.severe("Failed to convert player to document: " + player.getUsername());
-                    return player;
-                }
+        pendingSaves.add(playerId);
+        try {
+            for (int attempt = 1; attempt <= MAX_RETRY_ATTEMPTS; attempt++) {
+                try {
+                    logger.fine("Saving player to database (attempt " + attempt + "): " + player.getUsername());
 
-                // Use replace with upsert to insert if not exists, update if exists
-                MongoDBManager.getInstance().performSafeOperation(() -> {
-                    collection.replaceOne(
-                            Filters.eq("uuid", player.getUUID().toString()),
-                            doc,
-                            new ReplaceOptions().upsert(true)
-                    );
-                    return null;
-                });
-
-                // Clear dirty flag if successful
-                CachedPlayer cachedPlayer = playerCache.get(player.getUUID());
-                if (cachedPlayer != null) {
-                    cachedPlayer.clearDirty();
-                }
-
-                logger.fine("Successfully saved player to database: " + player.getUsername());
-                return player;
-
-            } catch (Exception e) {
-                logger.log(Level.SEVERE, "Error saving player: " + player.getUUID() + " (attempt " + (attempt + 1) + ")", e);
-
-                if (attempt < MAX_RETRY_ATTEMPTS - 1) {
-                    try {
-                        Thread.sleep(RETRY_DELAY_MS);
-                    } catch (InterruptedException ie) {
-                        Thread.currentThread().interrupt();
-                        break;
+                    Document doc = documentConverter.playerToDocument(player);
+                    if (doc == null) {
+                        logger.severe("Failed to convert player to document: " + player.getUsername());
+                        createLocalBackup(player);
+                        return player;
                     }
-                } else {
-                    // Create local backup on final failure
-                    createLocalBackup(player);
-                    logger.severe("Failed to save player after " + MAX_RETRY_ATTEMPTS + " attempts, created local backup: " + player.getUsername());
+
+                    // Create backup before saving
+                    createDatabaseBackup(player, doc);
+
+                    // Perform save with upsert
+                    MongoDBManager.getInstance().performSafeOperation(() -> {
+                        collection.replaceOne(
+                                Filters.eq("uuid", player.getUUID().toString()),
+                                doc,
+                                new ReplaceOptions().upsert(true)
+                        );
+                        return null;
+                    });
+
+                    // Clear dirty flag if successful
+                    CachedPlayer cachedPlayer = playerCache.get(playerId);
+                    if (cachedPlayer != null) {
+                        cachedPlayer.clearDirty();
+                    }
+
+                    logger.fine("Successfully saved player to database: " + player.getUsername());
+                    return player;
+
+                } catch (Exception e) {
+                    logger.log(Level.WARNING, "Error saving player: " + playerId + " (attempt " + attempt + ")", e);
+
+                    if (attempt < MAX_RETRY_ATTEMPTS) {
+                        try {
+                            Thread.sleep(RETRY_DELAY_MS * attempt);
+                        } catch (InterruptedException ie) {
+                            Thread.currentThread().interrupt();
+                            break;
+                        }
+                    } else {
+                        createLocalBackup(player);
+                        logger.severe("Failed to save player after " + MAX_RETRY_ATTEMPTS + " attempts: " + player.getUsername());
+                    }
                 }
             }
+        } finally {
+            pendingSaves.remove(playerId);
         }
 
         return player;
     }
 
     /**
-     * Save a player synchronously (for use during shutdown)
+     * Synchronous save for shutdown scenarios
      */
     public YakPlayer saveSync(YakPlayer player) {
-        if (player == null) {
-            logger.warning("Attempted to sync save null player");
-            return null;
-        }
-
-        // Validate player data
-        if (!validatePlayerData(player)) {
-            logger.warning("Invalid player data for " + player.getUsername() + ", creating backup only");
-            createLocalBackup(player);
+        if (player == null || !validatePlayerData(player)) {
+            if (player != null) {
+                createLocalBackup(player);
+            }
             return player;
         }
 
-        // Always update cache
         cachePlayer(player);
 
-        // Check if MongoDB is available
         if (!ensureCollection()) {
             createLocalBackup(player);
             logger.warning("Could not sync save player - collection unavailable: " + player.getUsername());
@@ -503,14 +509,15 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
         }
 
         try {
-            Document doc = playerToDocument(player);
+            Document doc = documentConverter.playerToDocument(player);
             if (doc == null) {
                 logger.severe("Failed to convert player to document during sync save: " + player.getUsername());
                 createLocalBackup(player);
                 return player;
             }
 
-            // Use replace with upsert to insert if not exists, update if exists
+            // Create backup and save
+            createDatabaseBackup(player, doc);
             collection.replaceOne(
                     Filters.eq("uuid", player.getUUID().toString()),
                     doc,
@@ -522,118 +529,13 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
 
         } catch (Exception e) {
             logger.log(Level.SEVERE, "Error during sync save for player: " + player.getUUID(), e);
-
-            // Create local backup on failure
             createLocalBackup(player);
-
             return player;
         }
     }
 
     /**
-     * Validate player data before saving
-     */
-    private boolean validatePlayerData(YakPlayer player) {
-        if (player == null) {
-            return false;
-        }
-
-        // Check essential fields
-        if (player.getUUID() == null) {
-            logger.warning("Player validation failed: null UUID");
-            return false;
-        }
-
-        // Check for null username
-        if (player.getUsername() == null || player.getUsername().trim().isEmpty()) {
-            logger.warning("Player validation failed: null or empty username for UUID " + player.getUUID());
-            return false;
-        }
-
-        // Check for reasonable values
-        if (player.getGems() < 0) {
-            logger.warning("Player validation warning: negative gems for " + player.getUsername() + ", will be reset to 0");
-            player.setGems(0);
-        }
-
-        if (player.getLevel() < 1) {
-            logger.warning("Player validation warning: invalid level for " + player.getUsername() + ", will be reset to 1");
-            player.setLevel(1);
-        }
-
-        return true;
-    }
-
-    /**
-     * Create a local file backup of player data
-     */
-    private void createLocalBackup(YakPlayer player) {
-        if (player == null) {
-            return;
-        }
-
-        try {
-            // Create backup directory if it doesn't exist
-            if (!backupDir.exists()) {
-                backupDir.mkdirs();
-            }
-
-            // Create player directory
-            File playerDir = new File(backupDir, player.getUUID().toString());
-            if (!playerDir.exists()) {
-                playerDir.mkdirs();
-            }
-
-            // Generate timestamp for filename
-            String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss"));
-
-            // Serialize player to document
-            Document doc = playerToDocument(player);
-            if (doc == null) {
-                logger.warning("Failed to create local backup - document conversion failed for: " + player.getUsername());
-                return;
-            }
-
-            // Write to file
-            File backupFile = new File(playerDir, timestamp + ".json");
-            Files.write(backupFile.toPath(), doc.toJson().getBytes());
-
-            // Keep only the last 10 backups
-            cleanOldLocalBackups(playerDir);
-
-            logger.fine("Created local backup for player: " + player.getUsername());
-
-        } catch (Exception e) {
-            logger.log(Level.SEVERE, "Failed to create local backup for player " + player.getUsername(), e);
-        }
-    }
-
-    /**
-     * Clean old local backups, keeping only the latest few
-     */
-    private void cleanOldLocalBackups(File playerDir) {
-        try {
-            File[] backupFiles = playerDir.listFiles((dir, name) -> name.endsWith(".json"));
-            if (backupFiles == null || backupFiles.length <= 10) {
-                return; // Keep at most 10 backups
-            }
-
-            // Sort by last modified time (oldest first)
-            Arrays.sort(backupFiles, Comparator.comparingLong(File::lastModified));
-
-            // Delete oldest files
-            for (int i = 0; i < backupFiles.length - 10; i++) {
-                if (backupFiles[i].delete()) {
-                    logger.fine("Deleted old backup: " + backupFiles[i].getName());
-                }
-            }
-        } catch (Exception e) {
-            logger.log(Level.WARNING, "Error cleaning old local backups", e);
-        }
-    }
-
-    /**
-     * FIXED: Find all players with batching for large datasets
+     * Enhanced findAll with batching and improved error handling
      */
     @Override
     public CompletableFuture<List<YakPlayer>> findAll() {
@@ -650,7 +552,7 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
                 logger.info("Loading all players from database...");
 
                 FindIterable<Document> docs = MongoDBManager.getInstance().performSafeOperation(() ->
-                        collection.find()
+                        collection.find().batchSize(100) // Use batching for large datasets
                 );
 
                 if (docs != null) {
@@ -659,7 +561,7 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
 
                     for (Document doc : docs) {
                         try {
-                            YakPlayer player = documentToPlayer(doc);
+                            YakPlayer player = documentConverter.documentToPlayer(doc);
                             if (player != null) {
                                 players.add(player);
                                 cachePlayer(player);
@@ -687,7 +589,7 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
     }
 
     /**
-     * Delete a player
+     * Enhanced delete operations
      */
     @Override
     public CompletableFuture<Boolean> delete(YakPlayer player) {
@@ -697,9 +599,6 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
         return deleteById(player.getUUID());
     }
 
-    /**
-     * Delete a player by UUID
-     */
     @Override
     public CompletableFuture<Boolean> deleteById(UUID id) {
         return CompletableFuture.supplyAsync(() -> {
@@ -708,21 +607,13 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
             }
 
             // Create backup before deletion
-            YakPlayer player = playerCache.containsKey(id) ?
-                    playerCache.get(id).getPlayer() : null;
-
-            if (player != null) {
-                createLocalBackup(player);
+            CachedPlayer cachedPlayer = playerCache.get(id);
+            if (cachedPlayer != null) {
+                createLocalBackup(cachedPlayer.getPlayer());
             }
 
             // Remove from cache
-            playerCache.remove(id);
-            for (Iterator<Map.Entry<String, UUID>> it = nameToUuidCache.entrySet().iterator(); it.hasNext(); ) {
-                Map.Entry<String, UUID> entry = it.next();
-                if (entry.getValue().equals(id)) {
-                    it.remove();
-                }
-            }
+            removeFromCache(id);
 
             if (!ensureCollection()) {
                 logger.severe("Could not delete player - collection unavailable: " + id);
@@ -749,9 +640,6 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
         });
     }
 
-    /**
-     * Check if a player exists
-     */
     @Override
     public CompletableFuture<Boolean> existsById(UUID id) {
         return CompletableFuture.supplyAsync(() -> {
@@ -783,102 +671,515 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
     }
 
     /**
-     * FIXED: Convert a MongoDB document to a YakPlayer object
+     * Enhanced caching methods
      */
-    private YakPlayer documentToPlayer(Document doc) {
-        if (doc == null) {
-            logger.warning("Cannot convert null document to player");
-            return null;
+    private void cachePlayer(YakPlayer player) {
+        if (player == null || player.getUUID() == null) {
+            logger.warning("Attempted to cache null player or player with null UUID");
+            return;
+        }
+
+        CachedPlayer cachedPlayer = playerCache.get(player.getUUID());
+        if (cachedPlayer != null) {
+            // Update existing cache entry
+            cachedPlayer.getPlayer(); // Updates access time
+        } else {
+            // Create new cache entry
+            playerCache.put(player.getUUID(), new CachedPlayer(player));
+        }
+
+        // Update name cache
+        if (player.getUsername() != null) {
+            nameToUuidCache.put(player.getUsername().toLowerCase(), player.getUUID());
+        }
+
+        logger.fine("Cached player: " + player.getUUID() + " (" + player.getUsername() + ")");
+    }
+
+    private void removeFromCache(UUID playerId) {
+        CachedPlayer removed = playerCache.remove(playerId);
+        if (removed != null) {
+            YakPlayer player = removed.getPlayer();
+            if (player != null && player.getUsername() != null) {
+                nameToUuidCache.remove(player.getUsername().toLowerCase());
+            }
+        }
+    }
+
+    /**
+     * Enhanced cache cleanup with better lifecycle management
+     */
+    private void performCacheCleanup() {
+        if (performingBatchOperation.get()) {
+            return; // Skip cleanup during batch operations
+        }
+
+        int expiredCount = 0;
+        int savedCount = 0;
+        long now = System.currentTimeMillis();
+
+        List<UUID> toRemove = new ArrayList<>();
+
+        for (Map.Entry<UUID, CachedPlayer> entry : playerCache.entrySet()) {
+            UUID playerId = entry.getKey();
+            CachedPlayer cachedPlayer = entry.getValue();
+
+            // Check if player is online
+            boolean isOnline = Bukkit.getPlayer(playerId) != null;
+
+            if (!isOnline && cachedPlayer.isExpired()) {
+                // Save dirty players before removing from cache
+                if (cachedPlayer.isDirty()) {
+                    try {
+                        savePlayerToDatabase(cachedPlayer.getPlayer());
+                        savedCount++;
+                    } catch (Exception e) {
+                        logger.log(Level.WARNING, "Error saving dirty player during cache cleanup", e);
+                    }
+                }
+                toRemove.add(playerId);
+                expiredCount++;
+            } else if (cachedPlayer.isDirty() &&
+                    (now - cachedPlayer.getLastModified() > TimeUnit.MINUTES.toMillis(5))) {
+                // Auto-save dirty players that haven't been saved recently
+                try {
+                    savePlayerToDatabase(cachedPlayer.getPlayer());
+                    cachedPlayer.clearDirty();
+                    savedCount++;
+                } catch (Exception e) {
+                    logger.log(Level.WARNING, "Error auto-saving dirty player", e);
+                }
+            }
+        }
+
+        // Remove expired players from cache
+        for (UUID playerId : toRemove) {
+            removeFromCache(playerId);
+        }
+
+        if (expiredCount > 0 || savedCount > 0) {
+            logger.fine("Cache cleanup: removed " + expiredCount + " expired entries, auto-saved " + savedCount + " dirty entries");
+        }
+    }
+
+    /**
+     * Perform auto-save of dirty cached players
+     */
+    private void performAutoSave() {
+        if (performingBatchOperation.get()) {
+            return;
+        }
+
+        int savedCount = 0;
+        for (CachedPlayer cachedPlayer : playerCache.values()) {
+            if (cachedPlayer.isDirty()) {
+                try {
+                    savePlayerToDatabase(cachedPlayer.getPlayer());
+                    cachedPlayer.clearDirty();
+                    savedCount++;
+                } catch (Exception e) {
+                    logger.log(Level.WARNING, "Error during auto-save", e);
+                }
+            }
+        }
+
+        if (savedCount > 0) {
+            logger.fine("Auto-save completed: " + savedCount + " players saved");
+        }
+    }
+
+    /**
+     * Enhanced validation with comprehensive checks
+     */
+    private boolean validatePlayerData(YakPlayer player) {
+        if (player == null) {
+            return false;
+        }
+
+        if (player.getUUID() == null) {
+            logger.warning("Player validation failed: null UUID");
+            return false;
+        }
+
+        if (player.getUsername() == null || player.getUsername().trim().isEmpty()) {
+            logger.warning("Player validation failed: null or empty username for UUID " + player.getUUID());
+            return false;
+        }
+
+        // Validate and fix common data issues
+        if (player.getGems() < 0) {
+            logger.warning("Player validation: negative gems for " + player.getUsername() + ", resetting to 0");
+            player.setGems(0);
+        }
+
+        if (player.getLevel() < 1) {
+            logger.warning("Player validation: invalid level for " + player.getUsername() + ", resetting to 1");
+            player.setLevel(1);
+        }
+
+        if (player.getHealth() <= 0) {
+            logger.warning("Player validation: invalid health for " + player.getUsername() + ", resetting to 20");
+            player.setHealth(20.0);
+        }
+
+        return true;
+    }
+
+    /**
+     * Enhanced backup operations
+     */
+    private void createLocalBackup(YakPlayer player) {
+        if (player == null) {
+            return;
         }
 
         try {
-            // Extract UUID first - this is essential
-            String uuidStr = doc.getString("uuid");
-            if (uuidStr == null || uuidStr.trim().isEmpty()) {
-                logger.severe("Document missing UUID field, cannot convert to player");
+            if (!backupDir.exists() && !backupDir.mkdirs()) {
+                logger.warning("Failed to create backup directory");
+                return;
+            }
+
+            File playerDir = new File(backupDir, player.getUUID().toString());
+            if (!playerDir.exists() && !playerDir.mkdirs()) {
+                logger.warning("Failed to create player backup directory");
+                return;
+            }
+
+            String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss"));
+            Document doc = documentConverter.playerToDocument(player);
+
+            if (doc != null) {
+                File backupFile = new File(playerDir, timestamp + ".json");
+                Files.write(backupFile.toPath(), doc.toJson().getBytes());
+                cleanOldLocalBackups(playerDir);
+                logger.fine("Created local backup for player: " + player.getUsername());
+            }
+
+        } catch (Exception e) {
+            logger.log(Level.SEVERE, "Failed to create local backup for player " + player.getUsername(), e);
+        }
+    }
+
+    private void createDatabaseBackup(YakPlayer player, Document doc) {
+        if (backupCollection == null || player == null || doc == null) {
+            return;
+        }
+
+        try {
+            Document backupDoc = new Document(doc);
+            backupDoc.append("timestamp", System.currentTimeMillis() / 1000);
+            backupDoc.append("backup_reason", "auto_save");
+
+            MongoDBManager.getInstance().performSafeOperation(() -> {
+                backupCollection.insertOne(backupDoc);
                 return null;
-            }
+            });
 
-            UUID uuid;
-            try {
-                uuid = UUID.fromString(uuidStr);
-            } catch (IllegalArgumentException e) {
-                logger.severe("Invalid UUID format in document: " + uuidStr);
+            // Clean old database backups (keep last 10 per player)
+            MongoDBManager.getInstance().performSafeOperation(() -> {
+                List<Document> backups = backupCollection.find(Filters.eq("uuid", player.getUUID().toString()))
+                        .sort(new Document("timestamp", -1))
+                        .skip(10)
+                        .into(new ArrayList<>());
+
+                for (Document oldBackup : backups) {
+                    backupCollection.deleteOne(Filters.eq("_id", oldBackup.getObjectId("_id")));
+                }
                 return null;
+            });
+
+        } catch (Exception e) {
+            logger.log(Level.WARNING, "Failed to create database backup for player " + player.getUsername(), e);
+        }
+    }
+
+    private void cleanOldLocalBackups(File playerDir) {
+        try {
+            File[] backupFiles = playerDir.listFiles((dir, name) -> name.endsWith(".json"));
+            if (backupFiles == null || backupFiles.length <= 10) {
+                return;
             }
 
-            YakPlayer player = new YakPlayer(uuid);
+            Arrays.sort(backupFiles, Comparator.comparingLong(File::lastModified));
 
-            // Basic identification - handle nulls gracefully
-            String username = doc.getString("username");
-            if (username != null && !username.trim().isEmpty()) {
-                player.setUsername(username);
-            } else {
-                logger.warning("Player document missing username for UUID: " + uuid);
-                player.setUsername("Unknown");
-            }
-
-            // Load all fields with null checks and defaults
-            player.setLastLogin(doc.getLong("last_login") != null ? doc.getLong("last_login") : System.currentTimeMillis() / 1000);
-            player.setLastLogout(doc.getLong("last_logout") != null ? doc.getLong("last_logout") : 0);
-            player.setFirstJoin(doc.getLong("first_join") != null ? doc.getLong("first_join") : System.currentTimeMillis() / 1000);
-            player.setTotalPlaytime(doc.getLong("total_playtime") != null ? doc.getLong("total_playtime") : 0L);
-
-            String ipAddress = doc.getString("ip_address");
-            if (ipAddress != null) {
-                player.setIpAddress(ipAddress);
-            }
-
-            // Player progression and stats
-            player.setLevel(doc.getInteger("level", 1));
-            player.setExp(doc.getInteger("exp", 0));
-            player.setMonsterKills(doc.getInteger("monster_kills", 0));
-            player.setPlayerKills(doc.getInteger("player_kills", 0));
-            player.setDeaths(doc.getInteger("deaths", 0));
-            player.setOreMined(doc.getInteger("ore_mined", 0));
-            player.setFishCaught(doc.getInteger("fish_caught", 0));
-            player.setBlocksBroken(doc.getInteger("blocks_broken", 0));
-            player.setDistanceTraveled(doc.getDouble("distance_traveled") != null ? doc.getDouble("distance_traveled") : 0.0);
-
-            // Economic data
-            player.setGems(doc.getInteger("gems", 0));
-            player.setBankGems(doc.getInteger("bank_gems", 0));
-            player.setEliteShards(doc.getInteger("elite_shards", 0));
-            player.setTotalGemsEarned(doc.getLong("total_gems_earned") != null ? doc.getLong("total_gems_earned") : 0L);
-            player.setTotalGemsSpent(doc.getLong("total_gems_spent") != null ? doc.getLong("total_gems_spent") : 0L);
-
-            // Bank data
-            player.setBankPages(doc.getInteger("bank_pages", 1));
-            player.setBankAuthorizedUsers(doc.getList("bank_authorized_users", String.class, new ArrayList<>()));
-            player.getBankAccessLog().clear();
-            List<String> bankLog = doc.getList("bank_access_log", String.class);
-            if(bankLog != null) {
-                player.getBankAccessLog().addAll(bankLog);
-            }
-
-            // Bank inventory data
-            Document bankItems = doc.get("bank_inventory", Document.class);
-            if (bankItems != null) {
-                for (String key : bankItems.keySet()) {
-                    try {
-                        int page = Integer.parseInt(key);
-                        String serializedData = bankItems.getString(key);
-                        if (serializedData != null) {
-                            player.setSerializedBankItems(page, serializedData);
-                        }
-                    } catch (NumberFormatException e) {
-                        logger.log(Level.WARNING, "Invalid bank page number: " + key);
-                    }
+            for (int i = 0; i < backupFiles.length - 10; i++) {
+                if (backupFiles[i].delete()) {
+                    logger.fine("Deleted old backup: " + backupFiles[i].getName());
                 }
             }
+        } catch (Exception e) {
+            logger.log(Level.WARNING, "Error cleaning old local backups", e);
+        }
+    }
 
-            // Alignment data
+    /**
+     * Public API and utility methods
+     */
+    public boolean isInitialized() {
+        repositoryLock.readLock().lock();
+        try {
+            return repositoryInitialized.get() && collection != null;
+        } finally {
+            repositoryLock.readLock().unlock();
+        }
+    }
+
+    public Map<String, Object> getRepositoryStatus() {
+        Map<String, Object> status = new HashMap<>();
+
+        repositoryLock.readLock().lock();
+        try {
+            status.put("initialized", repositoryInitialized.get());
+            status.put("collection_available", collection != null);
+            status.put("backup_collection_available", backupCollection != null);
+            status.put("cached_players", playerCache.size());
+            status.put("name_cache_size", nameToUuidCache.size());
+            status.put("performing_batch_operation", performingBatchOperation.get());
+            status.put("pending_saves", pendingSaves.size());
+
+            try {
+                MongoDBManager mongoDBManager = MongoDBManager.getInstance();
+                status.put("mongodb_connected", mongoDBManager != null && mongoDBManager.isConnected());
+            } catch (Exception e) {
+                status.put("mongodb_connected", false);
+                status.put("mongodb_error", e.getMessage());
+            }
+        } finally {
+            repositoryLock.readLock().unlock();
+        }
+
+        return status;
+    }
+
+    public YakPlayer getFromCache(UUID playerId) {
+        CachedPlayer cached = playerCache.get(playerId);
+        return cached != null ? cached.getPlayer() : null;
+    }
+
+    public YakPlayer getFromCache(String playerName) {
+        UUID playerId = nameToUuidCache.get(playerName.toLowerCase());
+        return playerId != null ? getFromCache(playerId) : null;
+    }
+
+    public void shutdown() {
+        logger.info("Shutting down YakPlayerRepository...");
+
+        // Cancel background tasks
+        if (cacheCleanupTaskId != -1) {
+            Bukkit.getScheduler().cancelTask(cacheCleanupTaskId);
+        }
+        if (autoSaveTaskId != -1) {
+            Bukkit.getScheduler().cancelTask(autoSaveTaskId);
+        }
+
+        // Save all dirty cached players
+        performingBatchOperation.set(true);
+        int savedCount = 0;
+        for (CachedPlayer cached : playerCache.values()) {
+            if (cached.isDirty()) {
+                try {
+                    saveSync(cached.getPlayer());
+                    savedCount++;
+                } catch (Exception e) {
+                    logger.log(Level.WARNING, "Error saving player during shutdown", e);
+                }
+            }
+        }
+
+        logger.info("Repository shutdown completed. Saved " + savedCount + " dirty players.");
+    }
+
+    /**
+     * Document conversion helper class
+     */
+    private class DocumentConverter {
+
+        public YakPlayer documentToPlayer(Document doc) {
+            if (doc == null) {
+                logger.warning("Cannot convert null document to player");
+                return null;
+            }
+
+            try {
+                String uuidStr = doc.getString("uuid");
+                if (uuidStr == null || uuidStr.trim().isEmpty()) {
+                    logger.severe("Document missing UUID field");
+                    return null;
+                }
+
+                UUID uuid = UUID.fromString(uuidStr);
+                YakPlayer player = new YakPlayer(uuid);
+
+                // Basic information
+                player.setUsername(doc.getString("username") != null ? doc.getString("username") : "Unknown");
+                player.setLastLogin(doc.getLong("last_login") != null ? doc.getLong("last_login") : System.currentTimeMillis() / 1000);
+                player.setLastLogout(doc.getLong("last_logout") != null ? doc.getLong("last_logout") : 0);
+                player.setFirstJoin(doc.getLong("first_join") != null ? doc.getLong("first_join") : System.currentTimeMillis() / 1000);
+                player.setTotalPlaytime(doc.getLong("total_playtime") != null ? doc.getLong("total_playtime") : 0L);
+
+                String ipAddress = doc.getString("ip_address");
+                if (ipAddress != null) {
+                    player.setIpAddress(ipAddress);
+                }
+
+                // Player progression
+                player.setLevel(doc.getInteger("level", 1));
+                player.setExp(doc.getInteger("exp", 0));
+                player.setMonsterKills(doc.getInteger("monster_kills", 0));
+                player.setPlayerKills(doc.getInteger("player_kills", 0));
+                player.setDeaths(doc.getInteger("deaths", 0));
+                player.setOreMined(doc.getInteger("ore_mined", 0));
+                player.setFishCaught(doc.getInteger("fish_caught", 0));
+                player.setBlocksBroken(doc.getInteger("blocks_broken", 0));
+                player.setDistanceTraveled(doc.getDouble("distance_traveled") != null ? doc.getDouble("distance_traveled") : 0.0);
+
+                // Economic data
+                player.setGems(doc.getInteger("gems", 0));
+                player.setBankGems(doc.getInteger("bank_gems", 0));
+                player.setEliteShards(doc.getInteger("elite_shards", 0));
+                player.setTotalGemsEarned(doc.getLong("total_gems_earned") != null ? doc.getLong("total_gems_earned") : 0L);
+                player.setTotalGemsSpent(doc.getLong("total_gems_spent") != null ? doc.getLong("total_gems_spent") : 0L);
+
+                // Bank data
+                player.setBankPages(doc.getInteger("bank_pages", 1));
+                player.setBankAuthorizedUsers(doc.getList("bank_authorized_users", String.class, new ArrayList<>()));
+
+                List<String> bankLog = doc.getList("bank_access_log", String.class);
+                if (bankLog != null) {
+                    player.getBankAccessLog().addAll(bankLog);
+                }
+
+                // Bank inventory
+                Document bankItems = doc.get("bank_inventory", Document.class);
+                if (bankItems != null) {
+                    for (String key : bankItems.keySet()) {
+                        try {
+                            int page = Integer.parseInt(key);
+                            String serializedData = bankItems.getString(key);
+                            if (serializedData != null) {
+                                player.setSerializedBankItems(page, serializedData);
+                            }
+                        } catch (NumberFormatException e) {
+                            logger.warning("Invalid bank page number: " + key);
+                        }
+                    }
+                }
+
+                // Load all other fields using similar pattern...
+                loadPlayerAlignment(player, doc);
+                loadPlayerModeration(player, doc);
+                loadPlayerChat(player, doc);
+                loadPlayerMount(player, doc);
+                loadPlayerGuild(player, doc);
+                loadPlayerPreferences(player, doc);
+                loadPlayerQuests(player, doc);
+                loadPlayerProfessions(player, doc);
+                loadPlayerPvP(player, doc);
+                loadPlayerSocial(player, doc);
+                loadPlayerLocation(player, doc);
+                loadPlayerInventory(player, doc);
+                loadPlayerStats(player, doc);
+                loadPlayerAchievements(player, doc);
+
+                logger.fine("Successfully converted document to player: " + player.getUsername());
+                return player;
+
+            } catch (Exception e) {
+                logger.log(Level.SEVERE, "Error converting document to player", e);
+                return null;
+            }
+        }
+
+        public Document playerToDocument(YakPlayer player) {
+            if (player == null || player.getUUID() == null) {
+                logger.warning("Cannot convert null player or player with null UUID to document");
+                return null;
+            }
+
+            try {
+                Document doc = new Document();
+
+                // Basic identification
+                doc.append("uuid", player.getUUID().toString());
+                doc.append("username", player.getUsername());
+                doc.append("last_login", player.getLastLogin());
+                doc.append("last_logout", player.getLastLogout());
+                doc.append("first_join", player.getFirstJoin());
+                doc.append("total_playtime", player.getTotalPlaytime());
+
+                if (player.getIpAddress() != null) {
+                    doc.append("ip_address", player.getIpAddress());
+                }
+
+                // Player progression
+                doc.append("level", player.getLevel());
+                doc.append("exp", player.getExp());
+                doc.append("monster_kills", player.getMonsterKills());
+                doc.append("player_kills", player.getPlayerKills());
+                doc.append("deaths", player.getDeaths());
+                doc.append("ore_mined", player.getOreMined());
+                doc.append("fish_caught", player.getFishCaught());
+                doc.append("blocks_broken", player.getBlocksBroken());
+                doc.append("distance_traveled", player.getDistanceTraveled());
+
+                // Economic data
+                doc.append("gems", player.getGems());
+                doc.append("bank_gems", player.getBankGems());
+                doc.append("elite_shards", player.getEliteShards());
+                doc.append("total_gems_earned", player.getTotalGemsEarned());
+                doc.append("total_gems_spent", player.getTotalGemsSpent());
+
+                // Bank data
+                doc.append("bank_pages", player.getBankPages());
+                doc.append("bank_authorized_users", player.getBankAuthorizedUsers());
+                doc.append("bank_access_log", player.getBankAccessLog());
+
+                // Bank inventory
+                Document bankItems = new Document();
+                Map<Integer, String> bankItemsMap = player.getAllSerializedBankItems();
+                if (bankItemsMap != null) {
+                    for (Map.Entry<Integer, String> entry : bankItemsMap.entrySet()) {
+                        if (entry.getKey() != null && entry.getValue() != null) {
+                            bankItems.append(entry.getKey().toString(), entry.getValue());
+                        }
+                    }
+                }
+                doc.append("bank_inventory", bankItems);
+
+                // Save all other fields using similar pattern...
+                savePlayerAlignment(player, doc);
+                savePlayerModeration(player, doc);
+                savePlayerChat(player, doc);
+                savePlayerMount(player, doc);
+                savePlayerGuild(player, doc);
+                savePlayerPreferences(player, doc);
+                savePlayerQuests(player, doc);
+                savePlayerProfessions(player, doc);
+                savePlayerPvP(player, doc);
+                savePlayerSocial(player, doc);
+                savePlayerLocation(player, doc);
+                savePlayerInventory(player, doc);
+                savePlayerStats(player, doc);
+                savePlayerAchievements(player, doc);
+
+                logger.fine("Successfully converted player to document: " + player.getUsername());
+                return doc;
+
+            } catch (Exception e) {
+                logger.log(Level.SEVERE, "Error converting player to document: " + player.getUsername(), e);
+                return null;
+            }
+        }
+
+        // Helper methods for loading specific player data sections
+        private void loadPlayerAlignment(YakPlayer player, Document doc) {
             player.setAlignment(doc.getString("alignment") != null ? doc.getString("alignment") : "LAWFUL");
             player.setChaoticTime(doc.getLong("chaotic_time") != null ? doc.getLong("chaotic_time") : 0);
             player.setNeutralTime(doc.getLong("neutral_time") != null ? doc.getLong("neutral_time") : 0);
             player.setAlignmentChanges(doc.getInteger("alignment_changes", 0));
+        }
 
-            // Moderation data
+        private void loadPlayerModeration(YakPlayer player, Document doc) {
             player.setRank(doc.getString("rank") != null ? doc.getString("rank") : "DEFAULT");
             player.setBanned(doc.getBoolean("banned", false));
             player.setBanReason(doc.getString("ban_reason") != null ? doc.getString("ban_reason") : "");
@@ -886,23 +1187,28 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
             player.setMuteTime(doc.getInteger("muted", 0));
             player.setWarnings(doc.getInteger("warnings", 0));
             player.setLastWarning(doc.getLong("last_warning") != null ? doc.getLong("last_warning") : 0);
+        }
 
-            // Chat data
+        private void loadPlayerChat(YakPlayer player, Document doc) {
             player.setChatTag(doc.getString("chat_tag") != null ? doc.getString("chat_tag") : "DEFAULT");
             player.setUnlockedChatTags(doc.getList("unlocked_chat_tags", String.class, new ArrayList<>()));
             player.setChatColor(doc.getString("chat_color") != null ? doc.getString("chat_color") : "WHITE");
+        }
 
-            // Mount data
+        private void loadPlayerMount(YakPlayer player, Document doc) {
             player.setHorseTier(doc.getInteger("horse_tier", 0));
             player.setHorseName(doc.getString("horse_name") != null ? doc.getString("horse_name") : "");
+        }
 
-            // Guild data
+        private void loadPlayerGuild(YakPlayer player, Document doc) {
             player.setGuildName(doc.getString("guild_name") != null ? doc.getString("guild_name") : "");
             player.setGuildRank(doc.getString("guild_rank") != null ? doc.getString("guild_rank") : "");
             player.setGuildContribution(doc.getInteger("guild_contribution", 0));
+        }
 
-            // Toggle preferences
+        private void loadPlayerPreferences(YakPlayer player, Document doc) {
             player.setToggleSettings(new HashSet<>(doc.getList("toggle_settings", String.class, new ArrayList<>())));
+
             Document notificationSettingsDoc = doc.get("notification_settings", Document.class);
             if (notificationSettingsDoc != null) {
                 for (Map.Entry<String, Object> entry : notificationSettingsDoc.entrySet()) {
@@ -911,130 +1217,198 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
                     }
                 }
             }
+        }
 
-            // Quest data
+        private void loadPlayerQuests(YakPlayer player, Document doc) {
             player.setCurrentQuest(doc.getString("current_quest") != null ? doc.getString("current_quest") : "");
             player.setQuestProgress(doc.getInteger("quest_progress", 0));
             player.setCompletedQuests(doc.getList("completed_quests", String.class, new ArrayList<>()));
             player.setQuestPoints(doc.getInteger("quest_points", 0));
             player.setDailyQuestsCompleted(doc.getInteger("daily_quests_completed", 0));
             player.setLastDailyQuestReset(doc.getLong("last_daily_quest_reset") != null ? doc.getLong("last_daily_quest_reset") : 0);
-
-            // All other fields remain the same...
-            // [Continuing with all the other fields as in the original code]
-
-            logger.fine("Successfully converted document to player: " + player.getUsername());
-            return player;
-
-        } catch (Exception e) {
-            logger.log(Level.SEVERE, "Error converting document to player", e);
-            return null;
-        }
-    }
-
-    /**
-     * FIXED: Convert a YakPlayer object to a MongoDB document
-     */
-    private Document playerToDocument(YakPlayer player) {
-        if (player == null) {
-            logger.warning("Cannot convert null player to document");
-            return null;
         }
 
-        if (player.getUUID() == null) {
-            logger.severe("Cannot convert player with null UUID to document");
-            return null;
+        private void loadPlayerProfessions(YakPlayer player, Document doc) {
+            player.setPickaxeLevel(doc.getInteger("pickaxe_level", 0));
+            player.setFishingLevel(doc.getInteger("fishing_level", 0));
+            player.setMiningXp(doc.getInteger("mining_xp", 0));
+            player.setFishingXp(doc.getInteger("fishing_xp", 0));
+            player.setFarmingLevel(doc.getInteger("farming_level", 0));
+            player.setFarmingXP(doc.getInteger("farming_xp", 0));
+            player.setWoodcuttingLevel(doc.getInteger("woodcutting_level", 0));
+            player.setWoodcuttingXP(doc.getInteger("woodcutting_xp", 0));
         }
 
-        try {
-            Document doc = new Document();
-
-            // Basic identification
-            doc.append("uuid", player.getUUID().toString());
-            doc.append("username", player.getUsername() != null ? player.getUsername() : "Unknown");
-            doc.append("last_login", player.getLastLogin());
-            doc.append("last_logout", player.getLastLogout());
-            doc.append("first_join", player.getFirstJoin());
-            doc.append("total_playtime", player.getTotalPlaytime());
-
-            if (player.getIpAddress() != null) {
-                doc.append("ip_address", player.getIpAddress());
-            }
-
-            // Player progression and stats
-            doc.append("level", player.getLevel());
-            doc.append("exp", player.getExp());
-            doc.append("monster_kills", player.getMonsterKills());
-            doc.append("player_kills", player.getPlayerKills());
-            doc.append("deaths", player.getDeaths());
-            doc.append("ore_mined", player.getOreMined());
-            doc.append("fish_caught", player.getFishCaught());
-            doc.append("blocks_broken", player.getBlocksBroken());
-            doc.append("distance_traveled", player.getDistanceTraveled());
-
-            // Economic data
-            doc.append("gems", player.getGems());
-            doc.append("bank_gems", player.getBankGems());
-            doc.append("elite_shards", player.getEliteShards());
-            doc.append("total_gems_earned", player.getTotalGemsEarned());
-            doc.append("total_gems_spent", player.getTotalGemsSpent());
-
-            // Bank data
-            doc.append("bank_pages", player.getBankPages());
-            doc.append("bank_authorized_users", player.getBankAuthorizedUsers());
-            doc.append("bank_access_log", player.getBankAccessLog());
-
-            // Serialize bank inventory data
-            Document bankItems = new Document();
-            Map<Integer, String> bankItemsMap = player.getAllSerializedBankItems();
-            if (bankItemsMap != null) {
-                for (Map.Entry<Integer, String> entry : bankItemsMap.entrySet()) {
-                    if (entry.getKey() != null && entry.getValue() != null) {
-                        bankItems.append(entry.getKey().toString(), entry.getValue());
-                    }
-                }
-            }
-            doc.append("bank_inventory", bankItems);
-
-            // All other fields remain the same...
-            // [Continuing with all the other fields as in the original code]
-
-            logger.fine("Successfully converted player to document: " + player.getUsername());
-            return doc;
-
-        } catch (Exception e) {
-            logger.log(Level.SEVERE, "Error converting player to document for " + player.getUsername(), e);
-            return null;
-        }
-    }
-
-    /**
-     * Check if the repository is properly initialized
-     */
-    public boolean isInitialized() {
-        return repositoryInitialized.get() && collection != null;
-    }
-
-    /**
-     * Get repository status for debugging
-     */
-    public Map<String, Object> getRepositoryStatus() {
-        Map<String, Object> status = new HashMap<>();
-        status.put("initialized", repositoryInitialized.get());
-        status.put("collection_available", collection != null);
-        status.put("backup_collection_available", backupCollection != null);
-        status.put("cached_players", playerCache.size());
-        status.put("name_cache_size", nameToUuidCache.size());
-        status.put("performing_batch_operation", performingBatchOperation.get());
-
-        try {
-            MongoDBManager mongoDBManager = MongoDBManager.getInstance();
-            status.put("mongodb_connected", mongoDBManager != null && mongoDBManager.isConnected());
-        } catch (Exception e) {
-            status.put("mongodb_connected", false);
-            status.put("mongodb_error", e.getMessage());
+        private void loadPlayerPvP(YakPlayer player, Document doc) {
+            player.setT1Kills(doc.getInteger("t1_kills", 0));
+            player.setT2Kills(doc.getInteger("t2_kills", 0));
+            player.setT3Kills(doc.getInteger("t3_kills", 0));
+            player.setT4Kills(doc.getInteger("t4_kills", 0));
+            player.setT5Kills(doc.getInteger("t5_kills", 0));
+            player.setT6Kills(doc.getInteger("t6_kills", 0));
+            player.setKillStreak(doc.getInteger("kill_streak", 0));
+            player.setBestKillStreak(doc.getInteger("best_kill_streak", 0));
+            player.setPvpRating(doc.getInteger("pvp_rating", 1000));
         }
 
-        return status;
+        private void loadPlayerSocial(YakPlayer player, Document doc) {
+            player.setTradeDisabled(doc.getBoolean("trade_disabled", false));
+            player.setBuddies(doc.getList("buddies", String.class, new ArrayList<>()));
+            player.setEnergyDisabled(doc.getBoolean("energy_disabled", false));
+        }
+
+        private void loadPlayerLocation(YakPlayer player, Document doc) {
+            player.setWorld(doc.getString("world"));
+            player.setLocationX(doc.getDouble("location_x") != null ? doc.getDouble("location_x") : 0.0);
+            player.setLocationY(doc.getDouble("location_y") != null ? doc.getDouble("location_y") : 0.0);
+            player.setLocationZ(doc.getDouble("location_z") != null ? doc.getDouble("location_z") : 0.0);
+            player.setLocationYaw(doc.get("location_yaw") instanceof Number ? ((Number) doc.get("location_yaw")).floatValue() : 0.0f);
+            player.setLocationPitch(doc.get("location_pitch") instanceof Number ? ((Number) doc.get("location_pitch")).floatValue() : 0.0f);
+        }
+
+        private void loadPlayerInventory(YakPlayer player, Document doc) {
+            player.setSerializedInventory(doc.getString("inventory_contents"));
+            player.setSerializedArmor(doc.getString("armor_contents"));
+            player.setSerializedEnderChest(doc.getString("ender_chest_contents"));
+            player.setSerializedOffhand(doc.getString("offhand_item"));
+        }
+
+        private void loadPlayerStats(YakPlayer player, Document doc) {
+            player.setHealth(doc.getDouble("health") != null ? doc.getDouble("health") : 20.0);
+            player.setMaxHealth(doc.getDouble("max_health") != null ? doc.getDouble("max_health") : 20.0);
+            player.setFoodLevel(doc.getInteger("food_level", 20));
+            player.setSaturation(doc.get("saturation") instanceof Number ? ((Number) doc.get("saturation")).floatValue() : 5.0f);
+            player.setXpLevel(doc.getInteger("xp_level", 0));
+            player.setXpProgress(doc.get("xp_progress") instanceof Number ? ((Number) doc.get("xp_progress")).floatValue() : 0.0f);
+            player.setTotalExperience(doc.getInteger("total_experience", 0));
+            player.setBedSpawnLocation(doc.getString("bed_spawn_location"));
+            player.setGameMode(doc.getString("gamemode") != null ? doc.getString("gamemode") : "SURVIVAL");
+            player.setActivePotionEffects(doc.getList("active_potion_effects", String.class, new ArrayList<>()));
+        }
+
+        private void loadPlayerAchievements(YakPlayer player, Document doc) {
+            player.setAchievementPoints(doc.getInteger("achievement_points", 0));
+            player.setLastDailyReward(doc.getLong("last_daily_reward") != null ? doc.getLong("last_daily_reward") : 0);
+            player.setDamageDealt(doc.getLong("damage_dealt") != null ? doc.getLong("damage_dealt") : 0);
+            player.setDamageTaken(doc.getLong("damage_taken") != null ? doc.getLong("damage_taken") : 0);
+            player.setDamageBlocked(doc.getLong("damage_blocked") != null ? doc.getLong("damage_blocked") : 0);
+            player.setDamageDodged(doc.getLong("damage_dodged") != null ? doc.getLong("damage_dodged") : 0);
+        }
+
+        // Helper methods for saving specific player data sections
+        private void savePlayerAlignment(YakPlayer player, Document doc) {
+            doc.append("alignment", player.getAlignment());
+            doc.append("chaotic_time", player.getChaoticTime());
+            doc.append("neutral_time", player.getNeutralTime());
+            doc.append("alignment_changes", player.getAlignmentChanges());
+        }
+
+        private void savePlayerModeration(YakPlayer player, Document doc) {
+            doc.append("rank", player.getRank());
+            doc.append("banned", player.isBanned());
+            doc.append("ban_reason", player.getBanReason());
+            doc.append("ban_expiry", player.getBanExpiry());
+            doc.append("muted", player.getMuteTime());
+            doc.append("warnings", player.getWarnings());
+            doc.append("last_warning", player.getLastWarning());
+        }
+
+        private void savePlayerChat(YakPlayer player, Document doc) {
+            doc.append("chat_tag", player.getChatTag());
+            doc.append("unlocked_chat_tags", new ArrayList<>(player.getUnlockedChatTags()));
+            doc.append("chat_color", player.getChatColor());
+        }
+
+        private void savePlayerMount(YakPlayer player, Document doc) {
+            doc.append("horse_tier", player.getHorseTier());
+            doc.append("horse_name", player.getHorseName());
+        }
+
+        private void savePlayerGuild(YakPlayer player, Document doc) {
+            doc.append("guild_name", player.getGuildName());
+            doc.append("guild_rank", player.getGuildRank());
+            doc.append("guild_contribution", player.getGuildContribution());
+        }
+
+        private void savePlayerPreferences(YakPlayer player, Document doc) {
+            doc.append("toggle_settings", new ArrayList<>(player.getToggleSettings()));
+            doc.append("notification_settings", new Document(player.getNotificationSettings()));
+        }
+
+        private void savePlayerQuests(YakPlayer player, Document doc) {
+            doc.append("current_quest", player.getCurrentQuest());
+            doc.append("quest_progress", player.getQuestProgress());
+            doc.append("completed_quests", new ArrayList<>(player.getCompletedQuests()));
+            doc.append("quest_points", player.getQuestPoints());
+            doc.append("daily_quests_completed", player.getDailyQuestsCompleted());
+            doc.append("last_daily_quest_reset", player.getLastDailyQuestReset());
+        }
+
+        private void savePlayerProfessions(YakPlayer player, Document doc) {
+            doc.append("pickaxe_level", player.getPickaxeLevel());
+            doc.append("fishing_level", player.getFishingLevel());
+            doc.append("mining_xp", player.getMiningXp());
+            doc.append("fishing_xp", player.getFishingXp());
+            doc.append("farming_level", player.getFarmingLevel());
+            doc.append("farming_xp", player.getFarmingXP());
+            doc.append("woodcutting_level", player.getWoodcuttingLevel());
+            doc.append("woodcutting_xp", player.getWoodcuttingXP());
+        }
+
+        private void savePlayerPvP(YakPlayer player, Document doc) {
+            doc.append("t1_kills", player.getT1Kills());
+            doc.append("t2_kills", player.getT2Kills());
+            doc.append("t3_kills", player.getT3Kills());
+            doc.append("t4_kills", player.getT4Kills());
+            doc.append("t5_kills", player.getT5Kills());
+            doc.append("t6_kills", player.getT6Kills());
+            doc.append("kill_streak", player.getKillStreak());
+            doc.append("best_kill_streak", player.getBestKillStreak());
+            doc.append("pvp_rating", player.getPvpRating());
+        }
+
+        private void savePlayerSocial(YakPlayer player, Document doc) {
+            doc.append("trade_disabled", player.isTradeDisabled());
+            doc.append("buddies", new ArrayList<>(player.getBuddies()));
+            doc.append("energy_disabled", player.isEnergyDisabled());
+        }
+
+        private void savePlayerLocation(YakPlayer player, Document doc) {
+            doc.append("world", player.getWorld());
+            doc.append("location_x", player.getLocationX());
+            doc.append("location_y", player.getLocationY());
+            doc.append("location_z", player.getLocationZ());
+            doc.append("location_yaw", player.getLocationYaw());
+            doc.append("location_pitch", player.getLocationPitch());
+        }
+
+        private void savePlayerInventory(YakPlayer player, Document doc) {
+            doc.append("inventory_contents", player.getSerializedInventory());
+            doc.append("armor_contents", player.getSerializedArmor());
+            doc.append("ender_chest_contents", player.getSerializedEnderChest());
+            doc.append("offhand_item", player.getSerializedOffhand());
+        }
+
+        private void savePlayerStats(YakPlayer player, Document doc) {
+            doc.append("health", player.getHealth());
+            doc.append("max_health", player.getMaxHealth());
+            doc.append("food_level", player.getFoodLevel());
+            doc.append("saturation", player.getSaturation());
+            doc.append("xp_level", player.getXpLevel());
+            doc.append("xp_progress", player.getXpProgress());
+            doc.append("total_experience", player.getTotalExperience());
+            doc.append("bed_spawn_location", player.getBedSpawnLocation());
+            doc.append("gamemode", player.getGameMode());
+            doc.append("active_potion_effects", player.getActivePotionEffects());
+        }
+
+        private void savePlayerAchievements(YakPlayer player, Document doc) {
+            doc.append("achievement_points", player.getAchievementPoints());
+            doc.append("last_daily_reward", player.getLastDailyReward());
+            doc.append("damage_dealt", player.getDamageDealt());
+            doc.append("damage_taken", player.getDamageTaken());
+            doc.append("damage_blocked", player.getDamageBlocked());
+            doc.append("damage_dodged", player.getDamageDodged());
+        }
     }
 }
