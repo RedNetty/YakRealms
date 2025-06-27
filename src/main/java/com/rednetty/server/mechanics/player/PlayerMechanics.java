@@ -25,8 +25,10 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
- * Enhanced main coordinator for all player-related mechanics with improved
+ * FIXED: Enhanced main coordinator for all player-related mechanics with improved
  * initialization, error handling, and performance monitoring.
+ *
+ * Removed duplicate PlayerJoinEvent handler to prevent conflicts!
  */
 public class PlayerMechanics implements Listener {
     private static PlayerMechanics instance;
@@ -160,6 +162,7 @@ public class PlayerMechanics implements Listener {
 
     /**
      * Register event listeners for PlayerMechanics coordination
+     * FIXED: Only register events that this class should handle
      */
     private void registerEventListeners() {
         Bukkit.getServer().getPluginManager().registerEvents(this, YakRealms.getInstance());
@@ -239,6 +242,39 @@ public class PlayerMechanics implements Listener {
         }
 
         logger.info("All subsystems validated successfully");
+    }
+
+    /**
+     * REMOVED: PlayerJoinEvent handler - this is now handled by JoinLeaveListener
+     * to prevent duplicate processing and MOTD spam
+     */
+
+    /**
+     * FIXED: Only handle quit events for coordination purposes
+     * The actual data saving is handled by YakPlayerManager
+     */
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onPlayerQuit(PlayerQuitEvent event) {
+        totalPlayerQuits.incrementAndGet();
+
+        // Coordinate any cross-subsystem player quit logic here
+        Player player = event.getPlayer();
+        cleanupPlayerSystems(player);
+    }
+
+    /**
+     * Clean up player-specific systems
+     */
+    private void cleanupPlayerSystems(Player player) {
+        try {
+            // Perform any cross-system cleanup here
+            UUID uuid = player.getUniqueId();
+
+            // Example: Clean up any temporary data or caches
+            logger.fine("Cleaned up cross-systems for player: " + player.getName());
+        } catch (Exception e) {
+            logger.log(Level.WARNING, "Error cleaning up player systems for " + player.getName(), e);
+        }
     }
 
     /**
@@ -513,63 +549,6 @@ public class PlayerMechanics implements Listener {
                 }
             }
         });
-    }
-
-    // Event handlers for coordination
-
-    @EventHandler(priority = EventPriority.MONITOR)
-    public void onPlayerJoin(PlayerJoinEvent event) {
-        totalPlayerJoins.incrementAndGet();
-
-        // Coordinate any cross-subsystem player join logic here
-        Player player = event.getPlayer();
-
-        // Example: Initialize player-specific data across systems
-        Bukkit.getScheduler().runTaskLater(YakRealms.getInstance(), () -> {
-            initializePlayerSystems(player);
-        }, 20L); // 1 second delay to ensure player is fully loaded
-    }
-
-    @EventHandler(priority = EventPriority.MONITOR)
-    public void onPlayerQuit(PlayerQuitEvent event) {
-        totalPlayerQuits.incrementAndGet();
-
-        // Coordinate any cross-subsystem player quit logic here
-        Player player = event.getPlayer();
-        cleanupPlayerSystems(player);
-    }
-
-    /**
-     * Initialize player-specific systems
-     */
-    private void initializePlayerSystems(Player player) {
-        if (!player.isOnline()) return;
-
-        try {
-            // Ensure player data is loaded and systems are synchronized
-            YakPlayer yakPlayer = playerManager.getPlayer(player);
-            if (yakPlayer != null) {
-                // Cross-system initialization can be added here
-                logger.fine("Initialized cross-systems for player: " + player.getName());
-            }
-        } catch (Exception e) {
-            logger.log(Level.WARNING, "Error initializing player systems for " + player.getName(), e);
-        }
-    }
-
-    /**
-     * Clean up player-specific systems
-     */
-    private void cleanupPlayerSystems(Player player) {
-        try {
-            // Perform any cross-system cleanup here
-            UUID uuid = player.getUniqueId();
-
-            // Example: Clean up any temporary data or caches
-            logger.fine("Cleaned up cross-systems for player: " + player.getName());
-        } catch (Exception e) {
-            logger.log(Level.WARNING, "Error cleaning up player systems for " + player.getName(), e);
-        }
     }
 
     // Public API methods for other systems

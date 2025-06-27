@@ -63,8 +63,9 @@ import java.util.concurrent.ThreadLocalRandom;
 import java.util.logging.Level;
 
 /**
- * Main plugin class for YakRealms
+ * FIXED: Main plugin class for YakRealms
  * Handles initialization of all core systems with enhanced error handling and modern features
+ * Fixed initialization order to prevent duplicate event handlers and health bar issues
  */
 public class YakRealms extends JavaPlugin {
     //TODO: Professions, Merchant, Worldboss, Races
@@ -154,7 +155,7 @@ public class YakRealms extends JavaPlugin {
             // Creates a sessionID for this run-time of the plugin
             sessionID = ThreadLocalRandom.current().nextInt();
 
-            // Initialize systems in proper order with enhanced error handling
+            // FIXED: Initialize systems in proper order to prevent conflicts
             if (!initializeCore()) {
                 getLogger().severe("Failed to initialize core systems! Disabling plugin.");
                 getServer().getPluginManager().disablePlugin(this);
@@ -198,7 +199,7 @@ public class YakRealms extends JavaPlugin {
     }
 
     /**
-     * Initialize core systems required for basic functionality
+     * FIXED: Initialize core systems in the correct order
      */
     private boolean initializeCore() {
         try {
@@ -210,14 +211,36 @@ public class YakRealms extends JavaPlugin {
                 return false;
             }
 
-            // Initialize core player systems
-            if (!initializePlayerSystems()) {
+            // FIXED: Initialize player systems in correct order to prevent conflicts
+            if (!initializeCorePlayerSystems()) {
                 return false;
             }
 
             return true;
         } catch (Exception e) {
             getLogger().log(Level.SEVERE, "Error initializing core systems", e);
+            return false;
+        }
+    }
+
+    /**
+     * FIXED: Initialize core player systems in proper order
+     */
+    private boolean initializeCorePlayerSystems() {
+        try {
+            // 1. Initialize PlayerMechanics first (this will initialize YakPlayerManager)
+            getLogger().info("Initializing PlayerMechanics...");
+            playerMechanics = PlayerMechanics.getInstance();
+            playerMechanics.onEnable();
+
+            // 2. Get references to initialized systems
+            playerManager = playerMechanics.getPlayerManager();
+            playerListenerManager = playerMechanics.getListenerManager();
+
+            getLogger().info("Core player systems initialized!");
+            return true;
+        } catch (Exception e) {
+            getLogger().log(Level.SEVERE, "Error initializing core player systems", e);
             return false;
         }
     }
@@ -277,33 +300,6 @@ public class YakRealms extends JavaPlugin {
             return success;
         } catch (Exception e) {
             getLogger().log(Level.SEVERE, "Error initializing game systems", e);
-            return false;
-        }
-    }
-
-    /**
-     * Initialize player-related systems
-     */
-    private boolean initializePlayerSystems() {
-        try {
-            // Initialize player manager
-            playerManager = YakPlayerManager.getInstance();
-            playerManager.onEnable();
-            getLogger().info("Player manager initialized!");
-
-            // Initialize player mechanics
-            playerMechanics = PlayerMechanics.getInstance();
-            playerMechanics.onEnable();
-            getLogger().info("Player mechanics initialized!");
-
-            // Initialize player listener system
-            playerListenerManager = PlayerListenerManager.getInstance();
-            playerListenerManager.onEnable();
-            getLogger().info("Player listener system initialized!");
-
-            return true;
-        } catch (Exception e) {
-            getLogger().log(Level.SEVERE, "Error initializing player systems", e);
             return false;
         }
     }
@@ -520,26 +516,16 @@ public class YakRealms extends JavaPlugin {
             crateManager.shutdown();
         }
 
-        // Save all player data
-        if (playerManager != null) {
-            playerManager.onDisable();
-        }
-
-        // Disable other systems in reverse order
+        // FIXED: Shutdown PlayerMechanics which handles all player systems
         if (playerMechanics != null) {
             playerMechanics.onDisable();
         }
 
+        // Disable other systems in reverse order
         if (partyMechanics != null) {
             partyMechanics.onDisable();
         }
-
-        if (playerListenerManager != null) {
-            playerListenerManager.onDisable();
-        }
-
     }
-
 
     private boolean initializePartyMechanics() {
         try {
@@ -591,7 +577,6 @@ public class YakRealms extends JavaPlugin {
     public CrateManager getCrateManager() {
         return crateManager;
     }
-
 
     // Add placeholder implementations for missing initialization methods
     private boolean initializeAlignmentMechanics() {

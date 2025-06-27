@@ -14,7 +14,6 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.AsyncPlayerPreLoginEvent;
-import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.plugin.Plugin;
 import org.bukkit.scheduler.BukkitRunnable;
@@ -38,6 +37,8 @@ import java.util.stream.Collectors;
 /**
  * Complete enhanced YakPlayer manager focused purely on data management operations.
  * UI/presentation logic is handled by JoinLeaveListener to avoid duplication.
+ *
+ * REMOVED PlayerJoinEvent handler to prevent duplicate processing!
  */
 public class YakPlayerManager implements Listener {
     private static YakPlayerManager instance;
@@ -311,7 +312,7 @@ public class YakPlayerManager implements Listener {
         try {
             logger.info("Starting enhanced YakPlayerManager initialization...");
 
-            // Register events first
+            // Register ONLY pre-login and quit events - NO PlayerJoinEvent!
             Bukkit.getServer().getPluginManager().registerEvents(this, plugin);
 
             // Initialize repository connection
@@ -342,145 +343,8 @@ public class YakPlayerManager implements Listener {
     }
 
     /**
-     * Initialize repository with connection validation
-     */
-    private boolean initializeRepository() {
-        try {
-            logger.info("Repository connection validated successfully");
-            return true;
-        } catch (Exception e) {
-            logger.log(Level.SEVERE, "Error testing repository connection", e);
-            return false;
-        }
-    }
-
-    /**
-     * Enhanced task system with adaptive scheduling
-     */
-    private void startEnhancedTaskSystem() {
-        // Enhanced auto-save with adaptive intervals
-        autoSaveTask = new BukkitRunnable() {
-            @Override
-            public void run() {
-                if (shutdownInProgress) return;
-
-                try {
-                    performIntelligentSave();
-                } catch (Exception e) {
-                    logger.log(Level.SEVERE, "Error during auto-save task", e);
-                    logDataError("Error during auto-save task", e);
-                    systemHealthy.set(false);
-                }
-            }
-        }.runTaskTimerAsynchronously(plugin, autoSaveInterval, autoSaveInterval);
-
-        // Enhanced emergency backup
-        emergencyBackupTask = new BukkitRunnable() {
-            @Override
-            public void run() {
-                if (shutdownInProgress) return;
-
-                try {
-                    performEmergencyBackup();
-                } catch (Exception e) {
-                    logger.log(Level.SEVERE, "Error during emergency backup", e);
-                    systemHealthy.set(false);
-                }
-            }
-        }.runTaskTimerAsynchronously(plugin, emergencyBackupInterval, emergencyBackupInterval);
-
-        // Enhanced cache maintenance
-        cacheMaintenance = new BukkitRunnable() {
-            @Override
-            public void run() {
-                if (shutdownInProgress) return;
-
-                try {
-                    performAdvancedCacheMaintenance();
-                } catch (Exception e) {
-                    logger.log(Level.SEVERE, "Error during cache maintenance", e);
-                }
-            }
-        }.runTaskTimerAsynchronously(plugin, cacheMaintenanceInterval, cacheMaintenanceInterval);
-
-        // Enhanced performance monitoring
-        performanceMonitor = new BukkitRunnable() {
-            @Override
-            public void run() {
-                if (shutdownInProgress) return;
-
-                try {
-                    performComprehensiveMonitoring();
-                } catch (Exception e) {
-                    logger.log(Level.SEVERE, "Error during performance monitoring", e);
-                }
-            }
-        }.runTaskTimerAsynchronously(plugin, performanceMonitorInterval, performanceMonitorInterval);
-
-        // Data validation task
-        dataValidationTask = new BukkitRunnable() {
-            @Override
-            public void run() {
-                if (shutdownInProgress) return;
-
-                try {
-                    performDataValidation();
-                } catch (Exception e) {
-                    logger.log(Level.SEVERE, "Error during data validation", e);
-                }
-            }
-        }.runTaskTimerAsynchronously(plugin, 72000L, 72000L);
-
-        // System health check
-        healthCheckTask = new BukkitRunnable() {
-            @Override
-            public void run() {
-                if (shutdownInProgress) return;
-
-                try {
-                    performSystemHealthCheck();
-                } catch (Exception e) {
-                    logger.log(Level.SEVERE, "Error during health check", e);
-                    systemHealthy.set(false);
-                }
-            }
-        }.runTaskTimerAsynchronously(plugin, 6000L, 6000L);
-
-        logger.info("Enhanced task system started with adaptive scheduling");
-    }
-
-    /**
-     * Initialize system integration monitoring
-     */
-    private void initializeSystemIntegration() {
-        Bukkit.getScheduler().runTaskLater(plugin, () -> {
-            try {
-                if (ChatMechanics.getInstance() != null) {
-                    chatSystemReady.set(true);
-                    logger.info("Chat system integration verified");
-                }
-            } catch (Exception e) {
-                logger.warning("Chat system not ready: " + e.getMessage());
-            }
-
-            try {
-                if (ModerationMechanics.getInstance() != null) {
-                    moderationSystemReady.set(true);
-                    logger.info("Moderation system integration verified");
-                }
-            } catch (Exception e) {
-                logger.warning("Moderation system not ready: " + e.getMessage());
-            }
-
-            boolean allSystemsReady = chatSystemReady.get() && moderationSystemReady.get();
-            systemHealthy.set(allSystemsReady);
-
-            logger.info("System integration monitoring initialized - Health: " + (allSystemsReady ? "GOOD" : "DEGRADED"));
-        }, 40L);
-    }
-
-    /**
      * Enhanced pre-login handling with comprehensive ban checking
+     * This is the ONLY player event we handle here
      */
     @EventHandler(priority = EventPriority.LOWEST)
     public void onPlayerPreLogin(AsyncPlayerPreLoginEvent event) {
@@ -560,222 +424,7 @@ public class YakPlayerManager implements Listener {
     }
 
     /**
-     * Enhanced player join handling with comprehensive validation
-     * Focus on data loading/creation, leaving UI to JoinLeaveListener
-     */
-    @EventHandler(priority = EventPriority.HIGHEST)
-    public void onPlayerJoin(PlayerJoinEvent event) {
-        Player player = event.getPlayer();
-        UUID uuid = player.getUniqueId();
-
-        if (onlinePlayers.containsKey(uuid)) {
-            duplicateLogins.incrementAndGet();
-            logger.warning("Duplicate login detected for " + player.getName() + " (" + uuid + ")");
-
-            YakPlayer existingPlayer = onlinePlayers.get(uuid);
-            if (existingPlayer != null) {
-                existingPlayer.disconnect();
-            }
-        }
-
-        playerLocks.computeIfAbsent(uuid, k -> new ReentrantLock());
-        playerNameCache.put(player.getName().toLowerCase(), uuid);
-
-        CompletableFuture.supplyAsync(() -> {
-            try {
-                return loadPlayerForJoinEnhanced(uuid, player.getName());
-            } catch (Exception e) {
-                logger.log(Level.SEVERE, "Error loading player on join: " + player.getName(), e);
-                emergencyCreations.incrementAndGet();
-                return null;
-            }
-        }, priorityExecutor).thenAccept(yakPlayer -> {
-            Bukkit.getScheduler().runTask(plugin, () -> {
-                handlePlayerJoinResultEnhanced(player, yakPlayer);
-            });
-        }).exceptionally(ex -> {
-            logger.log(Level.SEVERE, "Critical error in player join handling", ex);
-
-            // Notify load listeners of failure
-            for (PlayerLoadListener listener : loadListeners) {
-                try {
-                    listener.onPlayerLoadFailed(player, (Exception) ex);
-                } catch (Exception e) {
-                    logger.log(Level.WARNING, "Error in load listener", e);
-                }
-            }
-
-            Bukkit.getScheduler().runTask(plugin, () -> {
-                player.kickPlayer(ChatColor.RED + "Unable to load player data. Please try again.");
-            });
-            return null;
-        });
-    }
-
-    private YakPlayer loadPlayerForJoinEnhanced(UUID uuid, String playerName) throws Exception {
-        if (onlinePlayers.containsKey(uuid)) {
-            logger.info("Player already loaded: " + playerName);
-            cacheHits.incrementAndGet();
-            return onlinePlayers.get(uuid);
-        }
-
-        cacheMisses.incrementAndGet();
-
-        try {
-            Optional<YakPlayer> playerOpt = repository.findById(uuid).get(25, TimeUnit.SECONDS);
-            totalLoads.incrementAndGet();
-
-            if (playerOpt.isPresent()) {
-                YakPlayer player = playerOpt.get();
-
-                if (dataValidator.validatePlayer(player)) {
-                    logAudit("PLAYER_LOADED", "Successfully loaded existing player: " + playerName);
-                    return player;
-                } else {
-                    if (attemptPlayerDataRepair(player)) {
-                        return player;
-                    } else {
-                        logger.severe("Unable to repair player data for " + playerName + ", creating emergency backup");
-                        return null;
-                    }
-                }
-            } else {
-                logAudit("NEW_PLAYER", "No existing data found for: " + playerName);
-                return null;
-            }
-
-        } catch (TimeoutException e) {
-            logger.severe("Database timeout loading player: " + playerName);
-            throw new RuntimeException("Database timeout", e);
-        } catch (Exception e) {
-            logger.log(Level.SEVERE, "Database error loading player: " + playerName, e);
-            throw e;
-        }
-    }
-
-    private void handlePlayerJoinResultEnhanced(Player player, YakPlayer yakPlayer) {
-        UUID uuid = player.getUniqueId();
-        boolean isNewPlayer = yakPlayer == null;
-
-        if (yakPlayer == null) {
-            yakPlayer = handleNewPlayerEnhanced(player);
-        } else {
-            handleExistingPlayerEnhanced(player, yakPlayer);
-        }
-
-        if (yakPlayer != null) {
-            lastPlayerActivity.put(uuid, System.currentTimeMillis());
-            playerLoadTimes.put(uuid, System.currentTimeMillis());
-            updatePlayerCaches(player, yakPlayer);
-
-            // Notify load listeners
-            for (PlayerLoadListener listener : loadListeners) {
-                try {
-                    listener.onPlayerLoaded(player, yakPlayer, isNewPlayer);
-                } catch (Exception e) {
-                    logger.log(Level.WARNING, "Error in load listener", e);
-                }
-            }
-        }
-    }
-
-    private YakPlayer handleNewPlayerEnhanced(Player player) {
-        UUID uuid = player.getUniqueId();
-
-        if (failedLoads.contains(uuid)) {
-            player.kickPlayer(ChatColor.RED + "Unable to create player data. Please contact an administrator.");
-            logDataError("Kicked new player after failed loads: " + player.getName());
-            return null;
-        }
-
-        try {
-            YakPlayer newPlayer = new YakPlayer(player);
-
-            if (!dataValidator.validatePlayer(newPlayer)) {
-                logger.severe("New player data validation failed for " + player.getName());
-                player.kickPlayer(ChatColor.RED + "Player data validation failed. Please contact an administrator.");
-                return null;
-            }
-
-            onlinePlayers.put(uuid, newPlayer);
-            initializePlayerSystemsEnhanced(player, newPlayer);
-
-            savePlayerEnhanced(newPlayer).thenAccept(success -> {
-                if (success) {
-                    logAudit("NEW_PLAYER_CREATED", "Successfully created new player: " + player.getName());
-                } else {
-                    logger.warning("Failed to save new player data for: " + player.getName());
-                }
-            });
-
-            logger.info("Created enhanced new player: " + player.getName());
-            return newPlayer;
-
-        } catch (Exception e) {
-            logger.log(Level.SEVERE, "Error creating new player: " + player.getName(), e);
-            failedLoads.add(uuid);
-            player.kickPlayer(ChatColor.RED + "Unable to create player data. Please try again.");
-            return null;
-        }
-    }
-
-    private void handleExistingPlayerEnhanced(Player player, YakPlayer yakPlayer) {
-        UUID uuid = player.getUniqueId();
-
-        try {
-            yakPlayer.connect(player);
-            onlinePlayers.put(uuid, yakPlayer);
-
-            applyPlayerData(player, yakPlayer);
-            initializePlayerSystemsEnhanced(player, yakPlayer);
-
-            logger.info("Loaded existing player: " + player.getName());
-
-        } catch (Exception e) {
-            logger.log(Level.SEVERE, "Error loading existing player: " + player.getName(), e);
-            handlePlayerDataError(player, e);
-        }
-    }
-
-    private void applyPlayerData(Player player, YakPlayer yakPlayer) {
-        try {
-            if (yakPlayer.getLocation() != null && yakPlayer.getLocation().getWorld() != null) {
-                player.teleport(yakPlayer.getLocation());
-            }
-
-            yakPlayer.applyInventory(player);
-            yakPlayer.applyStats(player);
-
-        } catch (Exception e) {
-            logger.log(Level.WARNING, "Error applying player data for " + player.getName(), e);
-            player.sendMessage(ChatColor.RED + "Warning: Some of your player data may not have loaded correctly. " +
-                    "Please report this to an administrator if you notice issues.");
-        }
-    }
-
-    private void handlePlayerDataError(Player player, Exception e) {
-        UUID uuid = player.getUniqueId();
-        logDataError("Error loading player data for " + player.getName(), e);
-
-        YakPlayer emergencyPlayer = new YakPlayer(player);
-        onlinePlayers.put(uuid, emergencyPlayer);
-        initializePlayerEnergyEnhanced(emergencyPlayer);
-
-        player.sendMessage(ChatColor.RED + "Error loading your player data. Emergency data created. " +
-                "Please report this issue to an administrator.");
-
-        notifyStaffOfDataError(player.getName());
-    }
-
-    private void notifyStaffOfDataError(String playerName) {
-        String message = ChatColor.DARK_RED + "[ADMIN] " + ChatColor.RED + "Data error for player: " + playerName;
-        Bukkit.getOnlinePlayers().stream()
-                .filter(p -> p.hasPermission("yakserver.admin"))
-                .forEach(p -> p.sendMessage(message));
-    }
-
-    /**
-     * Enhanced player quit handling
+     * Enhanced player quit handling - this stays here
      */
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onPlayerQuit(PlayerQuitEvent event) {
@@ -831,16 +480,238 @@ public class YakPlayerManager implements Listener {
         }, asyncExecutor);
     }
 
-    // Rest of the implementation remains the same as in the original file...
-    // Including all the private methods for:
-    // - loadExistingOnlinePlayersEnhanced
-    // - performIntelligentSave and related save methods
-    // - attemptPlayerDataRepair
-    // - initializePlayerSystemsEnhanced
-    // - All cache management methods
-    // - All monitoring and maintenance methods
-    // - All shutdown methods
-    // - Public API methods
+    // Public API for JoinLeaveListener to use
+    /**
+     * Load a player's data and register them online
+     * This is called by JoinLeaveListener, not an event handler
+     */
+    public CompletableFuture<YakPlayer> loadPlayerForJoin(Player player) {
+        UUID uuid = player.getUniqueId();
+        String playerName = player.getName();
+
+        if (onlinePlayers.containsKey(uuid)) {
+            duplicateLogins.incrementAndGet();
+            logger.warning("Duplicate login detected for " + playerName + " (" + uuid + ")");
+
+            YakPlayer existingPlayer = onlinePlayers.get(uuid);
+            if (existingPlayer != null) {
+                existingPlayer.disconnect();
+            }
+        }
+
+        playerLocks.computeIfAbsent(uuid, k -> new ReentrantLock());
+        playerNameCache.put(playerName.toLowerCase(), uuid);
+
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                return loadPlayerForJoinEnhanced(uuid, playerName);
+            } catch (Exception e) {
+                logger.log(Level.SEVERE, "Error loading player on join: " + playerName, e);
+                emergencyCreations.incrementAndGet();
+
+                // Notify load listeners of failure
+                for (PlayerLoadListener listener : loadListeners) {
+                    try {
+                        listener.onPlayerLoadFailed(player, e);
+                    } catch (Exception ex) {
+                        logger.log(Level.WARNING, "Error in load listener", ex);
+                    }
+                }
+
+                return null;
+            }
+        }, priorityExecutor);
+    }
+
+    /**
+     * Register a loaded player as online
+     */
+    public void registerPlayerOnline(Player player, YakPlayer yakPlayer, boolean isNewPlayer) {
+        UUID uuid = player.getUniqueId();
+
+        if (yakPlayer != null) {
+            onlinePlayers.put(uuid, yakPlayer);
+
+            if (!isNewPlayer) {
+                yakPlayer.connect(player);
+            }
+
+            initializePlayerSystemsEnhanced(player, yakPlayer);
+            lastPlayerActivity.put(uuid, System.currentTimeMillis());
+            playerLoadTimes.put(uuid, System.currentTimeMillis());
+            updatePlayerCaches(player, yakPlayer);
+
+            // Notify load listeners
+            for (PlayerLoadListener listener : loadListeners) {
+                try {
+                    listener.onPlayerLoaded(player, yakPlayer, isNewPlayer);
+                } catch (Exception e) {
+                    logger.log(Level.WARNING, "Error in load listener", e);
+                }
+            }
+        }
+    }
+
+    // All the rest of the implementation methods remain the same...
+    // [Continuing with all the private methods from the original implementation]
+
+    private YakPlayer loadPlayerForJoinEnhanced(UUID uuid, String playerName) throws Exception {
+        if (onlinePlayers.containsKey(uuid)) {
+            logger.info("Player already loaded: " + playerName);
+            cacheHits.incrementAndGet();
+            return onlinePlayers.get(uuid);
+        }
+
+        cacheMisses.incrementAndGet();
+
+        try {
+            Optional<YakPlayer> playerOpt = repository.findById(uuid).get(25, TimeUnit.SECONDS);
+            totalLoads.incrementAndGet();
+
+            if (playerOpt.isPresent()) {
+                YakPlayer player = playerOpt.get();
+
+                if (dataValidator.validatePlayer(player)) {
+                    logAudit("PLAYER_LOADED", "Successfully loaded existing player: " + playerName);
+                    return player;
+                } else {
+                    if (attemptPlayerDataRepair(player)) {
+                        return player;
+                    } else {
+                        logger.severe("Unable to repair player data for " + playerName + ", creating emergency backup");
+                        return null;
+                    }
+                }
+            } else {
+                logAudit("NEW_PLAYER", "No existing data found for: " + playerName);
+                return null;
+            }
+
+        } catch (TimeoutException e) {
+            logger.severe("Database timeout loading player: " + playerName);
+            throw new RuntimeException("Database timeout", e);
+        } catch (Exception e) {
+            logger.log(Level.SEVERE, "Database error loading player: " + playerName, e);
+            throw e;
+        }
+    }
+
+    private boolean initializeRepository() {
+        try {
+            logger.info("Repository connection validated successfully");
+            return true;
+        } catch (Exception e) {
+            logger.log(Level.SEVERE, "Error testing repository connection", e);
+            return false;
+        }
+    }
+
+    private void startEnhancedTaskSystem() {
+        autoSaveTask = new BukkitRunnable() {
+            @Override
+            public void run() {
+                if (shutdownInProgress) return;
+                try {
+                    performIntelligentSave();
+                } catch (Exception e) {
+                    logger.log(Level.SEVERE, "Error during auto-save task", e);
+                    logDataError("Error during auto-save task", e);
+                    systemHealthy.set(false);
+                }
+            }
+        }.runTaskTimerAsynchronously(plugin, autoSaveInterval, autoSaveInterval);
+
+        emergencyBackupTask = new BukkitRunnable() {
+            @Override
+            public void run() {
+                if (shutdownInProgress) return;
+                try {
+                    performEmergencyBackup();
+                } catch (Exception e) {
+                    logger.log(Level.SEVERE, "Error during emergency backup", e);
+                    systemHealthy.set(false);
+                }
+            }
+        }.runTaskTimerAsynchronously(plugin, emergencyBackupInterval, emergencyBackupInterval);
+
+        cacheMaintenance = new BukkitRunnable() {
+            @Override
+            public void run() {
+                if (shutdownInProgress) return;
+                try {
+                    performAdvancedCacheMaintenance();
+                } catch (Exception e) {
+                    logger.log(Level.SEVERE, "Error during cache maintenance", e);
+                }
+            }
+        }.runTaskTimerAsynchronously(plugin, cacheMaintenanceInterval, cacheMaintenanceInterval);
+
+        performanceMonitor = new BukkitRunnable() {
+            @Override
+            public void run() {
+                if (shutdownInProgress) return;
+                try {
+                    performComprehensiveMonitoring();
+                } catch (Exception e) {
+                    logger.log(Level.SEVERE, "Error during performance monitoring", e);
+                }
+            }
+        }.runTaskTimerAsynchronously(plugin, performanceMonitorInterval, performanceMonitorInterval);
+
+        dataValidationTask = new BukkitRunnable() {
+            @Override
+            public void run() {
+                if (shutdownInProgress) return;
+                try {
+                    performDataValidation();
+                } catch (Exception e) {
+                    logger.log(Level.SEVERE, "Error during data validation", e);
+                }
+            }
+        }.runTaskTimerAsynchronously(plugin, 72000L, 72000L);
+
+        healthCheckTask = new BukkitRunnable() {
+            @Override
+            public void run() {
+                if (shutdownInProgress) return;
+                try {
+                    performSystemHealthCheck();
+                } catch (Exception e) {
+                    logger.log(Level.SEVERE, "Error during health check", e);
+                    systemHealthy.set(false);
+                }
+            }
+        }.runTaskTimerAsynchronously(plugin, 6000L, 6000L);
+
+        logger.info("Enhanced task system started with adaptive scheduling");
+    }
+
+    private void initializeSystemIntegration() {
+        Bukkit.getScheduler().runTaskLater(plugin, () -> {
+            try {
+                if (ChatMechanics.getInstance() != null) {
+                    chatSystemReady.set(true);
+                    logger.info("Chat system integration verified");
+                }
+            } catch (Exception e) {
+                logger.warning("Chat system not ready: " + e.getMessage());
+            }
+
+            try {
+                if (ModerationMechanics.getInstance() != null) {
+                    moderationSystemReady.set(true);
+                    logger.info("Moderation system integration verified");
+                }
+            } catch (Exception e) {
+                logger.warning("Moderation system not ready: " + e.getMessage());
+            }
+
+            boolean allSystemsReady = chatSystemReady.get() && moderationSystemReady.get();
+            systemHealthy.set(allSystemsReady);
+
+            logger.info("System integration monitoring initialized - Health: " + (allSystemsReady ? "GOOD" : "DEGRADED"));
+        }, 40L);
+    }
 
     private void loadExistingOnlinePlayersEnhanced() {
         Collection<? extends Player> onlinePlayersList = Bukkit.getOnlinePlayers();
@@ -975,9 +846,6 @@ public class YakPlayerManager implements Listener {
         }, ioExecutor);
     }
 
-    /**
-     * Attempt to repair common player data issues
-     */
     private boolean attemptPlayerDataRepair(YakPlayer player) {
         boolean repaired = false;
 
@@ -1023,9 +891,6 @@ public class YakPlayerManager implements Listener {
         return repaired;
     }
 
-    /**
-     * Enhanced system initialization for players
-     */
     private void initializePlayerSystemsEnhanced(Player player, YakPlayer yakPlayer) {
         UUID uuid = player.getUniqueId();
 
@@ -1107,12 +972,6 @@ public class YakPlayerManager implements Listener {
         }
     }
 
-    // Continue with all the save, monitoring, and maintenance methods...
-    // (Due to space constraints, I'm including the key methods. The full implementation would include all methods from the original)
-
-    /**
-     * Intelligent save system with adaptive algorithms
-     */
     private void performIntelligentSave() {
         List<UUID> playersToSave = determinePlayersToSaveIntelligently();
 
@@ -1161,7 +1020,6 @@ public class YakPlayerManager implements Listener {
         long currentTime = System.currentTimeMillis();
         long saveThreshold = currentTime - TimeUnit.MINUTES.toMillis(10);
 
-        // Priority 1: Dirty players that haven't been saved recently
         List<UUID> priorityPlayers = allPlayers.stream()
                 .filter(uuid -> {
                     YakPlayer player = onlinePlayers.get(uuid);
@@ -1175,7 +1033,6 @@ public class YakPlayerManager implements Listener {
                     priorityPlayers.subList(0, savePlayersPerCycle) : priorityPlayers;
         }
 
-        // Priority 2: Players that haven't been saved recently
         List<UUID> stalePlayersSaveRotation = allPlayers.stream()
                 .filter(uuid -> !playerSaveTimes.containsKey(uuid) || playerSaveTimes.get(uuid) < saveThreshold)
                 .collect(Collectors.toList());
@@ -1185,7 +1042,6 @@ public class YakPlayerManager implements Listener {
                     stalePlayersSaveRotation.subList(0, savePlayersPerCycle) : stalePlayersSaveRotation;
         }
 
-        // Priority 3: Rotating subset
         Collections.rotate(allPlayers, -saveCounter.getAndIncrement());
         return allPlayers.subList(0, Math.min(savePlayersPerCycle, allPlayers.size()));
     }
@@ -1278,7 +1134,6 @@ public class YakPlayerManager implements Listener {
                         player.clearDirty();
                         updateDisplayNameCacheEnhanced(player);
 
-                        // Notify save listeners
                         for (PlayerSaveListener listener : saveListeners) {
                             try {
                                 listener.onPlayerSaved(player);
@@ -1293,7 +1148,6 @@ public class YakPlayerManager implements Listener {
                         logger.log(Level.SEVERE, "Error saving player: " + player.getUsername(), e);
                         logDataError("Error saving player: " + player.getUsername(), e);
 
-                        // Notify save listeners of failure
                         for (PlayerSaveListener listener : saveListeners) {
                             try {
                                 listener.onPlayerSaveFailed(player, e);
@@ -1327,7 +1181,6 @@ public class YakPlayerManager implements Listener {
         }
     }
 
-    // Enhanced monitoring methods
     private void performEmergencyBackup() {
         forceSaveAll.set(true);
         performIntelligentSave();
@@ -1537,9 +1390,6 @@ public class YakPlayerManager implements Listener {
         logDataError(message, null);
     }
 
-    /**
-     * Enhanced shutdown process
-     */
     public void onDisable() {
         shutdownInProgress = true;
         logger.info("Starting enhanced shutdown process...");
@@ -1725,7 +1575,6 @@ public class YakPlayerManager implements Listener {
         }, asyncExecutor);
     }
 
-    // Enhanced save methods
     public CompletableFuture<Boolean> savePlayer(YakPlayer player) {
         return savePlayerEnhanced(player);
     }

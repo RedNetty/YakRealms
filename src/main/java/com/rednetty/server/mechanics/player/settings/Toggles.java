@@ -28,6 +28,7 @@ import java.util.stream.Collectors;
 /**
  * Enhanced toggle system with improved UI, better performance,
  * validation, and enhanced user experience.
+ * FIXED: Inventory bounds issue that was causing ArrayIndexOutOfBoundsException
  */
 public class Toggles implements Listener {
     private static Toggles instance;
@@ -37,9 +38,12 @@ public class Toggles implements Listener {
     // Enhanced confirmation system
     private final Map<UUID, PendingConfirmation> confirmationMap = new ConcurrentHashMap<>();
 
-    // Configuration
+    // Configuration - FIXED: Better slot management
     private final long CONFIRMATION_EXPIRY = 15000; // 15 seconds
     private final int MENU_SIZE = 54; // 6 rows for better organization
+    private final int USABLE_SLOTS = 45; // Reserve bottom row for navigation/info (slots 0-44)
+    private final int INFO_SLOT = 53; // Bottom right corner
+    private final int MAX_TOGGLES_PER_CATEGORY = 7; // Limit toggles per row to prevent overflow
 
     // Toggle definitions with enhanced metadata
     private final Map<String, ToggleDefinition> toggleDefinitions = new HashMap<>();
@@ -381,7 +385,7 @@ public class Toggles implements Listener {
     }
 
     /**
-     * Enhanced toggle menu with improved organization and visuals
+     * FIXED: Enhanced toggle menu with improved organization and proper bounds checking
      */
     public Inventory getToggleMenu(Player player) {
         Inventory inventory = Bukkit.createInventory(null, MENU_SIZE, "§6§l✦ §e§lTOGGLE SETTINGS §6§l✦");
@@ -393,44 +397,73 @@ public class Toggles implements Listener {
         Map<String, List<ToggleDefinition>> categories = toggleDefinitions.values().stream()
                 .collect(Collectors.groupingBy(def -> def.category));
 
-        int slot = 0;
+        // FIXED: Better slot management to prevent overflow
+        int currentRow = 0;
+        int maxRows = 5; // Reserve bottom row for info/navigation
 
-        // Add category sections
+        // Add category sections with proper bounds checking
         for (Map.Entry<String, List<ToggleDefinition>> entry : categories.entrySet()) {
             String category = entry.getKey();
             List<ToggleDefinition> categoryToggles = entry.getValue();
 
-            // Add category header
-            addCategoryHeader(inventory, category, slot);
-            slot += 9; // Move to next row
-
-            // Add toggles for this category
-            for (ToggleDefinition def : categoryToggles) {
-                if (hasPermissionForToggle(player, def)) {
-                    addToggleItem(inventory, def, yakPlayer, slot);
-                } else {
-                    addLockedToggleItem(inventory, def, slot);
-                }
-                slot++;
-
-                if (slot % 9 == 0) slot += 0; // Stay in same row until full
+            // Check if we have space for this category
+            if (currentRow >= maxRows) {
+                logger.warning("Toggle menu overflow: Too many categories to display");
+                break;
             }
 
-            // Align to next row if not already
-            slot = ((slot / 9) + 1) * 9;
+            // Add category header at the start of the row
+            int headerSlot = currentRow * 9;
+            if (isValidSlot(headerSlot)) {
+                addCategoryHeader(inventory, category, headerSlot);
+            }
+
+            // Add toggles for this category, starting from slot 1 in the row
+            int toggleSlot = headerSlot + 1;
+            int togglesInRow = 0;
+
+            for (ToggleDefinition def : categoryToggles) {
+                // Ensure we don't exceed the row or go into reserved area
+                if (togglesInRow >= MAX_TOGGLES_PER_CATEGORY || !isValidSlot(toggleSlot)) {
+                    break;
+                }
+
+                if (hasPermissionForToggle(player, def)) {
+                    addToggleItem(inventory, def, yakPlayer, toggleSlot);
+                } else {
+                    addLockedToggleItem(inventory, def, toggleSlot);
+                }
+
+                toggleSlot++;
+                togglesInRow++;
+            }
+
+            currentRow++;
         }
 
         // Add decorative elements and info
         addMenuDecorations(inventory);
-        addInfoButton(inventory, MENU_SIZE - 1);
+        addInfoButton(inventory, INFO_SLOT);
 
         return inventory;
     }
 
     /**
-     * Add enhanced category header
+     * FIXED: Validate slot numbers to prevent array bounds exceptions
+     */
+    private boolean isValidSlot(int slot) {
+        return slot >= 0 && slot < USABLE_SLOTS;
+    }
+
+    /**
+     * FIXED: Enhanced category header with bounds checking
      */
     private void addCategoryHeader(Inventory inventory, String category, int slot) {
+        if (!isValidSlot(slot)) {
+            logger.warning("Invalid slot for category header: " + slot);
+            return;
+        }
+
         Material headerMaterial = getCategoryMaterial(category);
         ItemStack header = new ItemStack(headerMaterial);
         ItemMeta meta = header.getItemMeta();
@@ -439,7 +472,7 @@ public class Toggles implements Listener {
 
         List<String> lore = new ArrayList<>();
         lore.add("§7Settings related to " + category.toLowerCase());
-        lore.add("§8Click toggles below to change them");
+        lore.add("§8Click toggles to the right to change them");
         meta.setLore(lore);
 
         header.setItemMeta(meta);
@@ -461,9 +494,14 @@ public class Toggles implements Listener {
     }
 
     /**
-     * Add enhanced toggle item
+     * FIXED: Add enhanced toggle item with bounds checking
      */
     private void addToggleItem(Inventory inventory, ToggleDefinition def, YakPlayer yakPlayer, int slot) {
+        if (!isValidSlot(slot)) {
+            logger.warning("Invalid slot for toggle item: " + slot + " for toggle: " + def.name);
+            return;
+        }
+
         boolean isEnabled = yakPlayer.isToggled(def.name);
 
         // Choose material and color based on state
@@ -502,9 +540,14 @@ public class Toggles implements Listener {
     }
 
     /**
-     * Add locked toggle item with enhanced visuals
+     * FIXED: Add locked toggle item with bounds checking
      */
     private void addLockedToggleItem(Inventory inventory, ToggleDefinition def, int slot) {
+        if (!isValidSlot(slot)) {
+            logger.warning("Invalid slot for locked toggle item: " + slot + " for toggle: " + def.name);
+            return;
+        }
+
         ItemStack item = new ItemStack(Material.BARRIER);
         ItemMeta meta = item.getItemMeta();
 
@@ -527,7 +570,7 @@ public class Toggles implements Listener {
     }
 
     /**
-     * Add menu decorations
+     * FIXED: Add menu decorations with proper bounds checking
      */
     private void addMenuDecorations(Inventory inventory) {
         ItemStack glass = new ItemStack(Material.BLACK_STAINED_GLASS_PANE);
@@ -535,18 +578,31 @@ public class Toggles implements Listener {
         glassMeta.setDisplayName("§8");
         glass.setItemMeta(glassMeta);
 
-        // Fill empty border slots
-        for (int i = 0; i < MENU_SIZE; i++) {
-            if (inventory.getItem(i) == null && (i < 9 || i >= MENU_SIZE - 9 || i % 9 == 0 || i % 9 == 8)) {
+        // Fill bottom row for navigation/info area (slots 45-53)
+        for (int i = 45; i < MENU_SIZE - 1; i++) {
+            if (inventory.getItem(i) == null) {
                 inventory.setItem(i, glass);
+            }
+        }
+
+        // Fill empty slots on the right edge of each row
+        for (int row = 0; row < 5; row++) {
+            int rightEdge = (row * 9) + 8;
+            if (rightEdge < USABLE_SLOTS && inventory.getItem(rightEdge) == null) {
+                inventory.setItem(rightEdge, glass);
             }
         }
     }
 
     /**
-     * Add enhanced info button
+     * FIXED: Add enhanced info button with bounds checking
      */
     private void addInfoButton(Inventory inventory, int slot) {
+        if (slot < 0 || slot >= MENU_SIZE) {
+            logger.warning("Invalid slot for info button: " + slot);
+            return;
+        }
+
         ItemStack info = new ItemStack(Material.BOOK);
         ItemMeta meta = info.getItemMeta();
 
@@ -755,10 +811,9 @@ public class Toggles implements Listener {
         YakPlayer yakPlayer2 = playerManager.getPlayer(player2);
 
         if (yakPlayer1 == null || yakPlayer2 == null) return false;
-//
-        //String guild1 = yakPlayer1.getGuildName();
-        // guild2 = yakPlayer2.getGuildName();
 
+        // Guild system integration would go here
+        // For now, return false to prevent errors
         return false;
     }
 
