@@ -117,11 +117,6 @@ public class MarketCommand implements CommandExecutor, TabCompleter {
             return;
         }
 
-        if (yakPlayer.getLevel() < 5) { // Assuming min level 5
-            player.sendMessage(ChatColor.RED + "You must be level 5 to list items on the market.");
-            return;
-        }
-
         // Open listing menu
         marketManager.openMarketMenu(player);
         player.sendMessage(ChatColor.YELLOW + "Navigate to 'List Item for Sale' to list an item!");

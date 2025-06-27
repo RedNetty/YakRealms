@@ -716,12 +716,12 @@ public class Buddies implements Listener {
         if (player == null) return new ArrayList<>();
 
         YakPlayer yakPlayer = YakPlayerManager.getInstance().getPlayer(player);
-        return yakPlayer != null ? yakPlayer.getBuddies() : new ArrayList<>();
+        return yakPlayer != null ? (List<String>) yakPlayer.getBuddies() : new ArrayList<>();
     }
 
     public List<String> getBuddies(Player player) {
         YakPlayer yakPlayer = playerManager.getPlayer(player);
-        return yakPlayer != null ? yakPlayer.getBuddies() : new ArrayList<>();
+        return yakPlayer != null ? (List<String>) yakPlayer.getBuddies() : new ArrayList<>();
     }
 
     public boolean isBuddy(Player player, String buddyName) {

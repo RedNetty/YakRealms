@@ -279,6 +279,7 @@ public class MobSpawner implements Listener {
 
     /**
      * Process spawners - handle initial spawning
+     * FIXED: Now works properly with respawn system
      */
     private void processSpawners() {
         if (!spawnersEnabled) return;
@@ -290,7 +291,7 @@ public class MobSpawner implements Listener {
             try {
                 processedSpawners++;
 
-                // Check if this spawner can spawn mobs
+                // FIXED: Simply check if this spawner can spawn mobs - no blocking on respawns
                 if (canSpawnerSpawnMobs(spawner)) {
                     int spawned = spawner.spawnAllMobs();
                     spawnedCount += spawned;
@@ -312,25 +313,34 @@ public class MobSpawner implements Listener {
         }
     }
 
+
     /**
      * Check if a spawner can spawn mobs
+     * FIXED: Removed the blocking condition for respawning mobs
      *
      * @param spawner The spawner to check
      * @return true if it can spawn mobs
      */
     private boolean canSpawnerSpawnMobs(Spawner spawner) {
-        // Check if already at capacity
+        // FIXED: Only check capacity, not respawn queue status
         int currentActive = spawner.getTotalActiveMobs();
-        int desiredTotal = spawner.getTotalDesiredMobs();
+        int currentQueued = spawner.getQueuedCount();
+        int maxAllowed = spawner.getMaxMobsAllowed();
+        int totalCurrent = currentActive + currentQueued;
 
-        if (currentActive >= desiredTotal) {
+        // Only block if we're actually at full capacity
+        if (totalCurrent >= maxAllowed) {
             return false;
         }
 
-        // Check if there are any respawning mobs -
-        // CRITICAL: Only do initial spawn if there are NO respawning mobs
-        // This ensures we don't bypass the respawn queue
-        return !spawner.hasRespawningMobs();
+        // Check if we actually need more mobs
+        int desiredTotal = spawner.getTotalDesiredMobs();
+        if (totalCurrent >= desiredTotal) {
+            return false;
+        }
+
+        // All good - spawner can spawn
+        return true;
     }
 
     /**

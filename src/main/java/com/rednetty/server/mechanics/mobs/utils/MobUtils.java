@@ -104,7 +104,7 @@ public class MobUtils {
      */
     public static boolean isFrozenBoss(LivingEntity entity) {
         return entity != null && entity.hasMetadata("type") &&
-                entity.getMetadata("type").get(0).asString().equals("frozenBoss");
+                entity.getMetadata("type").get(0).asString().equals("frozenboss");
     }
 
     /**
@@ -112,7 +112,7 @@ public class MobUtils {
      */
     public static boolean isGolemBoss(LivingEntity entity) {
         return entity != null && entity.hasMetadata("type") &&
-                entity.getMetadata("type").get(0).asString().equals("frozenGolem");
+                entity.getMetadata("type").get(0).asString().equals("frozengolem");
     }
 
     /**
@@ -424,36 +424,14 @@ public class MobUtils {
 
     /**
      * Generate a health bar string based on entity's health
-     * Exact match for the original generateOverheadBar method
+     * FIXED: Exact match for the original generateOverheadBar method with proper tier color application
      */
     public static String generateHealthBar(LivingEntity entity, double health, double maxHealth, int tier, boolean inCriticalState) {
         boolean boss = isElite(entity);
 
-        // Set color based on tier
-        String str = "";
-        switch (tier) {
-            case 1:
-                str = ChatColor.WHITE + "";
-                break;
-            case 2:
-                str = ChatColor.GREEN + "";
-                break;
-            case 3:
-                str = ChatColor.AQUA + "";
-                break;
-            case 4:
-                str = ChatColor.LIGHT_PURPLE + "";
-                break;
-            case 5:
-                str = ChatColor.YELLOW + "";
-                break;
-            case 6:
-                str = ChatColor.BLUE + "";
-                break;
-            default:
-                str = ChatColor.WHITE + "";
-                break;
-        }
+        // FIXED: Set color based on tier properly
+        ChatColor tierColor = getTierColor(tier);
+        String str = tierColor.toString();
 
         // Ensure health values are valid
         if (health <= 0) health = 0.1;
@@ -479,5 +457,83 @@ public class MobUtils {
         }
 
         return str;
+    }
+
+    /**
+     * FIXED: Helper method to get tier color consistently
+     *
+     * @param tier The tier level (1-6)
+     * @return The appropriate ChatColor for the tier
+     */
+    public static ChatColor getTierColor(int tier) {
+        switch (tier) {
+            case 1: return ChatColor.WHITE;
+            case 2: return ChatColor.GREEN;
+            case 3: return ChatColor.AQUA;
+            case 4: return ChatColor.LIGHT_PURPLE;
+            case 5: return ChatColor.YELLOW;
+            case 6: return ChatColor.BLUE;
+            default: return ChatColor.WHITE;
+        }
+    }
+
+    /**
+     * FIXED: Generate a properly formatted mob name with tier colors
+     *
+     * @param baseName The base name of the mob
+     * @param tier The tier level
+     * @param elite Whether this is an elite mob
+     * @return Formatted name with proper colors
+     */
+    public static String formatMobName(String baseName, int tier, boolean elite) {
+        if (baseName == null || baseName.isEmpty()) {
+            return "";
+        }
+
+        // Strip existing colors
+        String cleanName = ChatColor.stripColor(baseName);
+        ChatColor tierColor = getTierColor(tier);
+
+        return elite ?
+                tierColor.toString() + ChatColor.BOLD + cleanName :
+                tierColor + cleanName;
+    }
+
+    /**
+     * FIXED: Check if a string represents a health bar
+     *
+     * @param text The text to check
+     * @return true if it's a health bar
+     */
+    public static boolean isHealthBar(String text) {
+        return text != null && (text.contains(ChatColor.GREEN + "|") || text.contains(ChatColor.GRAY + "|"));
+    }
+
+    /**
+     * Get the display name for a mob type
+     *
+     * @param mobType The mob type string
+     * @return Formatted display name
+     */
+    public static String getDisplayName(String mobType) {
+        if (mobType == null || mobType.isEmpty()) {
+            return "Unknown";
+        }
+
+        // Capitalize first letter and handle special cases
+        String formatted = mobType.substring(0, 1).toUpperCase() + mobType.substring(1).toLowerCase();
+
+        switch (formatted.toLowerCase()) {
+            case "witherskeleton":
+                return "Wither Skeleton";
+            case "cavespider":
+                return "Cave Spider";
+            case "magmacube":
+                return "Magma Cube";
+            case "zombifiedpiglin":
+                return "Zombified Piglin";
+            default:
+                return formatted.replace("_", " ");
+        }
     }
 }

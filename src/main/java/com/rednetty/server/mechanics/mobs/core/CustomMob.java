@@ -29,7 +29,7 @@ public class CustomMob {
 
     protected static final Random RANDOM = new Random();
     protected static final Logger LOGGER = YakRealms.getInstance().getLogger();
-    protected static final int NAME_VISIBILITY_TIMEOUT = 5000; // 5 seconds
+    protected static final int NAME_VISIBILITY_TIMEOUT = 6500; // 6.5 seconds - FIXED
     protected static final long MIN_RESPAWN_DELAY = 180000; // 3 minutes minimum
 
     // ================ CORE PROPERTIES ================
@@ -765,20 +765,35 @@ public class CustomMob {
     private String getNameToRestore() {
         // Try cached original name first
         if (originalName != null && !originalName.isEmpty()) {
-            return originalName;
+            return generateFormattedName(originalName);
         }
 
         // Try metadata
         if (entity.hasMetadata("name")) {
-            return entity.getMetadata("name").get(0).asString();
+            String metaName = entity.getMetadata("name").get(0).asString();
+            // If it's already formatted with colors, return as-is
+            if (metaName.contains("§")) {
+                return metaName;
+            }
+            return generateFormattedName(metaName);
         }
 
         if (entity.hasMetadata("LightningMob")) {
             return entity.getMetadata("LightningMob").get(0).asString();
         }
 
-        // Generate default name
+        // Generate default name with proper colors
         return generateDefaultName();
+    }
+
+    private String generateFormattedName(String baseName) {
+        // Strip any existing colors first
+        String cleanName = ChatColor.stripColor(baseName);
+        ChatColor tierColor = getTierColor(tier);
+
+        return elite ?
+                tierColor.toString() + ChatColor.BOLD + cleanName :
+                tierColor + cleanName;
     }
 
     private String generateDefaultName() {
@@ -810,7 +825,7 @@ public class CustomMob {
 
     private void applyCriticalEffects() {
         if (!elite) {
-            // Regular mob critical effects
+            // Regular mob critical effects - play sound once when entering critical state
             entity.getWorld().playSound(entity.getLocation(), org.bukkit.Sound.BLOCK_PISTON_EXTEND, 1.0f, 2.0f);
             entity.getWorld().spawnParticle(org.bukkit.Particle.CRIT,
                     entity.getLocation().clone().add(0.0, 1.0, 0.0),
@@ -831,6 +846,11 @@ public class CustomMob {
             }
 
             criticalStateDuration--;
+
+            // FIXED: Play piston sound every 2-3 seconds for regular mobs (40-60 ticks)
+            if (!elite && criticalStateDuration > 0 && criticalStateDuration % 40 == 0) {
+                entity.getWorld().playSound(entity.getLocation(), org.bukkit.Sound.BLOCK_PISTON_EXTEND, 1.0f, 2.0f);
+            }
 
             // Show periodic particles
             if (criticalStateDuration % 5 == 0) {

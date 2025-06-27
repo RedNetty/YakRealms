@@ -320,7 +320,8 @@ public class EliteMob extends CustomMob {
 
     private void cleanupAfterAttack() {
         resetMobEffects();
-        restoreName();
+        // FIXED: Don't immediately restore name for elite mobs, let the name visibility system handle it
+        // This ensures proper timing for name restoration based on the 6.5 second timeout
     }
 
     private void recordAttackMetrics(int playersHit, int damage) {
@@ -337,6 +338,7 @@ public class EliteMob extends CustomMob {
             // Remove immobilization effects
             removeEffect(PotionEffectType.SLOW);
             removeEffect(PotionEffectType.JUMP);
+            removeEffect(PotionEffectType.GLOWING);
 
             // Reapply tier-specific effects
             applyTypeProperties();
@@ -443,6 +445,109 @@ public class EliteMob extends CustomMob {
                 // Update our original name record
                 customName = eliteName;
             }
+        }
+    }
+
+    // ================ NAME VISIBILITY OVERRIDE ================
+
+    @Override
+    public void updateNameVisibility() {
+        if (!isValid()) return;
+
+        try {
+            long now = System.currentTimeMillis();
+            boolean recentlyDamaged = (now - lastDamageTime) < NAME_VISIBILITY_TIMEOUT;
+
+            if (recentlyDamaged || inCriticalState) {
+                nameVisible = true;
+
+                if (!isCurrentlyShowingHealthBar()) {
+                    updateHealthBar();
+                }
+            } else if (nameVisible && !inCriticalState) {
+                // FIXED: Use proper elite name restoration with tier colors
+                restoreEliteName();
+                nameVisible = false;
+            }
+        } catch (Exception e) {
+            LOGGER.warning(String.format("§c[EliteMob] Name visibility update failed: %s", e.getMessage()));
+        }
+    }
+
+    private boolean isCurrentlyShowingHealthBar() {
+        String currentName = entity.getCustomName();
+        return currentName != null && currentName.contains("|");
+    }
+
+    private void restoreEliteName() {
+        if (!isValid() || inCriticalState) return;
+
+        try {
+            String nameToRestore = getEliteNameToRestore();
+
+            if (nameToRestore != null && !nameToRestore.isEmpty()) {
+                entity.setCustomName(nameToRestore);
+                entity.setCustomNameVisible(true);
+
+                if (YakRealms.getInstance().isDebugMode()) {
+                    LOGGER.info(String.format("§6[EliteMob] §7Restored elite name for %s: %s",
+                            entity.getType(), nameToRestore));
+                }
+            }
+        } catch (Exception e) {
+            LOGGER.warning(String.format("§c[EliteMob] Elite name restoration failed: %s", e.getMessage()));
+        }
+    }
+
+    private String getEliteNameToRestore() {
+        // Try cached original name first
+        if (originalName != null && !originalName.isEmpty()) {
+            return generateEliteFormattedName(originalName);
+        }
+
+        // Try metadata
+        if (entity.hasMetadata("name")) {
+            String metaName = entity.getMetadata("name").get(0).asString();
+            // If it's already formatted with elite colors, return as-is
+            if (metaName.contains("§l")) {
+                return metaName;
+            }
+            return generateEliteFormattedName(metaName);
+        }
+
+        if (entity.hasMetadata("LightningMob")) {
+            return entity.getMetadata("LightningMob").get(0).asString();
+        }
+
+        // Generate default elite name with proper colors
+        return generateEliteDefaultName();
+    }
+
+    private String generateEliteFormattedName(String baseName) {
+        // Strip any existing colors first
+        String cleanName = org.bukkit.ChatColor.stripColor(baseName);
+
+        // Apply tier color + bold for elite
+        org.bukkit.ChatColor tierColor = getTierColor(tier);
+        return tierColor.toString() + org.bukkit.ChatColor.BOLD + cleanName;
+    }
+
+    private String generateEliteDefaultName() {
+        String tierName = type.getTierSpecificName(tier);
+        org.bukkit.ChatColor tierColor = getTierColor(tier);
+
+        return tierColor.toString() + org.bukkit.ChatColor.BOLD + tierName;
+    }
+
+    private org.bukkit.ChatColor getTierColor(int tier) {
+        switch (tier) {
+            case 1: return org.bukkit.ChatColor.WHITE;
+            case 2: return org.bukkit.ChatColor.GREEN;
+            case 3: return org.bukkit.ChatColor.AQUA;
+            case 4: return org.bukkit.ChatColor.LIGHT_PURPLE;
+            case 5: return org.bukkit.ChatColor.YELLOW;
+            case 6: return org.bukkit.ChatColor.BLUE;
+            default: return org.bukkit.ChatColor.WHITE;
         }
     }
 
