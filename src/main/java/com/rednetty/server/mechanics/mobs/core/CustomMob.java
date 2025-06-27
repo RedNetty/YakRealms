@@ -21,7 +21,7 @@ import java.util.concurrent.ThreadLocalRandom;
 import java.util.logging.Logger;
 
 /**
- * Enhanced base class for all custom mobs with improved functionality and performance
+ * Enhanced base class for all custom mobs with improved name tracking and functionality
  */
 public class CustomMob {
 
@@ -37,21 +37,27 @@ public class CustomMob {
     protected final MobType type;
     protected final int tier;
     protected final boolean elite;
-    protected final String originalName;
+
+    // FIXED: Better name tracking system
+    private String storedOriginalName; // The actual original name when first spawned
+    private String formattedOriginalName; // The formatted version with colors
+    protected String currentDisplayName; // Current display name
+    private boolean originalNameStored = false;
 
     // ================ STATE VARIABLES ================
 
     protected LivingEntity entity;
-    protected String customName;
     protected boolean inCriticalState;
     protected int criticalStateDuration;
     protected int lightningMultiplier = 0;
     protected long lastDamageTime = -1000000;
     protected long lastDeathTime = 0;
+    private long lastNameUpdate = 0;
 
     // ================ VISIBILITY MANAGEMENT ================
 
     public boolean nameVisible = true; // Initially true - show name by default
+    private boolean showingHealthBar = false;
 
     // ================ HEALTH SYSTEM ================
 
@@ -71,10 +77,13 @@ public class CustomMob {
         this.type = type;
         this.tier = Math.max(1, Math.min(6, tier));
         this.elite = elite;
-        this.customName = type.getTierSpecificName(this.tier);
-        this.originalName = this.customName;
         this.inCriticalState = false;
         this.criticalStateDuration = 0;
+
+        // FIXED: Don't set original name here - wait until entity is created
+        this.storedOriginalName = null;
+        this.formattedOriginalName = null;
+        this.currentDisplayName = null;
     }
 
     private void validateConstructorParameters(MobType type, int tier) {
@@ -223,6 +232,9 @@ public class CustomMob {
             calculateAndSetHealth();
             applyTypeProperties();
 
+            // FIXED: Store the original name after all setup is complete
+            captureAndStoreOriginalName();
+
             lastDamageTime = 0;
             return true;
 
@@ -260,7 +272,7 @@ public class CustomMob {
         // Essential metadata for identification and drops system
         setEntityMetadata();
 
-        // Configure name and appearance
+        // Configure name and appearance - but don't store original yet
         configureEntityAppearance();
 
         // Apply basic behavioral settings
@@ -295,8 +307,6 @@ public class CustomMob {
 
     private void configureEntityAppearance() {
         String tierSpecificName = type.getTierSpecificName(tier);
-        this.customName = tierSpecificName;
-
         ChatColor tierColor = getTierColor(tier);
         String formattedName = elite ?
                 tierColor.toString() + ChatColor.BOLD + tierSpecificName :
@@ -305,7 +315,10 @@ public class CustomMob {
         entity.setCustomName(formattedName);
         entity.setCustomNameVisible(true);
 
-        // Store original name in metadata
+        // Set this as current display name
+        currentDisplayName = formattedName;
+
+        // Store in metadata for later reference
         entity.setMetadata("name", new FixedMetadataValue(YakRealms.getInstance(), formattedName));
     }
 
@@ -338,6 +351,170 @@ public class CustomMob {
 
     private void applyBasicEffects() {
         entity.addPotionEffect(new PotionEffect(PotionEffectType.FIRE_RESISTANCE, Integer.MAX_VALUE, 1));
+    }
+
+    // ================ ENHANCED NAME TRACKING SYSTEM ================
+
+    /**
+     * FIXED: Capture and store the original name after all setup is complete
+     */
+    private void captureAndStoreOriginalName() {
+        if (entity == null || originalNameStored) return;
+
+        try {
+            String currentName = entity.getCustomName();
+            if (currentName != null && !currentName.isEmpty()) {
+                // Store both the raw name and formatted version
+                storedOriginalName = ChatColor.stripColor(currentName);
+                formattedOriginalName = currentName;
+                originalNameStored = true;
+
+                if (YakRealms.getInstance().isDebugMode()) {
+                    LOGGER.info(String.format("§6[CustomMob] §7Stored original name: '%s' for %s",
+                            storedOriginalName, entity.getType()));
+                }
+            }
+        } catch (Exception e) {
+            LOGGER.warning(String.format("§c[CustomMob] Failed to capture original name: %s", e.getMessage()));
+        }
+    }
+
+    /**
+     * FIXED: Enhanced name visibility management
+     */
+    public void updateNameVisibility() {
+        if (!isValid()) return;
+
+        try {
+            long now = System.currentTimeMillis();
+            boolean recentlyDamaged = (now - lastDamageTime) < NAME_VISIBILITY_TIMEOUT;
+            boolean shouldShowHealthBar = recentlyDamaged || inCriticalState;
+
+            if (shouldShowHealthBar) {
+                // Show health bar
+                if (!showingHealthBar) {
+                    showingHealthBar = true;
+                    nameVisible = true;
+                    updateHealthBar();
+                    lastNameUpdate = now;
+                }
+            } else {
+                // Time to restore original name
+                if (showingHealthBar || nameVisible) {
+                    restoreOriginalName();
+                    showingHealthBar = false;
+                    nameVisible = false;
+                    lastNameUpdate = now;
+                }
+            }
+        } catch (Exception e) {
+            LOGGER.warning(String.format("§c[CustomMob] Name visibility update failed: %s", e.getMessage()));
+            if (YakRealms.getInstance().isDebugMode()) {
+                e.printStackTrace();
+            }
+        }
+    }
+
+    /**
+     * FIXED: Better original name restoration
+     */
+    private void restoreOriginalName() {
+        if (!isValid() || inCriticalState) return;
+
+        try {
+            String nameToRestore = determineNameToRestore();
+
+            if (nameToRestore != null && !nameToRestore.isEmpty()) {
+                entity.setCustomName(nameToRestore);
+                entity.setCustomNameVisible(true);
+                currentDisplayName = nameToRestore;
+
+                if (YakRealms.getInstance().isDebugMode()) {
+                    LOGGER.info(String.format("§6[CustomMob] §7Restored name to '%s' for %s",
+                            nameToRestore, entity.getType()));
+                }
+            }
+        } catch (Exception e) {
+            LOGGER.warning(String.format("§c[CustomMob] Name restoration failed: %s", e.getMessage()));
+            if (YakRealms.getInstance().isDebugMode()) {
+                e.printStackTrace();
+            }
+        }
+    }
+
+    /**
+     * FIXED: Improved name determination logic
+     */
+    private String determineNameToRestore() {
+        // First priority: stored formatted original name
+        if (formattedOriginalName != null && !formattedOriginalName.isEmpty()) {
+            if (!isHealthBar(formattedOriginalName)) {
+                return formattedOriginalName;
+            }
+        }
+
+        // Second priority: stored original name (re-format it)
+        if (storedOriginalName != null && !storedOriginalName.isEmpty()) {
+            return generateFormattedName(storedOriginalName);
+        }
+
+        // Third priority: metadata
+        if (entity.hasMetadata("name")) {
+            try {
+                String metaName = entity.getMetadata("name").get(0).asString();
+                if (metaName != null && !metaName.isEmpty() && !isHealthBar(metaName)) {
+                    return metaName;
+                }
+            } catch (Exception e) {
+                // Fall through to next option
+            }
+        }
+
+        // Fourth priority: lightning mob metadata
+        if (entity.hasMetadata("LightningMob")) {
+            try {
+                String lightningName = entity.getMetadata("LightningMob").get(0).asString();
+                if (lightningName != null && !lightningName.isEmpty()) {
+                    return lightningName;
+                }
+            } catch (Exception e) {
+                // Fall through to default
+            }
+        }
+
+        // Last resort: generate default name
+        return generateDefaultName();
+    }
+
+    /**
+     * FIXED: Better health bar detection
+     */
+    private boolean isHealthBar(String name) {
+        if (name == null) return false;
+        return name.contains(ChatColor.GREEN + "|") ||
+                name.contains(ChatColor.GRAY + "|") ||
+                name.contains(ChatColor.LIGHT_PURPLE + "|");
+    }
+
+    private String generateFormattedName(String baseName) {
+        if (baseName == null || baseName.isEmpty()) {
+            return generateDefaultName();
+        }
+
+        // Strip any existing colors first
+        String cleanName = ChatColor.stripColor(baseName);
+        ChatColor tierColor = getTierColor(tier);
+
+        return elite ?
+                tierColor.toString() + ChatColor.BOLD + cleanName :
+                tierColor + cleanName;
+    }
+
+    private String generateDefaultName() {
+        String tierName = type.getTierSpecificName(tier);
+        ChatColor tierColor = getTierColor(tier);
+
+        return elite ? tierColor.toString() + ChatColor.BOLD + tierName : tierColor + tierName;
     }
 
     // ================ EQUIPMENT SYSTEM ================
@@ -640,35 +817,20 @@ public class CustomMob {
     // ================ HEALTH BAR SYSTEM ================
 
     public void updateHealthBar() {
-        if (!isValid() || lastDamageTime == 0) return;
+        if (!isValid()) return;
 
         try {
-            storeOriginalNameIfNeeded();
             String healthBar = generateHealthBar();
 
             entity.setCustomName(healthBar);
             entity.setCustomNameVisible(true);
+            currentDisplayName = healthBar;
+            showingHealthBar = true;
 
             lastDamageTime = System.currentTimeMillis();
         } catch (Exception e) {
             LOGGER.warning(String.format("§c[CustomMob] Health bar update failed: %s", e.getMessage()));
         }
-    }
-
-    private void storeOriginalNameIfNeeded() {
-        if (originalName == null || originalName.isEmpty()) {
-            if (entity.hasMetadata("name")) {
-                String name = entity.getMetadata("name").get(0).asString();
-                // Store as field (originalName is final, so this is for current name tracking)
-                customName = name;
-            } else if (entity.getCustomName() != null && !isHealthBar(entity.getCustomName())) {
-                customName = entity.getCustomName();
-            }
-        }
-    }
-
-    private boolean isHealthBar(String name) {
-        return name.contains(ChatColor.GREEN + "|") || name.contains(ChatColor.GRAY + "|");
     }
 
     public String generateHealthBar() {
@@ -682,125 +844,11 @@ public class CustomMob {
             if (health <= 0) health = 0.1;
             if (maxHealth <= 0) maxHealth = 1;
 
-            double healthPercentage = health / maxHealth;
-
-            StringBuilder bar = new StringBuilder();
-
-            // Add tier color prefix
-            bar.append(getTierColor(tier));
-
-            // Generate health bar
-            String barColor = inCriticalState ? ChatColor.LIGHT_PURPLE.toString() : ChatColor.GREEN.toString();
-            int barLength = 40;
-
-            for (int i = 1; i <= barLength; i++) {
-                if (healthPercentage >= (double) i / barLength) {
-                    bar.append(barColor).append("|");
-                } else {
-                    bar.append(ChatColor.GRAY).append("|");
-                }
-            }
-
-            // Remove last character for non-elite mobs
-            if (!elite && bar.length() > 0) {
-                bar.setLength(bar.length() - 1);
-            }
-
-            return bar.toString();
+            return MobUtils.generateHealthBar(entity, health, maxHealth, tier, inCriticalState);
         } catch (Exception e) {
             LOGGER.warning(String.format("§c[CustomMob] Health bar generation failed: %s", e.getMessage()));
-            return originalName;
+            return determineNameToRestore();
         }
-    }
-
-    // ================ NAME VISIBILITY MANAGEMENT ================
-
-    public void updateNameVisibility() {
-        if (!isValid()) return;
-
-        try {
-            long now = System.currentTimeMillis();
-            boolean recentlyDamaged = (now - lastDamageTime) < NAME_VISIBILITY_TIMEOUT;
-
-            if (recentlyDamaged || inCriticalState) {
-                nameVisible = true;
-
-                if (!isCurrentlyShowingHealthBar()) {
-                    updateHealthBar();
-                }
-            } else if (nameVisible && !inCriticalState) {
-                restoreName();
-                nameVisible = false;
-            }
-        } catch (Exception e) {
-            LOGGER.warning(String.format("§c[CustomMob] Name visibility update failed: %s", e.getMessage()));
-        }
-    }
-
-    private boolean isCurrentlyShowingHealthBar() {
-        String currentName = entity.getCustomName();
-        return currentName != null && currentName.contains("|");
-    }
-
-    public void restoreName() {
-        if (!isValid() || inCriticalState) return;
-
-        try {
-            String nameToRestore = getNameToRestore();
-
-            if (nameToRestore != null && !nameToRestore.isEmpty()) {
-                entity.setCustomName(nameToRestore);
-                entity.setCustomNameVisible(true);
-
-                if (YakRealms.getInstance().isDebugMode()) {
-                    LOGGER.info(String.format("§6[CustomMob] §7Restored name for %s: %s",
-                            entity.getType(), nameToRestore));
-                }
-            }
-        } catch (Exception e) {
-            LOGGER.warning(String.format("§c[CustomMob] Name restoration failed: %s", e.getMessage()));
-        }
-    }
-
-    private String getNameToRestore() {
-        // Try cached original name first
-        if (originalName != null && !originalName.isEmpty()) {
-            return generateFormattedName(originalName);
-        }
-
-        // Try metadata
-        if (entity.hasMetadata("name")) {
-            String metaName = entity.getMetadata("name").get(0).asString();
-            // If it's already formatted with colors, return as-is
-            if (metaName.contains("§")) {
-                return metaName;
-            }
-            return generateFormattedName(metaName);
-        }
-
-        if (entity.hasMetadata("LightningMob")) {
-            return entity.getMetadata("LightningMob").get(0).asString();
-        }
-
-        // Generate default name with proper colors
-        return generateDefaultName();
-    }
-
-    private String generateFormattedName(String baseName) {
-        // Strip any existing colors first
-        String cleanName = ChatColor.stripColor(baseName);
-        ChatColor tierColor = getTierColor(tier);
-
-        return elite ?
-                tierColor.toString() + ChatColor.BOLD + cleanName :
-                tierColor + cleanName;
-    }
-
-    private String generateDefaultName() {
-        String tierName = type.getTierSpecificName(tier);
-        ChatColor tierColor = getTierColor(tier);
-
-        return elite ? tierColor.toString() + ChatColor.BOLD + tierName : tierColor + tierName;
     }
 
     // ================ CRITICAL STATE SYSTEM ================
@@ -880,7 +928,7 @@ public class CustomMob {
     }
 
     private void ensureHealthBarVisible() {
-        if (!entity.getCustomName().contains("|")) {
+        if (!showingHealthBar || !isHealthBar(entity.getCustomName())) {
             updateHealthBar();
         }
     }
@@ -924,6 +972,10 @@ public class CustomMob {
             entity.setCustomName(lightningName);
             entity.setCustomNameVisible(true);
 
+            // FIXED: Update our name tracking
+            formattedOriginalName = lightningName;
+            currentDisplayName = lightningName;
+
             // Store lightning metadata
             YakRealms plugin = YakRealms.getInstance();
             entity.setMetadata("LightningMultiplier", new FixedMetadataValue(plugin, multiplier));
@@ -944,7 +996,13 @@ public class CustomMob {
     }
 
     public boolean isValid() {
-        return entity != null && entity.isValid() && !entity.isDead();
+        if (entity == null) return false;
+
+        try {
+            return entity.isValid() && !entity.isDead() && entity.getWorld() != null;
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     public void remove() {
@@ -979,13 +1037,16 @@ public class CustomMob {
     public int getTier() { return tier; }
     public boolean isElite() { return elite; }
     public LivingEntity getEntity() { return entity; }
-    public String getCustomName() { return customName; }
+    public String getCustomName() { return currentDisplayName; }
     public boolean isInCriticalState() { return inCriticalState; }
     public int getCriticalStateDuration() { return criticalStateDuration; }
     public long getLastDamageTime() { return lastDamageTime; }
     public boolean isNameVisible() { return nameVisible; }
-    public String getOriginalName() { return originalName; }
+    public String getOriginalName() { return storedOriginalName; }
+    public String getFormattedOriginalName() { return formattedOriginalName; }
     public double getBaseHealth() { return baseHealth; }
     public boolean isHealthCalculated() { return healthCalculated; }
     public int getLightningMultiplier() { return lightningMultiplier; }
+    public boolean isShowingHealthBar() { return showingHealthBar; }
+    public long getLastNameUpdate() { return lastNameUpdate; }
 }

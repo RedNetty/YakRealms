@@ -15,7 +15,7 @@ import java.util.concurrent.ThreadLocalRandom;
 import java.util.stream.Collectors;
 
 /**
- * Enhanced extension of CustomMob for elite mobs with special abilities and improved mechanics
+ * Enhanced extension of CustomMob for elite mobs with improved name tracking and special abilities
  */
 public class EliteMob extends CustomMob {
 
@@ -320,8 +320,8 @@ public class EliteMob extends CustomMob {
 
     private void cleanupAfterAttack() {
         resetMobEffects();
-        // FIXED: Don't immediately restore name for elite mobs, let the name visibility system handle it
-        // This ensures proper timing for name restoration based on the 6.5 second timeout
+        // FIXED: Let the enhanced name visibility system handle name restoration
+        // No immediate name restoration - let the timer-based system handle it properly
     }
 
     private void recordAttackMetrics(int playersHit, int damage) {
@@ -395,7 +395,7 @@ public class EliteMob extends CustomMob {
 
         if (success && entity != null) {
             applyEliteEnhancements();
-            updateNameVisibility();
+            // FIXED: Let the parent class handle name visibility
         }
 
         return success;
@@ -442,13 +442,13 @@ public class EliteMob extends CustomMob {
 
             if (!name.startsWith(org.bukkit.ChatColor.LIGHT_PURPLE.toString())) {
                 entity.setCustomName(eliteName);
-                // Update our original name record
-                customName = eliteName;
+                // FIXED: Update our tracking variables properly
+                currentDisplayName = eliteName;
             }
         }
     }
 
-    // ================ NAME VISIBILITY OVERRIDE ================
+    // ================ ENHANCED NAME VISIBILITY OVERRIDE ================
 
     @Override
     public void updateNameVisibility() {
@@ -457,28 +457,29 @@ public class EliteMob extends CustomMob {
         try {
             long now = System.currentTimeMillis();
             boolean recentlyDamaged = (now - lastDamageTime) < NAME_VISIBILITY_TIMEOUT;
+            boolean shouldShowHealthBar = recentlyDamaged || inCriticalState;
 
-            if (recentlyDamaged || inCriticalState) {
-                nameVisible = true;
-
-                if (!isCurrentlyShowingHealthBar()) {
+            if (shouldShowHealthBar) {
+                // Show health bar
+                if (!isShowingHealthBar()) {
                     updateHealthBar();
                 }
-            } else if (nameVisible && !inCriticalState) {
-                // FIXED: Use proper elite name restoration with tier colors
-                restoreEliteName();
-                nameVisible = false;
+                nameVisible = true;
+            } else {
+                // Time to restore original name
+                if (isShowingHealthBar() || nameVisible) {
+                    restoreEliteName();
+                    nameVisible = false;
+                }
             }
         } catch (Exception e) {
             LOGGER.warning(String.format("§c[EliteMob] Name visibility update failed: %s", e.getMessage()));
         }
     }
 
-    private boolean isCurrentlyShowingHealthBar() {
-        String currentName = entity.getCustomName();
-        return currentName != null && currentName.contains("|");
-    }
-
+    /**
+     * FIXED: Enhanced elite name restoration with proper tier colors
+     */
     private void restoreEliteName() {
         if (!isValid() || inCriticalState) return;
 
@@ -488,6 +489,7 @@ public class EliteMob extends CustomMob {
             if (nameToRestore != null && !nameToRestore.isEmpty()) {
                 entity.setCustomName(nameToRestore);
                 entity.setCustomNameVisible(true);
+                currentDisplayName = nameToRestore;
 
                 if (YakRealms.getInstance().isDebugMode()) {
                     LOGGER.info(String.format("§6[EliteMob] §7Restored elite name for %s: %s",
@@ -500,30 +502,73 @@ public class EliteMob extends CustomMob {
     }
 
     private String getEliteNameToRestore() {
-        // Try cached original name first
+        // First priority: check if we have a stored formatted original name
+        String formattedOriginal = getFormattedOriginalName();
+        if (formattedOriginal != null && !formattedOriginal.isEmpty() && !isHealthBar(formattedOriginal)) {
+            return ensureEliteFormatting(formattedOriginal);
+        }
+
+        // Second priority: check stored original name
+        String originalName = getOriginalName();
         if (originalName != null && !originalName.isEmpty()) {
             return generateEliteFormattedName(originalName);
         }
 
-        // Try metadata
+        // Third priority: metadata
         if (entity.hasMetadata("name")) {
-            String metaName = entity.getMetadata("name").get(0).asString();
-            // If it's already formatted with elite colors, return as-is
-            if (metaName.contains("§l")) {
-                return metaName;
+            try {
+                String metaName = entity.getMetadata("name").get(0).asString();
+                if (metaName != null && !metaName.isEmpty() && !isHealthBar(metaName)) {
+                    return ensureEliteFormatting(metaName);
+                }
+            } catch (Exception e) {
+                // Fall through to next option
             }
-            return generateEliteFormattedName(metaName);
         }
 
+        // Fourth priority: lightning mob metadata
         if (entity.hasMetadata("LightningMob")) {
-            return entity.getMetadata("LightningMob").get(0).asString();
+            try {
+                String lightningName = entity.getMetadata("LightningMob").get(0).asString();
+                if (lightningName != null && !lightningName.isEmpty()) {
+                    return lightningName; // Lightning names are already properly formatted
+                }
+            } catch (Exception e) {
+                // Fall through to default
+            }
         }
 
-        // Generate default elite name with proper colors
+        // Last resort: generate default elite name
         return generateEliteDefaultName();
     }
 
+    private boolean isHealthBar(String name) {
+        if (name == null) return false;
+        return name.contains(org.bukkit.ChatColor.GREEN + "|") ||
+                name.contains(org.bukkit.ChatColor.GRAY + "|") ||
+                name.contains(org.bukkit.ChatColor.LIGHT_PURPLE + "|");
+    }
+
+    private String ensureEliteFormatting(String name) {
+        if (name == null || name.isEmpty()) {
+            return generateEliteDefaultName();
+        }
+
+        // If already has elite formatting (bold), return as-is
+        if (name.contains(org.bukkit.ChatColor.BOLD.toString())) {
+            return name;
+        }
+
+        // Strip colors and re-apply with elite formatting
+        String cleanName = org.bukkit.ChatColor.stripColor(name);
+        return generateEliteFormattedName(cleanName);
+    }
+
     private String generateEliteFormattedName(String baseName) {
+        if (baseName == null || baseName.isEmpty()) {
+            return generateEliteDefaultName();
+        }
+
         // Strip any existing colors first
         String cleanName = org.bukkit.ChatColor.stripColor(baseName);
 

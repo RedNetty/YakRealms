@@ -14,12 +14,14 @@ import org.bukkit.metadata.MetadataValue;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
+import java.util.logging.Logger;
 
 /**
- * Utility class for mob-related operations
+ * Enhanced utility class for mob-related operations with improved 1.20.2 compatibility
  */
 public class MobUtils {
     private static final Random random = new Random();
+    private static final Logger logger = YakRealms.getInstance().getLogger();
 
     /**
      * Get the tier of a mob based on its equipment
@@ -188,7 +190,7 @@ public class MobUtils {
                     break;
                 } catch (Exception e) {
                     // Keep default values
-                    YakRealms.getInstance().getLogger().info("Error parsing damage from item lore: " + e.getMessage());
+                    logger.warning("Error parsing damage from item lore: " + e.getMessage());
                 }
             }
         }
@@ -301,70 +303,135 @@ public class MobUtils {
 
     /**
      * Check if a player is safespotting
-     * Exact match to the isSafeSpot method in old Mobs class
+     * Enhanced for 1.20.2 with improved validation
      */
     public static boolean isSafeSpot(Player player, LivingEntity mob) {
-        Location target = player.getLocation();
-        Location mobLoc = mob.getLocation();
-
-        // Check if there is a clear line of sight
-        if (!mob.hasLineOfSight(player)) {
-            return true;
+        if (player == null || mob == null || !mob.isValid()) {
+            return false;
         }
 
-        double distance = target.distanceSquared(mobLoc);
+        try {
+            Location target = player.getLocation();
+            Location mobLoc = mob.getLocation();
 
-        // Check if mob is in liquid
-        if (mobLoc.getBlock().isLiquid()) {
-            return true;
+            // Validate locations
+            if (target == null || mobLoc == null ||
+                    target.getWorld() == null || mobLoc.getWorld() == null ||
+                    !target.getWorld().equals(mobLoc.getWorld())) {
+                return false;
+            }
+
+            // FIXED: Enhanced line of sight check for 1.20.2
+            if (!hasLineOfSight(mob, player)) {
+                return true;
+            }
+
+            double distance = target.distanceSquared(mobLoc);
+
+            // Check if mob is in liquid
+            if (isInLiquid(mobLoc)) {
+                return true;
+            }
+
+            // Check if player is above mob and mob is in liquid
+            if (target.getBlockY() > mobLoc.getBlockY() &&
+                    isInLiquid(mobLoc.clone().add(0, 1, 0))) {
+                return true;
+            }
+
+            // Enhanced stuck detection for 1.20.2
+            boolean mobStuck = isMobStuck(mobLoc);
+
+            return (distance >= 3 && distance <= 36 &&
+                    target.getBlockY() > (mobLoc.getBlockY() + 1)) || mobStuck;
+
+        } catch (Exception e) {
+            logger.warning("Error checking safe spot: " + e.getMessage());
+            return false;
         }
+    }
 
-        // Check if player is above mob and mob is in liquid
-        if (target.getBlockY() > (mobLoc.getBlockY()) &&
-                (mobLoc.clone().add(0, 1, 0).getBlock().isLiquid())) {
-            return true;
+    /**
+     * FIXED: Enhanced line of sight check for 1.20.2
+     */
+    private static boolean hasLineOfSight(LivingEntity mob, Player player) {
+        try {
+            return mob.hasLineOfSight(player);
+        } catch (Exception e) {
+            // Fallback to distance-based check if hasLineOfSight fails
+            double distance = mob.getLocation().distance(player.getLocation());
+            return distance <= 40; // Assume line of sight within reasonable range
         }
+    }
 
-        // Check distance and height difference
-        boolean mobStuck = false;
-        int solidBlocksAround = 0;
+    /**
+     * FIXED: Enhanced liquid detection for 1.20.2
+     */
+    private static boolean isInLiquid(Location location) {
+        try {
+            Material blockType = location.getBlock().getType();
+            return blockType == Material.WATER ||
+                    blockType == Material.LAVA ||
+                    blockType.name().contains("WATER") ||
+                    blockType.name().contains("LAVA");
+        } catch (Exception e) {
+            return false;
+        }
+    }
 
-        // Check blocks around the mob for potential stuck state
-        for (int x = -1; x <= 1; x++) {
-            for (int z = -1; z <= 1; z++) {
-                if (x == 0 && z == 0) continue; // Skip center
+    /**
+     * FIXED: Enhanced stuck detection for 1.20.2
+     */
+    private static boolean isMobStuck(Location mobLoc) {
+        try {
+            int solidBlocksAround = 0;
 
-                Location checkLoc = mobLoc.clone().add(x, 0, z);
-                if (checkLoc.getBlock().getType().isSolid()) {
-                    solidBlocksAround++;
+            // Check blocks around the mob for potential stuck state
+            for (int x = -1; x <= 1; x++) {
+                for (int z = -1; z <= 1; z++) {
+                    if (x == 0 && z == 0) continue; // Skip center
+
+                    Location checkLoc = mobLoc.clone().add(x, 0, z);
+                    if (checkLoc.getBlock().getType().isSolid()) {
+                        solidBlocksAround++;
+                    }
                 }
             }
-        }
 
-        // If mob is surrounded by 7+ solid blocks, it's likely stuck
-        if (solidBlocksAround >= 7) {
-            mobStuck = true;
+            // If mob is surrounded by 7+ solid blocks, it's likely stuck
+            return solidBlocksAround >= 7;
+        } catch (Exception e) {
+            return false;
         }
-
-        return (distance >= 3 && distance <= 36 &&
-                target.getBlockY() > (mobLoc.getBlockY() + 1)) || mobStuck;
     }
 
     /**
      * Check if a player is nearby a location
+     * Enhanced for 1.20.2 with better performance
      *
      * @param location The location to check
      * @param distance Maximum distance to check
      * @return true if a player is nearby
      */
     public static boolean isPlayerNearby(Location location, double distance) {
-        double distanceSquared = distance * distance;
-        for (Player player : Bukkit.getOnlinePlayers()) {
-            if (player.getWorld().equals(location.getWorld()) &&
-                    player.getLocation().distanceSquared(location) <= distanceSquared) {
-                return true;
-            }
+        if (location == null || location.getWorld() == null) {
+            return false;
         }
+
+        try {
+            double distanceSquared = distance * distance;
+            for (Player player : Bukkit.getOnlinePlayers()) {
+                if (player != null &&
+                        player.isValid() &&
+                        player.getWorld().equals(location.getWorld()) &&
+                        player.getLocation().distanceSquared(location) <= distanceSquared) {
+                    return true;
+                }
+            }
+        } catch (Exception e) {
+            logger.warning("Error checking nearby players: " + e.getMessage());
+        }
+
         return false;
     }
 
@@ -377,12 +444,19 @@ public class MobUtils {
      * @return The metadata value or default
      */
     public static int getMetadataInt(LivingEntity entity, String key, int defaultValue) {
-        if (entity.hasMetadata(key)) {
+        if (entity == null || !entity.hasMetadata(key)) {
+            return defaultValue;
+        }
+
+        try {
             List<MetadataValue> values = entity.getMetadata(key);
             if (!values.isEmpty()) {
                 return values.get(0).asInt();
             }
+        } catch (Exception e) {
+            logger.warning("Error getting metadata int: " + e.getMessage());
         }
+
         return defaultValue;
     }
 
@@ -395,12 +469,19 @@ public class MobUtils {
      * @return The metadata value or default
      */
     public static String getMetadataString(LivingEntity entity, String key, String defaultValue) {
-        if (entity.hasMetadata(key)) {
+        if (entity == null || !entity.hasMetadata(key)) {
+            return defaultValue;
+        }
+
+        try {
             List<MetadataValue> values = entity.getMetadata(key);
             if (!values.isEmpty()) {
                 return values.get(0).asString();
             }
+        } catch (Exception e) {
+            logger.warning("Error getting metadata string: " + e.getMessage());
         }
+
         return defaultValue;
     }
 
@@ -413,50 +494,64 @@ public class MobUtils {
      * @return The metadata value or default
      */
     public static boolean getMetadataBoolean(LivingEntity entity, String key, boolean defaultValue) {
-        if (entity.hasMetadata(key)) {
+        if (entity == null || !entity.hasMetadata(key)) {
+            return defaultValue;
+        }
+
+        try {
             List<MetadataValue> values = entity.getMetadata(key);
             if (!values.isEmpty()) {
                 return values.get(0).asBoolean();
             }
+        } catch (Exception e) {
+            logger.warning("Error getting metadata boolean: " + e.getMessage());
         }
+
         return defaultValue;
     }
 
     /**
-     * Generate a health bar string based on entity's health
-     * FIXED: Exact match for the original generateOverheadBar method with proper tier color application
+     * FIXED: Generate a health bar string with enhanced 1.20.2 compatibility
      */
     public static String generateHealthBar(LivingEntity entity, double health, double maxHealth, int tier, boolean inCriticalState) {
-        boolean boss = isElite(entity);
+        if (entity == null) return "";
 
-        // FIXED: Set color based on tier properly
-        ChatColor tierColor = getTierColor(tier);
-        String str = tierColor.toString();
+        ChatColor tierColor = null;
+        try {
+            boolean boss = isElite(entity);
 
-        // Ensure health values are valid
-        if (health <= 0) health = 0.1;
-        if (maxHealth <= 0) maxHealth = 1;
+            // FIXED: Set color based on tier properly
+            tierColor = getTierColor(tier);
+            String str = tierColor.toString();
 
-        // Calculate health percentage
-        double perc = health / maxHealth;
-        int lines = 40;
+            // Ensure health values are valid
+            if (health <= 0) health = 0.1;
+            if (maxHealth <= 0) maxHealth = 1;
 
-        // Set bar color based on critical state
-        String barColor = inCriticalState ?
-                ChatColor.LIGHT_PURPLE.toString() : ChatColor.GREEN.toString();
+            // Calculate health percentage
+            double perc = health / maxHealth;
+            int lines = 40;
 
-        // Generate the bar
-        for (int i = 1; i <= lines; ++i) {
-            str = perc >= (double) i / (double) lines ?
-                    str + barColor + "|" : str + ChatColor.GRAY + "|";
+            // Set bar color based on critical state
+            String barColor = inCriticalState ?
+                    ChatColor.LIGHT_PURPLE.toString() : ChatColor.GREEN.toString();
+
+            // Generate the bar
+            for (int i = 1; i <= lines; ++i) {
+                str = perc >= (double) i / (double) lines ?
+                        str + barColor + "|" : str + ChatColor.GRAY + "|";
+            }
+
+            // Remove last character for non-elite mobs
+            if (!boss) {
+                str = str.substring(0, str.length() - 1);
+            }
+
+            return str;
+        } catch (Exception e) {
+            logger.warning("Error generating health bar: " + e.getMessage());
+            return tierColor.toString() + "Error";
         }
-
-        // Remove last character for non-elite mobs
-        if (!boss) {
-            str = str.substring(0, str.length() - 1);
-        }
-
-        return str;
     }
 
     /**
@@ -506,7 +601,69 @@ public class MobUtils {
      * @return true if it's a health bar
      */
     public static boolean isHealthBar(String text) {
-        return text != null && (text.contains(ChatColor.GREEN + "|") || text.contains(ChatColor.GRAY + "|"));
+        if (text == null) return false;
+        return text.contains(ChatColor.GREEN + "|") ||
+                text.contains(ChatColor.GRAY + "|") ||
+                text.contains(ChatColor.LIGHT_PURPLE + "|");
+    }
+
+    /**
+     * FIXED: Enhanced entity validation for 1.20.2
+     *
+     * @param entity The entity to validate
+     * @return true if entity is valid and tracked properly
+     */
+    public static boolean isEntityValidAndTracked(LivingEntity entity) {
+        if (entity == null) return false;
+
+        try {
+            // Basic validity checks
+            if (!entity.isValid() || entity.isDead()) {
+                return false;
+            }
+
+            // Check if entity is properly tracked by server
+            Entity foundEntity = Bukkit.getEntity(entity.getUniqueId());
+            if (foundEntity == null || !foundEntity.equals(entity)) {
+                return false;
+            }
+
+            // Verify world is loaded and entity is in world
+            if (entity.getWorld() == null || !entity.isInWorld()) {
+                return false;
+            }
+
+            // Check if chunk is loaded (important for 1.20.2)
+            Location loc = entity.getLocation();
+            if (loc == null || !entity.getWorld().isChunkLoaded(loc.getBlockX() >> 4, loc.getBlockZ() >> 4)) {
+                return false;
+            }
+
+            return true;
+        } catch (Exception e) {
+            logger.warning("Entity validation error: " + e.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * FIXED: Clean a mob name of health bar formatting
+     *
+     * @param name The name to clean
+     * @return Clean name without health bar characters
+     */
+    public static String cleanMobName(String name) {
+        if (name == null || name.isEmpty()) {
+            return "";
+        }
+
+        // Remove health bar characters
+        String cleaned = name.replaceAll("[|]", "");
+
+        // Remove multiple consecutive color codes
+        cleaned = cleaned.replaceAll("(§.){2,}", "§r");
+
+        return cleaned.trim();
     }
 
     /**
@@ -535,5 +692,62 @@ public class MobUtils {
             default:
                 return formatted.replace("_", " ");
         }
+    }
+
+    /**
+     * FIXED: Enhanced mob name capture that stores the actual original name
+     *
+     * @param entity The entity to capture name from
+     * @return The original display name or null if not available
+     */
+    public static String captureOriginalName(LivingEntity entity) {
+        if (entity == null) return null;
+
+        try {
+            String currentName = entity.getCustomName();
+
+            // Don't capture health bars as original names
+            if (currentName != null && !isHealthBar(currentName)) {
+                return currentName;
+            }
+
+            // Try metadata if current name is a health bar
+            if (entity.hasMetadata("name")) {
+                String metaName = entity.getMetadata("name").get(0).asString();
+                if (metaName != null && !isHealthBar(metaName)) {
+                    return metaName;
+                }
+            }
+
+            return null;
+        } catch (Exception e) {
+            logger.warning("Error capturing original name: " + e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * FIXED: Validate that a name is suitable for restoration
+     *
+     * @param name The name to validate
+     * @return true if the name is valid for restoration
+     */
+    public static boolean isValidRestorationName(String name) {
+        if (name == null || name.isEmpty()) {
+            return false;
+        }
+
+        // Don't restore health bars
+        if (isHealthBar(name)) {
+            return false;
+        }
+
+        // Don't restore names that are just color codes
+        String stripped = ChatColor.stripColor(name);
+        if (stripped == null || stripped.trim().isEmpty()) {
+            return false;
+        }
+
+        return true;
     }
 }
