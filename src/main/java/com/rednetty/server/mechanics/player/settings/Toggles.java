@@ -26,8 +26,7 @@ import java.util.logging.Logger;
 import java.util.stream.Collectors;
 
 /**
- * Enhanced toggle system with improved UI, better performance,
- * validation, and enhanced user experience.
+ * FIXED: Enhanced toggle system with proper initialization, debugging, and validation.
  */
 public class Toggles implements Listener {
     private static Toggles instance;
@@ -37,12 +36,16 @@ public class Toggles implements Listener {
     // Enhanced confirmation system
     private final Map<UUID, PendingConfirmation> confirmationMap = new ConcurrentHashMap<>();
 
-    // Configuration
+    // FIXED: Better configuration with proper bounds checking
     private final long CONFIRMATION_EXPIRY = 15000; // 15 seconds
-    private final int MENU_SIZE = 54; // 6 rows for better organization
+    private final int MENU_SIZE = 54; // 6 rows
+    private final int USABLE_SLOTS = 45; // Reserve bottom row (slots 0-44)
+    private final int INFO_SLOT = 53; // Bottom right corner
+    private final int MAX_TOGGLES_PER_ROW = 7; // Limit toggles per row
 
-    // Toggle definitions with enhanced metadata
-    private final Map<String, ToggleDefinition> toggleDefinitions = new HashMap<>();
+    // FIXED: Toggle definitions with proper initialization
+    private final Map<String, ToggleDefinition> toggleDefinitions = new LinkedHashMap<>();
+    private boolean definitionsInitialized = false;
 
     /**
      * Enhanced confirmation tracking
@@ -66,19 +69,19 @@ public class Toggles implements Listener {
     /**
      * Enhanced toggle definition with metadata
      */
-    private static class ToggleDefinition {
-        final String name;
-        final String category;
-        final String description;
-        final String permission;
-        final boolean requiresConfirmation;
-        final boolean defaultValue;
-        final Material iconMaterial;
-        final String iconName;
-        final List<String> loreLines;
+    public static class ToggleDefinition {
+        public final String name;
+        public final String category;
+        public final String description;
+        public final String permission;
+        public final boolean requiresConfirmation;
+        public final boolean defaultValue;
+        public final Material iconMaterial;
+        public final String iconName;
+        public final List<String> loreLines;
 
-        ToggleDefinition(String name, String category, String description, String permission,
-                         boolean requiresConfirmation, boolean defaultValue, Material iconMaterial) {
+        public ToggleDefinition(String name, String category, String description, String permission,
+                                boolean requiresConfirmation, boolean defaultValue, Material iconMaterial) {
             this.name = name;
             this.category = category;
             this.description = description;
@@ -111,64 +114,103 @@ public class Toggles implements Listener {
     private Toggles() {
         this.playerManager = YakPlayerManager.getInstance();
         this.logger = YakRealms.getInstance().getLogger();
+
+        // FIXED: Initialize definitions immediately
         initializeToggleDefinitions();
     }
 
     /**
-     * Initialize all toggle definitions with enhanced metadata
+     * FIXED: Initialize all toggle definitions with enhanced validation
      */
     private void initializeToggleDefinitions() {
-        // Combat toggles
-        addToggleDefinition("Anti PVP", "Combat", "Prevents you from dealing damage to other players",
-                null, false, true, Material.IRON_SWORD);
-        addToggleDefinition("Friendly Fire", "Combat", "Allows damaging buddies and guild members",
-                null, false, false, Material.DIAMOND_SWORD);
-        addToggleDefinition("Chaotic Protection", "Combat", "Prevents accidentally attacking lawful players",
-                null, true, false, Material.SHIELD);
+        logger.info("Initializing toggle definitions...");
 
-        // Display toggles
-        addToggleDefinition("Hologram Damage", "Display", "Shows floating damage numbers in combat",
-                null, false, true, Material.NAME_TAG);
-        addToggleDefinition("Debug Mode", "Display", "Shows detailed combat and system information",
-                null, false, false, Material.REDSTONE);
-        addToggleDefinition("Trail Effects", "Display", "Displays special particle trail effects",
-                "yakserver.donator", false, false, Material.FIREWORK_ROCKET);
-        addToggleDefinition("Particles", "Display", "Shows various particle effects",
-                "yakserver.donator", false, false, Material.BLAZE_POWDER);
+        try {
+            // Clear existing definitions
+            toggleDefinitions.clear();
 
-        // System toggles
-        addToggleDefinition("Drop Protection", "System", "Protects your dropped items for 5 seconds",
-                null, false, true, Material.CHEST);
-        addToggleDefinition("Auto Bank", "System", "Automatically deposits gems into your bank",
-                "yakserver.donator.tier2", false, false, Material.GOLD_INGOT);
-        addToggleDefinition("Energy System", "System", "Enables/disables the energy/stamina system",
-                "yakserver.admin", true, true, Material.SUGAR);
-        addToggleDefinition("Disable Kit", "System", "Prevents receiving starter kits on respawn",
-                null, false, false, Material.LEATHER_CHESTPLATE);
+            // Combat toggles
+            addToggleDefinition("Anti PVP", "Combat", "Prevents you from dealing damage to other players",
+                    null, false, true, Material.IRON_SWORD);
+            addToggleDefinition("Friendly Fire", "Combat", "Allows damaging buddies and guild members",
+                    null, false, false, Material.DIAMOND_SWORD);
+            addToggleDefinition("Chaotic Protection", "Combat", "Prevents accidentally attacking lawful players",
+                    null, true, false, Material.SHIELD);
 
-        // Social toggles
-        addToggleDefinition("Trading", "Social", "Allows other players to send you trade requests",
-                null, false, true, Material.EMERALD);
-        addToggleDefinition("Player Messages", "Social", "Receive private messages from other players",
-                null, false, true, Material.PAPER);
-        addToggleDefinition("Guild Invites", "Social", "Receive guild invitation requests",
-                null, false, true, Material.BLUE_BANNER);
-        addToggleDefinition("Buddy Requests", "Social", "Receive buddy/friend requests",
-                null, false, true, Material.GOLDEN_APPLE);
+            // Display toggles
+            addToggleDefinition("Hologram Damage", "Display", "Shows floating damage numbers in combat",
+                    null, false, true, Material.NAME_TAG);
+            addToggleDefinition("Debug Mode", "Display", "Shows detailed combat and system information",
+                    null, false, false, Material.REDSTONE);
+            addToggleDefinition("Trail Effects", "Display", "Displays special particle trail effects",
+                    "yakserver.donator", false, false, Material.FIREWORK_ROCKET);
+            addToggleDefinition("Particles", "Display", "Shows various particle effects",
+                    "yakserver.donator", false, false, Material.BLAZE_POWDER);
 
-        // Audio toggles
-        addToggleDefinition("Sound Effects", "Audio", "Play UI and interaction sound effects",
-                null, false, true, Material.NOTE_BLOCK);
-        addToggleDefinition("Combat Sounds", "Audio", "Play enhanced combat sound effects",
-                null, false, true, Material.BELL);
+            // System toggles
+            addToggleDefinition("Drop Protection", "System", "Protects your dropped items for 5 seconds",
+                    null, false, true, Material.CHEST);
+            addToggleDefinition("Auto Bank", "System", "Automatically deposits gems into your bank",
+                    "yakserver.donator.tier2", false, false, Material.GOLD_INGOT);
+            addToggleDefinition("Energy System", "System", "Enables/disables the energy/stamina system",
+                    "yakserver.admin", true, true, Material.SUGAR);
+            addToggleDefinition("Disable Kit", "System", "Prevents receiving starter kits on respawn",
+                    null, false, false, Material.LEATHER_CHESTPLATE);
 
-        logger.info("Initialized " + toggleDefinitions.size() + " toggle definitions");
+            // Social toggles
+            addToggleDefinition("Trading", "Social", "Allows other players to send you trade requests",
+                    null, false, true, Material.EMERALD);
+            addToggleDefinition("Player Messages", "Social", "Receive private messages from other players",
+                    null, false, true, Material.PAPER);
+            addToggleDefinition("Guild Invites", "Social", "Receive guild invitation requests",
+                    null, false, true, Material.BLUE_BANNER);
+            addToggleDefinition("Buddy Requests", "Social", "Receive buddy/friend requests",
+                    null, false, true, Material.GOLDEN_APPLE);
+
+            // Audio toggles
+            addToggleDefinition("Sound Effects", "Audio", "Play UI and interaction sound effects",
+                    null, false, true, Material.NOTE_BLOCK);
+            addToggleDefinition("Combat Sounds", "Audio", "Play enhanced combat sound effects",
+                    null, false, true, Material.BELL);
+
+            definitionsInitialized = true;
+            logger.info("Successfully initialized " + toggleDefinitions.size() + " toggle definitions");
+
+            // FIXED: Debug output for verification
+            logToggleDefinitions();
+
+        } catch (Exception e) {
+            logger.severe("Failed to initialize toggle definitions: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+
+    /**
+     * FIXED: Debug method to log all toggle definitions
+     */
+    private void logToggleDefinitions() {
+        logger.info("Toggle Definitions Summary:");
+        Map<String, List<String>> categories = toggleDefinitions.values().stream()
+                .collect(Collectors.groupingBy(def -> def.category,
+                        Collectors.mapping(def -> def.name, Collectors.toList())));
+
+        for (Map.Entry<String, List<String>> entry : categories.entrySet()) {
+            logger.info("  " + entry.getKey() + ": " + entry.getValue());
+        }
     }
 
     private void addToggleDefinition(String name, String category, String description, String permission,
                                      boolean requiresConfirmation, boolean defaultValue, Material iconMaterial) {
-        toggleDefinitions.put(name, new ToggleDefinition(name, category, description, permission,
-                requiresConfirmation, defaultValue, iconMaterial));
+        if (name == null || category == null || description == null) {
+            logger.warning("Invalid toggle definition parameters: name=" + name + ", category=" + category);
+            return;
+        }
+
+        ToggleDefinition def = new ToggleDefinition(name, category, description, permission,
+                requiresConfirmation, defaultValue, iconMaterial);
+        toggleDefinitions.put(name, def);
+
+        logger.fine("Added toggle definition: " + name + " in category " + category);
     }
 
     public static Toggles getInstance() {
@@ -186,7 +228,7 @@ public class Toggles implements Listener {
             cleanupExpiredConfirmations();
         }, 20L * 30, 20L * 30); // Every 30 seconds
 
-        YakRealms.log("Enhanced Toggles system has been enabled.");
+        YakRealms.log("Enhanced Toggles system has been enabled with " + toggleDefinitions.size() + " toggles.");
     }
 
     public void onDisable() {
@@ -203,30 +245,49 @@ public class Toggles implements Listener {
     }
 
     /**
-     * Enhanced toggle checking with null safety
+     * FIXED: Enhanced toggle checking with better validation
      */
     public static boolean isToggled(Player player, String toggle) {
-        if (player == null || toggle == null) return false;
+        if (player == null || toggle == null) {
+            return false;
+        }
 
-        YakPlayer yakPlayer = getInstance().playerManager.getPlayer(player);
-        if (yakPlayer == null) return false;
+        Toggles toggles = getInstance();
+        if (!toggles.definitionsInitialized) {
+            toggles.logger.warning("Toggle definitions not initialized when checking: " + toggle);
+            return false;
+        }
+
+        YakPlayer yakPlayer = toggles.playerManager.getPlayer(player);
+        if (yakPlayer == null) {
+            toggles.logger.fine("YakPlayer is null for " + player.getName() + " when checking toggle: " + toggle);
+            return false;
+        }
 
         // Check if toggle exists and get default value
-        ToggleDefinition def = getInstance().toggleDefinitions.get(toggle);
-        if (def == null) return false;
+        ToggleDefinition def = toggles.toggleDefinitions.get(toggle);
+        if (def == null) {
+            toggles.logger.warning("Unknown toggle requested: " + toggle);
+            return false;
+        }
 
         return yakPlayer.isToggled(toggle);
     }
 
     /**
-     * Enhanced toggle setting with validation
+     * FIXED: Enhanced toggle setting with better validation
      */
     public static boolean setToggle(Player player, String toggle, boolean enabled) {
-        if (player == null || toggle == null) return false;
+        if (player == null || toggle == null) {
+            return false;
+        }
 
         Toggles toggles = getInstance();
         ToggleDefinition def = toggles.toggleDefinitions.get(toggle);
-        if (def == null) return false;
+        if (def == null) {
+            toggles.logger.warning("Attempted to set unknown toggle: " + toggle);
+            return false;
+        }
 
         // Check permission
         if (def.permission != null && !player.hasPermission(def.permission)) {
@@ -235,7 +296,10 @@ public class Toggles implements Listener {
         }
 
         YakPlayer yakPlayer = toggles.playerManager.getPlayer(player);
-        if (yakPlayer == null) return false;
+        if (yakPlayer == null) {
+            toggles.logger.warning("YakPlayer is null for " + player.getName() + " when setting toggle: " + toggle);
+            return false;
+        }
 
         boolean currentState = yakPlayer.isToggled(toggle);
         if (currentState != enabled) {
@@ -253,14 +317,328 @@ public class Toggles implements Listener {
     }
 
     /**
-     * Enhanced toggle change with confirmation system
+     * FIXED: Enhanced toggle menu with improved debugging and validation
+     */
+    public Inventory getToggleMenu(Player player) {
+        Inventory inventory = Bukkit.createInventory(null, MENU_SIZE, "§6§l✦ §e§lTOGGLE SETTINGS §6§l✦");
+
+        // FIXED: Better validation and debugging
+        if (!definitionsInitialized) {
+            logger.severe("Toggle definitions not initialized when creating menu for " + player.getName());
+            addErrorItem(inventory, "System not initialized");
+            return inventory;
+        }
+
+        if (toggleDefinitions.isEmpty()) {
+            logger.severe("Toggle definitions map is empty when creating menu for " + player.getName());
+            addErrorItem(inventory, "No toggles available");
+            return inventory;
+        }
+
+        YakPlayer yakPlayer = playerManager.getPlayer(player);
+        if (yakPlayer == null) {
+            logger.warning("YakPlayer is null when creating toggle menu for " + player.getName());
+            addErrorItem(inventory, "Player data not loaded");
+            return inventory;
+        }
+
+        logger.info("Creating toggle menu for " + player.getName() + " with " +
+                toggleDefinitions.size() + " toggle definitions");
+
+        // Group toggles by category
+        Map<String, List<ToggleDefinition>> categories = toggleDefinitions.values().stream()
+                .collect(Collectors.groupingBy(def -> def.category, LinkedHashMap::new, Collectors.toList()));
+
+        logger.info("Categories found: " + categories.keySet());
+
+        // FIXED: Improved slot management with better bounds checking
+        int currentSlot = 0;
+        int itemsAdded = 0;
+
+        // Add category sections
+        for (Map.Entry<String, List<ToggleDefinition>> entry : categories.entrySet()) {
+            String category = entry.getKey();
+            List<ToggleDefinition> categoryToggles = entry.getValue();
+
+            logger.info("Processing category: " + category + " with " + categoryToggles.size() + " toggles");
+
+            // Add category header
+            if (isValidSlot(currentSlot)) {
+                addCategoryHeader(inventory, category, currentSlot);
+                currentSlot++;
+                itemsAdded++;
+            }
+
+            // Add toggles for this category
+            for (ToggleDefinition def : categoryToggles) {
+                if (!isValidSlot(currentSlot)) {
+                    logger.warning("Ran out of slots at slot " + currentSlot);
+                    break;
+                }
+
+                if (hasPermissionForToggle(player, def)) {
+                    addToggleItem(inventory, def, yakPlayer, currentSlot);
+                    logger.fine("Added toggle item: " + def.name + " at slot " + currentSlot);
+                } else {
+                    addLockedToggleItem(inventory, def, currentSlot);
+                    logger.fine("Added locked toggle item: " + def.name + " at slot " + currentSlot);
+                }
+
+                currentSlot++;
+                itemsAdded++;
+
+                // Move to next row if we're getting close to the edge
+                if (currentSlot % 9 >= 8) {
+                    currentSlot = ((currentSlot / 9) + 1) * 9;
+                }
+            }
+
+            // Add spacing between categories
+            currentSlot = ((currentSlot / 9) + 1) * 9;
+        }
+
+        logger.info("Added " + itemsAdded + " items to toggle menu");
+
+        // Add decorative elements and info
+        addMenuDecorations(inventory);
+        addInfoButton(inventory, INFO_SLOT);
+
+        return inventory;
+    }
+
+    /**
+     * FIXED: Add error item for debugging
+     */
+    private void addErrorItem(Inventory inventory, String error) {
+        ItemStack errorItem = new ItemStack(Material.BARRIER);
+        ItemMeta meta = errorItem.getItemMeta();
+        meta.setDisplayName("§c§lError: " + error);
+
+        List<String> lore = new ArrayList<>();
+        lore.add("§7There was an issue loading the toggle menu.");
+        lore.add("§7Please contact an administrator.");
+        lore.add("");
+        lore.add("§8Error: " + error);
+        meta.setLore(lore);
+
+        errorItem.setItemMeta(meta);
+        inventory.setItem(22, errorItem); // Center slot
+    }
+
+    /**
+     * FIXED: Validate slot numbers with better logging
+     */
+    private boolean isValidSlot(int slot) {
+        boolean valid = slot >= 0 && slot < USABLE_SLOTS;
+        if (!valid) {
+            logger.fine("Invalid slot: " + slot + " (valid range: 0-" + (USABLE_SLOTS - 1) + ")");
+        }
+        return valid;
+    }
+
+    /**
+     * FIXED: Enhanced category header with better validation
+     */
+    private void addCategoryHeader(Inventory inventory, String category, int slot) {
+        if (!isValidSlot(slot)) {
+            logger.warning("Invalid slot for category header: " + slot + " for category: " + category);
+            return;
+        }
+
+        Material headerMaterial = getCategoryMaterial(category);
+        ItemStack header = new ItemStack(headerMaterial);
+        ItemMeta meta = header.getItemMeta();
+
+        meta.setDisplayName("§6§l✦ " + category.toUpperCase() + " TOGGLES §6§l✦");
+
+        List<String> lore = new ArrayList<>();
+        lore.add("§7Settings related to " + category.toLowerCase());
+        lore.add("§8Toggles in this category:");
+
+        // List toggles in this category
+        List<ToggleDefinition> categoryToggles = toggleDefinitions.values().stream()
+                .filter(def -> def.category.equals(category))
+                .collect(Collectors.toList());
+
+        for (ToggleDefinition def : categoryToggles) {
+            lore.add("§8• " + def.name);
+        }
+
+        meta.setLore(lore);
+        header.setItemMeta(meta);
+        inventory.setItem(slot, header);
+
+        logger.fine("Added category header for " + category + " at slot " + slot);
+    }
+
+    /**
+     * Get material for category headers
+     */
+    private Material getCategoryMaterial(String category) {
+        switch (category) {
+            case "Combat": return Material.IRON_SWORD;
+            case "Display": return Material.PAINTING;
+            case "System": return Material.REDSTONE_BLOCK;
+            case "Social": return Material.PLAYER_HEAD;
+            case "Audio": return Material.JUKEBOX;
+            default: return Material.BOOKSHELF;
+        }
+    }
+
+    /**
+     * FIXED: Add enhanced toggle item with better validation and debugging
+     */
+    private void addToggleItem(Inventory inventory, ToggleDefinition def, YakPlayer yakPlayer, int slot) {
+        if (!isValidSlot(slot)) {
+            logger.warning("Invalid slot for toggle item: " + slot + " for toggle: " + def.name);
+            return;
+        }
+
+        boolean isEnabled = yakPlayer.isToggled(def.name);
+
+        // Choose material and color based on state
+        Material material = isEnabled ? Material.LIME_DYE : Material.GRAY_DYE;
+        if (def.requiresConfirmation) {
+            material = isEnabled ? Material.LIME_CONCRETE : Material.RED_CONCRETE;
+        }
+
+        ItemStack item = new ItemStack(material);
+        ItemMeta meta = item.getItemMeta();
+
+        // Enhanced naming with status
+        String status = isEnabled ? "§a§lEnabled" : "§c§lDisabled";
+        String icon = isEnabled ? "§a✓" : "§c✗";
+        meta.setDisplayName(icon + " §f§l" + def.name + " " + status);
+
+        // Enhanced lore
+        List<String> lore = new ArrayList<>();
+        lore.add("§7" + def.description);
+        lore.add("");
+        lore.add("§8Category: §7" + def.category);
+
+        if (def.requiresConfirmation) {
+            lore.add("");
+            lore.add("§c§l⚠ §cSensitive Setting");
+            lore.add("§7Requires confirmation to change");
+        }
+
+        lore.add("");
+        lore.add("§e§lClick to " + (isEnabled ? "disable" : "enable"));
+
+        meta.setLore(lore);
+        item.setItemMeta(meta);
+
+        inventory.setItem(slot, item);
+        logger.fine("Added toggle item " + def.name + " (" + status + ") at slot " + slot);
+    }
+
+    /**
+     * FIXED: Add locked toggle item with better validation
+     */
+    private void addLockedToggleItem(Inventory inventory, ToggleDefinition def, int slot) {
+        if (!isValidSlot(slot)) {
+            logger.warning("Invalid slot for locked toggle item: " + slot + " for toggle: " + def.name);
+            return;
+        }
+
+        ItemStack item = new ItemStack(Material.BARRIER);
+        ItemMeta meta = item.getItemMeta();
+
+        meta.setDisplayName("§c§l🔒 " + def.name + " §8(Locked)");
+
+        List<String> lore = new ArrayList<>();
+        lore.add("§7" + def.description);
+        lore.add("");
+        lore.add("§8Category: §7" + def.category);
+        lore.add("");
+        lore.add("§c§lRequired Permission:");
+        lore.add("§7" + def.permission);
+        lore.add("");
+        lore.add("§8Contact staff for access");
+
+        meta.setLore(lore);
+        item.setItemMeta(meta);
+
+        inventory.setItem(slot, item);
+        logger.fine("Added locked toggle item " + def.name + " at slot " + slot);
+    }
+
+    /**
+     * FIXED: Add menu decorations with proper bounds checking
+     */
+    private void addMenuDecorations(Inventory inventory) {
+        ItemStack glass = new ItemStack(Material.BLACK_STAINED_GLASS_PANE);
+        ItemMeta glassMeta = glass.getItemMeta();
+        glassMeta.setDisplayName("§8");
+        glass.setItemMeta(glassMeta);
+
+        // Fill bottom row for navigation/info area (slots 45-53)
+        for (int i = 45; i < MENU_SIZE - 1; i++) {
+            if (inventory.getItem(i) == null) {
+                inventory.setItem(i, glass);
+            }
+        }
+    }
+
+    /**
+     * FIXED: Add enhanced info button with bounds checking
+     */
+    private void addInfoButton(Inventory inventory, int slot) {
+        if (slot < 0 || slot >= MENU_SIZE) {
+            logger.warning("Invalid slot for info button: " + slot);
+            return;
+        }
+
+        ItemStack info = new ItemStack(Material.BOOK);
+        ItemMeta meta = info.getItemMeta();
+
+        meta.setDisplayName("§b§l📖 Toggle Information");
+
+        List<String> lore = new ArrayList<>();
+        lore.add("§7Click any toggle to enable or disable it");
+        lore.add("§7§lColors:");
+        lore.add("  §a§l✓ Green §7- Enabled");
+        lore.add("  §c§l✗ Red §7- Disabled");
+        lore.add("  §8🔒 Barrier §7- Locked (requires permission)");
+        lore.add("");
+        lore.add("§6§lSpecial Toggles:");
+        lore.add("§7Some toggles require confirmation");
+        lore.add("§7and may have additional requirements");
+        lore.add("");
+        lore.add("§8Total toggles: " + toggleDefinitions.size());
+
+        meta.setLore(lore);
+        info.setItemMeta(meta);
+
+        inventory.setItem(slot, info);
+    }
+
+    /**
+     * Check if player has permission for a toggle
+     */
+    private boolean hasPermissionForToggle(Player player, ToggleDefinition def) {
+        if (def.permission == null) {
+            return true;
+        }
+
+        boolean hasPermission = player.hasPermission(def.permission);
+        logger.fine("Permission check for " + player.getName() + " and toggle " + def.name +
+                " (permission: " + def.permission + "): " + hasPermission);
+        return hasPermission;
+    }
+
+    /**
+     * FIXED: Enhanced toggle change with better validation
      */
     public boolean changeToggle(Player player, String toggle) {
-        if (player == null || toggle == null) return false;
+        if (player == null || toggle == null) {
+            return false;
+        }
 
         ToggleDefinition def = toggleDefinitions.get(toggle);
         if (def == null) {
             player.sendMessage(ChatColor.RED + "Unknown toggle: " + toggle);
+            logger.warning("Unknown toggle requested by " + player.getName() + ": " + toggle);
             return false;
         }
 
@@ -272,7 +650,11 @@ public class Toggles implements Listener {
         }
 
         YakPlayer yakPlayer = playerManager.getPlayer(player);
-        if (yakPlayer == null) return false;
+        if (yakPlayer == null) {
+            player.sendMessage(ChatColor.RED + "§l⚠ §cPlayer data not loaded. Please try again.");
+            logger.warning("YakPlayer is null for " + player.getName() + " when changing toggle: " + toggle);
+            return false;
+        }
 
         UUID uuid = player.getUniqueId();
         boolean currentState = yakPlayer.isToggled(toggle);
@@ -332,7 +714,6 @@ public class Toggles implements Listener {
 
         ToggleDefinition def = toggleDefinitions.get(toggle);
         String status = newState ? "§a§lEnabled" : "§c§lDisabled";
-        String icon = newState ? "§a✓" : "§c✗";
 
         player.sendMessage("");
         player.sendMessage("§6§l✦ TOGGLE UPDATED ✦");
@@ -347,6 +728,8 @@ public class Toggles implements Listener {
 
         // Special handling for certain toggles
         handleSpecialToggleEffects(player, toggle, newState);
+
+        logger.info("Toggle changed for " + player.getName() + ": " + toggle + " = " + newState);
     }
 
     /**
@@ -381,205 +764,7 @@ public class Toggles implements Listener {
     }
 
     /**
-     * Enhanced toggle menu with improved organization and visuals
-     */
-    public Inventory getToggleMenu(Player player) {
-        Inventory inventory = Bukkit.createInventory(null, MENU_SIZE, "§6§l✦ §e§lTOGGLE SETTINGS §6§l✦");
-
-        YakPlayer yakPlayer = playerManager.getPlayer(player);
-        if (yakPlayer == null) return inventory;
-
-        // Group toggles by category
-        Map<String, List<ToggleDefinition>> categories = toggleDefinitions.values().stream()
-                .collect(Collectors.groupingBy(def -> def.category));
-
-        int slot = 0;
-
-        // Add category sections
-        for (Map.Entry<String, List<ToggleDefinition>> entry : categories.entrySet()) {
-            String category = entry.getKey();
-            List<ToggleDefinition> categoryToggles = entry.getValue();
-
-            // Add category header
-            addCategoryHeader(inventory, category, slot);
-            slot += 9; // Move to next row
-
-            // Add toggles for this category
-            for (ToggleDefinition def : categoryToggles) {
-                if (hasPermissionForToggle(player, def)) {
-                    addToggleItem(inventory, def, yakPlayer, slot);
-                } else {
-                    addLockedToggleItem(inventory, def, slot);
-                }
-                slot++;
-
-                if (slot % 9 == 0) slot += 0; // Stay in same row until full
-            }
-
-            // Align to next row if not already
-            slot = ((slot / 9) + 1) * 9;
-        }
-
-        // Add decorative elements and info
-        addMenuDecorations(inventory);
-        addInfoButton(inventory, MENU_SIZE - 1);
-
-        return inventory;
-    }
-
-    /**
-     * Add enhanced category header
-     */
-    private void addCategoryHeader(Inventory inventory, String category, int slot) {
-        Material headerMaterial = getCategoryMaterial(category);
-        ItemStack header = new ItemStack(headerMaterial);
-        ItemMeta meta = header.getItemMeta();
-
-        meta.setDisplayName("§6§l✦ " + category.toUpperCase() + " TOGGLES §6§l✦");
-
-        List<String> lore = new ArrayList<>();
-        lore.add("§7Settings related to " + category.toLowerCase());
-        lore.add("§8Click toggles below to change them");
-        meta.setLore(lore);
-
-        header.setItemMeta(meta);
-        inventory.setItem(slot, header);
-    }
-
-    /**
-     * Get material for category headers
-     */
-    private Material getCategoryMaterial(String category) {
-        switch (category) {
-            case "Combat": return Material.IRON_SWORD;
-            case "Display": return Material.PAINTING;
-            case "System": return Material.REDSTONE_BLOCK;
-            case "Social": return Material.PLAYER_HEAD;
-            case "Audio": return Material.JUKEBOX;
-            default: return Material.BOOKSHELF;
-        }
-    }
-
-    /**
-     * Add enhanced toggle item
-     */
-    private void addToggleItem(Inventory inventory, ToggleDefinition def, YakPlayer yakPlayer, int slot) {
-        boolean isEnabled = yakPlayer.isToggled(def.name);
-
-        // Choose material and color based on state
-        Material material = isEnabled ? Material.LIME_DYE : Material.GRAY_DYE;
-        if (def.requiresConfirmation) {
-            material = isEnabled ? Material.LIME_CONCRETE : Material.RED_CONCRETE;
-        }
-
-        ItemStack item = new ItemStack(material);
-        ItemMeta meta = item.getItemMeta();
-
-        // Enhanced naming with status
-        String status = isEnabled ? "§a§lEnabled" : "§c§lDisabled";
-        String icon = isEnabled ? "§a✓" : "§c✗";
-        meta.setDisplayName(icon + " §f§l" + def.name + " " + status);
-
-        // Enhanced lore
-        List<String> lore = new ArrayList<>();
-        lore.add("§7" + def.description);
-        lore.add("");
-        lore.add("§8Category: §7" + def.category);
-
-        if (def.requiresConfirmation) {
-            lore.add("");
-            lore.add("§c§l⚠ §cSensitive Setting");
-            lore.add("§7Requires confirmation to change");
-        }
-
-        lore.add("");
-        lore.add("§e§lClick to " + (isEnabled ? "disable" : "enable"));
-
-        meta.setLore(lore);
-        item.setItemMeta(meta);
-
-        inventory.setItem(slot, item);
-    }
-
-    /**
-     * Add locked toggle item with enhanced visuals
-     */
-    private void addLockedToggleItem(Inventory inventory, ToggleDefinition def, int slot) {
-        ItemStack item = new ItemStack(Material.BARRIER);
-        ItemMeta meta = item.getItemMeta();
-
-        meta.setDisplayName("§c§l🔒 " + def.name + " §8(Locked)");
-
-        List<String> lore = new ArrayList<>();
-        lore.add("§7" + def.description);
-        lore.add("");
-        lore.add("§8Category: §7" + def.category);
-        lore.add("");
-        lore.add("§c§lRequired Permission:");
-        lore.add("§7" + def.permission);
-        lore.add("");
-        lore.add("§8Contact staff for access");
-
-        meta.setLore(lore);
-        item.setItemMeta(meta);
-
-        inventory.setItem(slot, item);
-    }
-
-    /**
-     * Add menu decorations
-     */
-    private void addMenuDecorations(Inventory inventory) {
-        ItemStack glass = new ItemStack(Material.BLACK_STAINED_GLASS_PANE);
-        ItemMeta glassMeta = glass.getItemMeta();
-        glassMeta.setDisplayName("§8");
-        glass.setItemMeta(glassMeta);
-
-        // Fill empty border slots
-        for (int i = 0; i < MENU_SIZE; i++) {
-            if (inventory.getItem(i) == null && (i < 9 || i >= MENU_SIZE - 9 || i % 9 == 0 || i % 9 == 8)) {
-                inventory.setItem(i, glass);
-            }
-        }
-    }
-
-    /**
-     * Add enhanced info button
-     */
-    private void addInfoButton(Inventory inventory, int slot) {
-        ItemStack info = new ItemStack(Material.BOOK);
-        ItemMeta meta = info.getItemMeta();
-
-        meta.setDisplayName("§b§l📖 Toggle Information");
-
-        List<String> lore = new ArrayList<>();
-        lore.add("§7Click any toggle to enable or disable it");
-        lore.add("§7§lColors:");
-        lore.add("  §a§l✓ Green §7- Enabled");
-        lore.add("  §c§l✗ Red §7- Disabled");
-        lore.add("  §8🔒 Barrier §7- Locked (requires permission)");
-        lore.add("");
-        lore.add("§6§lSpecial Toggles:");
-        lore.add("§7Some toggles require confirmation");
-        lore.add("§7and may have additional requirements");
-        lore.add("");
-        lore.add("§8Total toggles: " + toggleDefinitions.size());
-
-        meta.setLore(lore);
-        info.setItemMeta(meta);
-
-        inventory.setItem(slot, info);
-    }
-
-    /**
-     * Check if player has permission for a toggle
-     */
-    private boolean hasPermissionForToggle(Player player, ToggleDefinition def) {
-        return def.permission == null || player.hasPermission(def.permission);
-    }
-
-    /**
-     * Enhanced inventory click handler
+     * FIXED: Enhanced inventory click handler with better debugging
      */
     @EventHandler(priority = EventPriority.NORMAL)
     public void onToggleClick(InventoryClickEvent event) {
@@ -591,14 +776,19 @@ public class Toggles implements Listener {
         Player player = (Player) event.getWhoClicked();
         ItemStack clickedItem = event.getCurrentItem();
 
-        if (clickedItem == null || !clickedItem.hasItemMeta()) return;
+        if (clickedItem == null || !clickedItem.hasItemMeta()) {
+            logger.fine("Player " + player.getName() + " clicked empty slot in toggle menu");
+            return;
+        }
 
         String displayName = ChatColor.stripColor(clickedItem.getItemMeta().getDisplayName());
+        logger.fine("Player " + player.getName() + " clicked item: " + displayName);
 
         // Skip decorative items
         if (clickedItem.getType() == Material.BLACK_STAINED_GLASS_PANE ||
                 clickedItem.getType() == Material.BOOK ||
                 displayName.contains("TOGGLES")) {
+            logger.fine("Skipping decorative item: " + displayName);
             return;
         }
 
@@ -607,12 +797,16 @@ public class Toggles implements Listener {
             String toggleName = extractToggleName(displayName);
             player.playSound(player.getLocation(), Sound.BLOCK_ANVIL_LAND, 0.5f, 1.0f);
             player.sendMessage("§c§l🔒 §cYou don't have access to the §f" + toggleName + " §ctoggle.");
+            logger.fine("Player " + player.getName() + " clicked locked toggle: " + toggleName);
             return;
         }
 
         // Process toggle click
         String toggleName = extractToggleName(displayName);
+        logger.info("Extracted toggle name: " + toggleName + " from display name: " + displayName);
+
         if (toggleName != null && toggleDefinitions.containsKey(toggleName)) {
+            logger.info("Processing toggle change for " + player.getName() + ": " + toggleName);
             if (changeToggle(player, toggleName)) {
                 // Refresh the menu after a short delay
                 Bukkit.getScheduler().runTaskLater(YakRealms.getInstance(), () -> {
@@ -621,25 +815,47 @@ public class Toggles implements Listener {
                     }
                 }, 5L);
             }
+        } else {
+            logger.warning("Failed to process toggle click for " + player.getName() +
+                    ": toggleName=" + toggleName + ", exists=" + toggleDefinitions.containsKey(toggleName));
+            player.sendMessage("§c§l⚠ §cFailed to process toggle. Please try again.");
         }
     }
 
     /**
-     * Extract toggle name from display name
+     * FIXED: Better toggle name extraction with debugging
      */
     private String extractToggleName(String displayName) {
+        logger.fine("Extracting toggle name from: '" + displayName + "'");
+
         // Remove status indicators and formatting
-        displayName = displayName.replaceAll("^[✓✗🔒]\\s*", "")
-                .replaceAll("\\s+(Enabled|Disabled|\\(Locked\\)).*$", "")
-                .trim();
+        String cleaned = displayName;
+
+        // Remove icons and status text
+        cleaned = cleaned.replaceAll("^[✓✗🔒]\\s*", ""); // Remove icons at start
+        cleaned = cleaned.replaceAll("\\s+(Enabled|Disabled|\\(Locked\\)).*$", ""); // Remove status at end
+        cleaned = cleaned.trim();
+
+        logger.fine("Cleaned display name: '" + cleaned + "'");
 
         // Find matching toggle definition
         for (String toggleName : toggleDefinitions.keySet()) {
-            if (displayName.equals(toggleName)) {
+            if (cleaned.equals(toggleName)) {
+                logger.fine("Found exact match: " + toggleName);
                 return toggleName;
             }
         }
 
+        // Try partial matching as fallback
+        for (String toggleName : toggleDefinitions.keySet()) {
+            if (cleaned.contains(toggleName) || toggleName.contains(cleaned)) {
+                logger.fine("Found partial match: " + toggleName + " for cleaned name: " + cleaned);
+                return toggleName;
+            }
+        }
+
+        logger.warning("No toggle found for display name: '" + displayName + "' (cleaned: '" + cleaned + "')");
+        logger.warning("Available toggles: " + toggleDefinitions.keySet());
         return null;
     }
 
@@ -700,15 +916,42 @@ public class Toggles implements Listener {
     }
 
     /**
-     * Enhanced player join handler with improved defaults
+     * FIXED: Enhanced player join handler with better initialization
      */
     @EventHandler(priority = EventPriority.MONITOR)
     public void onPlayerJoin(PlayerJoinEvent event) {
         Player player = event.getPlayer();
-        YakPlayer yakPlayer = playerManager.getPlayer(player);
 
-        if (yakPlayer != null && yakPlayer.getToggleSettings().isEmpty()) {
-            // Set enhanced default toggles
+        // Delay initialization to ensure player data is loaded
+        Bukkit.getScheduler().runTaskLater(YakRealms.getInstance(), () -> {
+            initializePlayerToggles(player);
+        }, 40L); // 2 second delay
+    }
+
+    /**
+     * FIXED: Initialize player toggles with better validation
+     */
+    private void initializePlayerToggles(Player player) {
+        if (!player.isOnline()) {
+            return;
+        }
+
+        YakPlayer yakPlayer = playerManager.getPlayer(player);
+        if (yakPlayer == null) {
+            logger.warning("YakPlayer is null for " + player.getName() + " during toggle initialization");
+
+            // Retry after another delay
+            Bukkit.getScheduler().runTaskLater(YakRealms.getInstance(), () -> {
+                if (player.isOnline()) {
+                    initializePlayerToggles(player);
+                }
+            }, 40L);
+            return;
+        }
+
+        // Check if toggles need initialization
+        if (yakPlayer.getToggleSettings().isEmpty()) {
+            logger.info("Initializing default toggles for new player: " + player.getName());
             setDefaultToggles(yakPlayer);
             playerManager.savePlayer(yakPlayer);
 
@@ -717,7 +960,10 @@ public class Toggles implements Listener {
                 if (player.isOnline()) {
                     sendWelcomeMessage(player);
                 }
-            }, 60L);
+            }, 20L);
+        } else {
+            logger.fine("Player " + player.getName() + " already has " +
+                    yakPlayer.getToggleSettings().size() + " toggle settings");
         }
     }
 
@@ -725,11 +971,15 @@ public class Toggles implements Listener {
      * Set default toggles for new players
      */
     private void setDefaultToggles(YakPlayer yakPlayer) {
+        int defaultsSet = 0;
         for (ToggleDefinition def : toggleDefinitions.values()) {
             if (def.defaultValue) {
                 yakPlayer.toggleSetting(def.name);
+                defaultsSet++;
+                logger.fine("Set default toggle: " + def.name + " = " + def.defaultValue);
             }
         }
+        logger.info("Set " + defaultsSet + " default toggles for player");
     }
 
     /**
@@ -755,17 +1005,29 @@ public class Toggles implements Listener {
         YakPlayer yakPlayer2 = playerManager.getPlayer(player2);
 
         if (yakPlayer1 == null || yakPlayer2 == null) return false;
-//
-        //String guild1 = yakPlayer1.getGuildName();
-        // guild2 = yakPlayer2.getGuildName();
 
-        return false;
+        // Guild system integration would go here
+        return false; // Placeholder
     }
 
     /**
-     * Open enhanced toggle menu
+     * Open enhanced toggle menu with validation
      */
     public void openToggleMenu(Player player) {
+        if (!definitionsInitialized) {
+            player.sendMessage("§c§l⚠ §cToggle system is not ready. Please try again.");
+            logger.severe("Attempted to open toggle menu when definitions not initialized");
+            return;
+        }
+
+        YakPlayer yakPlayer = playerManager.getPlayer(player);
+        if (yakPlayer == null) {
+            player.sendMessage("§c§l⚠ §cPlayer data not loaded. Please try again.");
+            logger.warning("Attempted to open toggle menu for " + player.getName() + " but YakPlayer is null");
+            return;
+        }
+
+        logger.info("Opening toggle menu for " + player.getName());
         player.openInventory(getToggleMenu(player));
         player.playSound(player.getLocation(), Sound.BLOCK_ENDER_CHEST_OPEN, 0.7f, 1.0f);
     }
@@ -804,5 +1066,18 @@ public class Toggles implements Listener {
                         def -> def.category,
                         Collectors.mapping(def -> def.name, Collectors.toList())
                 ));
+    }
+
+    /**
+     * FIXED: Debug method to get system status
+     */
+    public Map<String, Object> getSystemStatus() {
+        Map<String, Object> status = new HashMap<>();
+        status.put("definitionsInitialized", definitionsInitialized);
+        status.put("totalDefinitions", toggleDefinitions.size());
+        status.put("categoriesCount", toggleDefinitions.values().stream()
+                .collect(Collectors.groupingBy(def -> def.category)).size());
+        status.put("pendingConfirmations", confirmationMap.size());
+        return status;
     }
 }

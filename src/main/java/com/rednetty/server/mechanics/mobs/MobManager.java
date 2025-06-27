@@ -49,14 +49,14 @@ public class MobManager implements Listener {
     /** Position check interval in ticks (5 seconds) */
     private static final long POSITION_CHECK_INTERVAL = 100L;
 
-    /** Name visibility timeout (5 seconds) */
-    private static final long NAME_VISIBILITY_TIMEOUT = 5000L;
+    /** Name visibility timeout (6.5 seconds) - FIXED */
+    private static final long NAME_VISIBILITY_TIMEOUT = 6500L;
 
     /** Critical state task interval (8 ticks) */
     private static final long CRITICAL_STATE_INTERVAL = 8L;
 
-    /** Health bar visibility timeout */
-    private static final long HEALTH_BAR_TIMEOUT = 5000L;
+    /** Health bar visibility timeout - FIXED */
+    private static final long HEALTH_BAR_TIMEOUT = 6500L;
 
     // ================ SINGLETON ================
 
@@ -99,6 +99,10 @@ public class MobManager implements Listener {
     // ================ TASKS ================
 
     private final TaskManager taskManager = new TaskManager();
+
+    // ================ CRITICAL SOUND TRACKING ================
+    private final Map<UUID, Long> lastCriticalSoundTime = new ConcurrentHashMap<>();
+    private static final long CRITICAL_SOUND_INTERVAL = 2000L; // 2 seconds between piston sounds
 
     /**
      * Inner class to manage all recurring tasks
@@ -314,6 +318,8 @@ public class MobManager implements Listener {
 
             if (!isValidEntity(entity)) {
                 iterator.remove();
+                // Clean up sound tracking for invalid entities
+                lastCriticalSoundTime.remove(entity.getUniqueId());
                 continue;
             }
 
@@ -412,7 +418,16 @@ public class MobManager implements Listener {
     }
 
     private void playRegularCriticalEffects(LivingEntity entity) {
-        entity.getWorld().playSound(entity.getLocation(), Sound.BLOCK_PISTON_EXTEND, 1.0f, 2.0f);
+        // FIXED: Play piston sound only every 2 seconds instead of every tick
+        UUID entityId = entity.getUniqueId();
+        long currentTime = System.currentTimeMillis();
+        Long lastSoundTime = lastCriticalSoundTime.get(entityId);
+
+        if (lastSoundTime == null || (currentTime - lastSoundTime) >= CRITICAL_SOUND_INTERVAL) {
+            entity.getWorld().playSound(entity.getLocation(), Sound.BLOCK_PISTON_EXTEND, 1.0f, 2.0f);
+            lastCriticalSoundTime.put(entityId, currentTime);
+        }
+
         entity.getWorld().spawnParticle(Particle.CRIT,
                 entity.getLocation().clone().add(0.0, 1.0, 0.0),
                 10, 0.3, 0.3, 0.3, 0.1);
@@ -438,6 +453,8 @@ public class MobManager implements Listener {
     private void executeEliteCriticalAttack(LivingEntity entity) {
         try {
             critMobs.remove(entity);
+            // Clean up sound tracking
+            lastCriticalSoundTime.remove(entity.getUniqueId());
 
             if (MobUtils.isFrozenBoss(entity) &&
                     entity.getHealth() < (YakRealms.isT6Enabled() ? 100000 : 50000)) {
@@ -555,6 +572,8 @@ public class MobManager implements Listener {
     private int executeNormalMobCriticalAttack(LivingEntity entity, Player player, int baseDamage) {
         try {
             critMobs.remove(entity);
+            // Clean up sound tracking
+            lastCriticalSoundTime.remove(entity.getUniqueId());
 
             if (entity.hasMetadata("criticalState")) {
                 entity.removeMetadata("criticalState", plugin);
@@ -679,12 +698,43 @@ public class MobManager implements Listener {
 
         String originalName = getOriginalName(entity);
         if (originalName != null && !originalName.isEmpty()) {
-            entity.setCustomName(originalName);
+            // FIXED: Apply proper tier colors when restoring name
+            String restoredName = applyTierColorsToName(entity, originalName);
+            entity.setCustomName(restoredName);
             entity.setCustomNameVisible(true);
 
             if (debug) {
-                logger.info("§6[MobManager] §7Restored name for " + entity.getType() + ": " + originalName);
+                logger.info("§6[MobManager] §7Restored name for " + entity.getType() + ": " + restoredName);
             }
+        }
+    }
+
+    private String applyTierColorsToName(LivingEntity entity, String baseName) {
+        // If name already has colors, return as-is
+        if (baseName.contains("§")) {
+            return baseName;
+        }
+
+        // Strip any existing colors and apply tier colors
+        String cleanName = ChatColor.stripColor(baseName);
+        int tier = getMobTier(entity);
+        boolean elite = isElite(entity);
+        ChatColor tierColor = getTierColorFromTier(tier);
+
+        return elite ?
+                tierColor.toString() + ChatColor.BOLD + cleanName :
+                tierColor + cleanName;
+    }
+
+    private ChatColor getTierColorFromTier(int tier) {
+        switch (tier) {
+            case 1: return ChatColor.WHITE;
+            case 2: return ChatColor.GREEN;
+            case 3: return ChatColor.AQUA;
+            case 4: return ChatColor.LIGHT_PURPLE;
+            case 5: return ChatColor.YELLOW;
+            case 6: return ChatColor.BLUE;
+            default: return ChatColor.WHITE;
         }
     }
 
@@ -733,13 +783,13 @@ public class MobManager implements Listener {
         MobType mobType = MobType.getById(typeId);
         if (mobType != null) {
             String tierName = mobType.getTierSpecificName(tier);
-            ChatColor color = getTierColor(tier);
+            ChatColor color = getTierColorFromTier(tier);
 
             return isElite ? color.toString() + ChatColor.BOLD + tierName : color + tierName;
         }
 
         // Fallback
-        ChatColor color = getTierColor(tier);
+        ChatColor color = getTierColorFromTier(tier);
         String typeName = capitalizeEntityType(entity.getType());
 
         return isElite ? color.toString() + ChatColor.BOLD + typeName : color + typeName;
@@ -753,18 +803,6 @@ public class MobManager implements Listener {
             return entity.getMetadata("customName").get(0).asString();
         }
         return "unknown";
-    }
-
-    private ChatColor getTierColor(int tier) {
-        switch (tier) {
-            case 1: return ChatColor.WHITE;
-            case 2: return ChatColor.GREEN;
-            case 3: return ChatColor.AQUA;
-            case 4: return ChatColor.LIGHT_PURPLE;
-            case 5: return ChatColor.YELLOW;
-            case 6: return ChatColor.BLUE;
-            default: return ChatColor.WHITE;
-        }
     }
 
     private String capitalizeEntityType(EntityType type) {
@@ -1246,6 +1284,7 @@ public class MobManager implements Listener {
         originalNames.remove(entityId);
         nameTimes.remove(entityId);
         mobSpawnerLocations.remove(entityId);
+        lastCriticalSoundTime.remove(entityId); // Clean up sound tracking
 
         if (mob instanceof WorldBoss) {
             unregisterWorldBoss();
@@ -1341,6 +1380,7 @@ public class MobManager implements Listener {
             cleanupDamageTracking();
             cleanupEntityMappings();
             cleanupMobLocations();
+            cleanupCriticalSoundTracking(); // Clean up sound tracking
             processedEntities.clear();
 
             if (debug) {
@@ -1374,6 +1414,14 @@ public class MobManager implements Listener {
                 .collect(HashSet::new, Set::add, Set::addAll);
 
         invalidIds.forEach(mobSpawnerLocations::remove);
+    }
+
+    private void cleanupCriticalSoundTracking() {
+        Set<UUID> invalidIds = lastCriticalSoundTime.keySet().stream()
+                .filter(id -> !isEntityValid(id))
+                .collect(HashSet::new, Set::add, Set::addAll);
+
+        invalidIds.forEach(lastCriticalSoundTime::remove);
     }
 
     private boolean isEntityValid(UUID entityId) {
@@ -1896,6 +1944,7 @@ public class MobManager implements Listener {
         int damage = baseDamage * 4;
 
         critMobs.remove(mob);
+        lastCriticalSoundTime.remove(mob.getUniqueId()); // Clean up sound tracking
         if (mob.hasMetadata("criticalState")) {
             mob.removeMetadata("criticalState", plugin);
         }
@@ -1983,6 +2032,7 @@ public class MobManager implements Listener {
 
             // Cleanup
             mobSpawnerLocations.remove(entityId);
+            lastCriticalSoundTime.remove(entityId); // Clean up sound tracking
 
         } catch (Exception e) {
             logger.warning("§c[MobManager] Entity death error: " + e.getMessage());
@@ -2123,5 +2173,6 @@ public class MobManager implements Listener {
         mobTypeLastDeath.clear();
         mobSpawnerLocations.clear();
         entityToSpawner.clear();
+        lastCriticalSoundTime.clear(); // Clean up sound tracking
     }
 }

@@ -43,6 +43,8 @@ import java.util.stream.IntStream;
 /**
  * Enhanced player join and leave event handler with advanced features including
  * dynamic messaging, visual effects, social integration, analytics, and personalization.
+ * <p>
+ * CRITICAL FIX: Properly handles YakPlayer loading delays and null safety
  */
 public class JoinLeaveListener extends BaseListener implements YakPlayerManager.PlayerLoadListener {
 
@@ -60,6 +62,8 @@ public class JoinLeaveListener extends BaseListener implements YakPlayerManager.
     private final Map<UUID, Long> lastNotificationTime = new ConcurrentHashMap<>();
     private final Set<UUID> firstTimeJoins = ConcurrentHashMap.newKeySet();
     private final Map<UUID, WelcomeProgress> welcomeProgress = new ConcurrentHashMap<>();
+    private final Set<UUID> playersWaitingForData = ConcurrentHashMap.newKeySet();
+    private final Map<UUID, Long> dataLoadWaitStart = new ConcurrentHashMap<>();
 
     // Server metrics and analytics
     private final ServerMetrics serverMetrics = new ServerMetrics();
@@ -73,11 +77,13 @@ public class JoinLeaveListener extends BaseListener implements YakPlayerManager.
     private boolean enablePlayerAnalytics = true;
     private int maxWelcomeSteps = 5;
     private long notificationCooldown = 5000; // 5 seconds
+    private static final long MAX_DATA_WAIT_TIME = 30000L; // 30 seconds max wait for data
 
     // Tasks
     private BukkitTask metricsTask;
     private BukkitTask welcomeTask;
     private BukkitTask cleanupTask;
+    private BukkitTask dataWaitCheckTask;
 
     /**
      * Player session tracking
@@ -89,6 +95,7 @@ public class JoinLeaveListener extends BaseListener implements YakPlayerManager.
         private final int onlinePlayersAtJoin;
         private boolean hasReceivedWelcome = false;
         private boolean hasReceivedKit = false;
+        private boolean hasReceivedMotd = false;
         private int welcomeStep = 0;
         private final Map<String, Object> sessionData = new HashMap<>();
 
@@ -100,19 +107,65 @@ public class JoinLeaveListener extends BaseListener implements YakPlayerManager.
         }
 
         // Getters and utility methods
-        public UUID getPlayerId() { return playerId; }
-        public long getJoinTime() { return joinTime; }
-        public String getJoinLocation() { return joinLocation; }
-        public int getOnlinePlayersAtJoin() { return onlinePlayersAtJoin; }
-        public boolean hasReceivedWelcome() { return hasReceivedWelcome; }
-        public void setReceivedWelcome(boolean received) { this.hasReceivedWelcome = received; }
-        public boolean hasReceivedKit() { return hasReceivedKit; }
-        public void setReceivedKit(boolean received) { this.hasReceivedKit = received; }
-        public int getWelcomeStep() { return welcomeStep; }
-        public void setWelcomeStep(int step) { this.welcomeStep = step; }
-        public long getSessionDuration() { return System.currentTimeMillis() - joinTime; }
-        public void setSessionData(String key, Object value) { sessionData.put(key, value); }
-        public Object getSessionData(String key) { return sessionData.get(key); }
+        public UUID getPlayerId() {
+            return playerId;
+        }
+
+        public long getJoinTime() {
+            return joinTime;
+        }
+
+        public String getJoinLocation() {
+            return joinLocation;
+        }
+
+        public int getOnlinePlayersAtJoin() {
+            return onlinePlayersAtJoin;
+        }
+
+        public boolean hasReceivedWelcome() {
+            return hasReceivedWelcome;
+        }
+
+        public void setReceivedWelcome(boolean received) {
+            this.hasReceivedWelcome = received;
+        }
+
+        public boolean hasReceivedKit() {
+            return hasReceivedKit;
+        }
+
+        public void setReceivedKit(boolean received) {
+            this.hasReceivedKit = received;
+        }
+
+        public boolean hasReceivedMotd() {
+            return hasReceivedMotd;
+        }
+
+        public void setReceivedMotd(boolean received) {
+            this.hasReceivedMotd = received;
+        }
+
+        public int getWelcomeStep() {
+            return welcomeStep;
+        }
+
+        public void setWelcomeStep(int step) {
+            this.welcomeStep = step;
+        }
+
+        public long getSessionDuration() {
+            return System.currentTimeMillis() - joinTime;
+        }
+
+        public void setSessionData(String key, Object value) {
+            sessionData.put(key, value);
+        }
+
+        public Object getSessionData(String key) {
+            return sessionData.get(key);
+        }
 
         private static String formatLocation(Location loc) {
             return String.format("%s(%.1f,%.1f,%.1f)",
@@ -153,13 +206,25 @@ public class JoinLeaveListener extends BaseListener implements YakPlayerManager.
             }
         }
 
-        public int getCurrentStreak() { return currentStreak; }
-        public int getLongestStreak() { return longestStreak; }
-        public boolean isNewStreak() { return currentStreak == 1; }
+        public int getCurrentStreak() {
+            return currentStreak;
+        }
+
+        public int getLongestStreak() {
+            return longestStreak;
+        }
+
+        public boolean isNewStreak() {
+            return currentStreak == 1;
+        }
+
         public boolean isStreakMilestone() {
             return currentStreak > 1 && (currentStreak % 7 == 0 || currentStreak % 30 == 0);
         }
-        public List<Long> getRecentLogins() { return new ArrayList<>(recentLogins); }
+
+        public List<Long> getRecentLogins() {
+            return new ArrayList<>(recentLogins);
+        }
     }
 
     /**
@@ -179,10 +244,21 @@ public class JoinLeaveListener extends BaseListener implements YakPlayerManager.
             return completedSteps.contains(stepName);
         }
 
-        public int getCurrentStep() { return currentStep; }
-        public boolean isComplete() { return isComplete; }
-        public void setComplete(boolean complete) { this.isComplete = complete; }
-        public Set<String> getCompletedSteps() { return new HashSet<>(completedSteps); }
+        public int getCurrentStep() {
+            return currentStep;
+        }
+
+        public boolean isComplete() {
+            return isComplete;
+        }
+
+        public void setComplete(boolean complete) {
+            this.isComplete = complete;
+        }
+
+        public Set<String> getCompletedSteps() {
+            return new HashSet<>(completedSteps);
+        }
     }
 
     /**
@@ -230,11 +306,25 @@ public class JoinLeaveListener extends BaseListener implements YakPlayerManager.
             }
         }
 
-        public int getTotalJoinsToday() { return totalJoinsToday; }
-        public int getTotalLeavesToday() { return totalLeavesToday; }
-        public int getPeakOnlineToday() { return peakOnlineToday; }
-        public Map<String, Integer> getHourlyJoins() { return new HashMap<>(hourlyJoins); }
-        public List<Integer> getOnlineHistory() { return new ArrayList<>(onlineHistory); }
+        public int getTotalJoinsToday() {
+            return totalJoinsToday;
+        }
+
+        public int getTotalLeavesToday() {
+            return totalLeavesToday;
+        }
+
+        public int getPeakOnlineToday() {
+            return peakOnlineToday;
+        }
+
+        public Map<String, Integer> getHourlyJoins() {
+            return new HashMap<>(hourlyJoins);
+        }
+
+        public List<Integer> getOnlineHistory() {
+            return new ArrayList<>(onlineHistory);
+        }
     }
 
     /**
@@ -257,21 +347,26 @@ public class JoinLeaveListener extends BaseListener implements YakPlayerManager.
             playerBehaviorPatterns.computeIfAbsent(playerId, k -> new ArrayList<>()).add(behavior);
         }
 
-        public Map<String, Integer> getJoinReasons() { return new HashMap<>(joinReasons); }
-        public Map<String, Integer> getLeaveReasons() { return new HashMap<>(leaveReasons); }
+        public Map<String, Integer> getJoinReasons() {
+            return new HashMap<>(joinReasons);
+        }
+
+        public Map<String, Integer> getLeaveReasons() {
+            return new HashMap<>(leaveReasons);
+        }
+
         public List<String> getPlayerBehavior(UUID playerId) {
             return new ArrayList<>(playerBehaviorPatterns.getOrDefault(playerId, new ArrayList<>()));
         }
     }
 
     public JoinLeaveListener() {
-        super();
         this.playerManager = YakPlayerManager.getInstance();
         this.healthListener = new HealthListener();
         this.economyManager = YakRealms.getInstance().getEconomyManager();
         this.partyMechanics = PartyMechanics.getInstance();
-        this.chatMechanics = ChatMechanics.getInstance();
 
+        this.chatMechanics = ChatMechanics.getInstance();
         // Register as a load listener to receive callbacks when players are loaded
         playerManager.addPlayerLoadListener(this);
 
@@ -281,7 +376,7 @@ public class JoinLeaveListener extends BaseListener implements YakPlayerManager.
 
     @Override
     public void initialize() {
-        logger.info("Enhanced Join/Leave listener initialized with advanced features");
+        logger.info("Enhanced Join/Leave listener initialized with advanced features and null safety");
         startTasks();
     }
 
@@ -291,6 +386,7 @@ public class JoinLeaveListener extends BaseListener implements YakPlayerManager.
         if (metricsTask != null) metricsTask.cancel();
         if (welcomeTask != null) welcomeTask.cancel();
         if (cleanupTask != null) cleanupTask.cancel();
+        if (dataWaitCheckTask != null) dataWaitCheckTask.cancel();
 
         // Clear boss bars
         welcomeBars.values().forEach(BossBar::removeAll);
@@ -336,6 +432,116 @@ public class JoinLeaveListener extends BaseListener implements YakPlayerManager.
                 cleanupStaleData();
             }
         }.runTaskTimerAsynchronously(plugin, 20L * 300, 20L * 300); // Every 5 minutes
+
+        // Data wait check task - CRITICAL FIX for YakPlayer null issues
+        dataWaitCheckTask = new BukkitRunnable() {
+            @Override
+            public void run() {
+                checkDataWaitTimeouts();
+            }
+        }.runTaskTimer(plugin, 20L, 20L); // Every second
+    }
+
+    /**
+     * CRITICAL FIX: Check for players waiting too long for data loading
+     */
+    private void checkDataWaitTimeouts() {
+        long currentTime = System.currentTimeMillis();
+        Iterator<UUID> iterator = playersWaitingForData.iterator();
+
+        while (iterator.hasNext()) {
+            UUID playerId = iterator.next();
+            Player player = Bukkit.getPlayer(playerId);
+
+            if (player == null || !player.isOnline()) {
+                iterator.remove();
+                dataLoadWaitStart.remove(playerId);
+                continue;
+            }
+
+            Long waitStart = dataLoadWaitStart.get(playerId);
+            if (waitStart != null && currentTime - waitStart > MAX_DATA_WAIT_TIME) {
+                // Data loading timeout - force fallback
+                logger.warning("YakPlayer data loading timeout for " + player.getName() +
+                        " after " + ((currentTime - waitStart) / 1000) + " seconds. Using fallback.");
+
+                iterator.remove();
+                dataLoadWaitStart.remove(playerId);
+
+                // Trigger fallback initialization
+                handleDataLoadTimeout(player);
+            }
+        }
+    }
+
+    /**
+     * Handle timeout when YakPlayer data fails to load
+     */
+    private void handleDataLoadTimeout(Player player) {
+        UUID playerId = player.getUniqueId();
+
+        // Send immediate welcome without waiting for data
+        Bukkit.getScheduler().runTask(plugin, () -> {
+            try {
+                // Initialize basic attributes
+                initializePlayerAttributes(player);
+
+                // Set basic default toggle
+                try {
+                    Toggles.setToggle(player, "Player Messages", true);
+                } catch (Exception e) {
+                    logger.warning("Could not set default toggle for " + player.getName() + ": " + e.getMessage());
+                }
+
+                // Send MOTD without player-specific data
+                sendBasicMotd(player);
+
+                // Show warning about data loading
+                player.sendMessage(ChatColor.YELLOW + "⚠ Your character data is still loading...");
+                player.sendMessage(ChatColor.GRAY + "Some features may be limited until loading completes.");
+
+                // Continue checking for data loading
+                scheduleDataRetryCheck(player);
+
+            } catch (Exception e) {
+                logger.severe("Error in data load timeout handler for " + player.getName() + ": " + e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * Schedule periodic checks to see if data has loaded
+     */
+    private void scheduleDataRetryCheck(Player player) {
+        new BukkitRunnable() {
+            int attempts = 0;
+            final int maxAttempts = 30; // 30 seconds more
+
+            @Override
+            public void run() {
+                if (!player.isOnline()) {
+                    cancel();
+                    return;
+                }
+
+                YakPlayer yakPlayer = playerManager.getPlayer(player);
+                if (yakPlayer != null) {
+                    // Data finally loaded!
+                    player.sendMessage(ChatColor.GREEN + "✓ Character data loaded successfully!");
+
+                    // Now do the full data-dependent setup
+                    performDataDependentSetup(player, yakPlayer, false, activeSessions.get(player.getUniqueId()));
+                    cancel();
+                    return;
+                }
+
+                attempts++;
+                if (attempts >= maxAttempts) {
+                    player.sendMessage(ChatColor.RED + "⚠ Character data loading failed. Please reconnect or contact an admin.");
+                    cancel();
+                }
+            }
+        }.runTaskTimer(plugin, 20L, 20L); // Check every second
     }
 
     /**
@@ -356,7 +562,7 @@ public class JoinLeaveListener extends BaseListener implements YakPlayerManager.
     }
 
     /**
-     * Enhanced player join handler with comprehensive features
+     * Enhanced player join handler with comprehensive features and null safety
      */
     @EventHandler(priority = EventPriority.LOWEST)
     public void onPlayerJoin(PlayerJoinEvent event) {
@@ -371,10 +577,10 @@ public class JoinLeaveListener extends BaseListener implements YakPlayerManager.
             PlayerSession session = new PlayerSession(playerId, player.getLocation(), Bukkit.getOnlinePlayers().size());
             activeSessions.put(playerId, session);
 
-            // Set custom join message
+            // Set custom join message (works without YakPlayer data)
             setEnhancedJoinMessage(event, player);
 
-            // Initialize player attributes
+            // Initialize player attributes immediately
             initializePlayerAttributes(player);
 
             // Analytics
@@ -383,14 +589,76 @@ public class JoinLeaveListener extends BaseListener implements YakPlayerManager.
                 playerAnalytics.recordPlayerBehavior(playerId, "joined_server");
             }
 
-            // Delayed comprehensive setup
+            // CRITICAL FIX: Start tracking data wait time
+            YakPlayer yakPlayer = playerManager.getPlayer(player);
+            if (yakPlayer == null) {
+                playersWaitingForData.add(playerId);
+                dataLoadWaitStart.put(playerId, System.currentTimeMillis());
+                logger.info("Player " + player.getName() + " joined but YakPlayer is null - waiting for data load...");
+            }
+
+            // Immediate setup that doesn't require YakPlayer data
+            performImmediateJoinSetup(player, session);
+
+            // Delayed setup (either with data or fallback)
             Bukkit.getScheduler().scheduleSyncDelayedTask(plugin, () -> {
-                performDelayedJoinSetup(player, session);
-            }, 10L);
+                YakPlayer currentYakPlayer = playerManager.getPlayer(player);
+                if (currentYakPlayer != null) {
+                    // Data loaded - remove from waiting list
+                    playersWaitingForData.remove(playerId);
+                    dataLoadWaitStart.remove(playerId);
+
+                    // Do full setup
+                    performDataDependentSetup(player, currentYakPlayer, false, session);
+                } else if (!playersWaitingForData.contains(playerId)) {
+                    // Not waiting anymore (timeout handled) - do basic setup
+                    performBasicJoinSetup(player, session);
+                }
+                // If still waiting, the timeout checker will handle it
+            }, 40L); // 2 second delay
 
         } catch (Exception ex) {
             logger.severe("Error in enhanced onJoin for " + player.getName() + ": " + ex.getMessage());
             ex.printStackTrace();
+        }
+    }
+
+    /**
+     * Immediate setup that doesn't require YakPlayer data
+     */
+    private void performImmediateJoinSetup(Player player, PlayerSession session) {
+        try {
+            // Play sound
+            playJoinSound(player);
+
+            // Server announcements
+            handleServerAnnouncements(player, session);
+
+        } catch (Exception ex) {
+            logger.warning("Error in immediate join setup for " + player.getName() + ": " + ex.getMessage());
+        }
+    }
+
+    /**
+     * Basic setup when YakPlayer data is not available
+     */
+    private void performBasicJoinSetup(Player player, PlayerSession session) {
+        try {
+            // Send basic MOTD if not already sent
+            if (!session.hasReceivedMotd()) {
+                sendBasicMotd(player);
+                session.setReceivedMotd(true);
+            }
+
+            // Try to set basic toggle
+            try {
+                Toggles.setToggle(player, "Player Messages", true);
+            } catch (Exception e) {
+                logger.warning("Could not set default toggle for " + player.getName() + ": " + e.getMessage());
+            }
+
+        } catch (Exception ex) {
+            logger.warning("Error in basic join setup for " + player.getName() + ": " + ex.getMessage());
         }
     }
 
@@ -404,10 +672,16 @@ public class JoinLeaveListener extends BaseListener implements YakPlayerManager.
                 UUID playerId = player.getUniqueId();
                 PlayerSession session = activeSessions.get(playerId);
 
+                // Remove from waiting list
+                playersWaitingForData.remove(playerId);
+                dataLoadWaitStart.remove(playerId);
+
                 if (session != null) {
                     session.setSessionData("yakPlayer", yakPlayer);
                     session.setSessionData("isNewPlayer", isNewPlayer);
                 }
+
+                logger.info("YakPlayer data loaded for " + player.getName() + " (new: " + isNewPlayer + ")");
 
                 // Enhanced data-dependent setup
                 performDataDependentSetup(player, yakPlayer, isNewPlayer, session);
@@ -424,6 +698,12 @@ public class JoinLeaveListener extends BaseListener implements YakPlayerManager.
      */
     @Override
     public void onPlayerLoadFailed(Player player, Exception exception) {
+        UUID playerId = player.getUniqueId();
+
+        // Remove from waiting list
+        playersWaitingForData.remove(playerId);
+        dataLoadWaitStart.remove(playerId);
+
         handleLoadFailure(player, exception);
     }
 
@@ -454,9 +734,11 @@ public class JoinLeaveListener extends BaseListener implements YakPlayerManager.
             }
 
             // Handle social notifications
-            if (enableSocialNotifications) {
+            if (enableSocialNotifications && yakPlayer != null) {
                 handleBuddyNotifications(player, false);
-                handlePartyNotifications(player, false);
+                if (partyMechanics != null) {
+                    handlePartyNotifications(player, false);
+                }
                 handleGuildNotifications(player, false);
             }
 
@@ -464,7 +746,9 @@ public class JoinLeaveListener extends BaseListener implements YakPlayerManager.
             cleanupPlayerData(playerId);
 
             // Show logout effects
-            showLogoutEffects(player, yakPlayer);
+            if (yakPlayer != null) {
+                showLogoutEffects(player, yakPlayer);
+            }
 
         } catch (Exception ex) {
             logger.warning("Error in enhanced onPlayerQuit for " + player.getName() + ": " + ex.getMessage());
@@ -488,9 +772,11 @@ public class JoinLeaveListener extends BaseListener implements YakPlayerManager.
             setEnhancedKickMessage(event, player, yakPlayer);
 
             // Handle social notifications
-            if (enableSocialNotifications) {
+            if (enableSocialNotifications && yakPlayer != null) {
                 handleBuddyNotifications(player, true);
-                handlePartyNotifications(player, true);
+                if (partyMechanics != null) {
+                    handlePartyNotifications(player, true);
+                }
             }
 
             // Notify staff
@@ -515,7 +801,9 @@ public class JoinLeaveListener extends BaseListener implements YakPlayerManager.
     private void initializePlayerAttributes(Player player) {
         try {
             // Set attack speed attribute to prevent attack cooldowns
-            player.getAttribute(Attribute.GENERIC_ATTACK_SPEED).setBaseValue(1024.0D);
+            if (player.getAttribute(Attribute.GENERIC_ATTACK_SPEED) != null) {
+                player.getAttribute(Attribute.GENERIC_ATTACK_SPEED).setBaseValue(1024.0D);
+            }
 
             // Set initial health display
             player.setHealthScale(20.0);
@@ -530,29 +818,22 @@ public class JoinLeaveListener extends BaseListener implements YakPlayerManager.
         }
     }
 
-    private void performDelayedJoinSetup(Player player, PlayerSession session) {
-        try {
-            // Send MOTD
-            sendEnhancedMotd(player);
-
-            // Set default toggles
-            Toggles.setToggle(player, "Player Messages", true);
-
-            // Play sound
-            playJoinSound(player);
-
-            // Server announcements
-            handleServerAnnouncements(player, session);
-
-        } catch (Exception ex) {
-            logger.warning("Error in delayed join setup for " + player.getName() + ": " + ex.getMessage());
-        }
-    }
-
     private void performDataDependentSetup(Player player, YakPlayer yakPlayer, boolean isNewPlayer, PlayerSession session) {
         UUID playerId = player.getUniqueId();
 
         try {
+            // Send MOTD with player data if not already sent
+            if (session != null && !session.hasReceivedMotd()) {
+                sendEnhancedMotd(player, yakPlayer);
+                session.setReceivedMotd(true);
+            }
+
+            // Set proper default toggle if needed
+            if (!yakPlayer.isToggled("Player Messages")) {
+                yakPlayer.toggleSetting("Player Messages");
+                playerManager.savePlayer(yakPlayer);
+            }
+
             // Check health after data is loaded
             if (!player.isDead()) {
                 healthListener.recalculateHealth(player);
@@ -662,7 +943,10 @@ public class JoinLeaveListener extends BaseListener implements YakPlayerManager.
 
     // Enhanced welcome systems
 
-    private void sendEnhancedMotd(Player player) {
+    /**
+     * Send enhanced MOTD with player data
+     */
+    private void sendEnhancedMotd(Player player, YakPlayer yakPlayer) {
         // Send blank lines to clear chat
         IntStream.range(0, 25).forEach(i -> player.sendMessage(" "));
 
@@ -688,13 +972,45 @@ public class JoinLeaveListener extends BaseListener implements YakPlayerManager.
         TextUtil.sendCenteredMessage(player, "&7Join our Discord: &9https://discord.gg/JYf6R2VKE7");
 
         // Player-specific info
-        YakPlayer yakPlayer = playerManager.getPlayer(player);
         if (yakPlayer != null) {
             player.sendMessage("");
             long playtime = yakPlayer.getTotalPlaytime() / 3600; // Hours
             int loginStreak = getLoginStreak(player.getUniqueId()).getCurrentStreak();
             TextUtil.sendCenteredMessage(player, "&eWelcome back! &7Playtime: &f" + playtime + "h &7| Streak: &f" + loginStreak + " days");
         }
+
+        player.sendMessage("");
+        TextUtil.sendCenteredMessage(player, "&f&oReport any issues to Red (Jack)");
+        player.sendMessage("");
+    }
+
+    /**
+     * Send basic MOTD without player data
+     */
+    private void sendBasicMotd(Player player) {
+        // Send blank lines to clear chat
+        IntStream.range(0, 25).forEach(i -> player.sendMessage(" "));
+
+        // Seasonal header
+        String seasonalHeader = getSeasonalHeader();
+
+        // Main MOTD
+        TextUtil.sendCenteredMessage(player, seasonalHeader);
+        player.sendMessage("");
+        TextUtil.sendCenteredMessage(player, "&6✦ &e&lYAK REALMS &6✦");
+        player.sendMessage("");
+        TextUtil.sendCenteredMessage(player, "&fRecode - Alpha &6v" + plugin.getDescription().getVersion());
+
+        // Dynamic server info
+        int onlineCount = Bukkit.getOnlinePlayers().size();
+        int peakToday = serverMetrics.getPeakOnlineToday();
+        TextUtil.sendCenteredMessage(player, "&7Online: &f" + onlineCount + " &7| Peak Today: &f" + peakToday);
+
+        // Server status and tips
+        player.sendMessage("");
+        TextUtil.sendCenteredMessage(player, "&7This server is in early development - expect bugs!");
+        TextUtil.sendCenteredMessage(player, "&7Need help? Use &f/help &7or ask in chat!");
+        TextUtil.sendCenteredMessage(player, "&7Join our Discord: &9https://discord.gg/JYf6R2VKE7");
 
         player.sendMessage("");
         TextUtil.sendCenteredMessage(player, "&f&oReport any issues to Red (Jack)");
@@ -713,7 +1029,9 @@ public class JoinLeaveListener extends BaseListener implements YakPlayerManager.
             if (player.isOnline() && !progress.hasCompleted("welcome_message")) {
                 showEnhancedWelcomeExperience(player);
                 progress.completeStep("welcome_message");
-                session.setReceivedWelcome(true);
+                if (session != null) {
+                    session.setReceivedWelcome(true);
+                }
             }
         }, 40L);
 
@@ -722,7 +1040,9 @@ public class JoinLeaveListener extends BaseListener implements YakPlayerManager.
             if (player.isOnline() && !progress.hasCompleted("starter_kit")) {
                 EquipmentListener.provideStarterKit(player);
                 progress.completeStep("starter_kit");
-                session.setReceivedKit(true);
+                if (session != null) {
+                    session.setReceivedKit(true);
+                }
 
                 player.sendMessage(ChatColor.GREEN + "✦ You've received a starter kit! Check your inventory.");
             }
@@ -965,7 +1285,9 @@ public class JoinLeaveListener extends BaseListener implements YakPlayerManager.
         handleBuddyNotifications(player, false);
 
         // Party integration
-        handlePartyNotifications(player, false);
+        if (partyMechanics != null) {
+            handlePartyNotifications(player, false);
+        }
 
         // Guild integration
         handleGuildNotifications(player, false);
@@ -1016,6 +1338,8 @@ public class JoinLeaveListener extends BaseListener implements YakPlayerManager.
     }
 
     private void handlePartyNotifications(Player player, boolean isKick) {
+        if (partyMechanics == null) return;
+
         if (partyMechanics.isInParty(player)) {
             List<Player> partyMembers = partyMechanics.getPartyMembers(player);
             if (partyMembers != null) {
@@ -1074,7 +1398,7 @@ public class JoinLeaveListener extends BaseListener implements YakPlayerManager.
         List<String> recommendations = new ArrayList<>();
 
         // Check if they should join a party
-        if (!partyMechanics.isInParty(player)) {
+        if (partyMechanics != null && !partyMechanics.isInParty(player)) {
             List<Player> availableParties = Bukkit.getOnlinePlayers().stream()
                     .filter(p -> partyMechanics.isPartyLeader(p))
                     .filter(p -> {
@@ -1240,22 +1564,32 @@ public class JoinLeaveListener extends BaseListener implements YakPlayerManager.
         String holiday = getCurrentHoliday();
         if (holiday != null) {
             switch (holiday.toLowerCase()) {
-                case "halloween": return "&6🎃 &e&lHAPPY HALLOWEEN &6🎃";
-                case "christmas": return "&c🎄 &f&lMERRY CHRISTMAS &c🎄";
-                case "newyear": return "&e✨ &f&lHAPPY NEW YEAR &e✨";
-                case "valentine": return "&d💝 &f&lHAPPY VALENTINE'S &d💝";
-                default: return "&6✦ &e&lYAK REALMS &6✦";
+                case "halloween":
+                    return "&6🎃 &e&lHAPPY HALLOWEEN &6🎃";
+                case "christmas":
+                    return "&c🎄 &f&lMERRY CHRISTMAS &c🎄";
+                case "newyear":
+                    return "&e✨ &f&lHAPPY NEW YEAR &e✨";
+                case "valentine":
+                    return "&d💝 &f&lHAPPY VALENTINE'S &d💝";
+                default:
+                    return "&6✦ &e&lYAK REALMS &6✦";
             }
         }
 
         String season = getCurrentSeason();
         if (season != null) {
             switch (season.toLowerCase()) {
-                case "spring": return "&a🌸 &e&lSPRING ON YAK REALMS &a🌸";
-                case "summer": return "&e☀ &6&lSUMMER ON YAK REALMS &e☀";
-                case "autumn": return "&6🍂 &e&lAUTUMN ON YAK REALMS &6🍂";
-                case "winter": return "&b❄ &f&lWINTER ON YAK REALMS &b❄";
-                default: return "&6✦ &e&lYAK REALMS &6✦";
+                case "spring":
+                    return "&a🌸 &e&lSPRING ON YAK REALMS &a🌸";
+                case "summer":
+                    return "&e☀ &6&lSUMMER ON YAK REALMS &e☀";
+                case "autumn":
+                    return "&6🍂 &e&lAUTUMN ON YAK REALMS &6🍂";
+                case "winter":
+                    return "&b❄ &f&lWINTER ON YAK REALMS &b❄";
+                default:
+                    return "&6✦ &e&lYAK REALMS &6✦";
             }
         }
 
@@ -1407,6 +1741,10 @@ public class JoinLeaveListener extends BaseListener implements YakPlayerManager.
         lastNotificationTime.entrySet().removeIf(entry ->
                 entry.getValue() < cutoffTime
         );
+
+        // Clean up data waiting lists
+        playersWaitingForData.removeIf(uuid -> Bukkit.getPlayer(uuid) == null);
+        dataLoadWaitStart.entrySet().removeIf(entry -> Bukkit.getPlayer(entry.getKey()) == null);
     }
 
     private void cleanupPlayerData(UUID playerId) {
@@ -1414,6 +1752,8 @@ public class JoinLeaveListener extends BaseListener implements YakPlayerManager.
         welcomeProgress.remove(playerId);
         lastNotificationTime.remove(playerId);
         firstTimeJoins.remove(playerId);
+        playersWaitingForData.remove(playerId);
+        dataLoadWaitStart.remove(playerId);
 
         BossBar bar = welcomeBars.remove(playerId);
         if (bar != null) {
@@ -1544,7 +1884,11 @@ public class JoinLeaveListener extends BaseListener implements YakPlayerManager.
     // Helper methods for conditions and state checking
 
     private boolean isGodModeDisabled(Player player) {
-        return Toggles.isToggled(player, "God Mode Disabled");
+        try {
+            return Toggles.isToggled(player, "God Mode Disabled");
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     private boolean isWeapon(ItemStack item) {
@@ -1555,13 +1899,21 @@ public class JoinLeaveListener extends BaseListener implements YakPlayerManager.
     }
 
     private boolean isVip(Player player) {
-        Rank rank = ModerationMechanics.getRank(player);
-        return rank.ordinal() >= Rank.SUB.ordinal();
+        try {
+            Rank rank = ModerationMechanics.getRank(player);
+            return rank.ordinal() >= Rank.SUB.ordinal();
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     private boolean isStaff(Player player) {
-        Rank rank = ModerationMechanics.getRank(player);
-        return rank == Rank.GM || rank == Rank.MANAGER || rank == Rank.DEV;
+        try {
+            Rank rank = ModerationMechanics.getRank(player);
+            return rank == Rank.GM || rank == Rank.MANAGER || rank == Rank.DEV;
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     private boolean isFirstTimeJoin(Player player) {
@@ -1667,6 +2019,22 @@ public class JoinLeaveListener extends BaseListener implements YakPlayerManager.
         stats.put("total_joins_today", serverMetrics.getTotalJoinsToday());
         stats.put("total_leaves_today", serverMetrics.getTotalLeavesToday());
         stats.put("peak_online_today", serverMetrics.getPeakOnlineToday());
+        stats.put("players_waiting_for_data", playersWaitingForData.size());
         return stats;
+    }
+
+    /**
+     * Check if a player is currently waiting for data to load
+     */
+    public boolean isPlayerWaitingForData(UUID playerId) {
+        return playersWaitingForData.contains(playerId);
+    }
+
+    /**
+     * Get how long a player has been waiting for data (in milliseconds)
+     */
+    public long getDataWaitTime(UUID playerId) {
+        Long startTime = dataLoadWaitStart.get(playerId);
+        return startTime != null ? System.currentTimeMillis() - startTime : 0;
     }
 }

@@ -7,7 +7,6 @@ import org.bukkit.*;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
-import org.bukkit.event.block.Action;
 import org.bukkit.event.entity.EntityRegainHealthEvent;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
@@ -20,8 +19,8 @@ import org.bukkit.scheduler.BukkitRunnable;
 import java.util.List;
 
 /**
- * Handles all health-related events including health checks,
- * health potions, and health display.
+ * FIXED: Handles all health-related events including health checks,
+ * health potions, and health display with proper timing and state management.
  */
 public class HealthListener extends BaseListener {
 
@@ -38,47 +37,69 @@ public class HealthListener extends BaseListener {
     }
 
     /**
-     * Recalculates a player's max health based on their equipment
+     * FIXED: Recalculates a player's max health based on their equipment
+     * Now includes proper validation and state checking
      *
      * @param player The player to check
      */
     public void recalculateHealth(Player player) {
-        if (player.isDead()) return;
+        if (player.isDead() || !player.isOnline()) {
+            return;
+        }
 
         // Skip for operators in GM mode
         if (player.isOp() && !isGodModeDisabled(player)) {
             return;
         }
 
-        // Calculate base health and bonuses
-        double baseHealth = 50.0;
-        double vitalityBonus = 0.0;
+        try {
+            // Calculate base health and bonuses
+            double baseHealth = 50.0;
+            double vitalityBonus = 0.0;
 
-        // Check armor pieces for HP and VIT bonuses
-        for (ItemStack item : player.getInventory().getArmorContents()) {
-            if (PlayerStatsCalculator.hasValidItemStats(item)) {
-                // Add direct HP bonus
-                baseHealth += PlayerStatsCalculator.getHp(item);
+            // Check armor pieces for HP and VIT bonuses
+            for (ItemStack item : player.getInventory().getArmorContents()) {
+                if (PlayerStatsCalculator.hasValidItemStats(item)) {
+                    // Add direct HP bonus
+                    baseHealth += PlayerStatsCalculator.getHp(item);
 
-                // Add vitality bonus
-                int vitality = PlayerStatsCalculator.getElementalAttribute(item, "VIT");
-                vitalityBonus += vitality;
+                    // Add vitality bonus
+                    int vitality = PlayerStatsCalculator.getElementalAttribute(item, "VIT");
+                    vitalityBonus += vitality;
 
-                // Show frost armor effects if applicable
-                applyFrostArmorEffect(player, item);
+                    // Show frost armor effects if applicable
+                    applyFrostArmorEffect(player, item);
+                }
             }
-        }
 
-        // Apply vitality bonus to max health
-        if (vitalityBonus > 0.0) {
-            double bonus = vitalityBonus * 0.05;
-            baseHealth += baseHealth * (bonus / 100.0);
-        }
+            // Apply vitality bonus to max health
+            if (vitalityBonus > 0.0) {
+                double bonus = vitalityBonus * 0.05;
+                baseHealth += baseHealth * (bonus / 100.0);
+            }
 
-        // Set max health
-        player.setMaxHealth(baseHealth);
-        player.setHealthScale(20.0);
-        player.setHealthScaled(true);
+            // Ensure minimum health
+            baseHealth = Math.max(baseHealth, 20.0);
+
+            // FIXED: Only update if the values are different to prevent flickering
+            if (Math.abs(player.getMaxHealth() - baseHealth) > 0.1) {
+                player.setMaxHealth(baseHealth);
+            }
+
+            // FIXED: Ensure health doesn't exceed max health after recalculation
+            if (player.getHealth() > baseHealth) {
+                player.setHealth(baseHealth);
+            }
+
+            // FIXED: Always ensure health scaling is properly set
+            player.setHealthScale(20.0);
+            player.setHealthScaled(true);
+
+            logger.fine("Recalculated health for " + player.getName() + ": " + baseHealth);
+
+        } catch (Exception e) {
+            logger.warning("Error recalculating health for " + player.getName() + ": " + e.getMessage());
+        }
     }
 
     /**
@@ -111,7 +132,7 @@ public class HealthListener extends BaseListener {
     }
 
     /**
-     * Handle health recalculation after inventory changes
+     * FIXED: Handle health recalculation after inventory changes with proper timing
      */
     @EventHandler
     public void onInventoryClick(InventoryClickEvent event) {
@@ -126,13 +147,27 @@ public class HealthListener extends BaseListener {
 
         Player player = (Player) event.getWhoClicked();
 
-        // Schedule health check to run after inventory is updated
-        new BukkitRunnable() {
-            @Override
-            public void run() {
-                recalculateHealth(player);
-            }
-        }.runTaskLater(plugin, 1L);
+        // FIXED: Only recalculate if it's an armor slot or equipment change
+        boolean isArmorChange = false;
+        if (event.getSlot() >= 36 && event.getSlot() <= 39) { // Armor slots
+            isArmorChange = true;
+        } else if (event.getCurrentItem() != null && isArmor(event.getCurrentItem().getType())) {
+            isArmorChange = true;
+        } else if (event.getCursor() != null && isArmor(event.getCursor().getType())) {
+            isArmorChange = true;
+        }
+
+        if (isArmorChange) {
+            // FIXED: Longer delay to ensure inventory is fully updated
+            new BukkitRunnable() {
+                @Override
+                public void run() {
+                    if (player.isOnline() && !player.isDead()) {
+                        recalculateHealth(player);
+                    }
+                }
+            }.runTaskLater(plugin, 5L); // 5 ticks = 0.25 seconds delay
+        }
     }
 
     /**
@@ -140,7 +175,8 @@ public class HealthListener extends BaseListener {
      */
     @EventHandler
     public void onHealthPotionUse(PlayerInteractEvent event) {
-        if (!(event.getAction() == Action.RIGHT_CLICK_AIR || event.getAction() == Action.RIGHT_CLICK_BLOCK)) {
+        if (!(event.getAction() == org.bukkit.event.block.Action.RIGHT_CLICK_AIR ||
+                event.getAction() == org.bukkit.event.block.Action.RIGHT_CLICK_BLOCK)) {
             return;
         }
 
@@ -243,21 +279,37 @@ public class HealthListener extends BaseListener {
     }
 
     /**
-     * Handle player join to set health
+     * FIXED: Handle player join to set health - but ONLY after data is loaded
+     * This is now called by JoinLeaveListener after player data is loaded
      */
-    @EventHandler
+    @EventHandler(priority = EventPriority.MONITOR)
     public void onPlayerJoin(PlayerJoinEvent event) {
         Player player = event.getPlayer();
 
-        // Schedule health check after player is fully loaded
+        // FIXED: Much longer delay to ensure all systems are initialized
         new BukkitRunnable() {
             @Override
             public void run() {
                 if (player.isOnline() && !player.isDead()) {
-                    recalculateHealth(player);
+                    // Verify player data is loaded before recalculating health
+                    if (playerManager.getPlayer(player) != null) {
+                        recalculateHealth(player);
+                        logger.fine("Initial health calculation completed for " + player.getName());
+                    } else {
+                        // If still not loaded, try again in a bit
+                        new BukkitRunnable() {
+                            @Override
+                            public void run() {
+                                if (player.isOnline() && !player.isDead() && playerManager.getPlayer(player) != null) {
+                                    recalculateHealth(player);
+                                    logger.fine("Delayed health calculation completed for " + player.getName());
+                                }
+                            }
+                        }.runTaskLater(plugin, 40L); // Try again after 2 seconds
+                    }
                 }
             }
-        }.runTaskLater(plugin, 10L);
+        }.runTaskLater(plugin, 60L); // 3 second delay to ensure everything is loaded
     }
 
     /**
@@ -265,12 +317,14 @@ public class HealthListener extends BaseListener {
      */
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onHealthRegen(EntityRegainHealthEvent event) {
-        // Disable vanilla health regeneration
-        event.setCancelled(true);
+        // Disable vanilla health regeneration for players
+        if (event.getEntity() instanceof Player) {
+            event.setCancelled(true);
+        }
     }
 
     /**
-     * Play equip sound when switching weapons
+     * FIXED: Play equip sound when switching weapons with proper validation
      */
     @EventHandler
     public void onWeaponSwitch(PlayerItemHeldEvent event) {
@@ -280,10 +334,15 @@ public class HealthListener extends BaseListener {
         }
 
         Player player = event.getPlayer();
-        ItemStack newItem = player.getInventory().getItem(event.getNewSlot());
 
-        if (newItem != null && isWeapon(newItem.getType())) {
-            player.playSound(player.getLocation(), Sound.ENTITY_ITEM_BREAK, 1.0f, 1.5f);
+        try {
+            ItemStack newItem = player.getInventory().getItem(event.getNewSlot());
+
+            if (newItem != null && isWeapon(newItem.getType())) {
+                player.playSound(player.getLocation(), Sound.ENTITY_ITEM_BREAK, 1.0f, 1.5f);
+            }
+        } catch (Exception e) {
+            // Ignore sound errors
         }
     }
 
@@ -299,6 +358,17 @@ public class HealthListener extends BaseListener {
     }
 
     /**
+     * Check if a material is armor
+     */
+    private boolean isArmor(Material material) {
+        String name = material.name();
+        return name.contains("_HELMET") ||
+                name.contains("_CHESTPLATE") ||
+                name.contains("_LEGGINGS") ||
+                name.contains("_BOOTS");
+    }
+
+    /**
      * Check if god mode is disabled for a player
      *
      * @param player The player to check
@@ -306,5 +376,47 @@ public class HealthListener extends BaseListener {
      */
     private boolean isGodModeDisabled(Player player) {
         return Toggles.isToggled(player, "God Mode Disabled");
+    }
+
+    /**
+     * Public method for other systems to trigger health recalculation
+     * This ensures proper timing and validation
+     */
+    public void scheduleHealthRecalculation(Player player, long delayTicks) {
+        new BukkitRunnable() {
+            @Override
+            public void run() {
+                if (player.isOnline() && !player.isDead()) {
+                    recalculateHealth(player);
+                }
+            }
+        }.runTaskLater(plugin, delayTicks);
+    }
+
+    /**
+     * Force immediate health recalculation (use with caution)
+     */
+    public void forceHealthRecalculation(Player player) {
+        if (player != null && player.isOnline() && !player.isDead()) {
+            recalculateHealth(player);
+        }
+    }
+
+    /**
+     * Check if a player's health needs recalculation based on equipment changes
+     */
+    public boolean needsHealthRecalculation(Player player) {
+        if (player == null || !player.isOnline() || player.isDead()) {
+            return false;
+        }
+
+        // Check if player has any equipment that affects health
+        for (ItemStack item : player.getInventory().getArmorContents()) {
+            if (PlayerStatsCalculator.hasValidItemStats(item)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

@@ -27,12 +27,14 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.CompletableFuture;
 import java.util.function.Predicate;
 import java.util.logging.Logger;
 import java.util.stream.Collectors;
 
 /**
  * Enhanced event handler for item drops from mobs with improved performance and visual effects
+ * Fixed async entity access issues by moving validation to main thread
  */
 public class DropsHandler implements Listener {
     private static DropsHandler instance;
@@ -154,19 +156,23 @@ public class DropsHandler implements Listener {
     }
 
     /**
-     * Enhanced cleanup task with better performance monitoring
+     * Enhanced cleanup task with better performance monitoring and thread safety
      */
     private void startEnhancedCleanupTask() {
         new BukkitRunnable() {
             @Override
             public void run() {
                 int cleanedDamage = cleanupExpiredDamageTracking();
-                int cleanedProcessed = cleanupInvalidProcessedMobs();
 
-                if (cleanedDamage > 0 || cleanedProcessed > 0) {
-                    logger.fine(String.format("Cleanup completed: %d damage entries, %d processed mobs removed",
-                            cleanedDamage, cleanedProcessed));
-                }
+                // FIXED: Move entity validation to main thread to avoid async chunk access
+                Bukkit.getScheduler().runTask(plugin, () -> {
+                    int cleanedProcessed = cleanupInvalidProcessedMobs();
+
+                    if (cleanedDamage > 0 || cleanedProcessed > 0) {
+                        logger.fine(String.format("Cleanup completed: %d damage entries, %d processed mobs removed",
+                                cleanedDamage, cleanedProcessed));
+                    }
+                });
             }
         }.runTaskTimerAsynchronously(plugin, CLEANUP_INTERVAL_TICKS, CLEANUP_INTERVAL_TICKS);
     }
@@ -180,7 +186,7 @@ public class DropsHandler implements Listener {
 
         while (iterator.hasNext()) {
             Map.Entry<UUID, MobDamageData> entry = iterator.next();
-            if (entry.getValue().isExpired() || !isEntityValid(entry.getKey())) {
+            if (entry.getValue().isExpired()) {
                 iterator.remove();
                 removed++;
             }
@@ -190,19 +196,41 @@ public class DropsHandler implements Listener {
 
     /**
      * Cleanup processed mobs that are no longer valid
+     * FIXED: This method must run on main thread to avoid async chunk access
      */
     private int cleanupInvalidProcessedMobs() {
         int initialSize = processedMobs.size();
-        processedMobs.removeIf(uuid -> !isEntityValid(uuid));
+
+        // Create a list of UUIDs to check and remove invalid ones
+        List<UUID> toRemove = new ArrayList<>();
+
+        for (UUID uuid : processedMobs) {
+            if (!isEntityValidMainThread(uuid)) {
+                toRemove.add(uuid);
+            }
+        }
+
+        // Remove invalid UUIDs
+        for (UUID uuid : toRemove) {
+            processedMobs.remove(uuid);
+            // Also clean up damage tracking for invalid entities
+            mobDamageTracking.remove(uuid);
+        }
+
         return initialSize - processedMobs.size();
     }
 
     /**
-     * Check if entity is still valid
+     * FIXED: Check if entity is still valid - must run on main thread
      */
-    private boolean isEntityValid(UUID entityUuid) {
-        Entity entity = Bukkit.getEntity(entityUuid);
-        return entity != null && entity.isValid();
+    private boolean isEntityValidMainThread(UUID entityUuid) {
+        try {
+            Entity entity = Bukkit.getEntity(entityUuid);
+            return entity != null && entity.isValid() && !entity.isDead();
+        } catch (Exception e) {
+            // If any error occurs, consider entity invalid
+            return false;
+        }
     }
 
     /**
