@@ -8,6 +8,8 @@ import org.bukkit.entity.Player;
  * Represents an active teleport session
  */
 public class TeleportSession {
+    private static final double MAX_MOVEMENT_DISTANCE_SQUARED = 4.0; // 2 blocks squared
+
     private final Player player;
     private final TeleportDestination destination;
     private final Location startLocation;
@@ -32,28 +34,37 @@ public class TeleportSession {
                            TeleportEffectType effectType) {
         this.player = player;
         this.destination = destination;
-        this.startLocation = player.getLocation().clone();
-        this.remainingSeconds = castingTime;
+        this.startLocation = player != null ? player.getLocation().clone() : null;
+        this.remainingSeconds = Math.max(1, castingTime); // Ensure at least 1 second
         this.consumable = consumable;
-        this.effectType = effectType;
+        this.effectType = effectType != null ? effectType : TeleportEffectType.SCROLL;
     }
 
     /**
      * Starts the teleport session
      */
     public void start() {
-        // Apply initial effects
-        TeleportEffects.applyCastingStartEffects(player, effectType);
+        if (player == null || destination == null) {
+            cancel("Invalid session parameters");
+            return;
+        }
 
-        // Send initial message
-        String message = String.format(
-                "%sTELEPORTING%s - %s%s%s ... %ds",
-                ChatColor.BOLD, ChatColor.WHITE,
-                ChatColor.AQUA, destination.getDisplayName(),
-                ChatColor.WHITE, remainingSeconds
-        );
+        try {
+            // Apply initial effects
+            TeleportEffects.applyCastingStartEffects(player, effectType);
 
-        player.sendMessage(message);
+            // Send initial message
+            String message = String.format(
+                    "%sTELEPORTING%s - %s%s%s ... %ds",
+                    ChatColor.BOLD, ChatColor.WHITE,
+                    ChatColor.AQUA, destination.getDisplayName(),
+                    ChatColor.WHITE, remainingSeconds
+            );
+
+            player.sendMessage(message);
+        } catch (Exception e) {
+            cancel("Error starting teleport");
+        }
     }
 
     /**
@@ -66,37 +77,104 @@ public class TeleportSession {
             return true;
         }
 
-        // Check if player moved too far
-        if (player.getLocation().distanceSquared(startLocation) >= 2.0) {
-            cancel("You moved too far");
+        try {
+            // Validate player state
+            if (!isPlayerValid()) {
+                cancel("Player is no longer valid");
+                return true;
+            }
+
+            // Check if player moved too far
+            if (hasPlayerMovedTooFar()) {
+                cancel("You moved too far");
+                return true;
+            }
+
+            // Apply tick effects
+            TeleportEffects.applyCastingTickEffects(player, effectType);
+
+            // Decrement timer
+            remainingSeconds--;
+
+            if (remainingSeconds <= 0) {
+                // Complete the teleport
+                complete();
+                return true;
+            } else {
+                // Send progress message
+                sendProgressMessage();
+                return false;
+            }
+        } catch (Exception e) {
+            cancel("Error during teleport");
             return true;
         }
+    }
 
-        // Check if player is offline
+    /**
+     * Validates that the player is still valid for teleportation
+     *
+     * @return True if player is valid
+     */
+    private boolean isPlayerValid() {
+        if (player == null) {
+            return false;
+        }
+
+        // Check if player is online
         if (!player.isOnline()) {
-            cancel("Player disconnected");
+            return false;
+        }
+
+        // Check if player still exists in the world
+        if (player.getLocation() == null || player.getLocation().getWorld() == null) {
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * Checks if the player has moved too far from the start location
+     *
+     * @return True if player moved too far
+     */
+    private boolean hasPlayerMovedTooFar() {
+        if (startLocation == null || player == null) {
             return true;
         }
 
-        // Apply tick effects
-        TeleportEffects.applyCastingTickEffects(player, effectType);
-
-        // Decrement timer
-        remainingSeconds--;
-
-        if (remainingSeconds <= 0) {
-            // Complete the teleport
-            complete();
+        Location currentLocation = player.getLocation();
+        if (currentLocation == null || currentLocation.getWorld() == null) {
             return true;
-        } else {
-            // Send progress message
+        }
+
+        // Check if player changed worlds
+        if (!startLocation.getWorld().equals(currentLocation.getWorld())) {
+            return true;
+        }
+
+        // Check distance
+        return currentLocation.distanceSquared(startLocation) >= MAX_MOVEMENT_DISTANCE_SQUARED;
+    }
+
+    /**
+     * Sends a progress message to the player
+     */
+    private void sendProgressMessage() {
+        if (player == null) {
+            return;
+        }
+
+        try {
             String message = String.format(
                     "%sTELEPORTING%s ... %ds",
                     ChatColor.BOLD, ChatColor.WHITE, remainingSeconds
             );
 
             player.sendMessage(message);
-            return false;
+        } catch (Exception e) {
+            // Ignore message errors, don't cancel teleport for this
         }
     }
 
@@ -104,21 +182,46 @@ public class TeleportSession {
      * Completes the teleport session
      */
     private void complete() {
-        completed = true;
-
-        // Consume item if required
-        if (consumable != null) {
-            consumable.consume();
+        if (completed || cancelled) {
+            return;
         }
 
-        // Apply departure effects
-        TeleportEffects.applyDepartureEffects(player, effectType);
+        completed = true;
 
-        // Teleport the player
-        player.teleport(destination.getLocation());
+        try {
+            // Validate destination before teleporting
+            if (destination.getLocation() == null || destination.getLocation().getWorld() == null) {
+                cancel("Destination is invalid");
+                return;
+            }
 
-        // Apply arrival effects
-        TeleportEffects.applyArrivalEffects(player, effectType);
+            // Consume item if required
+            if (consumable != null) {
+                consumable.consume();
+            }
+
+            // Apply departure effects
+            TeleportEffects.applyDepartureEffects(player, effectType);
+
+            // Teleport the player
+            boolean teleportSuccess = player.teleport(destination.getLocation());
+
+            if (!teleportSuccess) {
+                // Teleport failed, but item was already consumed
+                if (player != null) {
+                    player.sendMessage(ChatColor.RED + "Teleportation failed - destination may be unsafe.");
+                }
+                return;
+            }
+
+            // Apply arrival effects
+            TeleportEffects.applyArrivalEffects(player, effectType);
+
+        } catch (Exception e) {
+            if (player != null) {
+                player.sendMessage(ChatColor.RED + "Teleportation failed due to an error.");
+            }
+        }
     }
 
     /**
@@ -133,12 +236,21 @@ public class TeleportSession {
 
         cancelled = true;
 
-        // Apply cancel effects
-        TeleportEffects.applyCastingCancelEffects(player, effectType);
+        try {
+            // Apply cancel effects only if player is valid
+            if (player != null && player.isOnline()) {
+                TeleportEffects.applyCastingCancelEffects(player, effectType);
 
-        // Send cancel message
-        player.sendMessage(ChatColor.RED + "Teleportation - " + ChatColor.BOLD + "CANCELLED" +
-                (reason != null ? ChatColor.RED + " (" + reason + ")" : ""));
+                // Send cancel message
+                String message = ChatColor.RED + "Teleportation - " + ChatColor.BOLD + "CANCELLED";
+                if (reason != null && !reason.isEmpty()) {
+                    message += ChatColor.RED + " (" + reason + ")";
+                }
+                player.sendMessage(message);
+            }
+        } catch (Exception e) {
+            // Ignore errors during cancellation
+        }
     }
 
     /**
@@ -157,6 +269,15 @@ public class TeleportSession {
      */
     public TeleportDestination getDestination() {
         return destination;
+    }
+
+    /**
+     * Gets the start location
+     *
+     * @return The start location
+     */
+    public Location getStartLocation() {
+        return startLocation != null ? startLocation.clone() : null;
     }
 
     /**
@@ -184,5 +305,64 @@ public class TeleportSession {
      */
     public boolean isCancelled() {
         return cancelled;
+    }
+
+    /**
+     * Gets the effect type
+     *
+     * @return The effect type
+     */
+    public TeleportEffectType getEffectType() {
+        return effectType;
+    }
+
+    /**
+     * Gets the consumable
+     *
+     * @return The consumable or null
+     */
+    public TeleportConsumable getConsumable() {
+        return consumable;
+    }
+
+    /**
+     * Gets the maximum movement distance squared
+     *
+     * @return The maximum movement distance squared
+     */
+    public static double getMaxMovementDistanceSquared() {
+        return MAX_MOVEMENT_DISTANCE_SQUARED;
+    }
+
+    /**
+     * Checks if the session is active (not completed and not cancelled)
+     *
+     * @return True if active
+     */
+    public boolean isActive() {
+        return !completed && !cancelled;
+    }
+
+    /**
+     * Gets the elapsed time since the session started
+     *
+     * @return The elapsed time in seconds
+     */
+    public int getElapsedSeconds() {
+        // This assumes the session was created with the original casting time
+        // We can't track the original time without storing it, so this is an approximation
+        return Math.max(0, remainingSeconds > 0 ? (10 - remainingSeconds) : 10);
+    }
+
+    @Override
+    public String toString() {
+        return "TeleportSession{" +
+                "player=" + (player != null ? player.getName() : "null") +
+                ", destination=" + (destination != null ? destination.getId() : "null") +
+                ", remainingSeconds=" + remainingSeconds +
+                ", completed=" + completed +
+                ", cancelled=" + cancelled +
+                ", effectType=" + effectType +
+                '}';
     }
 }

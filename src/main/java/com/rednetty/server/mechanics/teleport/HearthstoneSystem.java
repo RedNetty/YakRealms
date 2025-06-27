@@ -19,6 +19,7 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
+import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
@@ -63,15 +64,24 @@ public class HearthstoneSystem implements Listener {
      * Initializes the hearthstone system
      */
     public void onEnable() {
-        Bukkit.getServer().getPluginManager().registerEvents(this, YakRealms.getInstance());
-        logger.info("HearthstoneSystem has been enabled");
+        try {
+            Bukkit.getServer().getPluginManager().registerEvents(this, YakRealms.getInstance());
+            logger.info("HearthstoneSystem has been enabled");
+        } catch (Exception e) {
+            logger.log(Level.SEVERE, "Failed to enable HearthstoneSystem", e);
+        }
     }
 
     /**
      * Cleans up when plugin is disabled
      */
     public void onDisable() {
-        logger.info("HearthstoneSystem has been disabled");
+        try {
+            playerHomeLocations.clear();
+            logger.info("HearthstoneSystem has been disabled");
+        } catch (Exception e) {
+            logger.log(Level.WARNING, "Error during HearthstoneSystem shutdown", e);
+        }
     }
 
     /**
@@ -81,51 +91,56 @@ public class HearthstoneSystem implements Listener {
      * @return The created hearthstone
      */
     public ItemStack createHearthstone(String homeLocation) {
-        if (homeLocation == null) {
-            homeLocation = DEFAULT_HOME;
-        }
+        try {
+            if (homeLocation == null || homeLocation.trim().isEmpty()) {
+                homeLocation = DEFAULT_HOME;
+            }
 
-        TeleportDestination destination = teleportManager.getDestination(homeLocation);
-        if (destination == null) {
-            homeLocation = DEFAULT_HOME;
-            destination = teleportManager.getDestination(homeLocation);
-
+            TeleportDestination destination = teleportManager.getDestination(homeLocation);
             if (destination == null) {
-                // Fallback to first available destination
-                for (TeleportDestination dest : teleportManager.getAllDestinations()) {
-                    destination = dest;
-                    homeLocation = dest.getId();
-                    break;
-                }
+                homeLocation = DEFAULT_HOME;
+                destination = teleportManager.getDestination(homeLocation);
 
                 if (destination == null) {
-                    logger.warning("No valid destinations found for hearthstone creation");
-                    return null;
+                    // Fallback to first available destination
+                    for (TeleportDestination dest : teleportManager.getAllDestinations()) {
+                        destination = dest;
+                        homeLocation = dest.getId();
+                        break;
+                    }
+
+                    if (destination == null) {
+                        logger.warning("No valid destinations found for hearthstone creation");
+                        return null;
+                    }
                 }
             }
+
+            ItemStack item = new ItemStack(Material.QUARTZ);
+            ItemMeta meta = item.getItemMeta();
+
+            if (meta != null) {
+                meta.setDisplayName(ChatColor.YELLOW.toString() + ChatColor.BOLD + "Hearthstone");
+
+                meta.setLore(Arrays.asList(
+                        ChatColor.GRAY + "Teleports you to your home town.",
+                        ChatColor.GRAY + "Talk to an Innkeeper to change your home town.",
+                        ChatColor.GREEN + "Location: " + destination.getDisplayName()
+                ));
+
+                // Store hearthstone data
+                PersistentDataContainer container = meta.getPersistentDataContainer();
+                container.set(hearthstoneKey, PersistentDataType.BYTE, (byte) 1);
+                container.set(homeLocationKey, PersistentDataType.STRING, homeLocation);
+
+                item.setItemMeta(meta);
+            }
+
+            return item;
+        } catch (Exception e) {
+            logger.log(Level.WARNING, "Error creating hearthstone", e);
+            return null;
         }
-
-        ItemStack item = new ItemStack(Material.QUARTZ);
-        ItemMeta meta = item.getItemMeta();
-
-        if (meta != null) {
-            meta.setDisplayName(ChatColor.YELLOW.toString() + ChatColor.BOLD + "Hearthstone");
-
-            meta.setLore(Arrays.asList(
-                    ChatColor.GRAY + "Teleports you to your home town.",
-                    ChatColor.GRAY + "Talk to an Innkeeper to change your home town.",
-                    ChatColor.GREEN + "Location: " + destination.getDisplayName()
-            ));
-
-            // Store hearthstone data
-            PersistentDataContainer container = meta.getPersistentDataContainer();
-            container.set(hearthstoneKey, PersistentDataType.BYTE, (byte) 1);
-            container.set(homeLocationKey, PersistentDataType.STRING, homeLocation);
-
-            item.setItemMeta(meta);
-        }
-
-        return item;
     }
 
     /**
@@ -144,9 +159,14 @@ public class HearthstoneSystem implements Listener {
             return false;
         }
 
-        // Check for hearthstone tag
-        PersistentDataContainer container = meta.getPersistentDataContainer();
-        return container.has(hearthstoneKey, PersistentDataType.BYTE);
+        try {
+            // Check for hearthstone tag
+            PersistentDataContainer container = meta.getPersistentDataContainer();
+            return container.has(hearthstoneKey, PersistentDataType.BYTE);
+        } catch (Exception e) {
+            logger.log(Level.WARNING, "Error checking if item is hearthstone", e);
+            return false;
+        }
     }
 
     /**
@@ -165,10 +185,17 @@ public class HearthstoneSystem implements Listener {
             return DEFAULT_HOME;
         }
 
-        // Get home location from persistent data
-        PersistentDataContainer container = meta.getPersistentDataContainer();
-        if (container.has(homeLocationKey, PersistentDataType.STRING)) {
-            return container.get(homeLocationKey, PersistentDataType.STRING);
+        try {
+            // Get home location from persistent data
+            PersistentDataContainer container = meta.getPersistentDataContainer();
+            if (container.has(homeLocationKey, PersistentDataType.STRING)) {
+                String homeLocation = container.get(homeLocationKey, PersistentDataType.STRING);
+                if (homeLocation != null && !homeLocation.trim().isEmpty()) {
+                    return homeLocation;
+                }
+            }
+        } catch (Exception e) {
+            logger.log(Level.WARNING, "Error getting home location from hearthstone", e);
         }
 
         return DEFAULT_HOME;
@@ -182,35 +209,74 @@ public class HearthstoneSystem implements Listener {
      * @return True if successful
      */
     public boolean setPlayerHomeLocation(Player player, String locationId) {
-        TeleportDestination destination = teleportManager.getDestination(locationId);
-        if (destination == null) {
+        if (player == null || locationId == null || locationId.trim().isEmpty()) {
             return false;
         }
 
-        // Store the player's home location
-        playerHomeLocations.put(player.getUniqueId(), locationId);
-
-        // Update player's hearthstone if they have one
-        for (ItemStack item : player.getInventory().getContents()) {
-            if (isHearthstone(item)) {
-                ItemMeta meta = item.getItemMeta();
-                if (meta != null) {
-                    meta.setLore(Arrays.asList(
-                            ChatColor.GRAY + "Teleports you to your home town.",
-                            ChatColor.GRAY + "Talk to an Innkeeper to change your home town.",
-                            ChatColor.GREEN + "Location: " + destination.getDisplayName()
-                    ));
-
-                    // Update persistent data
-                    PersistentDataContainer container = meta.getPersistentDataContainer();
-                    container.set(homeLocationKey, PersistentDataType.STRING, locationId);
-
-                    item.setItemMeta(meta);
-                }
+        try {
+            TeleportDestination destination = teleportManager.getDestination(locationId);
+            if (destination == null) {
+                return false;
             }
+
+            // Store the player's home location
+            playerHomeLocations.put(player.getUniqueId(), locationId);
+
+            // Update player's hearthstone if they have one
+            updatePlayerHearthstones(player, locationId, destination);
+
+            return true;
+        } catch (Exception e) {
+            logger.log(Level.WARNING, "Error setting player home location", e);
+            return false;
+        }
+    }
+
+    /**
+     * Updates all hearthstones in player's inventory
+     *
+     * @param player      The player
+     * @param locationId  The new location ID
+     * @param destination The destination object
+     */
+    private void updatePlayerHearthstones(Player player, String locationId, TeleportDestination destination) {
+        if (player == null || locationId == null || destination == null) {
+            return;
         }
 
-        return true;
+        try {
+            ItemStack[] contents = player.getInventory().getContents();
+            if (contents == null) {
+                return;
+            }
+
+            boolean updated = false;
+            for (ItemStack item : contents) {
+                if (isHearthstone(item)) {
+                    ItemMeta meta = item.getItemMeta();
+                    if (meta != null) {
+                        meta.setLore(Arrays.asList(
+                                ChatColor.GRAY + "Teleports you to your home town.",
+                                ChatColor.GRAY + "Talk to an Innkeeper to change your home town.",
+                                ChatColor.GREEN + "Location: " + destination.getDisplayName()
+                        ));
+
+                        // Update persistent data
+                        PersistentDataContainer container = meta.getPersistentDataContainer();
+                        container.set(homeLocationKey, PersistentDataType.STRING, locationId);
+
+                        item.setItemMeta(meta);
+                        updated = true;
+                    }
+                }
+            }
+
+            if (updated) {
+                player.sendMessage(ChatColor.GREEN + "Your hearthstone has been updated to: " + destination.getDisplayName());
+            }
+        } catch (Exception e) {
+            logger.log(Level.WARNING, "Error updating player hearthstones", e);
+        }
     }
 
     /**
@@ -220,7 +286,48 @@ public class HearthstoneSystem implements Listener {
      * @return The home location ID
      */
     public String getPlayerHomeLocation(Player player) {
+        if (player == null) {
+            return DEFAULT_HOME;
+        }
         return playerHomeLocations.getOrDefault(player.getUniqueId(), DEFAULT_HOME);
+    }
+
+    /**
+     * Validates that a hearthstone can be used
+     *
+     * @param player     The player
+     * @param hearthstone The hearthstone item
+     * @return Validation result message or null if valid
+     */
+    private String validateHearthstoneUsage(Player player, ItemStack hearthstone) {
+        if (player == null) {
+            return "Player is invalid";
+        }
+
+        if (!isHearthstone(hearthstone)) {
+            return null; // Not a hearthstone, so validation doesn't apply
+        }
+
+        // Check if player is already teleporting
+        if (teleportManager.isTeleporting(player.getUniqueId())) {
+            return "You are already teleporting.";
+        }
+
+        // Check for alignment restrictions (chaotic players can't teleport)
+        if (player.hasMetadata("alignment") &&
+                player.getMetadata("alignment").size() > 0 &&
+                "CHAOTIC".equals(player.getMetadata("alignment").get(0).asString())) {
+            return "You " + ChatColor.UNDERLINE + "cannot" + ChatColor.RED + " do this while chaotic!";
+        }
+
+        // Check for combat/duel restrictions
+        if (player.hasMetadata("inCombat") &&
+                player.getMetadata("inCombat").size() > 0 &&
+                player.getMetadata("inCombat").get(0).asBoolean()) {
+            return "You cannot teleport while in combat!";
+        }
+
+        return null; // Valid
     }
 
     /**
@@ -233,6 +340,10 @@ public class HearthstoneSystem implements Listener {
         }
 
         Player player = event.getPlayer();
+        if (player == null) {
+            return;
+        }
+
         ItemStack item = player.getInventory().getItemInMainHand();
 
         // Check if the item is a hearthstone
@@ -243,35 +354,104 @@ public class HearthstoneSystem implements Listener {
         // Prevent usage with off-hand items
         event.setCancelled(true);
 
-        // Check if player is already teleporting
-        if (teleportManager.isTeleporting(player.getUniqueId())) {
-            player.sendMessage(ChatColor.RED + "You are already teleporting.");
-            return;
+        try {
+            // Validate hearthstone usage
+            String validationError = validateHearthstoneUsage(player, item);
+            if (validationError != null) {
+                player.sendMessage(ChatColor.RED + validationError);
+                return;
+            }
+
+            // Get the home location
+            String homeLocationId = getHomeLocationFromHearthstone(item);
+            TeleportDestination destination = teleportManager.getDestination(homeLocationId);
+
+            if (destination == null) {
+                player.sendMessage(ChatColor.RED + "Your hearthstone's home location is invalid.");
+                logger.warning("Invalid hearthstone destination for player " + player.getName() + ": " + homeLocationId);
+                return;
+            }
+
+            // Validate destination location
+            if (destination.getLocation() == null || destination.getLocation().getWorld() == null) {
+                player.sendMessage(ChatColor.RED + "Your hearthstone's destination is corrupted.");
+                logger.warning("Corrupted destination location for " + destination.getId());
+                return;
+            }
+
+            // Start the teleport
+            boolean success = teleportManager.startTeleport(player, destination, 10, null, TeleportEffectType.HEARTHSTONE);
+            if (!success) {
+                player.sendMessage(ChatColor.RED + "Failed to start hearthstone teleportation.");
+            }
+
+        } catch (Exception e) {
+            logger.log(Level.WARNING, "Error handling hearthstone usage for " + player.getName(), e);
+            player.sendMessage(ChatColor.RED + "An error occurred while using your hearthstone.");
+        }
+    }
+
+    /**
+     * Creates a hearthstone for a player with their current home location
+     *
+     * @param player The player
+     * @return The created hearthstone or null if failed
+     */
+    public ItemStack createHearthstoneForPlayer(Player player) {
+        if (player == null) {
+            return null;
         }
 
-        // Check for alignment restrictions (chaotic players can't teleport)
-        if (player.hasMetadata("alignment") && player.getMetadata("alignment").get(0).asString().equals("CHAOTIC")) {
-            player.sendMessage(ChatColor.RED + "You " + ChatColor.UNDERLINE + "cannot" +
-                    ChatColor.RED + " do this while chaotic!");
-            return;
+        String homeLocation = getPlayerHomeLocation(player);
+        return createHearthstone(homeLocation);
+    }
+
+    /**
+     * Validates that the default home location exists
+     *
+     * @return True if valid
+     */
+    public boolean validateDefaultHome() {
+        TeleportDestination defaultDest = teleportManager.getDestination(DEFAULT_HOME);
+        if (defaultDest == null) {
+            logger.warning("Default hearthstone home location '" + DEFAULT_HOME + "' does not exist!");
+            return false;
         }
 
-        // Check for combat/duel restrictions
-        if (player.hasMetadata("inCombat") && player.getMetadata("inCombat").get(0).asBoolean()) {
-            player.sendMessage(ChatColor.RED + "You cannot teleport while in combat!");
-            return;
+        if (defaultDest.getLocation() == null || defaultDest.getLocation().getWorld() == null) {
+            logger.warning("Default hearthstone home location '" + DEFAULT_HOME + "' has invalid location!");
+            return false;
         }
 
-        // Get the home location
-        String homeLocationId = getHomeLocationFromHearthstone(item);
-        TeleportDestination destination = teleportManager.getDestination(homeLocationId);
+        return true;
+    }
 
-        if (destination == null) {
-            player.sendMessage(ChatColor.RED + "Your hearthstone's home location is invalid.");
-            return;
+    /**
+     * Gets the default home location ID
+     *
+     * @return The default home location ID
+     */
+    public String getDefaultHome() {
+        return DEFAULT_HOME;
+    }
+
+    /**
+     * Gets all player home locations
+     *
+     * @return A copy of the player home locations map
+     */
+    public Map<UUID, String> getPlayerHomeLocations() {
+        return new HashMap<>(playerHomeLocations);
+    }
+
+    /**
+     * Clears a player's home location (resets to default)
+     *
+     * @param player The player
+     */
+    public void clearPlayerHomeLocation(Player player) {
+        if (player != null) {
+            playerHomeLocations.remove(player.getUniqueId());
         }
-
-        // Start the teleport
-        teleportManager.startTeleport(player, destination, 10, null, TeleportEffectType.HEARTHSTONE);
     }
 }

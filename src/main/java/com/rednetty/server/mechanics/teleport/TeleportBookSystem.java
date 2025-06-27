@@ -64,57 +64,88 @@ public class TeleportBookSystem implements Listener {
      * Initializes the teleport book system
      */
     public void onEnable() {
-        Bukkit.getServer().getPluginManager().registerEvents(this, YakRealms.getInstance());
+        try {
+            Bukkit.getServer().getPluginManager().registerEvents(this, YakRealms.getInstance());
 
-        // Load book templates from configuration
-        loadBookTemplates();
+            // Load book templates from configuration
+            loadBookTemplates();
 
-        logger.info("TeleportBookSystem has been enabled");
+            logger.info("TeleportBookSystem has been enabled");
+        } catch (Exception e) {
+            logger.log(Level.SEVERE, "Failed to enable TeleportBookSystem", e);
+        }
     }
 
     /**
      * Cleans up when plugin is disabled
      */
     public void onDisable() {
-        // Save book templates to configuration
-        saveBookTemplates();
+        try {
+            // Save book templates to configuration
+            saveBookTemplates();
 
-        logger.info("TeleportBookSystem has been disabled");
+            logger.info("TeleportBookSystem has been disabled");
+        } catch (Exception e) {
+            logger.log(Level.WARNING, "Error during TeleportBookSystem shutdown", e);
+        }
     }
 
     /**
      * Loads book templates from configuration
      */
     private void loadBookTemplates() {
-        // Clear existing templates
-        bookTemplates.clear();
+        try {
+            // Clear existing templates
+            bookTemplates.clear();
 
-        // Initialize config file
-        configFile = new File(YakRealms.getInstance().getDataFolder(), "teleport_books.yml");
+            // Initialize config file
+            configFile = new File(YakRealms.getInstance().getDataFolder(), "teleport_books.yml");
 
-        if (!configFile.exists()) {
-            try {
-                configFile.createNewFile();
-            } catch (IOException e) {
-                logger.log(Level.SEVERE, "Could not create teleport_books.yml", e);
-                return;
+            if (!configFile.exists()) {
+                try {
+                    YakRealms.getInstance().getDataFolder().mkdirs();
+                    configFile.createNewFile();
+                } catch (IOException e) {
+                    logger.log(Level.SEVERE, "Could not create teleport_books.yml", e);
+                    return;
+                }
             }
+
+            config = YamlConfiguration.loadConfiguration(configFile);
+
+            // Load default books for standard destinations
+            for (TeleportDestination dest : teleportManager.getAllDestinations()) {
+                createBookTemplate(dest.getId(), dest.getDisplayName());
+            }
+
+            // Load custom books from config
+            loadCustomBooksFromConfig();
+
+            logger.info("Loaded " + bookTemplates.size() + " teleport book templates");
+        } catch (Exception e) {
+            logger.log(Level.SEVERE, "Error loading book templates", e);
+        }
+    }
+
+    /**
+     * Loads custom books from configuration
+     */
+    private void loadCustomBooksFromConfig() {
+        if (config == null || !config.contains("books")) {
+            return;
         }
 
-        config = YamlConfiguration.loadConfiguration(configFile);
-
-        // Load default books for standard destinations
-        for (TeleportDestination dest : teleportManager.getAllDestinations()) {
-            // Create a standard book template for each destination
-            createBookTemplate(dest.getId(), dest.getDisplayName());
-        }
-
-        // Load custom books from config
-        if (config.contains("books")) {
-            for (String bookId : config.getConfigurationSection("books").getKeys(false)) {
+        Set<String> bookIds = config.getConfigurationSection("books").getKeys(false);
+        for (String bookId : bookIds) {
+            try {
                 String destId = config.getString("books." + bookId + ".destination");
                 String customName = config.getString("books." + bookId + ".custom_name");
                 List<String> customLore = config.getStringList("books." + bookId + ".custom_lore");
+
+                if (destId == null) {
+                    logger.warning("Missing destination for book " + bookId);
+                    continue;
+                }
 
                 // Recreate the book from saved data
                 TeleportDestination dest = teleportManager.getDestination(destId);
@@ -123,11 +154,13 @@ public class TeleportBookSystem implements Listener {
                     if (book != null) {
                         bookTemplates.put(bookId, book);
                     }
+                } else {
+                    logger.warning("Destination not found for book " + bookId + ": " + destId);
                 }
+            } catch (Exception e) {
+                logger.log(Level.WARNING, "Error loading custom book " + bookId, e);
             }
         }
-
-        logger.info("Loaded " + bookTemplates.size() + " teleport book templates");
     }
 
     /**
@@ -138,16 +171,24 @@ public class TeleportBookSystem implements Listener {
             config = new YamlConfiguration();
         }
 
-        // Clear existing config
-        config.set("books", null);
+        try {
+            // Clear existing config
+            config.set("books", null);
 
-        // Save each book template
-        for (Map.Entry<String, ItemStack> entry : bookTemplates.entrySet()) {
-            String bookId = entry.getKey();
-            ItemStack book = entry.getValue();
-            ItemMeta meta = book.getItemMeta();
+            // Save each book template
+            for (Map.Entry<String, ItemStack> entry : bookTemplates.entrySet()) {
+                String bookId = entry.getKey();
+                ItemStack book = entry.getValue();
 
-            if (meta != null) {
+                if (book == null || !book.hasItemMeta()) {
+                    continue;
+                }
+
+                ItemMeta meta = book.getItemMeta();
+                if (meta == null) {
+                    continue;
+                }
+
                 PersistentDataContainer container = meta.getPersistentDataContainer();
                 String destId = container.has(destinationKey, PersistentDataType.STRING) ?
                         container.get(destinationKey, PersistentDataType.STRING) : null;
@@ -165,13 +206,13 @@ public class TeleportBookSystem implements Listener {
                     }
                 }
             }
-        }
 
-        // Save to file
-        try {
+            // Save to file
             config.save(configFile);
         } catch (IOException e) {
             logger.log(Level.SEVERE, "Could not save teleport book templates", e);
+        } catch (Exception e) {
+            logger.log(Level.SEVERE, "Unexpected error saving teleport book templates", e);
         }
     }
 
@@ -183,6 +224,10 @@ public class TeleportBookSystem implements Listener {
      * @return The created template or null if destination not found
      */
     private ItemStack createBookTemplate(String destId, String displayName) {
+        if (destId == null || displayName == null) {
+            return null;
+        }
+
         TeleportDestination destination = teleportManager.getDestination(destId);
         if (destination == null) {
             return null;
@@ -233,6 +278,10 @@ public class TeleportBookSystem implements Listener {
      * @return The created book
      */
     private ItemStack createCustomBook(String bookId, TeleportDestination destination, String customName, List<String> customLore) {
+        if (bookId == null || destination == null) {
+            return null;
+        }
+
         ItemStack book = new ItemStack(Material.BOOK);
         ItemMeta meta = book.getItemMeta();
 
@@ -273,6 +322,10 @@ public class TeleportBookSystem implements Listener {
      * @return The created teleport book or null if destination not found
      */
     public ItemStack createTeleportBook(String destId, boolean inShop) {
+        if (destId == null) {
+            return null;
+        }
+
         TeleportDestination destination = teleportManager.getDestination(destId);
         if (destination == null) {
             logger.warning("Attempted to create teleport book for unknown destination: " + destId);
@@ -294,23 +347,22 @@ public class TeleportBookSystem implements Listener {
 
         // Clone the template
         ItemStack book = template.clone();
-        ItemMeta meta = book.getItemMeta();
 
-        if (meta != null) {
-            // If this is for shop display, add price info
-            if (inShop) {
-                List<String> lore = meta.hasLore() ? meta.getLore() : new ArrayList<>();
-                if (lore == null) lore = new ArrayList<>();
+        if (inShop && book.hasItemMeta()) {
+            ItemMeta meta = book.getItemMeta();
+            if (meta != null) {
+                // If this is for shop display, add price info
+                List<String> lore = meta.hasLore() ? new ArrayList<>(meta.getLore()) : new ArrayList<>();
                 lore.add(ChatColor.GREEN + "Price: " + ChatColor.WHITE + destination.getCost() + "g");
                 meta.setLore(lore);
+
+                // Generate a unique instance ID for this book
+                String instanceId = bookId + "_" + UUID.randomUUID().toString().substring(0, 8);
+                PersistentDataContainer container = meta.getPersistentDataContainer();
+                container.set(bookIdKey, PersistentDataType.STRING, instanceId);
+
+                book.setItemMeta(meta);
             }
-
-            // Generate a unique instance ID for this book
-            String instanceId = bookId + "_" + UUID.randomUUID().toString().substring(0, 8);
-            PersistentDataContainer container = meta.getPersistentDataContainer();
-            container.set(bookIdKey, PersistentDataType.STRING, instanceId);
-
-            book.setItemMeta(meta);
         }
 
         return book;
@@ -323,7 +375,7 @@ public class TeleportBookSystem implements Listener {
      * @return The destination ID or null if not a teleport book
      */
     public String getDestinationFromBook(ItemStack item) {
-        if (item == null || item.getType() != Material.BOOK || !item.hasItemMeta()) {
+        if (!isTeleportBook(item)) {
             return null;
         }
 
@@ -340,20 +392,37 @@ public class TeleportBookSystem implements Listener {
 
         // Fallback to legacy name parsing
         if (meta.hasDisplayName()) {
-            String displayName = ChatColor.stripColor(meta.getDisplayName());
-            String[] parts = displayName.split(":");
+            return parseDestinationFromDisplayName(meta.getDisplayName(), item);
+        }
 
-            if (parts.length >= 2) {
-                String destName = parts[1].trim();
+        return null;
+    }
 
-                // Try to match by name
-                for (TeleportDestination dest : teleportManager.getAllDestinations()) {
-                    if (dest.getDisplayName().equalsIgnoreCase(destName)) {
-                        // Store this as persistent data for future use
+    /**
+     * Parses destination from display name (legacy support)
+     */
+    private String parseDestinationFromDisplayName(String displayName, ItemStack item) {
+        if (displayName == null) {
+            return null;
+        }
+
+        String strippedName = ChatColor.stripColor(displayName);
+        String[] parts = strippedName.split(":");
+
+        if (parts.length >= 2) {
+            String destName = parts[1].trim();
+
+            // Try to match by name
+            for (TeleportDestination dest : teleportManager.getAllDestinations()) {
+                if (dest.getDisplayName().equalsIgnoreCase(destName)) {
+                    // Store this as persistent data for future use
+                    ItemMeta meta = item.getItemMeta();
+                    if (meta != null) {
+                        PersistentDataContainer container = meta.getPersistentDataContainer();
                         container.set(destinationKey, PersistentDataType.STRING, dest.getId());
                         item.setItemMeta(meta);
-                        return dest.getId();
                     }
+                    return dest.getId();
                 }
             }
         }
@@ -402,6 +471,10 @@ public class TeleportBookSystem implements Listener {
      * @return The created book template or null if failed
      */
     public ItemStack registerCustomBook(String bookId, String destId, String displayName, List<String> lore) {
+        if (bookId == null || destId == null) {
+            return null;
+        }
+
         TeleportDestination destination = teleportManager.getDestination(destId);
         if (destination == null) {
             logger.warning("Cannot register custom book for unknown destination: " + destId);
@@ -427,17 +500,31 @@ public class TeleportBookSystem implements Listener {
      */
     private TeleportConsumable createBookConsumable(Player player, ItemStack item) {
         return () -> {
-            // Only consume the item if it's still in the player's inventory
-            ItemStack handItem = player.getInventory().getItemInMainHand();
+            try {
+                // Only consume the item if it's still in the player's inventory
+                ItemStack handItem = player.getInventory().getItemInMainHand();
 
-            if (handItem != null && handItem.getType() == Material.BOOK &&
-                    handItem.getItemMeta() != null && handItem.getItemMeta().equals(item.getItemMeta())) {
+                if (handItem != null && handItem.getType() == Material.BOOK &&
+                        handItem.hasItemMeta() && item.hasItemMeta() &&
+                        handItem.getItemMeta() != null && item.getItemMeta() != null) {
 
-                if (handItem.getAmount() > 1) {
-                    handItem.setAmount(handItem.getAmount() - 1);
-                } else {
-                    player.getInventory().setItemInMainHand(null);
+                    // Compare the persistent data to ensure it's the same book
+                    PersistentDataContainer handContainer = handItem.getItemMeta().getPersistentDataContainer();
+                    PersistentDataContainer itemContainer = item.getItemMeta().getPersistentDataContainer();
+
+                    String handDest = handContainer.get(destinationKey, PersistentDataType.STRING);
+                    String itemDest = itemContainer.get(destinationKey, PersistentDataType.STRING);
+
+                    if (Objects.equals(handDest, itemDest)) {
+                        if (handItem.getAmount() > 1) {
+                            handItem.setAmount(handItem.getAmount() - 1);
+                        } else {
+                            player.getInventory().setItemInMainHand(null);
+                        }
+                    }
                 }
+            } catch (Exception e) {
+                logger.log(Level.WARNING, "Error consuming teleport book", e);
             }
         };
     }
@@ -452,6 +539,10 @@ public class TeleportBookSystem implements Listener {
         }
 
         Player player = event.getPlayer();
+        if (player == null) {
+            return;
+        }
+
         ItemStack item = player.getInventory().getItemInMainHand();
 
         // Check if the item is a teleport book
@@ -483,14 +574,18 @@ public class TeleportBookSystem implements Listener {
         }
 
         // Check for alignment restrictions (chaotic players can't teleport)
-        if (player.hasMetadata("alignment") && player.getMetadata("alignment").get(0).asString().equals("CHAOTIC")) {
+        if (player.hasMetadata("alignment") &&
+                player.getMetadata("alignment").size() > 0 &&
+                "CHAOTIC".equals(player.getMetadata("alignment").get(0).asString())) {
             player.sendMessage(ChatColor.RED + "You " + ChatColor.UNDERLINE + "cannot" +
                     ChatColor.RED + " do this while chaotic!");
             return;
         }
 
         // Check for combat/duel restrictions
-        if (player.hasMetadata("inCombat") && player.getMetadata("inCombat").get(0).asBoolean()) {
+        if (player.hasMetadata("inCombat") &&
+                player.getMetadata("inCombat").size() > 0 &&
+                player.getMetadata("inCombat").get(0).asBoolean()) {
             player.sendMessage(ChatColor.RED + "You cannot teleport while in combat!");
             return;
         }
@@ -499,6 +594,29 @@ public class TeleportBookSystem implements Listener {
         TeleportConsumable consumable = createBookConsumable(player, item);
 
         // Start the teleport
-        teleportManager.startTeleport(player, destination, 5, consumable, TeleportEffectType.SCROLL);
+        if (!teleportManager.startTeleport(player, destination, 5, consumable, TeleportEffectType.SCROLL)) {
+            player.sendMessage(ChatColor.RED + "Failed to start teleportation.");
+        }
+    }
+
+    /**
+     * Gets all book templates
+     *
+     * @return A copy of the book templates map
+     */
+    public Map<String, ItemStack> getBookTemplates() {
+        return new HashMap<>(bookTemplates);
+    }
+
+    /**
+     * Reloads book templates from configuration
+     */
+    public void reloadBookTemplates() {
+        try {
+            loadBookTemplates();
+            logger.info("Teleport book templates reloaded successfully");
+        } catch (Exception e) {
+            logger.log(Level.SEVERE, "Error reloading book templates", e);
+        }
     }
 }

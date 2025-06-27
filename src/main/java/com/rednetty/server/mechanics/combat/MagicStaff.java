@@ -119,7 +119,9 @@ public class MagicStaff implements Listener {
         }
 
         YakPlayer yakPlayer = playerManager.getPlayer(player);
-        if (yakPlayer == null) return;
+        if (yakPlayer == null) {
+            return;
+        }
 
         // Safety check for safe zones
         if (isSafeZone(player.getLocation())) {
@@ -141,7 +143,12 @@ public class MagicStaff implements Listener {
         }
 
         // Find staff type based on material
-        StaffType staffType = StaffType.getByMaterial(player.getInventory().getItemInMainHand().getType());
+        ItemStack staffItem = player.getInventory().getItemInMainHand();
+        if (staffItem == null || staffItem.getType() == Material.AIR) {
+            return;
+        }
+
+        StaffType staffType = StaffType.getByMaterial(staffItem.getType());
         if (staffType != null) {
             // Check if player has enough energy for this staff
             if (playerEnergy < staffType.getEnergyCost()) {
@@ -153,14 +160,14 @@ public class MagicStaff implements Listener {
             shootMagicProjectile(player, staffType);
 
             // Store staff for damage calculation
-            lastUsedStaff.put(player.getUniqueId(), player.getInventory().getItemInMainHand().clone());
+            lastUsedStaff.put(player.getUniqueId(), staffItem.clone());
             lastStaffShotTime.put(player.getUniqueId(), System.currentTimeMillis());
 
             // Consume energy
             Energy.getInstance().removeEnergy(player, staffType.getEnergyCost());
 
             // Reset durability and set cooldown
-            player.getInventory().getItemInMainHand().setDurability((short) 0);
+            staffItem.setDurability((short) 0);
             setStaffCooldown(player);
         }
     }
@@ -178,6 +185,10 @@ public class MagicStaff implements Listener {
         }
 
         Player player = event.getPlayer();
+        if (player == null) {
+            return false;
+        }
+
         ItemStack item = player.getInventory().getItemInMainHand();
 
         // Check if holding a valid item
@@ -191,7 +202,7 @@ public class MagicStaff implements Listener {
         }
 
         // Check if the item has metadata and lore
-        return item.hasItemMeta() && item.getItemMeta().hasLore();
+        return item.hasItemMeta() && item.getItemMeta() != null && item.getItemMeta().hasLore();
     }
 
     /**
@@ -201,6 +212,9 @@ public class MagicStaff implements Listener {
      * @return true if player is on cooldown
      */
     private boolean isOnCooldown(Player player) {
+        if (player == null) {
+            return true;
+        }
         return player.hasMetadata(STAFF_COOLDOWN_META) &&
                 player.getMetadata(STAFF_COOLDOWN_META).get(0).asLong() > System.currentTimeMillis();
     }
@@ -211,6 +225,9 @@ public class MagicStaff implements Listener {
      * @param player The player to set cooldown for
      */
     private void setStaffCooldown(Player player) {
+        if (player == null) {
+            return;
+        }
         player.setMetadata(STAFF_COOLDOWN_META,
                 new FixedMetadataValue(YakRealms.getInstance(), System.currentTimeMillis() + STAFF_COOLDOWN_DURATION));
     }
@@ -222,6 +239,9 @@ public class MagicStaff implements Listener {
      * @param yakPlayer The YakPlayer object
      */
     private void handleOutOfEnergy(Player player, YakPlayer yakPlayer) {
+        if (player == null || yakPlayer == null) {
+            return;
+        }
         // Player is out of energy
         Energy.getInstance().setEnergy(yakPlayer, 0);
         player.addPotionEffect(new PotionEffect(PotionEffectType.SLOW_DIGGING, 40, 5, false, true));
@@ -236,6 +256,9 @@ public class MagicStaff implements Listener {
      * @param currentEnergy Current energy level
      */
     private void handleInsufficientEnergy(Player player, YakPlayer yakPlayer, int currentEnergy) {
+        if (player == null) {
+            return;
+        }
         // Player doesn't have enough energy for this staff
         player.playSound(player.getLocation(), Sound.ENTITY_WOLF_PANT, 0.5f, 1.5f);
         player.sendMessage(ChatColor.RED + "You need more energy to use this staff!");
@@ -248,6 +271,9 @@ public class MagicStaff implements Listener {
      * @return The ItemStack of the last used staff, or null if none
      */
     public static ItemStack getLastUsedStaff(Player player) {
+        if (player == null) {
+            return null;
+        }
         return lastUsedStaff.get(player.getUniqueId());
     }
 
@@ -258,6 +284,9 @@ public class MagicStaff implements Listener {
      * @return true if player has used a staff in the last 5 seconds
      */
     public static boolean isRecentStaffShot(Player player) {
+        if (player == null) {
+            return false;
+        }
         Long shotTime = lastStaffShotTime.get(player.getUniqueId());
         return shotTime != null && System.currentTimeMillis() - shotTime < 5000;
     }
@@ -268,6 +297,9 @@ public class MagicStaff implements Listener {
      * @param player The player to clear data for
      */
     public static void clearStaffShot(Player player) {
+        if (player == null) {
+            return;
+        }
         lastUsedStaff.remove(player.getUniqueId());
         lastStaffShotTime.remove(player.getUniqueId());
     }
@@ -284,18 +316,38 @@ public class MagicStaff implements Listener {
             return;
         }
 
+        if (shooter.getLocation() == null || shooter.getLocation().getWorld() == null) {
+            YakRealms.error("Shooter has invalid location", null);
+            return;
+        }
+
         // Play shoot sound
         shooter.getWorld().playSound(shooter.getLocation(), Sound.ENTITY_BLAZE_SHOOT, 1.0f, 1.5f);
 
         // Create ray trace for projectile path
         new BukkitRunnable() {
-            final RayTrace magic = new RayTrace(
-                    shooter.getEyeLocation().add(0, -0.25, 0).toVector(),
-                    shooter.getEyeLocation().getDirection());
+            final Location eyeLocation = shooter.getEyeLocation();
+            final RayTrace magic;
+            final int distanceSpeed;
+            final double precision;
+            final Iterator<Vector> trail;
 
-            final int distanceSpeed = shooter instanceof Player ? 150 : 60;
-            final double precision = shooter instanceof Player ? 0.8 : 0.3;
-            final Iterator<Vector> trail = magic.traverse(distanceSpeed, precision).iterator();
+            {
+                if (eyeLocation != null) {
+                    magic = new RayTrace(
+                            eyeLocation.add(0, -0.25, 0).toVector(),
+                            eyeLocation.getDirection()
+                    );
+                    distanceSpeed = shooter instanceof Player ? 150 : 60;
+                    precision = shooter instanceof Player ? 0.8 : 0.3;
+                    trail = magic.traverse(distanceSpeed, precision).iterator();
+                } else {
+                    magic = null;
+                    distanceSpeed = 0;
+                    precision = 0;
+                    trail = null;
+                }
+            }
 
             int ticks = 0;
             boolean hasHit = false;
@@ -303,20 +355,30 @@ public class MagicStaff implements Listener {
             @Override
             public void run() {
                 try {
-                    if (!trail.hasNext() || ticks > MAX_PROJECTILE_TICKS || hasHit) {
+                    // Validate state
+                    if (magic == null || trail == null || !trail.hasNext() ||
+                            ticks > MAX_PROJECTILE_TICKS || hasHit) {
+                        this.cancel();
+                        return;
+                    }
+
+                    // Check if shooter or world is invalid
+                    if (shooter.isDead() || !shooter.isValid() ||
+                            shooter.getLocation() == null || shooter.getLocation().getWorld() == null) {
                         this.cancel();
                         return;
                     }
 
                     // Process multiple positions per tick for smoother movement
-                    for (int i = 0; i < 4 && trail.hasNext(); i++) {
+                    for (int i = 0; i < 4 && trail.hasNext() && !hasHit; i++) {
                         Vector pos = trail.next();
-                        Location currentLocation = pos.toLocation(shooter.getWorld());
+                        if (pos == null) {
+                            continue;
+                        }
 
-                        // Check if shooter or world is invalid
-                        if (shooter.isDead() || !shooter.isValid()) {
-                            this.cancel();
-                            return;
+                        Location currentLocation = pos.toLocation(shooter.getWorld());
+                        if (currentLocation == null) {
+                            continue;
                         }
 
                         // Check for block collision
@@ -330,36 +392,42 @@ public class MagicStaff implements Listener {
                         }
 
                         // Check for entity collision
-                        for (Entity entity : shooter.getWorld().getNearbyEntities(currentLocation, 1.5f, 1.5f, 1.5f)) {
-                            if (!(entity instanceof LivingEntity) || entity == shooter || hasHit) {
-                                continue;
-                            }
-
-                            LivingEntity target = (LivingEntity) entity;
-
-                            // Skip if we should ignore damage
-                            if (shouldIgnoreDamage(shooter, target)) {
-                                continue;
-                            }
-
-                            // Check if projectile intersects with entity
-                            if (magic.intersectsBox(pos, PROJECTILE_COLLISION_RADIUS, new BoundingBox(target))) {
-                                hasHit = true;
-
-                                // Handle different target types
-                                if (target instanceof Horse && target.getPassenger() != null) {
-                                    handleHorsePassengerDamage(shooter, target);
-                                } else if (shooter instanceof Player &&
-                                        shooter.getEquipment().getItemInMainHand().getType().name().contains("_HOE")) {
-                                    handlePlayerStaffDamage(shooter, target);
-                                } else {
-                                    handleDefaultDamage(shooter, target);
+                        try {
+                            for (Entity entity : shooter.getWorld().getNearbyEntities(currentLocation, 1.5f, 1.5f, 1.5f)) {
+                                if (!(entity instanceof LivingEntity) || entity == shooter || hasHit) {
+                                    continue;
                                 }
 
-                                createImpactEffect(currentLocation, type);
-                                this.cancel();
-                                return;
+                                LivingEntity target = (LivingEntity) entity;
+
+                                // Skip if we should ignore damage
+                                if (shouldIgnoreDamage(shooter, target)) {
+                                    continue;
+                                }
+
+                                // Check if projectile intersects with entity
+                                if (magic.intersectsBox(pos, PROJECTILE_COLLISION_RADIUS, new BoundingBox(target))) {
+                                    hasHit = true;
+
+                                    // Handle different target types
+                                    if (target instanceof Horse && target.getPassenger() != null) {
+                                        handleHorsePassengerDamage(shooter, target);
+                                    } else if (shooter instanceof Player &&
+                                            shooter.getEquipment() != null &&
+                                            shooter.getEquipment().getItemInMainHand() != null &&
+                                            shooter.getEquipment().getItemInMainHand().getType().name().contains("_HOE")) {
+                                        handlePlayerStaffDamage(shooter, target);
+                                    } else {
+                                        handleDefaultDamage(shooter, target);
+                                    }
+
+                                    createImpactEffect(currentLocation, type);
+                                    this.cancel();
+                                    return;
+                                }
                             }
+                        } catch (Exception e) {
+                            YakRealms.getInstance().getLogger().warning("Error checking entity collision: " + e.getMessage());
                         }
 
                         // Create projectile trail effect
@@ -382,6 +450,10 @@ public class MagicStaff implements Listener {
      * @param type     The staff type for effect color
      */
     private static void createTrailEffect(Location location, StaffType type) {
+        if (location == null || location.getWorld() == null || type == null) {
+            return;
+        }
+
         try {
             // Use a dust options object for the REDSTONE particle
             Color dustColor = Color.fromRGB(
@@ -407,6 +479,10 @@ public class MagicStaff implements Listener {
      * @param type     The staff type for effect color
      */
     private static void createImpactEffect(Location location, StaffType type) {
+        if (location == null || location.getWorld() == null || type == null) {
+            return;
+        }
+
         try {
             // Create dust options for colored particles
             Color dustColor = Color.fromRGB(
@@ -434,6 +510,9 @@ public class MagicStaff implements Listener {
      * @param location The location to display particles
      */
     private static void spawnMagicParticles(Location location) {
+        if (location == null || location.getWorld() == null) {
+            return;
+        }
         location.getWorld().spawnParticle(Particle.CRIT_MAGIC, location, 20, 0.5, 0.5, 0.5, 0.1);
     }
 
@@ -495,6 +574,10 @@ public class MagicStaff implements Listener {
      * @return true if they're in the same guild
      */
     private static boolean isInSameGuild(Player player1, Player player2) {
+        if (player1 == null || player2 == null) {
+            return false;
+        }
+
         // This would integrate with your guild system
         YakPlayer yakPlayer1 = YakPlayerManager.getInstance().getPlayer(player1);
         YakPlayer yakPlayer2 = YakPlayerManager.getInstance().getPlayer(player2);
@@ -527,20 +610,28 @@ public class MagicStaff implements Listener {
      * @return true if PvP should be ignored
      */
     private static boolean shouldIgnorePvP(Player shooter, Player target) {
-        // Check if target is a buddy and friendly fire is disabled
-        if (Buddies.getInstance().isBuddy(shooter, target.getName()) &&
-                !Toggles.getInstance().isToggled(shooter, "Friendly Fire")) {
+        if (shooter == null || target == null) {
             return true;
         }
 
-        // Check if player has Anti PvP enabled
-        if (Toggles.getInstance().isToggled(shooter, "Anti PVP")) {
-            return true;
-        }
+        try {
+            // Check if target is a buddy and friendly fire is disabled
+            if (Buddies.getInstance().isBuddy(shooter, target.getName()) &&
+                    !Toggles.getInstance().isToggled(shooter, "Friendly Fire")) {
+                return true;
+            }
 
-        // Check if chaotic protection is enabled
-        if (isLawfulPlayer(target) && Toggles.getInstance().isToggled(shooter, "Chaotic")) {
-            return true;
+            // Check if player has Anti PvP enabled
+            if (Toggles.getInstance().isToggled(shooter, "Anti PVP")) {
+                return true;
+            }
+
+            // Check if chaotic protection is enabled
+            if (isLawfulPlayer(target) && Toggles.getInstance().isToggled(shooter, "Chaotic")) {
+                return true;
+            }
+        } catch (Exception e) {
+            YakRealms.getInstance().getLogger().warning("Error checking PvP settings: " + e.getMessage());
         }
 
         return false;
@@ -553,6 +644,9 @@ public class MagicStaff implements Listener {
      * @return true if player is lawful
      */
     private static boolean isLawfulPlayer(Player player) {
+        if (player == null) {
+            return false;
+        }
         YakPlayer yakPlayer = YakPlayerManager.getInstance().getPlayer(player);
         return yakPlayer != null && "LAWFUL".equals(yakPlayer.getAlignment());
     }
@@ -564,6 +658,9 @@ public class MagicStaff implements Listener {
      * @return true if location is in a safe zone
      */
     private static boolean isSafeZone(Location location) {
+        if (location == null) {
+            return true;
+        }
         // Integrate with Alignments class
         return AlignmentMechanics.isSafeZone(location);
     }
@@ -575,22 +672,30 @@ public class MagicStaff implements Listener {
      * @param horse   The horse entity
      */
     private static void handleHorsePassengerDamage(LivingEntity shooter, LivingEntity horse) {
+        if (shooter == null || horse == null) {
+            return;
+        }
+
         // Don't damage if protection rules apply
         if (shooter instanceof Player && horse.getPassenger() instanceof Player) {
             Player player = (Player) shooter;
             Player passenger = (Player) horse.getPassenger();
 
-            if (Buddies.getInstance().isBuddy(player, passenger.getName()) &&
-                    !Toggles.getInstance().isToggled(player, "Friendly Fire")) {
-                return;
-            }
+            try {
+                if (Buddies.getInstance().isBuddy(player, passenger.getName()) &&
+                        !Toggles.getInstance().isToggled(player, "Friendly Fire")) {
+                    return;
+                }
 
-            if (Toggles.getInstance().isToggled(player, "Anti PVP")) {
-                return;
-            }
+                if (Toggles.getInstance().isToggled(player, "Anti PVP")) {
+                    return;
+                }
 
-            if (isLawfulPlayer(passenger) && Toggles.getInstance().isToggled(player, "Chaotic")) {
-                return;
+                if (isLawfulPlayer(passenger) && Toggles.getInstance().isToggled(player, "Chaotic")) {
+                    return;
+                }
+            } catch (Exception e) {
+                YakRealms.getInstance().getLogger().warning("Error checking horse damage protection: " + e.getMessage());
             }
         }
 
@@ -606,24 +711,29 @@ public class MagicStaff implements Listener {
      * @param target  The target entity
      */
     private static void handlePlayerStaffDamage(LivingEntity shooter, LivingEntity target) {
-        if (shooter instanceof Player) {
-            Player player = (Player) shooter;
-            try {
-                // Store the staff for damage calculation
-                lastUsedStaff.put(player.getUniqueId(), player.getInventory().getItemInMainHand().clone());
+        if (!(shooter instanceof Player) || target == null) {
+            return;
+        }
 
-                // Apply damage
-                target.damage(1, shooter);
-
-                // Register hit for combat system
-                HitRegisterEvent hitEvent = new HitRegisterEvent(player, target, 1);
-                Bukkit.getPluginManager().callEvent(hitEvent);
-            } catch (Exception e) {
-                YakRealms.error("Error handling player staff damage", e);
-            } finally {
-                // Clear the stored staff
-                lastUsedStaff.remove(player.getUniqueId());
+        Player player = (Player) shooter;
+        try {
+            // Store the staff for damage calculation
+            ItemStack mainHand = player.getInventory().getItemInMainHand();
+            if (mainHand != null && mainHand.getType() != Material.AIR) {
+                lastUsedStaff.put(player.getUniqueId(), mainHand.clone());
             }
+
+            // Apply damage
+            target.damage(1, shooter);
+
+            // Register hit for combat system
+            HitRegisterEvent hitEvent = new HitRegisterEvent(player, target, 1);
+            Bukkit.getPluginManager().callEvent(hitEvent);
+        } catch (Exception e) {
+            YakRealms.error("Error handling player staff damage", e);
+        } finally {
+            // Clear the stored staff
+            lastUsedStaff.remove(player.getUniqueId());
         }
     }
 
@@ -634,6 +744,9 @@ public class MagicStaff implements Listener {
      * @param target  The target entity
      */
     private static void handleDefaultDamage(LivingEntity shooter, LivingEntity target) {
+        if (shooter == null || target == null) {
+            return;
+        }
         target.damage(1, shooter);
     }
 
@@ -726,6 +839,9 @@ public class MagicStaff implements Listener {
          * @return The matching staff type or null if not found
          */
         public static StaffType getByMaterial(Material material) {
+            if (material == null) {
+                return null;
+            }
             for (StaffType type : values()) {
                 if (type.getMaterial() == material) {
                     return type;
