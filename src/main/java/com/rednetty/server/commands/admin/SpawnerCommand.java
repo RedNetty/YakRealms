@@ -1393,10 +1393,6 @@ public class SpawnerCommand implements CommandExecutor, TabCompleter, Listener {
         player.sendMessage(ChatColor.GREEN + "Spawner debug mode: " +
                 (newMode ? ChatColor.GREEN + "ENABLED" : ChatColor.RED + "DISABLED"));
 
-        if (newMode) {
-            // Print status to console
-            spawner.printSpawnerStatus();
-        }
 
         return true;
     }
@@ -1456,14 +1452,6 @@ public class SpawnerCommand implements CommandExecutor, TabCompleter, Listener {
             return str;
         }
         return str.substring(0, 1).toUpperCase() + str.substring(1);
-    }
-
-    /**
-     * Update all hologram displays for visible spawners
-     * This should be called periodically by the MobSpawner system
-     */
-    public void updateAllHolograms() {
-        spawner.updateAllHolograms();
     }
 
     /**

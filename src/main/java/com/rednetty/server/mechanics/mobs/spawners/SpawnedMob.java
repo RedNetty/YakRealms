@@ -3,14 +3,14 @@ package com.rednetty.server.mechanics.mobs.spawners;
 import java.util.UUID;
 
 /**
- * Class representing a mob that was spawned from a spawner
+ * FIXED: Simplified SpawnedMob for synchronous respawn tracking
+ * No complex state management, just simple timing
  */
 public class SpawnedMob {
     private final UUID entityId;
     private final String mobType;
     private final int tier;
     private final boolean elite;
-    // Set to -1 to indicate no respawn timer is set until death occurs
     private long respawnTime;
 
     /**
@@ -26,8 +26,7 @@ public class SpawnedMob {
         this.mobType = mobType;
         this.tier = tier;
         this.elite = elite;
-        // Do not start the timer until the mob dies
-        this.respawnTime = -1;
+        this.respawnTime = -1; // Not set until death
     }
 
     /**
@@ -91,8 +90,6 @@ public class SpawnedMob {
      * @return true if ready to respawn
      */
     public boolean isReadyToRespawn(long currentTime) {
-        // Only consider respawnable if a valid respawn time was set (> 0)
-        // and enough time has passed (respawnTime <= currentTime)
         return respawnTime > 0 && respawnTime <= currentTime;
     }
 
@@ -112,6 +109,27 @@ public class SpawnedMob {
         }
 
         return respawnTime - currentTime;
+    }
+
+    /**
+     * Check if this mob has a valid respawn time set
+     *
+     * @return true if respawn time is set
+     */
+    public boolean hasRespawnTime() {
+        return respawnTime > 0;
+    }
+
+    /**
+     * Get time until respawn in seconds
+     *
+     * @param currentTime Current time in milliseconds
+     * @return Seconds until respawn
+     */
+    public long getSecondsUntilRespawn(long currentTime) {
+        long millis = getTimeUntilRespawn(currentTime);
+        if (millis < 0) return -1;
+        return millis / 1000;
     }
 
     /**
@@ -142,5 +160,58 @@ public class SpawnedMob {
      */
     public MobEntry toMobEntry() {
         return new MobEntry(mobType, tier, elite, 1);
+    }
+
+    /**
+     * Check if this spawned mob matches a mob entry
+     *
+     * @param entry The mob entry to compare
+     * @return true if they match
+     */
+    public boolean matches(MobEntry entry) {
+        return entry != null &&
+                mobType.equals(entry.getMobType()) &&
+                tier == entry.getTier() &&
+                elite == entry.isElite();
+    }
+
+    /**
+     * Create a copy of this spawned mob with a new entity ID
+     *
+     * @param newEntityId The new entity ID
+     * @return A new SpawnedMob instance
+     */
+    public SpawnedMob withNewEntityId(UUID newEntityId) {
+        SpawnedMob copy = new SpawnedMob(newEntityId, mobType, tier, elite);
+        copy.respawnTime = this.respawnTime;
+        return copy;
+    }
+
+    /**
+     * Reset the respawn time (mark as not set)
+     */
+    public void clearRespawnTime() {
+        this.respawnTime = -1;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+
+        SpawnedMob that = (SpawnedMob) o;
+        return tier == that.tier &&
+                elite == that.elite &&
+                entityId.equals(that.entityId) &&
+                mobType.equals(that.mobType);
+    }
+
+    @Override
+    public int hashCode() {
+        int result = entityId.hashCode();
+        result = 31 * result + mobType.hashCode();
+        result = 31 * result + tier;
+        result = 31 * result + (elite ? 1 : 0);
+        return result;
     }
 }

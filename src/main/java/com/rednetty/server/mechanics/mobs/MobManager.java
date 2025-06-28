@@ -116,7 +116,79 @@ public class MobManager implements Listener {
     private final ReentrantReadWriteLock nameLock = new ReentrantReadWriteLock();
 
     // ================ RESPAWN TRACKING ================
+/**
+ * ADDITION TO MobManager.java
+ * Add this method to the MobManager class to allow spawners to spawn mobs
+ * without global cooldown interference
+ */
 
+    /**
+     * FIXED: Spawn a mob specifically from a spawner - bypasses global cooldowns
+     * This method should be added to the MobManager class
+     *
+     * @param location Location to spawn at
+     * @param type     Mob type ID
+     * @param tier     Tier level
+     * @param elite    Whether this is an elite mob
+     * @return The spawned entity or null if failed
+     */
+    public LivingEntity spawnMobFromSpawner(Location location, String type, int tier, boolean elite) {
+        if (!isValidSpawnRequest(location, type, tier)) {
+            return null;
+        }
+
+        MobType mobType = MobType.getById(type);
+        tier = validateTier(tier, mobType);
+        elite = elite || (mobType != null && mobType.isElite());
+
+        // FIXED: Skip the global cooldown check for spawner-managed mobs
+        // Spawners manage their own respawn timing
+
+        CustomMob mob = createMobInstance(mobType, tier, elite);
+        if (mob == null) return null;
+
+        if (mob.spawn(location)) {
+            handleSuccessfulSpawn(mob, location);
+
+            if (debug) {
+                logger.info("§a[MobManager] §7Spawned from spawner: " + type + " T" + tier + (elite ? "+" : ""));
+            }
+
+            return mob.getEntity();
+        } else {
+            logger.warning("§c[MobManager] Failed to spawn mob from spawner: " + type);
+            return null;
+        }
+    }
+
+    /**
+     * FIXED: Check if spawner can spawn this mob type (less restrictive than regular spawning)
+     * This method should be added to the MobManager class
+     *
+     * @param type  Mob type
+     * @param tier  Tier level
+     * @param elite Whether elite
+     * @return true if spawner can spawn this mob
+     */
+    public boolean canSpawnerSpawnMob(String type, int tier, boolean elite) {
+        // For spawner mobs, we only check basic validity, not global cooldowns
+        MobType mobType = MobType.getById(type);
+        if (mobType == null) {
+            return false;
+        }
+
+        // Check tier validity
+        if (tier < mobType.getMinTier() || tier > mobType.getMaxTier()) {
+            return false;
+        }
+
+        // Check T6 availability
+        if (tier > 5 && !YakRealms.isT6Enabled()) {
+            return false;
+        }
+
+        return true;
+    }
     private final Map<String, Long> respawnTimes = new ConcurrentHashMap<>();
     private final Map<String, Long> mobTypeLastDeath = new ConcurrentHashMap<>();
     private final Map<UUID, Location> mobSpawnerLocations = new ConcurrentHashMap<>();

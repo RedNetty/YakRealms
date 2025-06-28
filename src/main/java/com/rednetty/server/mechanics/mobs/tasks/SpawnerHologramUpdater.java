@@ -28,17 +28,6 @@ public class SpawnerHologramUpdater extends BukkitRunnable {
 
     @Override
     public void run() {
-        try {
-            // Update all visible spawner holograms
-            int updated = spawnerManager.updateAllHolograms();
-
-            if (debug && updated > 0) {
-                logger.info("[SpawnerHologramUpdater] Updated " + updated + " holograms");
-            }
-        } catch (Exception e) {
-            logger.severe("[SpawnerHologramUpdater] Error updating holograms: " + e.getMessage());
-            e.printStackTrace();
-        }
     }
 
     /**
