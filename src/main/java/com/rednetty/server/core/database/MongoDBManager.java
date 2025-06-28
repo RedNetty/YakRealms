@@ -12,12 +12,8 @@ import org.bukkit.Bukkit;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.plugin.Plugin;
 
-import java.util.HashSet;
-import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -25,8 +21,7 @@ import static org.bson.codecs.configuration.CodecRegistries.fromProviders;
 import static org.bson.codecs.configuration.CodecRegistries.fromRegistries;
 
 /**
- * Enhanced MongoDB connection manager with improved error handling,
- * connection stability, and performance optimizations
+ * Simplified MongoDB connection manager with reliable connection handling
  */
 public class MongoDBManager {
     private static volatile MongoDBManager instance;
@@ -35,62 +30,45 @@ public class MongoDBManager {
     // Connection management
     private volatile MongoClient mongoClient;
     private volatile MongoDatabase database;
-    private final ReentrantReadWriteLock connectionLock = new ReentrantReadWriteLock();
 
     // Configuration
     private final String connectionString;
     private final String databaseName;
-    private final int maxReconnectAttempts;
-    private final long reconnectDelay;
     private final int maxConnectionPoolSize;
     private final int minConnectionPoolSize;
     private final long maxConnectionIdleTime;
     private final long maxWaitTime;
     private final long socketTimeout;
     private final long connectTimeout;
-    private final long heartbeatFrequency;
 
     // State tracking
     private final AtomicBoolean connected = new AtomicBoolean(false);
     private final AtomicBoolean shuttingDown = new AtomicBoolean(false);
-    private final AtomicInteger reconnectAttempts = new AtomicInteger(0);
-    private final AtomicInteger operationCount = new AtomicInteger(0);
-    private final AtomicInteger failedOperations = new AtomicInteger(0);
 
-    // Tasks and monitoring
+    // Core dependencies
     private final Plugin plugin;
     private final Logger logger;
     private final CodecRegistry codecRegistry;
-    private int healthCheckTaskId = -1;
-    private int reconnectTaskId = -1;
-
-    // Performance tracking
-    private volatile long lastSuccessfulOperation = System.currentTimeMillis();
-    private volatile long lastConnectionAttempt = 0;
-    private volatile String lastError = "";
 
     private MongoDBManager(FileConfiguration config, Plugin plugin) {
         this.plugin = plugin;
         this.logger = plugin.getLogger();
 
-        // Load configuration with comprehensive defaults
+        // Load configuration with defaults
         this.connectionString = config.getString("mongodb.connection_string", "mongodb://localhost:27017");
-        this.databaseName = config.getString("mongodb.database", "yakserver");
-        this.maxReconnectAttempts = config.getInt("mongodb.max_reconnect_attempts", 5);
-        this.reconnectDelay = config.getLong("mongodb.reconnect_delay_seconds", 30) * 20L;
-        this.maxConnectionPoolSize = config.getInt("mongodb.max_connection_pool_size", 100);
+        this.databaseName = config.getString("mongodb.database", "yakrealms");
+        this.maxConnectionPoolSize = config.getInt("mongodb.max_connection_pool_size", 50);
         this.minConnectionPoolSize = config.getInt("mongodb.min_connection_pool_size", 5);
         this.maxConnectionIdleTime = config.getLong("mongodb.max_connection_idle_time_ms", 600000);
         this.maxWaitTime = config.getLong("mongodb.max_wait_time_ms", 15000);
         this.socketTimeout = config.getLong("mongodb.socket_timeout_ms", 30000);
         this.connectTimeout = config.getLong("mongodb.connect_timeout_ms", 10000);
-        this.heartbeatFrequency = config.getLong("mongodb.heartbeat_frequency_ms", 20000);
 
         // Configure MongoDB driver logging
         Logger mongoLogger = Logger.getLogger("org.mongodb.driver");
         mongoLogger.setLevel(Level.WARNING);
 
-        // Configure codec registry with enhanced POJO support
+        // Configure codec registry
         this.codecRegistry = fromRegistries(
                 MongoClientSettings.getDefaultCodecRegistry(),
                 fromProviders(PojoCodecProvider.builder().automatic(true).build())
@@ -119,7 +97,7 @@ public class MongoDBManager {
     }
 
     /**
-     * Enhanced connection method with comprehensive error handling and validation
+     * Connect to MongoDB with simplified error handling
      */
     public boolean connect() {
         if (shuttingDown.get()) {
@@ -127,60 +105,47 @@ public class MongoDBManager {
             return false;
         }
 
-        connectionLock.writeLock().lock();
+        if (connected.get() && isConnectionHealthy()) {
+            logger.fine("Already connected to MongoDB");
+            return true;
+        }
+
         try {
-            if (connected.get() && isConnectionHealthy()) {
-                logger.fine("Already connected to MongoDB and connection is healthy");
-                return true;
-            }
-
             // Close existing connection if present
-            closeConnectionSafely();
+            closeConnection();
 
-            logger.info("Establishing connection to MongoDB: " + maskConnectionString(connectionString));
-            lastConnectionAttempt = System.currentTimeMillis();
+            logger.info("Connecting to MongoDB: " + maskConnectionString(connectionString));
 
-            // Build optimized connection settings
+            // Build connection settings
             MongoClientSettings settings = buildConnectionSettings();
 
-            // Create MongoDB client with enhanced settings
+            // Create MongoDB client
             this.mongoClient = MongoClients.create(settings);
             this.database = mongoClient.getDatabase(databaseName);
 
-            // Verify connection with timeout
-            if (!verifyConnection()) {
-                closeConnectionSafely();
+            // Test connection
+            if (!testConnection()) {
+                closeConnection();
                 return false;
             }
 
             // Initialize database structure
             initializeDatabaseStructure();
 
-            // Update state
             connected.set(true);
-            reconnectAttempts.set(0);
-            lastSuccessfulOperation = System.currentTimeMillis();
-            lastError = "";
-
             logger.info("Successfully connected to MongoDB database: " + databaseName);
-            startHealthCheck();
-
             return true;
 
         } catch (Exception e) {
-            lastError = e.getMessage();
             logger.log(Level.SEVERE, "Failed to connect to MongoDB: " + e.getMessage(), e);
             connected.set(false);
-            closeConnectionSafely();
-            scheduleReconnect();
+            closeConnection();
             return false;
-        } finally {
-            connectionLock.writeLock().unlock();
         }
     }
 
     /**
-     * Build optimized MongoDB connection settings
+     * Build MongoDB connection settings
      */
     private MongoClientSettings buildConnectionSettings() {
         return MongoClientSettings.builder()
@@ -191,14 +156,13 @@ public class MongoDBManager {
                                 .minSize(minConnectionPoolSize)
                                 .maxWaitTime(maxWaitTime, TimeUnit.MILLISECONDS)
                                 .maxConnectionIdleTime(maxConnectionIdleTime, TimeUnit.MILLISECONDS)
-                                .maxConnectionLifeTime(1800000, TimeUnit.MILLISECONDS) // 30 minutes
                 )
                 .applyToSocketSettings(builder ->
                         builder.connectTimeout((int) connectTimeout, TimeUnit.MILLISECONDS)
                                 .readTimeout((int) socketTimeout, TimeUnit.MILLISECONDS)
                 )
                 .applyToServerSettings(builder ->
-                        builder.heartbeatFrequency(heartbeatFrequency, TimeUnit.MILLISECONDS)
+                        builder.heartbeatFrequency(20000, TimeUnit.MILLISECONDS)
                                 .minHeartbeatFrequency(5000, TimeUnit.MILLISECONDS)
                 )
                 .applyToClusterSettings(builder ->
@@ -210,65 +174,54 @@ public class MongoDBManager {
     }
 
     /**
-     * Enhanced connection verification with comprehensive health checks
+     * Test MongoDB connection
      */
-    private boolean verifyConnection() {
+    private boolean testConnection() {
         try {
-            // Test 1: Basic ping
+            // Simple ping test
             Document pingResult = database.runCommand(new Document("ping", 1));
             if (pingResult == null || !pingResult.containsKey("ok")) {
                 logger.warning("MongoDB ping failed - invalid response");
                 return false;
             }
 
-            // Test 2: List collections (tests database access)
+            // Test collection access
             database.listCollectionNames().first();
 
-            // Test 3: Simple read operation
-            MongoCollection<Document> testCollection = database.getCollection("_connection_test");
-            testCollection.countDocuments();
-
-            logger.fine("MongoDB connection verification successful");
+            logger.fine("MongoDB connection test successful");
             return true;
 
         } catch (Exception e) {
-            logger.log(Level.WARNING, "MongoDB connection verification failed: " + e.getMessage(), e);
+            logger.log(Level.WARNING, "MongoDB connection test failed: " + e.getMessage(), e);
             return false;
         }
     }
 
     /**
-     * Initialize required database collections and indexes
+     * Initialize database collections and indexes
      */
     private void initializeDatabaseStructure() {
         try {
-            Set<String> existingCollections = new HashSet<>();
-            for (String name : database.listCollectionNames()) {
-                existingCollections.add(name);
-            }
-
-            // Create players collection with indexes
-            if (!existingCollections.contains("players")) {
+            // Create players collection if it doesn't exist
+            try {
                 database.createCollection("players");
                 logger.info("Created 'players' collection");
+            } catch (Exception e) {
+                // Collection might already exist
+                logger.fine("Players collection already exists or creation failed: " + e.getMessage());
             }
 
-            MongoCollection<Document> playersCollection = database.getCollection("players");
-            createIndexSafely(playersCollection, new Document("uuid", 1), "uuid_index");
-            createIndexSafely(playersCollection, new Document("username", 1), "username_index");
-            createIndexSafely(playersCollection, new Document("last_login", -1), "last_login_index");
-
-            // Create backup collection with indexes
-            if (!existingCollections.contains("players_backup")) {
+            // Create backup collection if it doesn't exist
+            try {
                 database.createCollection("players_backup");
                 logger.info("Created 'players_backup' collection");
+            } catch (Exception e) {
+                // Collection might already exist
+                logger.fine("Players backup collection already exists or creation failed: " + e.getMessage());
             }
 
-            MongoCollection<Document> backupCollection = database.getCollection("players_backup");
-            createIndexSafely(backupCollection, new Document("uuid", 1), "uuid_index");
-            createIndexSafely(backupCollection, new Document("timestamp", -1), "timestamp_index");
-            createIndexSafely(backupCollection,
-                    new Document("uuid", 1).append("timestamp", -1), "uuid_timestamp_compound");
+            // Create indexes
+            createIndexes();
 
             logger.info("Database structure initialization completed");
 
@@ -278,88 +231,60 @@ public class MongoDBManager {
     }
 
     /**
-     * Safely create index with error handling
+     * Create database indexes
+     */
+    private void createIndexes() {
+        try {
+            MongoCollection<Document> playersCollection = database.getCollection("players");
+
+            // Create indexes with error handling
+            createIndexSafely(playersCollection, new Document("uuid", 1), "uuid_index");
+            createIndexSafely(playersCollection, new Document("username", 1), "username_index");
+            createIndexSafely(playersCollection, new Document("last_login", -1), "last_login_index");
+
+            MongoCollection<Document> backupCollection = database.getCollection("players_backup");
+            createIndexSafely(backupCollection, new Document("uuid", 1), "uuid_index");
+            createIndexSafely(backupCollection, new Document("timestamp", -1), "timestamp_index");
+
+        } catch (Exception e) {
+            logger.log(Level.WARNING, "Error creating indexes", e);
+        }
+    }
+
+    /**
+     * Safely create index
      */
     private void createIndexSafely(MongoCollection<Document> collection, Document indexDoc, String indexName) {
         try {
             collection.createIndex(indexDoc);
-            logger.fine("Created index: " + indexName + " on collection: " + collection.getNamespace().getCollectionName());
+            logger.fine("Created index: " + indexName);
         } catch (Exception e) {
-            logger.fine("Index " + indexName + " already exists or creation failed: " + e.getMessage());
+            logger.fine("Index " + indexName + " creation failed or already exists: " + e.getMessage());
         }
     }
 
     /**
-     * Enhanced health check with comprehensive monitoring
-     */
-    private void startHealthCheck() {
-        if (healthCheckTaskId != -1) {
-            Bukkit.getScheduler().cancelTask(healthCheckTaskId);
-        }
-
-        healthCheckTaskId = Bukkit.getScheduler().runTaskTimerAsynchronously(plugin, () -> {
-            if (shuttingDown.get()) return;
-
-            boolean isHealthy = performHealthCheck();
-            if (!isHealthy && connected.get()) {
-                logger.warning("MongoDB health check failed, marking as disconnected");
-                connected.set(false);
-                scheduleReconnect();
-            }
-        }, 1200L, 1200L).getTaskId(); // Every minute
-    }
-
-    /**
-     * Comprehensive health check implementation
-     */
-    private boolean performHealthCheck() {
-        if (!connected.get() || mongoClient == null || database == null) {
-            return false;
-        }
-
-        try {
-            // Quick ping test
-            Document result = database.runCommand(new Document("ping", 1));
-            boolean pingSuccess = result != null && result.get("ok", Number.class).intValue() == 1;
-
-            if (pingSuccess) {
-                lastSuccessfulOperation = System.currentTimeMillis();
-                return true;
-            } else {
-                logger.warning("MongoDB ping returned unsuccessful result");
-                return false;
-            }
-
-        } catch (Exception e) {
-            logger.log(Level.WARNING, "MongoDB health check failed", e);
-            lastError = e.getMessage();
-            return false;
-        }
-    }
-
-    /**
-     * Enhanced connection health check
+     * Check if connection is healthy
      */
     private boolean isConnectionHealthy() {
         if (!connected.get() || mongoClient == null || database == null) {
             return false;
         }
 
-        // Check if too much time has passed since last successful operation
-        long timeSinceLastSuccess = System.currentTimeMillis() - lastSuccessfulOperation;
-        if (timeSinceLastSuccess > 300000) { // 5 minutes
-            logger.warning("No successful MongoDB operations in " + (timeSinceLastSuccess / 1000) + " seconds");
+        try {
+            Document result = database.runCommand(new Document("ping", 1));
+            return result != null && result.get("ok", Number.class).intValue() == 1;
+        } catch (Exception e) {
+            logger.fine("Connection health check failed: " + e.getMessage());
             return false;
         }
-
-        return true;
     }
 
     /**
-     * Enhanced safe operation execution with better error handling and retry logic
+     * Perform safe database operation with retry logic
      */
     public <T> T performSafeOperation(DatabaseOperation<T> operation) {
-        return performSafeOperation(operation, 3); // Default 3 retries
+        return performSafeOperation(operation, 2); // Default 2 retries
     }
 
     public <T> T performSafeOperation(DatabaseOperation<T> operation, int maxRetries) {
@@ -378,37 +303,29 @@ public class MongoDBManager {
             // Check connection before each attempt
             if (!ensureConnection()) {
                 if (attempt == maxRetries) {
-                    logger.severe("Cannot perform database operation - connection failed after " + maxRetries + " attempts");
+                    logger.severe("Cannot perform database operation - connection failed");
                     return null;
                 }
                 continue;
             }
 
-            connectionLock.readLock().lock();
             try {
-                operationCount.incrementAndGet();
                 T result = operation.execute();
-                lastSuccessfulOperation = System.currentTimeMillis();
-
                 if (attempt > 1) {
-                    logger.info("Database operation succeeded on attempt " + attempt);
+                    logger.fine("Database operation succeeded on attempt " + attempt);
                 }
-
                 return result;
 
             } catch (MongoException e) {
                 lastException = e;
-                failedOperations.incrementAndGet();
-
                 logger.log(Level.WARNING, "MongoDB operation failed (attempt " + attempt + "/" + maxRetries + "): " + e.getMessage(), e);
 
-                // Analyze error and determine if reconnection is needed
+                // Check if this is a connection error
                 if (isConnectionError(e)) {
                     connected.set(false);
                     if (attempt < maxRetries) {
-                        // Short delay before retry
                         try {
-                            Thread.sleep(1000 * attempt); // Exponential backoff
+                            Thread.sleep(1000 * attempt); // Brief delay before retry
                         } catch (InterruptedException ie) {
                             Thread.currentThread().interrupt();
                             break;
@@ -421,22 +338,8 @@ public class MongoDBManager {
 
             } catch (Exception e) {
                 lastException = e;
-                failedOperations.incrementAndGet();
-                logger.log(Level.SEVERE, "Unexpected error during MongoDB operation (attempt " + attempt + "/" + maxRetries + ")", e);
-
-                // For non-MongoDB exceptions, only retry if it might be transient
-                if (attempt < maxRetries && isRetryableError(e)) {
-                    try {
-                        Thread.sleep(500 * attempt);
-                    } catch (InterruptedException ie) {
-                        Thread.currentThread().interrupt();
-                        break;
-                    }
-                } else {
-                    break;
-                }
-            } finally {
-                connectionLock.readLock().unlock();
+                logger.log(Level.SEVERE, "Unexpected error during MongoDB operation", e);
+                break; // Don't retry unexpected errors
             }
         }
 
@@ -446,7 +349,7 @@ public class MongoDBManager {
     }
 
     /**
-     * Determine if an exception indicates a connection error
+     * Check if exception indicates connection error
      */
     private boolean isConnectionError(Exception e) {
         if (e instanceof MongoException) {
@@ -455,7 +358,6 @@ public class MongoDBManager {
                     message.contains("socket") ||
                     message.contains("timeout") ||
                     message.contains("network") ||
-                    message.contains("broken pipe") ||
                     e instanceof MongoSocketException ||
                     e instanceof MongoTimeoutException;
         }
@@ -463,123 +365,17 @@ public class MongoDBManager {
     }
 
     /**
-     * Determine if an error is retryable
-     */
-    private boolean isRetryableError(Exception e) {
-        String message = e.getMessage().toLowerCase();
-        return message.contains("timeout") ||
-                message.contains("connection") ||
-                message.contains("network") ||
-                message.contains("temporary");
-    }
-
-    /**
-     * Ensure connection is available, attempting to connect if needed
+     * Ensure connection is available
      */
     private boolean ensureConnection() {
         if (connected.get() && isConnectionHealthy()) {
             return true;
         }
-
-        // Attempt to reconnect
         return connect();
     }
 
     /**
-     * Enhanced reconnection scheduling with exponential backoff
-     */
-    private void scheduleReconnect() {
-        if (reconnectTaskId != -1 || shuttingDown.get()) {
-            return;
-        }
-
-        int attempts = reconnectAttempts.incrementAndGet();
-        if (attempts > maxReconnectAttempts) {
-            logger.severe("Maximum reconnection attempts (" + maxReconnectAttempts + ") reached. Giving up.");
-            return;
-        }
-
-        // Exponential backoff with jitter
-        long delay = Math.min(reconnectDelay * (1L << (attempts - 1)), 300 * 20L); // Max 5 minutes
-        delay += (long) (Math.random() * 20L * 10); // Add jitter (0-10 seconds)
-
-        logger.info("Scheduling MongoDB reconnection attempt " + attempts + "/" + maxReconnectAttempts +
-                " in " + (delay / 20) + " seconds");
-
-        reconnectTaskId = Bukkit.getScheduler().runTaskLaterAsynchronously(plugin, () -> {
-            reconnectTaskId = -1;
-
-            if (shuttingDown.get()) return;
-
-            logger.info("Attempting to reconnect to MongoDB (attempt " + attempts + "/" + maxReconnectAttempts + ")");
-
-            boolean success = connect();
-            if (success) {
-                logger.info("Successfully reconnected to MongoDB");
-            } else {
-                logger.warning("Reconnection attempt " + attempts + " failed");
-            }
-        }, delay).getTaskId();
-    }
-
-    /**
-     * Enhanced disconnection with proper cleanup
-     */
-    public void disconnect() {
-        if (!shuttingDown.compareAndSet(false, true)) {
-            return; // Already shutting down
-        }
-
-        logger.info("Disconnecting from MongoDB...");
-
-        // Cancel tasks
-        if (healthCheckTaskId != -1) {
-            Bukkit.getScheduler().cancelTask(healthCheckTaskId);
-            healthCheckTaskId = -1;
-        }
-
-        if (reconnectTaskId != -1) {
-            Bukkit.getScheduler().cancelTask(reconnectTaskId);
-            reconnectTaskId = -1;
-        }
-
-        // Close connection
-        closeConnectionSafely();
-
-        // Reset state
-        connected.set(false);
-
-        logger.info("MongoDB disconnection completed");
-    }
-
-    /**
-     * Safely close MongoDB connection with proper error handling
-     */
-    private void closeConnectionSafely() {
-        connectionLock.writeLock().lock();
-        try {
-            if (mongoClient != null) {
-                try {
-                    // Give pending operations a moment to complete
-                    Thread.sleep(100);
-                    mongoClient.close();
-                    logger.fine("MongoDB client closed successfully");
-                } catch (Exception e) {
-                    logger.log(Level.WARNING, "Error closing MongoDB client", e);
-                } finally {
-                    mongoClient = null;
-                    database = null;
-                }
-            }
-        } catch (Exception e) {
-            logger.log(Level.WARNING, "Error during connection cleanup", e);
-        } finally {
-            connectionLock.writeLock().unlock();
-        }
-    }
-
-    /**
-     * Enhanced collection getter with validation and error handling
+     * Get MongoDB collection
      */
     public MongoCollection<Document> getCollection(String name) {
         if (name == null || name.trim().isEmpty()) {
@@ -590,23 +386,16 @@ public class MongoDBManager {
             throw new IllegalStateException("Not connected to MongoDB. Collection: " + name);
         }
 
-        connectionLock.readLock().lock();
         try {
-            if (database == null) {
-                throw new IllegalStateException("Database reference is null");
-            }
-
             return database.getCollection(name);
         } catch (Exception e) {
             logger.log(Level.SEVERE, "Error getting collection: " + name, e);
             throw new RuntimeException("Failed to get collection: " + name, e);
-        } finally {
-            connectionLock.readLock().unlock();
         }
     }
 
     /**
-     * Enhanced typed collection getter
+     * Get typed MongoDB collection
      */
     public <T> MongoCollection<T> getCollection(String name, Class<T> documentClass) {
         if (name == null || name.trim().isEmpty()) {
@@ -620,19 +409,50 @@ public class MongoDBManager {
             throw new IllegalStateException("Not connected to MongoDB. Collection: " + name);
         }
 
-        connectionLock.readLock().lock();
         try {
-            if (database == null) {
-                throw new IllegalStateException("Database reference is null");
-            }
-
             return database.getCollection(name, documentClass);
         } catch (Exception e) {
             logger.log(Level.SEVERE, "Error getting typed collection: " + name, e);
             throw new RuntimeException("Failed to get typed collection: " + name, e);
-        } finally {
-            connectionLock.readLock().unlock();
         }
+    }
+
+    /**
+     * Disconnect from MongoDB
+     */
+    public void disconnect() {
+        if (!shuttingDown.compareAndSet(false, true)) {
+            return; // Already shutting down
+        }
+
+        logger.info("Disconnecting from MongoDB...");
+        closeConnection();
+        connected.set(false);
+        logger.info("MongoDB disconnection completed");
+    }
+
+    /**
+     * Close MongoDB connection
+     */
+    private void closeConnection() {
+        if (mongoClient != null) {
+            try {
+                mongoClient.close();
+                logger.fine("MongoDB client closed successfully");
+            } catch (Exception e) {
+                logger.log(Level.WARNING, "Error closing MongoDB client", e);
+            } finally {
+                mongoClient = null;
+                database = null;
+            }
+        }
+    }
+
+    /**
+     * Mask sensitive information in connection string
+     */
+    private String maskConnectionString(String connectionString) {
+        return connectionString.replaceAll("://[^@]+@", "://***:***@");
     }
 
     // Functional interface for database operations
@@ -641,7 +461,7 @@ public class MongoDBManager {
         T execute() throws Exception;
     }
 
-    // Enhanced getters and status methods
+    // Getters
     public boolean isConnected() {
         return connected.get() && !shuttingDown.get() && mongoClient != null && database != null;
     }
@@ -662,69 +482,5 @@ public class MongoDBManager {
             throw new IllegalStateException("Not connected to MongoDB");
         }
         return mongoClient;
-    }
-
-    /**
-     * Get comprehensive connection statistics
-     */
-    public ConnectionStats getConnectionStats() {
-        return new ConnectionStats(
-                connected.get(),
-                shuttingDown.get(),
-                operationCount.get(),
-                failedOperations.get(),
-                reconnectAttempts.get(),
-                lastSuccessfulOperation,
-                lastConnectionAttempt,
-                lastError
-        );
-    }
-
-    /**
-     * Utility method to mask sensitive information in connection string
-     */
-    private String maskConnectionString(String connectionString) {
-        return connectionString.replaceAll("://[^@]+@", "://***:***@");
-    }
-
-    /**
-     * Connection statistics class
-     */
-    public static class ConnectionStats {
-        public final boolean connected;
-        public final boolean shuttingDown;
-        public final int totalOperations;
-        public final int failedOperations;
-        public final int reconnectAttempts;
-        public final long lastSuccessfulOperation;
-        public final long lastConnectionAttempt;
-        public final String lastError;
-
-        public ConnectionStats(boolean connected, boolean shuttingDown, int totalOperations,
-                               int failedOperations, int reconnectAttempts, long lastSuccessfulOperation,
-                               long lastConnectionAttempt, String lastError) {
-            this.connected = connected;
-            this.shuttingDown = shuttingDown;
-            this.totalOperations = totalOperations;
-            this.failedOperations = failedOperations;
-            this.reconnectAttempts = reconnectAttempts;
-            this.lastSuccessfulOperation = lastSuccessfulOperation;
-            this.lastConnectionAttempt = lastConnectionAttempt;
-            this.lastError = lastError;
-        }
-
-        public double getSuccessRate() {
-            return totalOperations > 0 ? (double) (totalOperations - failedOperations) / totalOperations : 1.0;
-        }
-
-        public long getTimeSinceLastSuccess() {
-            return System.currentTimeMillis() - lastSuccessfulOperation;
-        }
-
-        @Override
-        public String toString() {
-            return String.format("ConnectionStats{connected=%s, operations=%d, success_rate=%.2f%%, reconnects=%d}",
-                    connected, totalOperations, getSuccessRate() * 100, reconnectAttempts);
-        }
     }
 }

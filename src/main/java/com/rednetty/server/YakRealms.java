@@ -40,7 +40,6 @@ import com.rednetty.server.mechanics.party.PartyMechanics;
 import com.rednetty.server.mechanics.player.PlayerMechanics;
 import com.rednetty.server.mechanics.player.YakPlayerManager;
 import com.rednetty.server.mechanics.player.items.SpeedfishMechanics;
-import com.rednetty.server.mechanics.player.listeners.PlayerListenerManager;
 import com.rednetty.server.mechanics.player.movement.DashMechanics;
 import com.rednetty.server.mechanics.teleport.HearthstoneSystem;
 import com.rednetty.server.mechanics.teleport.PortalSystem;
@@ -62,23 +61,21 @@ import org.bukkit.scheduler.BukkitRunnable;
 import java.io.File;
 import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.logging.Level;
 
 /**
- * FIXED: Main plugin class for YakRealms
- * Handles initialization of all core systems with enhanced error handling and proper load order
- * Fixed PlayerMechanics async initialization timing issue
+ * Main plugin class for YakRealms with fixed initialization order
  */
 public class YakRealms extends JavaPlugin {
 
     private static YakRealms instance;
+
+    // Core systems - initialized in order
     private MongoDBManager mongoDBManager;
     private YakPlayerManager playerManager;
     private PlayerMechanics playerMechanics;
-    private PlayerListenerManager playerListenerManager;
 
-    // All other system references
+    // All other systems
     private CombatMechanics combatMechanics;
     private MagicStaff magicStaff;
     private ChatMechanics chatMechanics;
@@ -118,16 +115,6 @@ public class YakRealms extends JavaPlugin {
     private boolean mobsEnabled = true;
     private boolean spawnerVisibilityDefault = false;
 
-    // FIXED: Initialization state tracking
-    private final AtomicBoolean coreInitialized = new AtomicBoolean(false);
-    private final AtomicBoolean systemsInitialized = new AtomicBoolean(false);
-    private final AtomicBoolean commandsInitialized = new AtomicBoolean(false);
-
-    // FIXED: Configuration constants for initialization timeouts
-    private static final long PLAYER_MECHANICS_TIMEOUT_MS = 60000; // 60 seconds
-    private static final long INITIALIZATION_POLL_INTERVAL_MS = 250; // 250ms
-    private static final int MAX_INITIALIZATION_ATTEMPTS = 3;
-
     @Override
     public void onLoad() {
         instance = this;
@@ -138,71 +125,46 @@ public class YakRealms extends JavaPlugin {
         try {
             getLogger().info("Starting YakRealms initialization...");
 
-            // Ensure config directory exists
+            // Ensure data folder exists
             if (!getDataFolder().exists()) {
                 getDataFolder().mkdirs();
             }
 
-            // Load default config if it doesn't exist
-            File configFile = new File(getDataFolder(), "config.yml");
-            if (!configFile.exists()) {
-                saveDefaultConfig();
-            }
+            // Save default config
+            saveDefaultConfig();
+            reloadConfig();
 
-            // Creates a sessionID for this run-time of the plugin
+            // Generate session ID
             sessionID = ThreadLocalRandom.current().nextInt();
 
-            // FIXED: Wait for server to be fully loaded before initializing systems
-            new BukkitRunnable() {
-                @Override
-                public void run() {
-                    try {
-                        // Check if server is ready
-                        if (isServerReady()) {
-                            getLogger().info("Server is ready, starting initialization...");
+            // Load game settings
+            loadGameSettings();
 
-                            // Initialize in proper order with error checking
-                            if (initializeCore()) {
-                                getLogger().info("Core systems initialized successfully");
+            // Initialize in strict order to prevent circular dependencies
+            if (!initializeDatabase()) {
+                getLogger().severe("Failed to initialize database!");
+                getServer().getPluginManager().disablePlugin(this);
+                return;
+            }
 
-                                // Delayed system initialization
-                                Bukkit.getScheduler().runTaskLater(YakRealms.this, () -> {
-                                    try {
-                                        if (initializeGameSystems()) {
-                                            getLogger().info("Game systems initialized successfully");
+            if (!initializePlayerSystems()) {
+                getLogger().severe("Failed to initialize player systems!");
+                getServer().getPluginManager().disablePlugin(this);
+                return;
+            }
 
-                                            if (initializeCommands()) {
-                                                getLogger().info("Commands registered successfully");
-                                            } else {
-                                                getLogger().warning("Some commands failed to register!");
-                                            }
+            if (!initializeGameSystems()) {
+                getLogger().severe("Failed to initialize game systems!");
+                getServer().getPluginManager().disablePlugin(this);
+                return;
+            }
 
-                                            finalizeStartup();
-                                            getLogger().info("YakRealms has been enabled successfully!");
-                                        } else {
-                                            getLogger().severe("Failed to initialize game systems!");
-                                        }
-                                    } catch (Exception e) {
-                                        getLogger().log(Level.SEVERE, "Error during delayed initialization", e);
-                                    }
-                                }, 20L); // 1 second delay
+            if (!initializeCommands()) {
+                getLogger().warning("Some commands failed to register!");
+            }
 
-                            } else {
-                                getLogger().severe("Failed to initialize core systems!");
-                                getServer().getPluginManager().disablePlugin(YakRealms.this);
-                            }
-
-                            this.cancel(); // Stop the repeating task
-                        } else {
-                            getLogger().info("Waiting for server to be ready...");
-                        }
-                    } catch (Exception e) {
-                        getLogger().log(Level.SEVERE, "Error during initialization check", e);
-                        getServer().getPluginManager().disablePlugin(YakRealms.this);
-                        this.cancel();
-                    }
-                }
-            }.runTaskTimer(this, 20L, 20L); // Check every second
+            finalizeStartup();
+            getLogger().info("YakRealms has been enabled successfully!");
 
         } catch (Exception e) {
             getLogger().log(Level.SEVERE, "Critical error during plugin startup", e);
@@ -211,309 +173,67 @@ public class YakRealms extends JavaPlugin {
     }
 
     /**
-     * FIXED: Check if the server is ready for plugin initialization
+     * Initialize database connection
      */
-    private boolean isServerReady() {
+    private boolean initializeDatabase() {
         try {
-            // Check if worlds are loaded
-            List<World> worlds = getServer().getWorlds();
-            if (worlds.isEmpty()) {
+            getLogger().info("Initializing database connection...");
+            mongoDBManager = MongoDBManager.initialize(getConfig(), this);
+
+            if (!mongoDBManager.connect()) {
+                getLogger().severe("Failed to connect to database!");
                 return false;
             }
 
-            // Check if the main world is accessible
-            World mainWorld = getServer().getWorlds().get(0);
-            if (mainWorld == null) {
-                return false;
-            }
-
-            // Check if we can access world properties
-            try {
-                mainWorld.getName();
-                mainWorld.getSpawnLocation();
-            } catch (Exception e) {
-                getLogger().warning("World not fully loaded yet: " + e.getMessage());
-                return false;
-            }
-
+            getLogger().info("Database connected successfully");
             return true;
         } catch (Exception e) {
-            getLogger().warning("Error checking server readiness: " + e.getMessage());
+            getLogger().log(Level.SEVERE, "Error initializing database", e);
             return false;
         }
     }
 
     /**
-     * FIXED: Initialize core systems in the correct order with proper error handling
+     * Initialize player management systems
      */
-    private boolean initializeCore() {
-        if (coreInitialized.get()) {
-            getLogger().warning("Core already initialized!");
-            return true;
-        }
-
+    private boolean initializePlayerSystems() {
         try {
-            getLogger().info("Initializing core systems...");
+            getLogger().info("Initializing player systems...");
 
-            // Load game settings first
-            loadGameSettings();
+            // Initialize YakPlayerManager first (it doesn't depend on PlayerMechanics)
+            playerManager = YakPlayerManager.getInstance();
+            playerManager.onEnable();
 
-            // Initialize database with retry logic
-            if (!initializeDatabaseWithRetry()) {
-                getLogger().severe("Failed to initialize database after retries!");
-                return false;
-            }
+            // Wait a moment for player manager to be ready
+            Thread.sleep(1000);
 
-            // FIXED: Initialize player systems with proper async waiting
-            if (!initializeCorePlayerSystemsWithWait()) {
-                getLogger().severe("Failed to initialize core player systems!");
-                return false;
-            }
+            // Then initialize PlayerMechanics
+            playerMechanics = PlayerMechanics.getInstance();
+            playerMechanics.onEnable();
 
-            coreInitialized.set(true);
-            getLogger().info("Core systems initialized successfully");
+            getLogger().info("Player systems initialized successfully");
             return true;
-
         } catch (Exception e) {
-            getLogger().log(Level.SEVERE, "Error initializing core systems", e);
+            getLogger().log(Level.SEVERE, "Error initializing player systems", e);
             return false;
         }
     }
 
     /**
-     * FIXED: Initialize database with retry logic
-     */
-    private boolean initializeDatabaseWithRetry() {
-        int maxRetries = 3;
-        int retryDelay = 5; // seconds
-
-        for (int attempt = 1; attempt <= maxRetries; attempt++) {
-            try {
-                getLogger().info("Database initialization attempt " + attempt + "/" + maxRetries);
-
-                FileConfiguration config = getConfig();
-                mongoDBManager = MongoDBManager.initialize(config, this);
-
-                if (mongoDBManager.connect()) {
-                    getLogger().info("Successfully connected to MongoDB!");
-                    return true;
-                } else {
-                    getLogger().warning("Failed to connect to MongoDB on attempt " + attempt);
-                }
-
-            } catch (Exception e) {
-                getLogger().log(Level.WARNING, "Database initialization attempt " + attempt + " failed", e);
-            }
-
-            // Wait before retry (except on last attempt)
-            if (attempt < maxRetries) {
-                try {
-                    getLogger().info("Waiting " + retryDelay + " seconds before retry...");
-                    Thread.sleep(retryDelay * 1000);
-                } catch (InterruptedException ie) {
-                    Thread.currentThread().interrupt();
-                    break;
-                }
-            }
-        }
-
-        getLogger().severe("Failed to connect to MongoDB after " + maxRetries + " attempts!");
-        return false;
-    }
-
-    /**
-     * FIXED: Initialize core player systems with proper async waiting
-     * This method properly waits for PlayerMechanics async initialization to complete
-     */
-    private boolean initializeCorePlayerSystemsWithWait() {
-        for (int attempt = 1; attempt <= MAX_INITIALIZATION_ATTEMPTS; attempt++) {
-            try {
-                getLogger().info("Initializing PlayerMechanics (attempt " + attempt + "/" + MAX_INITIALIZATION_ATTEMPTS + ")...");
-
-                // 1. Get or create PlayerMechanics instance
-                playerMechanics = PlayerMechanics.getInstance();
-                if (playerMechanics == null) {
-                    getLogger().severe("Failed to get PlayerMechanics instance!");
-                    continue;
-                }
-
-                // 2. Start PlayerMechanics initialization (this is async)
-                playerMechanics.onEnable();
-                getLogger().info("PlayerMechanics.onEnable() called, waiting for async initialization...");
-
-                // 3. FIXED: Wait for PlayerMechanics to complete its async initialization
-                if (!waitForPlayerMechanicsReady()) {
-                    getLogger().warning("PlayerMechanics initialization timeout on attempt " + attempt);
-
-                    // Clean up and retry
-                    try {
-                        if (playerMechanics != null) {
-                            playerMechanics.onDisable();
-                        }
-                    } catch (Exception cleanupError) {
-                        getLogger().log(Level.WARNING, "Error during cleanup", cleanupError);
-                    }
-
-                    if (attempt < MAX_INITIALIZATION_ATTEMPTS) {
-                        getLogger().info("Retrying PlayerMechanics initialization in 3 seconds...");
-                        Thread.sleep(3000);
-                        continue;
-                    } else {
-                        getLogger().severe("Failed to initialize PlayerMechanics after all attempts!");
-                        return false;
-                    }
-                }
-
-                getLogger().info("PlayerMechanics async initialization completed successfully");
-
-                // 4. Get references to initialized systems (now they should be available)
-                playerManager = playerMechanics.getPlayerManager();
-                if (playerManager == null) {
-                    getLogger().severe("PlayerManager is null after PlayerMechanics initialization!");
-                    continue;
-                }
-
-                playerListenerManager = playerMechanics.getListenerManager();
-                if (playerListenerManager == null) {
-                    getLogger().severe("PlayerListenerManager is null after PlayerMechanics initialization!");
-                    continue;
-                }
-
-                // 5. Validate that systems are properly initialized
-                if (!validatePlayerSystems()) {
-                    getLogger().warning("Player systems validation failed on attempt " + attempt);
-                    continue;
-                }
-
-                getLogger().info("Core player systems initialized successfully!");
-                return true;
-
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                getLogger().severe("Interrupted during PlayerMechanics initialization");
-                return false;
-            } catch (Exception e) {
-                getLogger().log(Level.SEVERE, "Error initializing core player systems (attempt " + attempt + ")", e);
-
-                if (attempt >= MAX_INITIALIZATION_ATTEMPTS) {
-                    return false;
-                }
-
-                // Brief pause before retry
-                try {
-                    Thread.sleep(2000);
-                } catch (InterruptedException ie) {
-                    Thread.currentThread().interrupt();
-                    return false;
-                }
-            }
-        }
-
-        getLogger().severe("Failed to initialize core player systems after " + MAX_INITIALIZATION_ATTEMPTS + " attempts!");
-        return false;
-    }
-
-    /**
-     * FIXED: Wait for PlayerMechanics async initialization to complete
-     */
-    private boolean waitForPlayerMechanicsReady() throws InterruptedException {
-        long startTime = System.currentTimeMillis();
-        long endTime = startTime + PLAYER_MECHANICS_TIMEOUT_MS;
-
-        getLogger().info("Waiting for PlayerMechanics async initialization to complete...");
-
-        while (System.currentTimeMillis() < endTime) {
-            // Check if PlayerMechanics is ready
-            if (playerMechanics != null && playerMechanics.isSystemsReady()) {
-                long duration = System.currentTimeMillis() - startTime;
-                getLogger().info("PlayerMechanics became ready after " + duration + "ms");
-                return true;
-            }
-
-            // Check if PlayerMechanics failed
-            if (playerMechanics != null && !playerMechanics.isInitialized()) {
-                // Check if initialization failed by looking at the systems
-                try {
-                    // Give it a moment to set up
-                    if (System.currentTimeMillis() - startTime > 5000) { // After 5 seconds
-                        getLogger().warning("PlayerMechanics appears to have failed initialization");
-                        return false;
-                    }
-                } catch (Exception e) {
-                    getLogger().log(Level.WARNING, "Error checking PlayerMechanics state", e);
-                }
-            }
-
-            // Sleep before next check
-            Thread.sleep(INITIALIZATION_POLL_INTERVAL_MS);
-
-            // Log progress every 5 seconds
-            long elapsed = System.currentTimeMillis() - startTime;
-            if (elapsed > 0 && elapsed % 5000 < INITIALIZATION_POLL_INTERVAL_MS) {
-                getLogger().info("Still waiting for PlayerMechanics... (" + (elapsed / 1000) + "s elapsed)");
-            }
-        }
-
-        getLogger().severe("Timeout waiting for PlayerMechanics initialization (" + (PLAYER_MECHANICS_TIMEOUT_MS / 1000) + "s)");
-        return false;
-    }
-
-    /**
-     * FIXED: Validate that player systems are properly initialized
-     */
-    private boolean validatePlayerSystems() {
-        try {
-            if (playerManager == null) {
-                getLogger().severe("PlayerManager is null");
-                return false;
-            }
-
-            if (!playerManager.isRepositoryReady()) {
-                getLogger().severe("PlayerManager repository is not ready");
-                return false;
-            }
-
-            if (!playerManager.isSystemHealthy()) {
-                getLogger().severe("PlayerManager system is not healthy");
-                return false;
-            }
-
-            if (playerListenerManager == null) {
-                getLogger().severe("PlayerListenerManager is null");
-                return false;
-            }
-
-            getLogger().info("Player systems validation passed");
-            return true;
-
-        } catch (Exception e) {
-            getLogger().log(Level.SEVERE, "Error during player systems validation", e);
-            return false;
-        }
-    }
-
-    /**
-     * FIXED: Initialize game-specific systems with better error handling
+     * Initialize all game systems
      */
     private boolean initializeGameSystems() {
-        if (systemsInitialized.get()) {
-            getLogger().warning("Systems already initialized!");
-            return true;
-        }
-
         boolean allSuccess = true;
 
         try {
             getLogger().info("Initializing game systems...");
 
-            // Initialize systems in dependency order
+            // Initialize in dependency order
             allSuccess &= safeInitialize("Party Mechanics", this::initializePartyMechanics);
-            allSuccess &= safeInitialize("World Mechanics", this::initializeWorldMechanics);
             allSuccess &= safeInitialize("Alignment Mechanics", this::initializeAlignmentMechanics);
-            allSuccess &= safeInitialize("Player Enhancements", this::initializePlayerEnhancements);
+            allSuccess &= safeInitialize("Player Movement", this::initializePlayerMovement);
             allSuccess &= safeInitialize("Mount System", this::initializeMountSystem);
             allSuccess &= safeInitialize("Item Systems", this::initializeItemSystems);
-            allSuccess &= safeInitialize("Teleport Systems", this::initializeTeleportSystems);
             allSuccess &= safeInitialize("Chat Mechanics", this::initializeChatMechanics);
             allSuccess &= safeInitialize("Economy Systems", this::initializeEconomySystems);
             allSuccess &= safeInitialize("Market System", this::initializeMarketSystem);
@@ -521,12 +241,11 @@ public class YakRealms extends JavaPlugin {
             allSuccess &= safeInitialize("Death Systems", this::initializeDeathSystems);
             allSuccess &= safeInitialize("Mob System", this::initializeMobSystem);
             allSuccess &= safeInitialize("Drops System", this::initializeDropsSystem);
+            allSuccess &= safeInitialize("Teleport Systems", this::initializeTeleportSystems);
+            allSuccess &= safeInitialize("World Systems", this::initializeWorldSystems);
             allSuccess &= safeInitialize("Crate System", this::initializeCrateSystem);
 
-            systemsInitialized.set(true);
-            getLogger().info("Game systems initialization completed. Success rate: " +
-                    (allSuccess ? "100%" : "Partial"));
-
+            getLogger().info("Game systems initialization completed");
             return allSuccess;
 
         } catch (Exception e) {
@@ -536,7 +255,7 @@ public class YakRealms extends JavaPlugin {
     }
 
     /**
-     * FIXED: Safe initialization wrapper with proper error handling
+     * Safe initialization wrapper
      */
     private boolean safeInitialize(String systemName, SystemInitializer initializer) {
         try {
@@ -562,94 +281,7 @@ public class YakRealms extends JavaPlugin {
         boolean initialize() throws Exception;
     }
 
-    /**
-     * FIXED: Initialize world mechanics with proper null checks
-     */
-    private boolean initializeWorldMechanics() {
-        try {
-            // FIXED: Ensure worlds are available before proceeding
-            List<World> worlds = getServer().getWorlds();
-            if (worlds.isEmpty()) {
-                getLogger().warning("No worlds available for world mechanics initialization!");
-                return false;
-            }
-
-            // Initialize TrailSystem
-            if (this.trailSystem == null) {
-                trailSystem = new TrailSystem(this);
-                getLogger().info("Trail system initialized!");
-            }
-
-            // Initialize ParticleSystem
-            particleSystem = new ParticleSystem(this);
-            getLogger().info("Particle system initialized!");
-
-            // FIXED: Safe world selection for PathManager
-            World mainWorld = findMainWorld();
-            if (mainWorld == null) {
-                getLogger().warning("Could not find suitable world for PathManager, using default behavior");
-                return true; // Don't fail completely, just skip path manager
-            }
-
-            // Initialize PathManager with node system
-            try {
-                AdvancedNodeMapGenerator nodeGenerator = new AdvancedNodeMapGenerator();
-                File nodeMapFile = new File(getDataFolder(), mainWorld.getName() + "_advanced_navgraph.dat");
-                List<NavNode> nodes = nodeGenerator.getOrGenerateNodeMap(mainWorld, nodeMapFile);
-
-                // Initialize path manager with nodes
-                pathManager = new PathManager(this, particleSystem);
-                getLogger().info("Path manager initialized with " + nodes.size() + " navigation nodes!");
-            } catch (Exception e) {
-                getLogger().log(Level.WARNING, "Failed to initialize PathManager", e);
-                // Continue without PathManager - non-critical
-            }
-
-            getLogger().info("World mechanics initialized successfully!");
-            return true;
-
-        } catch (Exception e) {
-            getLogger().log(Level.SEVERE, "Error initializing world mechanics", e);
-            return false;
-        }
-    }
-
-    /**
-     * FIXED: Safe world selection method
-     */
-    private World findMainWorld() {
-        try {
-            List<World> worlds = getServer().getWorlds();
-
-            if (worlds.isEmpty()) {
-                return null;
-            }
-
-            // Try to find world named "server" first
-            for (World world : worlds) {
-                if ("server".equalsIgnoreCase(world.getName())) {
-                    return world;
-                }
-            }
-
-            // Try to find the main overworld
-            for (World world : worlds) {
-                if (world.getEnvironment() == World.Environment.NORMAL) {
-                    return world;
-                }
-            }
-
-            // Fallback to first world
-            return worlds.get(0);
-
-        } catch (Exception e) {
-            getLogger().log(Level.WARNING, "Error finding main world", e);
-            return null;
-        }
-    }
-
-    // All other initialization methods remain the same but with added error handling...
-
+    // Individual system initialization methods
     private boolean initializePartyMechanics() {
         try {
             partyMechanics = PartyMechanics.getInstance();
@@ -672,7 +304,7 @@ public class YakRealms extends JavaPlugin {
         }
     }
 
-    private boolean initializePlayerEnhancements() {
+    private boolean initializePlayerMovement() {
         try {
             dashMechanics = new DashMechanics();
             dashMechanics.onEnable();
@@ -681,7 +313,7 @@ public class YakRealms extends JavaPlugin {
             speedfishMechanics.onEnable();
             return true;
         } catch (Exception e) {
-            getLogger().log(Level.SEVERE, "Error initializing player enhancement systems", e);
+            getLogger().log(Level.SEVERE, "Error initializing player movement", e);
             return false;
         }
     }
@@ -709,21 +341,6 @@ public class YakRealms extends JavaPlugin {
             return true;
         } catch (Exception e) {
             getLogger().log(Level.SEVERE, "Error initializing item systems", e);
-            return false;
-        }
-    }
-
-    private boolean initializeTeleportSystems() {
-        try {
-            teleportManager = TeleportManager.getInstance();
-            teleportManager.onEnable();
-
-            teleportBookSystem = TeleportBookSystem.getInstance();
-            hearthstoneSystem = HearthstoneSystem.getInstance();
-            portalSystem = PortalSystem.getInstance();
-            return true;
-        } catch (Exception e) {
-            getLogger().log(Level.SEVERE, "Error initializing teleport systems", e);
             return false;
         }
     }
@@ -801,10 +418,6 @@ public class YakRealms extends JavaPlugin {
             mobManager = MobManager.getInstance();
             mobManager.initialize();
             mobManager.setSpawnersEnabled(mobsEnabled);
-
-            FileConfiguration config = getConfig();
-            config.set("mechanics.mobs.spawner-default-visibility", spawnerVisibilityDefault);
-            saveConfig();
             return true;
         } catch (Exception e) {
             getLogger().log(Level.SEVERE, "Error initializing mob system", e);
@@ -829,6 +442,48 @@ public class YakRealms extends JavaPlugin {
         }
     }
 
+    private boolean initializeTeleportSystems() {
+        try {
+            teleportManager = TeleportManager.getInstance();
+            teleportManager.onEnable();
+
+            teleportBookSystem = TeleportBookSystem.getInstance();
+            hearthstoneSystem = HearthstoneSystem.getInstance();
+            portalSystem = PortalSystem.getInstance();
+            return true;
+        } catch (Exception e) {
+            getLogger().log(Level.SEVERE, "Error initializing teleport systems", e);
+            return false;
+        }
+    }
+
+    private boolean initializeWorldSystems() {
+        try {
+            trailSystem = new TrailSystem(this);
+            particleSystem = new ParticleSystem(this);
+
+            // Initialize path manager if possible
+            try {
+                List<World> worlds = getServer().getWorlds();
+                if (!worlds.isEmpty()) {
+                    World mainWorld = worlds.get(0);
+                    AdvancedNodeMapGenerator nodeGenerator = new AdvancedNodeMapGenerator();
+                    File nodeMapFile = new File(getDataFolder(), mainWorld.getName() + "_advanced_navgraph.dat");
+                    List<NavNode> nodes = nodeGenerator.getOrGenerateNodeMap(mainWorld, nodeMapFile);
+                    pathManager = new PathManager(this, particleSystem);
+                    getLogger().info("Path manager initialized with " + nodes.size() + " navigation nodes");
+                }
+            } catch (Exception e) {
+                getLogger().log(Level.WARNING, "Failed to initialize PathManager", e);
+            }
+
+            return true;
+        } catch (Exception e) {
+            getLogger().log(Level.SEVERE, "Error initializing world systems", e);
+            return false;
+        }
+    }
+
     private boolean initializeCrateSystem() {
         try {
             crateManager = CrateManager.getInstance();
@@ -841,46 +496,31 @@ public class YakRealms extends JavaPlugin {
     }
 
     /**
-     * Load game settings from config with validation
+     * Load game settings from config
      */
     private void loadGameSettings() {
         FileConfiguration config = getConfig();
 
-        // Game settings with defaults
         t6Enabled = config.getBoolean("game.t6-enabled", false);
         getLogger().info("T6 content is " + (t6Enabled ? "enabled" : "disabled"));
 
-        // Mob system settings with validation
         mobsEnabled = config.getBoolean("mechanics.mobs.enabled", true);
         getLogger().info("Mob spawning is " + (mobsEnabled ? "enabled" : "disabled"));
 
-        // Default spawner visibility setting
         spawnerVisibilityDefault = config.getBoolean("mechanics.mobs.spawner-default-visibility", false);
         getLogger().info("Default spawner visibility is " + (spawnerVisibilityDefault ? "visible" : "hidden"));
-
-        // Validate settings
-        if (config.getInt("party.max-size", 8) < 2) {
-            getLogger().warning("Invalid party max size, using default of 8");
-            config.set("party.max-size", 8);
-            saveConfig();
-        }
     }
 
     /**
-     * Initialize commands with better error handling
+     * Initialize commands
      */
     private boolean initializeCommands() {
-        if (commandsInitialized.get()) {
-            getLogger().warning("Commands already initialized!");
-            return true;
-        }
-
         boolean success = true;
 
         try {
             getLogger().info("Registering commands...");
 
-            // Register economy-related commands
+            // Economy commands
             success &= registerCommand("balance", new BalanceCommand(economyManager));
             success &= registerCommand("pay", new PayCommand(economyManager));
             success &= registerCommand("bank", new BankCommand(bankManager));
@@ -889,49 +529,55 @@ public class YakRealms extends JavaPlugin {
             success &= registerCommand("eco", new EcoCommand(economyManager));
             success &= registerCommand("vendor", new VendorCommand(this));
 
-            // Register market command
-            MarketCommand marketCommand = new MarketCommand();
-            success &= registerCommand("market", marketCommand, marketCommand);
+            // Market command
+            if (marketManager != null) {
+                MarketCommand marketCommand = new MarketCommand();
+                success &= registerCommand("market", marketCommand, marketCommand);
+            }
 
-            // Register enhanced crate commands - FIXED: Check if crate command exists in plugin.yml
-            if (getCommand("crate") != null) {
+            // Crate commands
+            if (getCommand("crate") != null && crateManager != null) {
                 CrateCommand crateCommand = new CrateCommand();
                 success &= registerCommand("crate", crateCommand, crateCommand);
             }
 
-            // Register mob and spawner related commands
-            spawnerCommand = new SpawnerCommand(mobManager);
-            success &= registerCommand("spawner", spawnerCommand, spawnerCommand);
-            success &= registerCommand("spawnmob", new SpawnMobCommand(mobManager));
-            success &= registerCommand("mobinfo", new MobInfoCommand(mobManager));
-            success &= registerCommand("togglespawners", new ToggleSpawnersCommand(mobManager));
-            success &= registerCommand("boss", new BossCommand(mobManager));
+            // Mob commands
+            if (mobManager != null) {
+                spawnerCommand = new SpawnerCommand(mobManager);
+                success &= registerCommand("spawner", spawnerCommand, spawnerCommand);
+                success &= registerCommand("spawnmob", new SpawnMobCommand(mobManager));
+                success &= registerCommand("mobinfo", new MobInfoCommand(mobManager));
+                success &= registerCommand("togglespawners", new ToggleSpawnersCommand(mobManager));
+                success &= registerCommand("boss", new BossCommand(mobManager));
+            }
 
-            // Register drop-related commands
-            success &= registerCommand("droprate", new DropRateCommand(dropsManager));
-            success &= registerCommand("lootbuff", new LootBuffCommand(lootBuffManager));
-            success &= registerCommand("elitedrop", new EliteDropsCommand());
+            // Drop commands
+            if (dropsManager != null) {
+                success &= registerCommand("droprate", new DropRateCommand(dropsManager));
+                success &= registerCommand("lootbuff", new LootBuffCommand(lootBuffManager));
+                success &= registerCommand("elitedrop", new EliteDropsCommand());
+            }
 
-            // Register teleport-related commands
+            // Teleport commands
             success &= registerCommand("teleportbook", new TeleportBookCommand());
             success &= registerCommand("teleport", new TeleportCommand());
 
-            // Register mount-related commands
+            // Mount commands
             success &= registerCommand("mount", new MountCommand());
 
-            // Register player mechanics commands
+            // Player commands
             success &= registerCommand("toggles", new TogglesCommand());
             success &= registerCommand("alignment", new AlignmentCommand(alignmentMechanics));
             success &= registerCommand("invsee", new InvseeCommand());
 
-            // Register item-related commands
+            // Item commands
             success &= registerCommand("item", new ItemCommand(this));
             success &= registerCommand("journal", new JournalCommand());
             success &= registerCommand("scroll", new ScrollCommand(scrollManager));
             success &= registerCommand("speedfish", new SpeedfishCommand(speedfishMechanics));
             success &= registerCommand("orb", new OrbCommand(orbManager));
 
-            // Register chat-related commands
+            // Chat commands
             success &= registerCommand("buddy", new BuddiesCommand());
             success &= registerCommand("msg", new MessageCommand());
             success &= registerCommand("r", new ReplyCommand());
@@ -939,7 +585,7 @@ public class YakRealms extends JavaPlugin {
             success &= registerCommand("staffchat", new StaffChatCommand());
             success &= registerCommand("chattag", new ChatTagCommand());
 
-            // Register moderation commands
+            // Moderation commands
             success &= registerCommand("kick", new KickCommand());
             success &= registerCommand("ban", new BanCommand(ModerationMechanics.getInstance()));
             success &= registerCommand("unban", new UnbanCommand(ModerationMechanics.getInstance()));
@@ -948,11 +594,13 @@ public class YakRealms extends JavaPlugin {
             success &= registerCommand("vanish", new VanishCommand(this));
             success &= registerCommand("setrank", new SetRankCommand(ModerationMechanics.getInstance()));
 
-            // Register navigation commands
-            success &= registerCommand("trail", new TrailCommand(this, pathManager));
+            // Navigation commands
+            if (pathManager != null) {
+                success &= registerCommand("trail", new TrailCommand(this, pathManager));
+            }
             success &= registerCommand("nodemap", new NodeMapCommand(this));
 
-            // Register party-related commands
+            // Party commands
             success &= registerCommand("p", new PartyCommand());
             success &= registerCommand("paccept", new PAcceptCommand());
             success &= registerCommand("pdecline", new PDeclineCommand());
@@ -960,8 +608,7 @@ public class YakRealms extends JavaPlugin {
             success &= registerCommand("pkick", new PKickCommand());
             success &= registerCommand("pquit", new PQuitCommand());
 
-            commandsInitialized.set(true);
-            getLogger().info("Registered " + (success ? "all" : "most") + " commands!");
+            getLogger().info("Commands registered successfully!");
             return success;
 
         } catch (Exception e) {
@@ -971,15 +618,12 @@ public class YakRealms extends JavaPlugin {
     }
 
     /**
-     * Helper method to register commands with better error handling
+     * Helper method to register commands
      */
     private boolean registerCommand(String name, org.bukkit.command.CommandExecutor executor) {
         return registerCommand(name, executor, null);
     }
 
-    /**
-     * Helper method to register commands with tab completion
-     */
     private boolean registerCommand(String name, org.bukkit.command.CommandExecutor executor,
                                     org.bukkit.command.TabCompleter tabCompleter) {
         try {
@@ -1001,25 +645,18 @@ public class YakRealms extends JavaPlugin {
     }
 
     /**
-     * Finalize startup tasks
+     * Finalize startup
      */
     private void finalizeStartup() {
-        // Start the spawner hologram updater after systems are initialized
+        // Start background tasks
         if (spawnerCommand != null) {
             SpawnerHologramUpdater.startTask();
-            getLogger().info("Spawner hologram updater started!");
         }
 
         // Initialize ActionBar utility
         ActionBarUtil.init(this);
 
-        // Register event handlers that require all systems to be loaded
-        registerEventHandlers();
-    }
-
-    private void registerEventHandlers() {
-        // Most event handlers are registered within their respective managers
-        getLogger().info("Additional event handlers registered");
+        getLogger().info("YakRealms startup completed successfully!");
     }
 
     @Override
@@ -1027,14 +664,21 @@ public class YakRealms extends JavaPlugin {
         try {
             getLogger().info("Starting YakRealms shutdown...");
 
-            // Shutdown systems in reverse order of initialization
-            shutdownSystems();
+            // Shutdown in reverse order
+            if (playerMechanics != null) {
+                playerMechanics.onDisable();
+            }
 
-            // Disconnect from database last
-            if (mongoDBManager != null && mongoDBManager.isConnected()) {
-                getLogger().info("Disconnecting from MongoDB...");
+            if (playerManager != null) {
+                playerManager.onDisable();
+            }
+
+            // Shutdown other systems
+            shutdownGameSystems();
+
+            // Disconnect database last
+            if (mongoDBManager != null) {
                 mongoDBManager.disconnect();
-                getLogger().info("MongoDB disconnection completed");
             }
 
             getLogger().info("YakRealms has been disabled cleanly!");
@@ -1043,45 +687,14 @@ public class YakRealms extends JavaPlugin {
         }
     }
 
-    /**
-     * Shutdown all systems in proper order
-     */
-    private void shutdownSystems() {
-        // Shutdown crate system first to complete any pending operations
-        if (crateManager != null) {
-            try {
-                crateManager.shutdown();
-                getLogger().info("Monitoring tasks stopped");
-            } catch (Exception e) {
-                getLogger().log(Level.WARNING, "Error shutting down crate manager", e);
-            }
-        }
-
-        // FIXED: Shutdown PlayerMechanics which handles all player systems
-        if (playerMechanics != null) {
-            try {
-                getLogger().info("Starting PlayerMechanics shutdown...");
-                playerMechanics.onDisable();
-                getLogger().info("PlayerMechanics shutdown completed successfully");
-            } catch (Exception e) {
-                getLogger().log(Level.WARNING, "Error shutting down PlayerMechanics", e);
-            }
-        }
-
-        // Disable other systems in reverse order
-        if (partyMechanics != null) {
-            try {
-                partyMechanics.onDisable();
-                getLogger().info("Shutting down subsystems...");
-            } catch (Exception e) {
-                getLogger().log(Level.WARNING, "Error shutting down PartyMechanics", e);
-            }
-        }
-
-        getLogger().info("Final cleanup completed");
+    private void shutdownGameSystems() {
+        // Shutdown systems in reverse order
+        if (crateManager != null) crateManager.shutdown();
+        if (partyMechanics != null) partyMechanics.onDisable();
+        // Add other shutdowns as needed
     }
 
-    // Static methods and getters remain the same...
+    // Static getters
     public static YakRealms getInstance() {
         return instance;
     }
@@ -1107,51 +720,14 @@ public class YakRealms extends JavaPlugin {
         if (instance != null) {
             instance.getConfig().set("game.t6-enabled", enabled);
             instance.saveConfig();
-            instance.getLogger().info("T6 content is now " + (enabled ? "enabled" : "disabled"));
         }
     }
 
-    public boolean isMobsEnabled() {
-        return mobsEnabled;
-    }
-
-    public MongoDBManager getMongoDBManager() {
-        return mongoDBManager;
-    }
-
-    public static void log(String message) {
-        if (instance != null) {
-            instance.getLogger().info(message);
-        }
-    }
-
-    public static void warn(String message) {
-        if (instance != null) {
-            instance.getLogger().warning(message);
-        }
-    }
-
-    public static void error(String message, Exception e) {
-        if (instance != null) {
-            instance.getLogger().log(Level.SEVERE, message, e);
-        }
-    }
-
-    public boolean isDebugMode() {
-        return getConfig().getBoolean("debug", false);
-    }
-
-    public static void debug(String message) {
-        if (instance != null && instance.isDebugMode()) {
-            instance.getLogger().info("[DEBUG] " + message);
-        }
-    }
-
-    // Add all missing getters for existing systems
+    // Getters for all systems
+    public MongoDBManager getMongoDBManager() { return mongoDBManager; }
     public YakPlayerManager getPlayerManager() { return playerManager; }
     public PlayerMechanics getPlayerMechanics() { return playerMechanics; }
     public PartyMechanics getPartyMechanics() { return partyMechanics; }
-    public PlayerListenerManager getPlayerListenerManager() { return playerListenerManager; }
     public DashMechanics getDashMechanics() { return dashMechanics; }
     public SpeedfishMechanics getSpeedfishMechanics() { return speedfishMechanics; }
     public MountManager getMountManager() { return mountManager; }
@@ -1182,4 +758,37 @@ public class YakRealms extends JavaPlugin {
     public ParticleSystem getParticleSystem() { return particleSystem; }
     public PathManager getPathManager() { return pathManager; }
     public CrateManager getCrateManager() { return crateManager; }
+
+    // Utility methods
+    public static void log(String message) {
+        if (instance != null) {
+            instance.getLogger().info(message);
+        }
+    }
+
+    public static void warn(String message) {
+        if (instance != null) {
+            instance.getLogger().warning(message);
+        }
+    }
+
+    public static void error(String message, Exception e) {
+        if (instance != null) {
+            instance.getLogger().log(Level.SEVERE, message, e);
+        }
+    }
+
+    public boolean isDebugMode() {
+        return getConfig().getBoolean("debug", false);
+    }
+
+    public static void debug(String message) {
+        if (instance != null && instance.isDebugMode()) {
+            instance.getLogger().info("[DEBUG] " + message);
+        }
+    }
+
+    public boolean isMobsEnabled() {
+        return mobsEnabled;
+    }
 }
