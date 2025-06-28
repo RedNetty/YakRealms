@@ -17,40 +17,35 @@ import java.io.File;
 import java.nio.file.Files;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ThreadLocalRandom;
 import java.util.logging.Logger;
 
 /**
- * FIXED: Synchronous MobSpawner with reliable coordination
- * No async operations, deterministic processing
+ * FIXED: Completely rewritten MobSpawner with reliable, synchronous operations
+ * No async complexity, simple and deterministic behavior
  */
 public class MobSpawner implements Listener {
     private static MobSpawner instance;
 
-    // Core spawner storage
+    // ================ CORE STORAGE ================
     private final Map<String, Spawner> spawners = new ConcurrentHashMap<>();
     private final Map<Location, String> spawnerLocations = new ConcurrentHashMap<>();
+    private final Map<String, Set<String>> spawnerGroups = new HashMap<>();
+    private final Map<UUID, String> entityToSpawner = new ConcurrentHashMap<>();
 
-    // Player creation sessions
+    // ================ TEMPLATES ================
+    private final Map<String, String> spawnerTemplates = new HashMap<>();
+
+    // ================ PLAYER SESSIONS ================
     private final Map<String, Location> creatingSpawner = new HashMap<>();
     private final Map<String, SpawnerCreationSession> spawnerCreationSessions = new HashMap<>();
 
-    // Spawner groups
-    private final Map<String, Set<String>> spawnerGroups = new HashMap<>();
-
-    // Entity tracking
-    private final Map<UUID, String> entityToSpawner = new ConcurrentHashMap<>();
-
-    // Visualization entities
+    // ================ VISUALIZATION ================
     private final Map<String, List<ArmorStand>> visualizations = new HashMap<>();
-
-    // Template configurations
-    private final Map<String, String> spawnerTemplates = new HashMap<>();
 
     private final Logger logger;
     private final YakRealms plugin;
 
-    // Configuration
+    // ================ CONFIGURATION ================
     private boolean spawnersEnabled = true;
     private boolean debug = false;
     private int maxMobsPerSpawner = 10;
@@ -58,11 +53,10 @@ public class MobSpawner implements Listener {
     private double mobRespawnDistanceCheck = 25.0;
     private boolean defaultVisibility = false;
 
-    // FIXED: Single synchronous task instead of multiple async tasks
+    // ================ TASKS - SIMPLIFIED ================
     private BukkitTask mainProcessingTask;
     private BukkitTask autoSaveTask;
-    private BukkitTask sessionCleanupTask;
-    private BukkitTask visualizationCleanupTask;
+    private BukkitTask cleanupTask;
 
     /**
      * Constructor
@@ -96,7 +90,7 @@ public class MobSpawner implements Listener {
             loadSpawners();
             startTasks();
 
-            logger.info("[MobSpawner] Initialized with " + spawners.size() + " spawners");
+            logger.info("[MobSpawner] FIXED: Initialized successfully with " + spawners.size() + " spawners");
         } catch (Exception e) {
             logger.severe("[MobSpawner] Failed to initialize: " + e.getMessage());
             e.printStackTrace();
@@ -104,7 +98,7 @@ public class MobSpawner implements Listener {
     }
 
     /**
-     * Initialize spawner templates
+     * Initialize spawner templates with working configurations
      */
     private void initializeTemplates() {
         spawnerTemplates.put("basic_t1", "skeleton:1@false#2,zombie:1@false#2");
@@ -137,83 +131,110 @@ public class MobSpawner implements Listener {
             this.mobRespawnDistanceCheck = plugin.getConfig().getDouble("mechanics.mobs.mob-respawn-distance-check", 25.0);
             this.defaultVisibility = plugin.getConfig().getBoolean("mechanics.mobs.spawner-default-visibility", false);
 
-            // Validate config values
+            // Validate and clamp values
             maxMobsPerSpawner = Math.max(1, Math.min(50, maxMobsPerSpawner));
             playerDetectionRange = Math.max(10.0, Math.min(100.0, playerDetectionRange));
             mobRespawnDistanceCheck = Math.max(5.0, Math.min(50.0, mobRespawnDistanceCheck));
 
             if (debug) {
-                logger.info("[MobSpawner] Configuration loaded: MaxMobs=" + maxMobsPerSpawner +
-                        ", DetectionRange=" + playerDetectionRange + ", RespawnCheck=" + mobRespawnDistanceCheck);
+                logger.info("[MobSpawner] Configuration loaded successfully");
             }
         } catch (Exception e) {
-            logger.warning("[MobSpawner] Error loading config, using defaults: " + e.getMessage());
+            logger.warning("[MobSpawner] Error loading config: " + e.getMessage());
         }
     }
 
     /**
-     * FIXED: Start synchronous tasks only
+     * FIXED: Start only essential tasks - no complex async operations
      */
     private void startTasks() {
-        logger.info("[MobSpawner] Starting synchronous tasks...");
+        logger.info("[MobSpawner] Starting essential tasks...");
 
-        // FIXED: Single main processing task that handles everything synchronously
+        // Main processing task - handles all spawner logic synchronously
         mainProcessingTask = new org.bukkit.scheduler.BukkitRunnable() {
             @Override
             public void run() {
-                processAllSpawners();
+                try {
+                    processAllSpawners();
+                } catch (Exception e) {
+                    logger.warning("[MobSpawner] Main processing error: " + e.getMessage());
+                    if (debug) e.printStackTrace();
+                }
             }
-        }.runTaskTimer(plugin, 20L, 1L); // Run every tick for immediate responsiveness
+        }.runTaskTimer(plugin, 20L, 20L); // Every second
 
-        // Auto-save task (less frequent)
+        // Auto-save task
         autoSaveTask = new org.bukkit.scheduler.BukkitRunnable() {
             @Override
             public void run() {
-                if (debug) {
-                    logger.info("[MobSpawner] Performing auto-save...");
+                try {
+                    saveSpawners();
+                } catch (Exception e) {
+                    logger.warning("[MobSpawner] Auto-save error: " + e.getMessage());
                 }
-                saveSpawners();
             }
         }.runTaskTimer(plugin, 1200L, 6000L); // Every 5 minutes
 
-        // Session cleanup
-        sessionCleanupTask = new org.bukkit.scheduler.BukkitRunnable() {
+        // Cleanup task
+        cleanupTask = new org.bukkit.scheduler.BukkitRunnable() {
             @Override
             public void run() {
-                cleanupExpiredSessions();
+                try {
+                    performCleanup();
+                } catch (Exception e) {
+                    logger.warning("[MobSpawner] Cleanup error: " + e.getMessage());
+                }
             }
-        }.runTaskTimer(plugin, 1200L, 1200L); // Every 1 minute
+        }.runTaskTimer(plugin, 1200L, 1200L); // Every minute
 
-        // Visualization cleanup
-        visualizationCleanupTask = new org.bukkit.scheduler.BukkitRunnable() {
-            @Override
-            public void run() {
-                cleanupVisualizations();
-            }
-        }.runTaskTimer(plugin, 200L, 200L); // Every 10 seconds
-
-        logger.info("[MobSpawner] All tasks started successfully");
+        logger.info("[MobSpawner] Essential tasks started successfully");
     }
 
     /**
-     * FIXED: Single synchronous method that processes all spawners
+     * FIXED: Simple, reliable spawner processing
      */
     private void processAllSpawners() {
         if (!spawnersEnabled) return;
 
         try {
-            // Process each spawner synchronously
+            int processedCount = 0;
             for (Spawner spawner : spawners.values()) {
-                spawner.processTick();
+                try {
+                    spawner.processTick();
+                    processedCount++;
+                } catch (Exception e) {
+                    logger.warning("[MobSpawner] Error processing spawner: " + e.getMessage());
+                    if (debug) e.printStackTrace();
+                }
             }
 
-            //I'm sorry for this.
-            if(ThreadLocalRandom.current().nextInt(1, 8) < 3) cleanupOrphanedEntries();
-        } catch (Exception e) {
-            logger.warning("[MobSpawner] Error processing spawners: " + e.getMessage());
-            if (debug) {
-                e.printStackTrace();
+            if (debug && processedCount > 0) {
+                // Only log every 30 seconds in debug mode to avoid spam
+                if (System.currentTimeMillis() % 30000 < 1000) {
+                    logger.info("[MobSpawner] Processed " + processedCount + " spawners");
+                }
             }
+        } catch (Exception e) {
+            logger.warning("[MobSpawner] Critical error in spawner processing: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Clean up expired sessions and invalid data
+     */
+    private void performCleanup() {
+        try {
+            // Clean up expired creation sessions
+            cleanupExpiredSessions();
+
+            // Clean up orphaned entity mappings
+            cleanupOrphanedEntries();
+
+            // Clean up old visualizations
+            cleanupVisualizations();
+
+        } catch (Exception e) {
+            logger.warning("[MobSpawner] Cleanup error: " + e.getMessage());
         }
     }
 
@@ -239,14 +260,43 @@ public class MobSpawner implements Listener {
                 player.sendMessage(ChatColor.RED + "Your spawner creation session has expired.");
             }
         }
-
-        if (!expiredSessions.isEmpty() && debug) {
-            logger.info("[MobSpawner] Cleaned up " + expiredSessions.size() + " expired creation sessions");
-        }
     }
 
     /**
-     * Clean up spawner visualizations that have expired
+     * Clean up orphaned entries
+     */
+    private void cleanupOrphanedEntries() {
+        // Clean up entity to spawner mappings for invalid entities
+        Set<UUID> invalidEntities = new HashSet<>();
+        for (UUID entityId : entityToSpawner.keySet()) {
+            Entity entity = Bukkit.getEntity(entityId);
+            if (entity == null || !entity.isValid() || entity.isDead()) {
+                invalidEntities.add(entityId);
+            }
+        }
+
+        for (UUID entityId : invalidEntities) {
+            entityToSpawner.remove(entityId);
+        }
+
+        // Clean up location mappings for non-existent spawners
+        Set<Location> invalidLocations = new HashSet<>();
+        for (Map.Entry<Location, String> entry : spawnerLocations.entrySet()) {
+            if (!spawners.containsKey(entry.getValue())) {
+                invalidLocations.add(entry.getKey());
+            }
+        }
+
+        for (Location loc : invalidLocations) {
+            spawnerLocations.remove(loc);
+        }
+
+        // Rebuild spawner groups
+        rebuildSpawnerGroups();
+    }
+
+    /**
+     * Clean up old visualizations
      */
     private void cleanupVisualizations() {
         long currentTime = System.currentTimeMillis();
@@ -255,9 +305,9 @@ public class MobSpawner implements Listener {
         for (Map.Entry<String, List<ArmorStand>> entry : visualizations.entrySet()) {
             String key = entry.getKey();
             String[] parts = key.split("_");
-            if (parts.length == 2) {
+            if (parts.length >= 2) {
                 try {
-                    long timestamp = Long.parseLong(parts[1]);
+                    long timestamp = Long.parseLong(parts[parts.length - 1]);
                     if (currentTime - timestamp > 30000) { // 30 seconds
                         for (ArmorStand stand : entry.getValue()) {
                             if (stand != null && !stand.isDead()) {
@@ -267,51 +317,14 @@ public class MobSpawner implements Listener {
                         toRemove.add(key);
                     }
                 } catch (NumberFormatException ignored) {
-                    // Skip malformed keys
+                    // Invalid format, remove anyway
+                    toRemove.add(key);
                 }
             }
         }
 
         for (String key : toRemove) {
             visualizations.remove(key);
-        }
-    }
-
-    /**
-     * Clean up orphaned entries from all trackers
-     */
-    private void cleanupOrphanedEntries() {
-        try {
-            // Clean up entity to spawner mappings
-            Set<UUID> invalidEntities = new HashSet<>();
-            for (UUID entityId : entityToSpawner.keySet()) {
-                Entity entity = Bukkit.getEntity(entityId);
-                if (entity == null || !entity.isValid() || entity.isDead()) {
-                    invalidEntities.add(entityId);
-                }
-            }
-
-            for (UUID entityId : invalidEntities) {
-                entityToSpawner.remove(entityId);
-            }
-
-            // Clean up location mappings
-            Set<Location> invalidLocations = new HashSet<>();
-            for (Map.Entry<Location, String> entry : spawnerLocations.entrySet()) {
-                if (!spawners.containsKey(entry.getValue())) {
-                    invalidLocations.add(entry.getKey());
-                }
-            }
-
-            for (Location loc : invalidLocations) {
-                spawnerLocations.remove(loc);
-            }
-
-            // Rebuild spawner groups
-            rebuildSpawnerGroups();
-
-        } catch (Exception e) {
-            logger.warning("[MobSpawner] Error during cleanup: " + e.getMessage());
         }
     }
 
@@ -326,7 +339,7 @@ public class MobSpawner implements Listener {
 
             File file = new File(plugin.getDataFolder(), "spawners.yml");
             if (!file.exists()) {
-                logger.warning("[MobSpawner] No spawners.yml file found");
+                logger.info("[MobSpawner] No spawners.yml file found, starting fresh");
                 return;
             }
 
@@ -338,15 +351,16 @@ public class MobSpawner implements Listener {
                 try {
                     if (!key.contains(",")) continue;
 
-                    String data = getSpawnerDataFromConfig(config, key);
-                    if (data == null || data.isEmpty()) {
+                    Location loc = parseLocationFromKey(key);
+                    if (loc == null) {
+                        logger.warning("[MobSpawner] Invalid location format: " + key);
                         failed++;
                         continue;
                     }
 
-                    Location loc = parseLocationFromKey(key);
-                    if (loc == null) {
-                        logger.warning("[MobSpawner] Invalid location format: " + key);
+                    String data = getSpawnerDataFromConfig(config, key);
+                    if (data == null || data.isEmpty()) {
+                        logger.warning("[MobSpawner] No data for spawner: " + key);
                         failed++;
                         continue;
                     }
@@ -365,16 +379,19 @@ public class MobSpawner implements Listener {
 
                     String spawnerId = generateSpawnerId(loc);
 
+                    // Load properties if they exist
                     if (config.isConfigurationSection(key + ".properties")) {
                         ConfigurationSection propsSection = config.getConfigurationSection(key + ".properties");
                         SpawnerProperties props = SpawnerProperties.loadFromConfig(propsSection);
                         spawner.setProperties(props);
 
+                        // Add to groups
                         if (props.getSpawnerGroup() != null && !props.getSpawnerGroup().isEmpty()) {
                             spawnerGroups.computeIfAbsent(props.getSpawnerGroup(), k -> new HashSet<>()).add(spawnerId);
                         }
                     }
 
+                    // Set block state
                     try {
                         setSpawnerBlock(loc.getBlock(), spawnerId, visible);
                     } catch (Exception e) {
@@ -394,7 +411,7 @@ public class MobSpawner implements Listener {
                 }
             }
 
-            logger.info("[MobSpawner] Loaded " + count + " spawners" +
+            logger.info("[MobSpawner] FIXED: Loaded " + count + " spawners" +
                     (failed > 0 ? ", " + failed + " failed" : ""));
         } catch (Exception e) {
             logger.severe("[MobSpawner] Critical error loading spawners: " + e.getMessage());
@@ -403,7 +420,7 @@ public class MobSpawner implements Listener {
     }
 
     /**
-     * Get spawner data from config, handling both old and new formats
+     * Get spawner data from config (handles both old and new formats)
      */
     private String getSpawnerDataFromConfig(YamlConfiguration config, String key) {
         if (config.contains(key + ".data")) {
@@ -439,7 +456,7 @@ public class MobSpawner implements Listener {
     }
 
     /**
-     * Generate a unique ID for a spawner based on its location
+     * Generate a unique ID for a spawner
      */
     private String generateSpawnerId(Location location) {
         return location.getWorld().getName() + "_" +
@@ -449,7 +466,7 @@ public class MobSpawner implements Listener {
     }
 
     /**
-     * Rebuild spawner groups based on individual spawner properties
+     * Rebuild spawner groups
      */
     private void rebuildSpawnerGroups() {
         spawnerGroups.clear();
@@ -483,6 +500,7 @@ public class MobSpawner implements Listener {
             File file = new File(dataFolder, "spawners.yml");
             File backupFile = new File(dataFolder, "spawners.yml.bak");
 
+            // Create backup
             if (file.exists()) {
                 try {
                     Files.copy(file.toPath(), backupFile.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
@@ -519,14 +537,10 @@ public class MobSpawner implements Listener {
                 props.saveToConfig(propsSection);
 
                 count++;
-
-                if (debug) {
-                    logger.info("[MobSpawner] Saved spawner: " + key + " = " + spawner.getDataString());
-                }
             }
 
             config.save(file);
-            logger.info("[MobSpawner] Saved " + count + " spawners to " + file.getAbsolutePath());
+            logger.info("[MobSpawner] FIXED: Saved " + count + " spawners successfully");
         } catch (Exception e) {
             logger.severe("[MobSpawner] Critical error saving spawners: " + e.getMessage());
             e.printStackTrace();
@@ -534,7 +548,7 @@ public class MobSpawner implements Listener {
     }
 
     /**
-     * Add a spawner at a location
+     * FIXED: Add a spawner with better error handling
      */
     public boolean addSpawner(Location location, String data) {
         if (location == null || data == null || data.isEmpty()) {
@@ -555,35 +569,30 @@ public class MobSpawner implements Listener {
         Location spawnerLoc = normalizeLocation(location);
         String spawnerId = generateSpawnerId(spawnerLoc);
 
+        // Check if spawner already exists
         if (spawners.containsKey(spawnerId)) {
             Spawner spawner = spawners.get(spawnerId);
             spawner.parseSpawnerData(data);
             spawnerLocations.put(spawnerLoc, spawnerId);
-            if (debug) {
-                logger.info("[MobSpawner] Updated existing spawner");
-            }
+            logger.info("[MobSpawner] Updated existing spawner");
             return true;
         }
 
+        // Create new spawner
         Spawner spawner = new Spawner(spawnerLoc, data, defaultVisibility);
 
         try {
-            if (setSpawnerBlock(location.getBlock(), spawnerId, defaultVisibility)) {
-                spawners.put(spawnerId, spawner);
-                spawnerLocations.put(spawnerLoc, spawnerId);
-                saveSpawners();
+            // Set block state
+            boolean blockSet = setSpawnerBlock(location.getBlock(), spawnerId, defaultVisibility);
 
-                if (debug) {
-                    logger.info("[MobSpawner] Created new spawner");
-                }
-                return true;
-            } else {
-                logger.warning("[MobSpawner] Failed to set block state - using fallback");
-                spawners.put(spawnerId, spawner);
-                spawnerLocations.put(spawnerLoc, spawnerId);
-                saveSpawners();
-                return true;
-            }
+            // Register spawner even if block setting fails
+            spawners.put(spawnerId, spawner);
+            spawnerLocations.put(spawnerLoc, spawnerId);
+            saveSpawners();
+
+            logger.info("[MobSpawner] FIXED: Created new spawner" + (blockSet ? "" : " (block setting failed)"));
+            return true;
+
         } catch (Exception e) {
             logger.severe("[MobSpawner] Critical error creating spawner: " + e.getMessage());
             e.printStackTrace();
@@ -600,21 +609,17 @@ public class MobSpawner implements Listener {
             block.setMetadata("spawnerId", new FixedMetadataValue(plugin, spawnerId));
 
             Material blockType = visible ? Material.SPAWNER : Material.AIR;
-
-            if (debug) {
-                logger.info("[MobSpawner] Setting block to " + blockType + " at " + formatLocation(block.getLocation()));
-            }
-
             block.setType(blockType, true);
+
             return block.getType() == blockType;
         } catch (Exception e) {
             logger.warning("[MobSpawner] Error setting block state: " + e.getMessage());
+            return false;
         }
-        return false;
     }
 
     /**
-     * Normalize a location to the center of the block
+     * Normalize a location to block center
      */
     private Location normalizeLocation(Location location) {
         return new Location(location.getWorld(),
@@ -624,7 +629,7 @@ public class MobSpawner implements Listener {
     }
 
     /**
-     * Add a spawner using a predefined template
+     * Add a spawner using a template
      */
     public boolean addSpawnerFromTemplate(Location location, String templateName) {
         if (location == null || templateName == null) return false;
@@ -637,6 +642,7 @@ public class MobSpawner implements Listener {
         String templateData = spawnerTemplates.get(cleanTemplateName);
 
         if (templateData == null) {
+            // Try case-insensitive search
             for (Map.Entry<String, String> entry : spawnerTemplates.entrySet()) {
                 if (entry.getKey().equalsIgnoreCase(cleanTemplateName)) {
                     templateData = entry.getValue();
@@ -650,24 +656,7 @@ public class MobSpawner implements Listener {
             return false;
         }
 
-        Block block = location.getBlock();
-        if (block.getType() == Material.AIR || block.getType() == Material.SPAWNER) {
-            String spawnerId = generateSpawnerId(location);
-            setSpawnerBlock(block, spawnerId, defaultVisibility);
-        }
-
-        Location spawnerLoc = normalizeLocation(location);
-        Spawner spawner = new Spawner(spawnerLoc, templateData, defaultVisibility);
-        String spawnerId = generateSpawnerId(spawnerLoc);
-
-        spawners.put(spawnerId, spawner);
-        spawnerLocations.put(spawnerLoc, spawnerId);
-        saveSpawners();
-
-        if (debug) {
-            logger.info("[MobSpawner] Created spawner from template: " + templateName);
-        }
-        return true;
+        return addSpawner(location, templateData);
     }
 
     /**
@@ -679,6 +668,7 @@ public class MobSpawner implements Listener {
         String spawnerId = null;
         Location exactLoc = null;
 
+        // Find the spawner
         for (Map.Entry<Location, String> entry : spawnerLocations.entrySet()) {
             if (isSameBlock(entry.getKey(), location)) {
                 spawnerId = entry.getValue();
@@ -694,6 +684,7 @@ public class MobSpawner implements Listener {
             spawners.remove(spawnerId);
             spawnerLocations.remove(exactLoc);
 
+            // Clean up block metadata
             Block block = location.getBlock();
             if (block.hasMetadata("isSpawner")) {
                 block.removeMetadata("isSpawner", plugin);
@@ -705,9 +696,7 @@ public class MobSpawner implements Listener {
             rebuildSpawnerGroups();
             saveSpawners();
 
-            if (debug) {
-                logger.info("[MobSpawner] Removed spawner at " + formatLocation(location));
-            }
+            logger.info("[MobSpawner] FIXED: Removed spawner at " + formatLocation(location));
             return true;
         }
 
@@ -725,7 +714,7 @@ public class MobSpawner implements Listener {
     }
 
     /**
-     * Find the spawner that contains the given location
+     * Find the spawner at a location
      */
     private Spawner getSpawnerAtLocation(Location location) {
         if (location == null) return null;
@@ -745,7 +734,7 @@ public class MobSpawner implements Listener {
     }
 
     /**
-     * Register a mob that was spawned from this location
+     * Register a mob that was spawned from a spawner
      */
     public void registerMobSpawned(Location spawnerLocation, LivingEntity entity) {
         if (spawnerLocation == null || entity == null) return;
@@ -774,7 +763,7 @@ public class MobSpawner implements Listener {
     }
 
     /**
-     * Register a mob death from this spawner
+     * Register a mob death
      */
     public void registerMobDeath(Location spawnerLocation, UUID entityId) {
         if (entityId == null) return;
@@ -784,7 +773,9 @@ public class MobSpawner implements Listener {
         if (spawnerId != null && spawners.containsKey(spawnerId)) {
             Spawner spawner = spawners.get(spawnerId);
             spawner.registerMobDeath(entityId);
-            logger.info("[MobSpawner] Registered mob death with spawner " + spawnerId);
+            if (debug) {
+                logger.info("[MobSpawner] Registered mob death with spawner " + spawnerId);
+            }
             return;
         }
 
@@ -792,13 +783,15 @@ public class MobSpawner implements Listener {
             Spawner spawner = getSpawnerAtLocation(spawnerLocation);
             if (spawner != null) {
                 spawner.registerMobDeath(entityId);
-                logger.info("[MobSpawner] Registered mob death at " + formatLocation(spawnerLocation));
+                if (debug) {
+                    logger.info("[MobSpawner] Registered mob death at " + formatLocation(spawnerLocation));
+                }
             }
         }
     }
 
     /**
-     * Get spawner ID from a location
+     * Get spawner ID from location
      */
     private String getSpawnerIdFromLocation(Location location) {
         if (location == null) return null;
@@ -829,7 +822,7 @@ public class MobSpawner implements Listener {
     }
 
     /**
-     * Find nearest spawner to a location
+     * Find nearest spawner location
      */
     public Location findNearestSpawner(Location location, double maxDistance) {
         if (location == null) return null;
@@ -851,16 +844,12 @@ public class MobSpawner implements Listener {
     }
 
     /**
-     * Validate spawner data format
+     * FIXED: Improved spawner data validation
      */
     public boolean validateSpawnerData(String data) {
         if (data == null || data.isEmpty()) {
             logger.warning("[MobSpawner] Empty data string");
             return false;
-        }
-
-        if (debug) {
-            logger.info("[MobSpawner] Validating data: " + data);
         }
 
         try {
@@ -873,71 +862,11 @@ public class MobSpawner implements Listener {
                     return false;
                 }
 
-                String[] parts = entry.split(":");
-                if (parts.length != 2) {
-                    logger.warning("[MobSpawner] Invalid type section: " + entry);
-                    return false;
-                }
-
-                String mobType = parts[0].toLowerCase().trim();
-                if (mobType.equals("wither_skeleton")) {
-                    mobType = "witherskeleton";
-                }
-
-                if (!MobType.isValidType(mobType)) {
-                    logger.warning("[MobSpawner] Invalid mob type: " + mobType);
-                    return false;
-                }
-
-                String tierSection = parts[1].trim();
-                if (!tierSection.contains("@")) {
-                    logger.warning("[MobSpawner] Missing @ in tier section: " + tierSection);
-                    return false;
-                }
-
-                String[] tierParts = tierSection.split("@");
-                if (tierParts.length != 2) {
-                    logger.warning("[MobSpawner] Wrong number of @ in tier section: " + tierSection);
-                    return false;
-                }
-
+                // Use MobEntry validation
                 try {
-                    int tier = Integer.parseInt(tierParts[0].trim());
-                    if (tier < 1 || tier > 6) {
-                        logger.warning("[MobSpawner] Tier out of range: " + tier);
-                        return false;
-                    }
-                } catch (NumberFormatException e) {
-                    logger.warning("[MobSpawner] Invalid tier: " + tierParts[0]);
-                    return false;
-                }
-
-                String eliteAmountSection = tierParts[1].trim();
-                if (!eliteAmountSection.contains("#")) {
-                    logger.warning("[MobSpawner] Missing # in elite/amount section: " + eliteAmountSection);
-                    return false;
-                }
-
-                String[] eliteParts = eliteAmountSection.split("#");
-                if (eliteParts.length != 2) {
-                    logger.warning("[MobSpawner] Wrong number of # in elite/amount section: " + eliteAmountSection);
-                    return false;
-                }
-
-                String eliteStr = eliteParts[0].toLowerCase().trim();
-                if (!eliteStr.equals("true") && !eliteStr.equals("false")) {
-                    logger.warning("[MobSpawner] Invalid elite value: " + eliteParts[0]);
-                    return false;
-                }
-
-                try {
-                    int amount = Integer.parseInt(eliteParts[1].trim());
-                    if (amount < 1 || amount > maxMobsPerSpawner) {
-                        logger.warning("[MobSpawner] Invalid amount: " + amount);
-                        return false;
-                    }
-                } catch (NumberFormatException e) {
-                    logger.warning("[MobSpawner] Invalid amount: " + eliteParts[1]);
+                    MobEntry.fromString(entry);
+                } catch (Exception e) {
+                    logger.warning("[MobSpawner] Failed to parse entry: " + entry + " - " + e.getMessage());
                     return false;
                 }
             }
@@ -945,13 +874,12 @@ public class MobSpawner implements Listener {
             return true;
         } catch (Exception e) {
             logger.severe("[MobSpawner] Unexpected error validating data: " + e.getMessage());
-            e.printStackTrace();
             return false;
         }
     }
 
     /**
-     * Format a location to a readable string
+     * Format a location for logging
      */
     private String formatLocation(Location location) {
         if (location == null || location.getWorld() == null) {
@@ -964,7 +892,8 @@ public class MobSpawner implements Listener {
                 location.getBlockZ());
     }
 
-    // Getters and delegation methods
+    // ================ DELEGATION METHODS ================
+
     public boolean isDebugMode() { return debug; }
     public void setDebugMode(boolean debug) { this.debug = debug; }
     public void setSpawnersEnabled(boolean enabled) { spawnersEnabled = enabled; }
@@ -1012,9 +941,6 @@ public class MobSpawner implements Listener {
         boolean result = setSpawnerBlock(block, spawnerId, visible);
         if (result) {
             saveSpawners();
-            if (debug) {
-                logger.info("[MobSpawner] Set spawner visibility to " + visible);
-            }
         }
         return result;
     }
@@ -1064,44 +990,6 @@ public class MobSpawner implements Listener {
         logger.info("[MobSpawner] All spawners have been reset");
     }
 
-    /**
-     * Toggle visibility for spawners in a radius
-     *
-     * @param center Center location
-     * @param radius Radius to check
-     * @param show   Whether to show or hide
-     * @return Number of spawners affected
-     */
-    public int toggleSpawnerVisibility(Location center, int radius, boolean show) {
-        if (center == null) return 0;
-
-        List<Location> nearbySpawners = findSpawnersInRadius(center, radius);
-        int count = 0;
-
-        for (Location loc : nearbySpawners) {
-            boolean currentlyVisible = isSpawnerVisible(loc);
-            if (show != currentlyVisible) {
-                if (setSpawnerVisibility(loc, show)) {
-                    count++;
-                }
-            }
-        }
-
-        if (count > 0 && debug) {
-            logger.info("[MobSpawner] " + (show ? "Showed" : "Hid") + " " + count +
-                    " spawners within " + radius + " blocks");
-        }
-
-        return count;
-    }
-
-    /**
-     * Find all spawners within a radius
-     *
-     * @param center Center location
-     * @param radius Radius to search
-     * @return List of spawner locations
-     */
     public List<Location> findSpawnersInRadius(Location center, double radius) {
         List<Location> result = new ArrayList<>();
         if (center == null) return result;
@@ -1119,504 +1007,18 @@ public class MobSpawner implements Listener {
     }
 
     /**
-     * Get spawner properties for a location
-     *
-     * @param location The spawner location
-     * @return SpawnerProperties or null if not found
-     */
-    public SpawnerProperties getSpawnerProperties(Location location) {
-        if (location == null) return null;
-        Spawner spawner = getSpawnerAtLocation(location);
-        return spawner != null ? spawner.getProperties() : null;
-    }
-
-    /**
-     * Set a property value for a spawner
-     *
-     * @param location The spawner location
-     * @param property The property name
-     * @param value    The property value as a string
-     * @return true if set successfully
-     */
-    public boolean setSpawnerProperty(Location location, String property, String value) {
-        if (location == null || property == null) return false;
-
-        Spawner spawner = getSpawnerAtLocation(location);
-        if (spawner == null) return false;
-
-        SpawnerProperties props = spawner.getProperties();
-
-        try {
-            switch (property.toLowerCase()) {
-                case "timerestricted":
-                    props.setTimeRestricted(Boolean.parseBoolean(value));
-                    break;
-                case "starthour":
-                    props.setStartHour(Integer.parseInt(value));
-                    break;
-                case "endhour":
-                    props.setEndHour(Integer.parseInt(value));
-                    break;
-                case "weatherrestricted":
-                    props.setWeatherRestricted(Boolean.parseBoolean(value));
-                    break;
-                case "spawninclear":
-                    props.setSpawnInClear(Boolean.parseBoolean(value));
-                    break;
-                case "spawninrain":
-                    props.setSpawnInRain(Boolean.parseBoolean(value));
-                    break;
-                case "spawninthunder":
-                    props.setSpawnInThunder(Boolean.parseBoolean(value));
-                    break;
-                case "spawnergroup":
-                    props.setSpawnerGroup(value);
-                    rebuildSpawnerGroups();
-                    break;
-                case "spawnradiusx":
-                    props.setSpawnRadiusX(Double.parseDouble(value));
-                    break;
-                case "spawnradiusy":
-                    props.setSpawnRadiusY(Double.parseDouble(value));
-                    break;
-                case "spawnradiusz":
-                    props.setSpawnRadiusZ(Double.parseDouble(value));
-                    break;
-                case "maxmoboverride":
-                    props.setMaxMobOverride(Integer.parseInt(value));
-                    break;
-                case "playerdetectionrangeoverride":
-                    props.setPlayerDetectionRangeOverride(Double.parseDouble(value));
-                    break;
-                case "displayname":
-                    props.setDisplayName(value);
-                    if (spawner.isVisible()) {
-                        spawner.updateHologram();
-                    }
-                    break;
-                default:
-                    return false;
-            }
-
-            saveSpawners();
-            return true;
-        } catch (Exception e) {
-            logger.warning("[MobSpawner] Error setting property " + property + ": " + e.getMessage());
-            return false;
-        }
-    }
-
-    /**
-     * Get a property value for a spawner
-     *
-     * @param location The spawner location
-     * @param property The property name
-     * @return The property value or null if not found
-     */
-    public Object getSpawnerProperty(Location location, String property) {
-        if (location == null || property == null) return null;
-
-        Spawner spawner = getSpawnerAtLocation(location);
-        if (spawner == null) return null;
-
-        SpawnerProperties props = spawner.getProperties();
-
-        switch (property.toLowerCase()) {
-            case "timerestricted":
-                return props.isTimeRestricted();
-            case "starthour":
-                return props.getStartHour();
-            case "endhour":
-                return props.getEndHour();
-            case "weatherrestricted":
-                return props.isWeatherRestricted();
-            case "spawninclear":
-                return props.canSpawnInClear();
-            case "spawninrain":
-                return props.canSpawnInRain();
-            case "spawninthunder":
-                return props.canSpawnInThunder();
-            case "spawnergroup":
-                return props.getSpawnerGroup();
-            case "spawnradiusx":
-                return props.getSpawnRadiusX();
-            case "spawnradiusy":
-                return props.getSpawnRadiusY();
-            case "spawnradiusz":
-                return props.getSpawnRadiusZ();
-            case "maxmoboverride":
-                return props.getMaxMobOverride();
-            case "playerdetectionrangeoverride":
-                return props.getPlayerDetectionRangeOverride();
-            case "displayname":
-                return props.getDisplayName();
-            default:
-                return null;
-        }
-    }
-
-    /**
-     * Set the display mode for a spawner
-     *
-     * @param location The spawner location
-     * @param mode     The display mode (0=basic, 1=detailed, 2=admin)
-     * @return true if set successfully
-     */
-    public boolean setSpawnerDisplayMode(Location location, int mode) {
-        if (location == null || mode < 0 || mode > 2) return false;
-
-        Spawner spawner = getSpawnerAtLocation(location);
-        if (spawner == null) return false;
-
-        spawner.setDisplayMode(mode);
-        saveSpawners();
-        return true;
-    }
-
-    /**
-     * Get the display mode for a spawner
-     *
-     * @param location The spawner location
-     * @return The display mode (0-2) or -1 if not found
-     */
-    public int getSpawnerDisplayMode(Location location) {
-        Spawner spawner = getSpawnerAtLocation(location);
-        if (spawner == null) return -1;
-        return spawner.getDisplayMode();
-    }
-
-    /**
-     * Toggle enabled/disabled state for a spawner group
-     *
-     * @param groupName The group name
-     * @param enabled   Whether to enable or disable
-     * @return Number of spawners affected
-     */
-    public int toggleSpawnerGroupEnabled(String groupName, boolean enabled) {
-        if (groupName == null || groupName.isEmpty()) return 0;
-
-        Set<String> groupIds = spawnerGroups.get(groupName);
-        if (groupIds == null || groupIds.isEmpty()) return 0;
-
-        int count = 0;
-        for (String spawnerId : groupIds) {
-            Spawner spawner = spawners.get(spawnerId);
-            if (spawner != null) {
-                boolean wasVisible = spawner.isVisible();
-                if (enabled != wasVisible) {
-                    spawner.setVisible(enabled);
-
-                    Block block = spawner.getLocation().getBlock();
-                    Material blockType = enabled ? Material.SPAWNER : Material.AIR;
-
-                    if (block.getType() == Material.AIR || block.getType() == Material.SPAWNER) {
-                        block.setType(blockType);
-                    }
-
-                    block.setMetadata("isSpawner", new FixedMetadataValue(plugin, true));
-                    block.setMetadata("spawnerId", new FixedMetadataValue(plugin, spawnerId));
-
-                    count++;
-                }
-            }
-        }
-
-        if (count > 0) {
-            saveSpawners();
-            if (debug) {
-                logger.info("[MobSpawner] " + (enabled ? "Enabled" : "Disabled") +
-                        " " + count + " spawners in group '" + groupName + "'");
-            }
-        }
-
-        return count;
-    }
-
-    /**
-     * Find all spawners that belong to a specific group
-     *
-     * @param groupName The group name to search for
-     * @return List of spawner locations in that group
-     */
-    public List<Location> findSpawnersInGroup(String groupName) {
-        if (groupName == null || groupName.isEmpty()) return new ArrayList<>();
-
-        Set<String> groupIds = spawnerGroups.get(groupName);
-        if (groupIds == null || groupIds.isEmpty()) return new ArrayList<>();
-
-        List<Location> result = new ArrayList<>();
-        for (String spawnerId : groupIds) {
-            Spawner spawner = spawners.get(spawnerId);
-            if (spawner != null) {
-                result.add(spawner.getLocation());
-            }
-        }
-
-        return result;
-    }
-
-    /**
-     * Get a spawner by its unique ID
-     *
-     * @param spawnerId The spawner ID
-     * @return The spawner or null if not found
-     */
-    public Spawner getSpawnerById(String spawnerId) {
-        if (spawnerId == null || spawnerId.isEmpty()) return null;
-        return spawners.get(spawnerId);
-    }
-
-    /**
-     * Begin a guided spawner creation process for a player
-     *
-     * @param player   The player creating the spawner
-     * @param location The location for the new spawner
-     */
-    public void beginGuidedSpawnerCreation(Player player, Location location) {
-        if (player == null || location == null) return;
-
-        String playerName = player.getName();
-
-        if (spawnerCreationSessions.containsKey(playerName)) {
-            player.sendMessage(ChatColor.RED + "You already have an active spawner creation session.");
-            player.sendMessage(ChatColor.GRAY + "Type 'cancel' to cancel the current session.");
-            return;
-        }
-
-        SpawnerCreationSession session = new SpawnerCreationSession(location, playerName);
-        spawnerCreationSessions.put(playerName, session);
-        creatingSpawner.put(playerName, location);
-
-        player.sendMessage(ChatColor.GREEN + "=== Spawner Creation Wizard ===");
-        player.sendMessage(ChatColor.GRAY + "Creating a spawner at: " + location.getWorld().getName() +
-                " [" + location.getBlockX() + ", " + location.getBlockY() + ", " + location.getBlockZ() + "]");
-
-        player.sendMessage(ChatColor.YELLOW + "Step 1: Enter a mob type (e.g., skeleton, zombie)");
-        player.sendMessage(ChatColor.GRAY + "You can also use a template by typing 'template:name'.");
-        player.sendMessage(ChatColor.GRAY + "Available templates: " + String.join(", ", spawnerTemplates.keySet()));
-        player.sendMessage(ChatColor.GRAY + "Type 'cancel' at any time to cancel creation.");
-    }
-
-    /**
-     * Check if a player has an active spawner creation session
-     *
-     * @param playerName The player name
-     * @return true if they have an active session
-     */
-    public boolean hasActiveCreationSession(String playerName) {
-        return spawnerCreationSessions.containsKey(playerName);
-    }
-
-    /**
-     * Create an in-game control panel for a spawner
-     *
-     * @param player   The player viewing the panel
-     * @param location The spawner location
-     */
-    public void createSpawnerControlPanel(Player player, Location location) {
-        Spawner spawner = getSpawnerAtLocation(location);
-        if (spawner == null) {
-            player.sendMessage(ChatColor.RED + "No spawner found at this location.");
-            return;
-        }
-
-        String playerId = player.getUniqueId().toString();
-        String panelId = "control_panel_" + playerId;
-
-        List<String> lines = new ArrayList<>();
-        lines.add(ChatColor.GOLD + "" + ChatColor.BOLD + "Spawner Control Panel");
-        lines.add(ChatColor.YELLOW + "Location: " + ChatColor.WHITE +
-                location.getBlockX() + ", " + location.getBlockY() + ", " + location.getBlockZ());
-
-        SpawnerProperties props = spawner.getProperties();
-        SpawnerMetrics metrics = spawner.getMetrics();
-
-        if (props.getSpawnerGroup() != null && !props.getSpawnerGroup().isEmpty()) {
-            lines.add(ChatColor.YELLOW + "Group: " + ChatColor.WHITE + props.getSpawnerGroup());
-        }
-
-        lines.add(ChatColor.YELLOW + "Visibility: " +
-                (spawner.isVisible() ? ChatColor.GREEN + "Visible" : ChatColor.RED + "Hidden"));
-
-        lines.add(ChatColor.YELLOW + "Mobs: " + ChatColor.WHITE +
-                spawner.getTotalActiveMobs() + "/" + spawner.getTotalDesiredMobs());
-
-        if (metrics.getTotalSpawned() > 0) {
-            lines.add(ChatColor.YELLOW + "Spawned: " + ChatColor.WHITE + metrics.getTotalSpawned() +
-                    " | Killed: " + metrics.getTotalKilled());
-        }
-
-        lines.add(ChatColor.GREEN + "=== Available Commands ===");
-        lines.add(ChatColor.GRAY + "/spawner toggle show/hide");
-        lines.add(ChatColor.GRAY + "/spawner reset");
-        lines.add(ChatColor.GRAY + "/spawner edit");
-        lines.add(ChatColor.GRAY + "/spawner visualize");
-
-        Location panelLoc = player.getLocation().clone().add(0, 2, 0);
-        HologramManager.createOrUpdateHologram(panelId, panelLoc, lines, 0.25);
-
-        Bukkit.getScheduler().runTaskLater(plugin, () -> {
-            HologramManager.removeHologram(panelId);
-        }, 300L); // 15 seconds
-
-        player.sendMessage(ChatColor.GREEN + "Control panel created. Look up!");
-        player.sendMessage(ChatColor.GRAY + "Panel will disappear after 15 seconds.");
-    }
-
-    /**
-     * Visualize spawner range and properties for a player
-     *
-     * @param player   The player
-     * @param location The spawner location
-     * @return true if visualization was created
-     */
-    public boolean visualizeSpawnerForPlayer(Player player, Location location) {
-        Spawner spawner = getSpawnerAtLocation(location);
-        if (spawner == null) return false;
-
-        String playerUUID = player.getUniqueId().toString();
-        String vizKey = playerUUID + "_" + System.currentTimeMillis();
-
-        cleanupPlayerVisualizations(playerUUID);
-
-        SpawnerProperties props = spawner.getProperties();
-        double radiusX = props.getSpawnRadiusX();
-        double radiusY = props.getSpawnRadiusY();
-        double radiusZ = props.getSpawnRadiusZ();
-
-        List<ArmorStand> markers = new ArrayList<>();
-        Location origin = location.clone();
-
-        // Create corner markers for spawn area
-        for (double x = -radiusX; x <= radiusX; x += radiusX) {
-            for (double y = -radiusY; y <= radiusY; y += radiusY) {
-                for (double z = -radiusZ; z <= radiusZ; z += radiusZ) {
-                    Location markerLoc = origin.clone().add(x, y, z);
-
-                    ArmorStand marker = (ArmorStand) origin.getWorld().spawnEntity(markerLoc, EntityType.ARMOR_STAND);
-                    marker.setVisible(false);
-                    marker.setGravity(false);
-                    marker.setMarker(true);
-                    marker.setSmall(true);
-                    marker.setCustomNameVisible(true);
-                    marker.setCustomName(ChatColor.YELLOW + "●");
-
-                    markers.add(marker);
-                }
-            }
-        }
-
-        // Create detection range indicator
-        double detectionRange = props.getPlayerDetectionRangeOverride() > 0 ?
-                props.getPlayerDetectionRangeOverride() : playerDetectionRange;
-
-        Location detectionLoc = origin.clone().add(0, 1, 0);
-        ArmorStand rangeMarker = (ArmorStand) origin.getWorld().spawnEntity(detectionLoc, EntityType.ARMOR_STAND);
-
-        rangeMarker.setVisible(false);
-        rangeMarker.setGravity(false);
-        rangeMarker.setMarker(true);
-        rangeMarker.setCustomNameVisible(true);
-        rangeMarker.setCustomName(ChatColor.GREEN + "Detection Range: " + ChatColor.WHITE +
-                String.format("%.1f", detectionRange) + " blocks");
-
-        markers.add(rangeMarker);
-
-        // Create label for spawn boundaries
-        Location labelLoc = origin.clone().add(0, 2, 0);
-        ArmorStand labelMarker = (ArmorStand) origin.getWorld().spawnEntity(labelLoc, EntityType.ARMOR_STAND);
-
-        labelMarker.setVisible(false);
-        labelMarker.setGravity(false);
-        labelMarker.setMarker(true);
-        labelMarker.setCustomNameVisible(true);
-        labelMarker.setCustomName(ChatColor.AQUA + "Spawn Radius: " + ChatColor.WHITE +
-                String.format("%.1f", radiusX) + "x" +
-                String.format("%.1f", radiusY) + "x" +
-                String.format("%.1f", radiusZ));
-
-        markers.add(labelMarker);
-
-        visualizations.put(vizKey, markers);
-
-        player.sendMessage(ChatColor.GREEN + "Spawner visualization created.");
-        player.sendMessage(ChatColor.GRAY + "Visualization will disappear in 10 seconds.");
-
-        Bukkit.getScheduler().runTaskLater(plugin, () -> {
-            List<ArmorStand> stands = visualizations.remove(vizKey);
-            if (stands != null) {
-                for (ArmorStand stand : stands) {
-                    if (stand != null && !stand.isDead()) {
-                        stand.remove();
-                    }
-                }
-            }
-        }, 200L); // 10 seconds
-
-        return true;
-    }
-
-    /**
-     * Clean up visualizations for a specific player
-     *
-     * @param playerUUID Player UUID as string
-     */
-    private void cleanupPlayerVisualizations(String playerUUID) {
-        List<String> toRemove = new ArrayList<>();
-
-        for (Map.Entry<String, List<ArmorStand>> entry : visualizations.entrySet()) {
-            if (entry.getKey().startsWith(playerUUID + "_")) {
-                for (ArmorStand stand : entry.getValue()) {
-                    if (stand != null && !stand.isDead()) {
-                        stand.remove();
-                    }
-                }
-                toRemove.add(entry.getKey());
-            }
-        }
-
-        for (String key : toRemove) {
-            visualizations.remove(key);
-        }
-    }
-
-    /**
-     * Process chat message during spawner creation
-     *
-     * @param player  The player
-     * @param message The chat message
-     */
-    public void processCreationChat(Player player, String message) {
-        String playerName = player.getName();
-        SpawnerCreationSession session = spawnerCreationSessions.get(playerName);
-
-        if (session == null) return;
-
-        if (message.equalsIgnoreCase("cancel")) {
-            spawnerCreationSessions.remove(playerName);
-            creatingSpawner.remove(playerName);
-            player.sendMessage(ChatColor.RED + "Spawner creation cancelled.");
-            return;
-        }
-
-        // Process the creation steps (implementation would depend on SpawnerCreationSession)
-        // This is a simplified version - the full implementation would handle all steps
-        player.sendMessage(ChatColor.YELLOW + "Spawner creation chat processing not fully implemented in this example.");
-        player.sendMessage(ChatColor.GRAY + "Use templates or direct spawner data instead.");
-    }
-
-    /**
      * Shutdown the spawner system
      */
     public void shutdown() {
         try {
             saveSpawners();
 
+            // Cancel tasks
             if (mainProcessingTask != null) mainProcessingTask.cancel();
             if (autoSaveTask != null) autoSaveTask.cancel();
-            if (sessionCleanupTask != null) sessionCleanupTask.cancel();
-            if (visualizationCleanupTask != null) visualizationCleanupTask.cancel();
+            if (cleanupTask != null) cleanupTask.cancel();
 
+            // Clean up visualizations
             for (List<ArmorStand> stands : visualizations.values()) {
                 for (ArmorStand stand : stands) {
                     if (stand != null && !stand.isDead()) {
@@ -1626,12 +1028,14 @@ public class MobSpawner implements Listener {
             }
             visualizations.clear();
 
+            // Clean up holograms
             for (Spawner spawner : spawners.values()) {
                 if (spawner.isVisible()) {
                     spawner.removeHologram();
                 }
             }
 
+            // Clear all data
             spawners.clear();
             spawnerLocations.clear();
             entityToSpawner.clear();
@@ -1639,7 +1043,7 @@ public class MobSpawner implements Listener {
             spawnerCreationSessions.clear();
             spawnerGroups.clear();
 
-            logger.info("[MobSpawner] Shutdown complete");
+            logger.info("[MobSpawner] FIXED: Shutdown completed successfully");
         } catch (Exception e) {
             logger.severe("[MobSpawner] Error during shutdown: " + e.getMessage());
             e.printStackTrace();
