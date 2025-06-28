@@ -20,7 +20,7 @@ import java.util.logging.Logger;
 import java.util.stream.Collectors;
 
 /**
- * FIXED: Completely synchronous spawner with reliable respawn system
+ * FIXED: Completely synchronous spawner with reliable respawn system and proper hologram updates
  * No async tasks, no race conditions, deterministic behavior
  */
 public class Spawner {
@@ -38,9 +38,11 @@ public class Spawner {
     private final MobManager mobManager;
     private final String uniqueId;
 
-    // FIXED: Simple tick-based timing - no async tasks
+    // FIXED: Simple tick-based timing with proper hologram update tracking
     private long lastProcessTick = 0;
     private boolean needsHologramUpdate = false;
+    private long lastHologramUpdate = 0;
+    private static final long HOLOGRAM_UPDATE_INTERVAL = 5000; // 5 seconds between updates
 
     /**
      * Constructor for a new spawner
@@ -60,6 +62,7 @@ public class Spawner {
         }
 
         this.lastProcessTick = System.currentTimeMillis();
+        this.needsHologramUpdate = true; // Initial update needed
     }
 
     /**
@@ -71,7 +74,6 @@ public class Spawner {
                 location.getBlockY() + "_" +
                 location.getBlockZ();
     }
-
 
     /**
      * Parse spawner data string into mob entries
@@ -150,6 +152,9 @@ public class Spawner {
                 logger.warning("[Spawner] Error parsing mob entry: " + entry + " - " + e.getMessage());
             }
         }
+
+        // Flag for hologram update after parsing
+        needsHologramUpdate = true;
     }
 
     /**
@@ -162,7 +167,7 @@ public class Spawner {
     }
 
     /**
-     * FIXED: Main synchronous processing method
+     * FIXED: Main synchronous processing method with proper hologram updates
      * Called every tick from MobSpawner - handles all spawning and respawning
      */
     public void processTick() {
@@ -180,11 +185,8 @@ public class Spawner {
                 spawnMissingMobs();
             }
 
-            // Update hologram if needed
-            if (needsHologramUpdate && visible) {
-                updateHologram();
-                needsHologramUpdate = false;
-            }
+            // FIXED: Update hologram periodically or when needed
+            updateHologramIfNeeded(currentTick);
 
             this.lastProcessTick = currentTick;
 
@@ -197,7 +199,29 @@ public class Spawner {
     }
 
     /**
-     * FIXED: Synchronous respawn processing
+     * FIXED: Proper hologram update logic with timing control
+     */
+    private void updateHologramIfNeeded(long currentTime) {
+        try {
+            // Update hologram if needed and enough time has passed
+            if (needsHologramUpdate && visible &&
+                    (currentTime - lastHologramUpdate) >= HOLOGRAM_UPDATE_INTERVAL) {
+
+                updateHologram();
+                needsHologramUpdate = false;
+                lastHologramUpdate = currentTime;
+
+                if (isDebugMode()) {
+                    logger.info("[Spawner] Updated hologram for " + formatLocation());
+                }
+            }
+        } catch (Exception e) {
+            logger.warning("[Spawner] Error updating hologram: " + e.getMessage());
+        }
+    }
+
+    /**
+     * FIXED: Synchronous respawn processing with better tracking
      */
     private void processRespawns(long currentTick) {
         if (respawningMobs.isEmpty()) return;
@@ -230,19 +254,21 @@ public class Spawner {
     }
 
     /**
-     * FIXED: Direct respawn attempt - no rescheduling, deterministic
+     * FIXED: Direct respawn attempt with better error handling and retry logic
      */
     private void attemptRespawn(SpawnedMob deadMob) {
         // Check basic requirements
         if (!canSpawnHere()) {
-            // Don't reschedule - just wait for next tick cycle
-            respawningMobs.put(UUID.randomUUID(), deadMob); // Keep trying
+            // Retry in 10 seconds
+            deadMob.setRespawnTime(System.currentTimeMillis() + 10000);
+            respawningMobs.put(UUID.randomUUID(), deadMob);
             return;
         }
 
         // Check capacity
         if (isAtCapacity()) {
-            // Wait for capacity to free up
+            // Wait for capacity to free up - retry in 5 seconds
+            deadMob.setRespawnTime(System.currentTimeMillis() + 5000);
             respawningMobs.put(UUID.randomUUID(), deadMob);
             return;
         }
@@ -254,6 +280,17 @@ public class Spawner {
             return;
         }
 
+        // FIXED: Check if MobManager can spawn this mob type
+        if (!mobManager.canSpawnerSpawnMob(entry.getMobType(), entry.getTier(), entry.isElite())) {
+            // Retry in 30 seconds if spawn conditions aren't met
+            deadMob.setRespawnTime(System.currentTimeMillis() + 30000);
+            respawningMobs.put(UUID.randomUUID(), deadMob);
+            if (isDebugMode()) {
+                logger.info("[Spawner] MobManager rejected spawn, retrying later: " + entry.getMobType());
+            }
+            return;
+        }
+
         // Attempt to spawn
         if (spawnSingleMob(entry)) {
             metrics.recordSpawn(1);
@@ -262,7 +299,8 @@ public class Spawner {
             logger.info("[Spawner] RESPAWN SUCCESS: " + entry.getMobType() + " T" + entry.getTier() +
                     (entry.isElite() ? "+" : "") + " at " + formatLocation());
         } else {
-            // Failed to spawn - try again next tick
+            // Failed to spawn - try again in 15 seconds
+            deadMob.setRespawnTime(System.currentTimeMillis() + 15000);
             respawningMobs.put(UUID.randomUUID(), deadMob);
 
             if (isDebugMode()) {
@@ -370,14 +408,14 @@ public class Spawner {
     }
 
     /**
-     * FIXED: Spawn a single mob - no async operations
+     * FIXED: Spawn a single mob through MobManager with proper error handling
      */
     private boolean spawnSingleMob(MobEntry entry) {
         try {
             // Get a spawn location near the spawner
             Location spawnLoc = getRandomSpawnLocation();
 
-            // FIXED: Spawn directly through MobManager without cooldown checks for spawner mobs
+            // FIXED: Use the MobManager's spawner-specific spawn method
             LivingEntity entity = mobManager.spawnMobFromSpawner(spawnLoc, entry.getMobType(), entry.getTier(), entry.isElite());
 
             if (entity != null) {
@@ -399,6 +437,10 @@ public class Spawner {
                 metrics.recordSpawnByType(1, entry.getTier(), entry.getMobType());
 
                 return true;
+            } else {
+                if (isDebugMode()) {
+                    logger.warning("[Spawner] MobManager returned null entity for " + entry.getMobType());
+                }
             }
         } catch (Exception e) {
             logger.warning("[Spawner] Failed to spawn mob " + entry.getMobType() +
@@ -516,8 +558,10 @@ public class Spawner {
             }
         }
 
-        for (UUID uuid : toRemove) {
-            activeMobs.remove(uuid);
+        if (!toRemove.isEmpty()) {
+            for (UUID uuid : toRemove) {
+                activeMobs.remove(uuid);
+            }
             needsHologramUpdate = true;
         }
     }
@@ -594,6 +638,8 @@ public class Spawner {
         needsHologramUpdate = true;
 
         if (visible) {
+            // Force immediate hologram update on reset
+            lastHologramUpdate = 0;
             updateHologram();
         }
 
@@ -603,7 +649,7 @@ public class Spawner {
     }
 
     /**
-     * Create or update hologram for this spawner
+     * FIXED: Create or update hologram for this spawner with proper error handling
      */
     public void updateHologram() {
         try {
@@ -615,43 +661,67 @@ public class Spawner {
             List<String> lines = generateHologramLines();
             String holoId = "spawner_" + uniqueId;
 
-            int y = displayMode == 2 ? 4 : 2;
+            // Adjust height based on display mode
+            double yOffset = switch (displayMode) {
+                case 0 -> 1.5; // Basic mode - lower
+                case 1 -> 2.5; // Detailed mode - medium
+                case 2 -> 3.5; // Admin mode - higher
+                default -> 2.0;
+            };
+
+            Location holoLocation = location.clone().add(0, yOffset, 0);
+
             HologramManager.createOrUpdateHologram(
                     holoId,
-                    location.clone().add(0, y, 0),
+                    holoLocation,
                     lines,
                     0.25);
+
+            if (isDebugMode()) {
+                logger.info("[Spawner] Updated hologram with " + lines.size() + " lines at " + formatLocation());
+            }
+
         } catch (Exception e) {
             logger.warning("[Spawner] Error updating hologram: " + e.getMessage());
+            if (isDebugMode()) {
+                e.printStackTrace();
+            }
         }
     }
 
     /**
-     * Generate hologram lines based on current state
+     * FIXED: Generate hologram lines based on current state with better formatting
      */
     private List<String> generateHologramLines() {
         List<String> lines = new ArrayList<>();
 
-        // Title
-        lines.add(getDisplayTitle());
+        try {
+            // Title
+            lines.add(getDisplayTitle());
 
-        // Group info if applicable
-        addGroupInfoIfPresent(lines);
+            // Group info if applicable
+            addGroupInfoIfPresent(lines);
 
-        // Basic info
-        lines.add(ChatColor.YELLOW + formatSpawnerData());
+            // Basic info
+            lines.add(ChatColor.YELLOW + formatSpawnerData());
 
-        // Status line
-        addStatusLine(lines);
+            // Status line
+            addStatusLine(lines);
 
-        // Add detailed stats if in appropriate display mode
-        if (displayMode >= 1) {
-            addDetailedStats(lines);
-        }
+            // Add detailed stats if in appropriate display mode
+            if (displayMode >= 1) {
+                addDetailedStats(lines);
+            }
 
-        // Add admin info if in admin mode
-        if (displayMode >= 2) {
-            addAdminInfo(lines);
+            // Add admin info if in admin mode
+            if (displayMode >= 2) {
+                addAdminInfo(lines);
+            }
+
+        } catch (Exception e) {
+            logger.warning("[Spawner] Error generating hologram lines: " + e.getMessage());
+            lines.clear();
+            lines.add(ChatColor.RED + "Error generating hologram");
         }
 
         return lines;
@@ -756,8 +826,16 @@ public class Spawner {
      * Remove hologram for this spawner
      */
     public void removeHologram() {
-        String holoId = "spawner_" + uniqueId;
-        HologramManager.removeHologram(holoId);
+        try {
+            String holoId = "spawner_" + uniqueId;
+            HologramManager.removeHologram(holoId);
+
+            if (isDebugMode()) {
+                logger.info("[Spawner] Removed hologram for " + formatLocation());
+            }
+        } catch (Exception e) {
+            logger.warning("[Spawner] Error removing hologram: " + e.getMessage());
+        }
     }
 
     /**
@@ -915,24 +993,43 @@ public class Spawner {
         player.sendMessage(ChatColor.GOLD + "╚════════════════════════════╝");
     }
 
-    // Getters and setters
+    // ================ GETTERS AND SETTERS ================
+
     public Location getLocation() { return location.clone(); }
+
     public boolean isVisible() { return visible; }
+
     public void setVisible(boolean visible) {
         this.visible = visible;
+        needsHologramUpdate = true;
         if (visible) {
+            // Force immediate update when making visible
+            lastHologramUpdate = 0;
             updateHologram();
         } else {
             removeHologram();
         }
     }
+
     public SpawnerProperties getProperties() { return properties; }
-    public void setProperties(SpawnerProperties properties) { this.properties = properties; }
+
+    public void setProperties(SpawnerProperties properties) {
+        this.properties = properties;
+        needsHologramUpdate = true;
+    }
+
     public int getDisplayMode() { return displayMode; }
+
     public void setDisplayMode(int displayMode) {
         this.displayMode = Math.max(0, Math.min(2, displayMode));
-        updateHologram();
+        needsHologramUpdate = true;
+        // Force immediate update when changing display mode
+        lastHologramUpdate = 0;
+        if (visible) {
+            updateHologram();
+        }
     }
+
     public SpawnerMetrics getMetrics() { return metrics; }
     public List<MobEntry> getMobEntries() { return new ArrayList<>(mobEntries); }
     public String getUniqueId() { return uniqueId; }
