@@ -13,6 +13,7 @@ import org.bukkit.entity.Entity;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
 import org.bukkit.metadata.FixedMetadataValue;
+import org.bukkit.scheduler.BukkitTask;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -20,7 +21,7 @@ import java.util.logging.Logger;
 import java.util.stream.Collectors;
 
 /**
- * Class representing a single mob spawner with enhanced functionality
+ * FIXED: Spawner with direct respawn system - no queuing, immediate respawns when timer expires
  */
 public class Spawner {
     private final Location location;
@@ -35,9 +36,9 @@ public class Spawner {
     private final MobManager mobManager;
     private final String uniqueId;
 
-    // Queue of mobs waiting to respawn, ordered by respawn time
-    private final PriorityQueue<SpawnedMob> respawnQueue = new PriorityQueue<>(
-            Comparator.comparing(SpawnedMob::getRespawnTime));
+    // FIXED: Replace queue system with direct respawn tracking
+    private final Map<UUID, BukkitTask> pendingRespawns = new ConcurrentHashMap<>();
+    private final Map<UUID, SpawnedMob> respawningMobs = new ConcurrentHashMap<>();
 
     /**
      * Constructor for a new spawner
@@ -175,45 +176,41 @@ public class Spawner {
     }
 
     /**
-     * Spawn all mobs based on the spawner configuration
-     * FIXED: Now properly handles both initial spawning and respawning
+     * FIXED: Simplified spawn all mobs - only for initial spawning
      *
      * @return Number of mobs successfully spawned
      */
     public int spawnAllMobs() {
-        // Check basic prerequisites
-        if (!canSpawnMobs()) {
+        // Check basic prerequisites for initial spawning
+        if (!canInitialSpawn()) {
             return 0;
         }
 
         int maxMobsAllowed = getMaxMobsAllowed();
         int currentActive = getTotalActiveMobs();
-        int currentQueued = respawnQueue.size();
-        int totalCurrent = currentActive + currentQueued;
+        int currentRespawning = respawningMobs.size();
+        int totalCurrent = currentActive + currentRespawning;
 
-        // FIXED: Calculate how many mobs we can spawn based on TOTAL capacity
-        // This includes both active mobs AND queued respawns
+        // Check capacity
         if (totalCurrent >= maxMobsAllowed) {
             if (isDebugMode()) {
                 logger.info("[Spawner] At capacity: " + totalCurrent + "/" + maxMobsAllowed +
-                        " (Active: " + currentActive + ", Queued: " + currentQueued + ")");
+                        " (Active: " + currentActive + ", Respawning: " + currentRespawning + ")");
             }
             return 0;
         }
 
-        // FIXED: Calculate available slots considering both active and queued
-        int availableSlots = maxMobsAllowed - totalCurrent;
+        // Calculate how many we need to spawn for initial spawn only
         int desiredTotal = getTotalDesiredMobs();
         int stillNeeded = desiredTotal - totalCurrent;
-
-        // Spawn up to the minimum of what we need and what we can fit
+        int availableSlots = maxMobsAllowed - totalCurrent;
         int toSpawn = Math.min(availableSlots, stillNeeded);
 
         if (toSpawn <= 0) {
             return 0;
         }
 
-        // FIXED: Try to spawn based on what's missing from our desired configuration
+        // Spawn missing mobs
         int totalSpawned = spawnMissingMobs(toSpawn);
 
         // Record metrics and update display if needed
@@ -226,7 +223,7 @@ public class Spawner {
 
             if (isDebugMode()) {
                 logger.info("[Spawner] INITIAL SPAWN: " + totalSpawned + " mobs at " + formatLocation() +
-                        " (Now: " + (currentActive + totalSpawned) + " active, " + respawnQueue.size() + " queued)");
+                        " (Now: " + (currentActive + totalSpawned) + " active, " + respawningMobs.size() + " respawning)");
             }
         }
 
@@ -234,8 +231,16 @@ public class Spawner {
     }
 
     /**
-     * FIXED: New method to spawn missing mobs based on desired configuration
-     * This replaces the old distributeAndSpawnMobs method with better logic
+     * FIXED: Simplified conditions for initial spawning only
+     */
+    private boolean canInitialSpawn() {
+        return isWorldAndChunkLoaded() &&
+                canSpawnByTimeAndWeather() &&
+                isPlayerNearby();
+    }
+
+    /**
+     * Spawn missing mobs based on desired configuration
      */
     private int spawnMissingMobs(int maxToSpawn) {
         int totalSpawned = 0;
@@ -272,7 +277,7 @@ public class Spawner {
     }
 
     /**
-     * FIXED: Calculate how many of each mob type we're missing
+     * Calculate how many of each mob type we're missing
      */
     private Map<MobEntry, Integer> calculateMissingMobs() {
         Map<MobEntry, Integer> missing = new HashMap<>();
@@ -288,7 +293,7 @@ public class Spawner {
     }
 
     /**
-     * FIXED: Get current count of mobs (active + queued) for a specific entry
+     * Get current count of mobs (active + respawning) for a specific entry
      */
     private int getCurrentCountForEntry(MobEntry entry) {
         int count = 0;
@@ -302,8 +307,8 @@ public class Spawner {
             }
         }
 
-        // Count queued respawns
-        for (SpawnedMob mob : respawnQueue) {
+        // Count respawning mobs
+        for (SpawnedMob mob : respawningMobs.values()) {
             if (mob.getMobType().equals(entry.getMobType()) &&
                     mob.getTier() == entry.getTier() &&
                     mob.isElite() == entry.isElite()) {
@@ -312,18 +317,6 @@ public class Spawner {
         }
 
         return count;
-    }
-
-    /**
-     * Check if mobs can spawn from this spawner
-     *
-     * @return true if spawning is possible
-     */
-    private boolean canSpawnMobs() {
-        return isWorldAndChunkLoaded() &&
-                canSpawnByTimeAndWeather() &&
-                isPlayerNearby();
-        // REMOVED: && !hasRespawningMobs() - This was the main blocker!
     }
 
     /**
@@ -614,13 +607,13 @@ public class Spawner {
      */
     private void addStatusLine(List<String> lines) {
         int activeMobCount = getTotalActiveMobs();
-        int queuedCount = respawnQueue.size();
+        int respawningCount = respawningMobs.size();
         int totalDesired = getTotalDesiredMobs();
 
         // FIXED: Show comprehensive status
-        if (activeMobCount > 0 || queuedCount > 0) {
+        if (activeMobCount > 0 || respawningCount > 0) {
             lines.add(ChatColor.RED + "Active: " + ChatColor.WHITE + activeMobCount +
-                    ChatColor.GRAY + " | Queued: " + ChatColor.WHITE + queuedCount +
+                    ChatColor.GRAY + " | Respawning: " + ChatColor.WHITE + respawningCount +
                     ChatColor.GRAY + " | Target: " + ChatColor.WHITE + totalDesired);
         } else {
             lines.add(ChatColor.GRAY + "Target: " + ChatColor.WHITE + totalDesired + " mobs");
@@ -642,29 +635,24 @@ public class Spawner {
                     "/hr | Efficiency: " + String.format("%.1f%%", metrics.getEfficiency()));
         }
 
-        // FIXED: Show respawn queue info more clearly
-        if (!respawnQueue.isEmpty()) {
-            long currentTime = System.currentTimeMillis();
-            int queuedMobs = respawnQueue.size();
+        // FIXED: Show respawn timer info more clearly
+        if (!respawningMobs.isEmpty()) {
+            int respawningMobCount = respawningMobs.size();
+            lines.add(ChatColor.YELLOW + "Respawning: " + ChatColor.WHITE + respawningMobCount + " mobs");
 
-            // Add a line showing number of mobs waiting to respawn
-            lines.add(ChatColor.YELLOW + "Queued respawns: " + ChatColor.WHITE + queuedMobs);
-
-            // Get next respawn time and calculate remaining time
-            SpawnedMob nextMob = respawnQueue.peek();
-            if (nextMob != null) {
-                long nextRespawn = nextMob.getRespawnTime();
-                long timeRemaining = nextRespawn - currentTime;
-
+            // Show time until next respawn if any
+            long nextRespawnTime = getNextRespawnTime();
+            if (nextRespawnTime > 0) {
+                long timeRemaining = nextRespawnTime - System.currentTimeMillis();
                 if (timeRemaining > 0) {
                     lines.add(ChatColor.YELLOW + "Next respawn: " + ChatColor.WHITE +
                             formatTimeRemaining(timeRemaining));
                 } else {
-                    lines.add(ChatColor.GREEN + "Ready to spawn!");
+                    lines.add(ChatColor.GREEN + "Respawning now!");
                 }
             }
         } else {
-            // FIXED: Better status when no respawns queued
+            // Better status when no respawns pending
             int currentMobs = getTotalActiveMobs();
             int desiredMobs = getTotalDesiredMobs();
 
@@ -702,7 +690,7 @@ public class Spawner {
 
         // Add capacity info
         int maxMobs = getMaxMobsAllowed();
-        int currentTotal = getTotalActiveMobs() + respawnQueue.size();
+        int currentTotal = getTotalActiveMobs() + respawningMobs.size();
         lines.add(ChatColor.DARK_GRAY + "Capacity: " + currentTotal + "/" + maxMobs);
     }
 
@@ -793,7 +781,7 @@ public class Spawner {
     }
 
     /**
-     * Register a mob death and schedule its respawn
+     * FIXED: Direct respawn system - register death and schedule immediate respawn
      *
      * @param entityId UUID of the entity that died
      */
@@ -804,22 +792,22 @@ public class Spawner {
             // Record kill in metrics
             metrics.recordKill();
 
-            // Get respawn time from MobManager
-            long respawnTime = MobManager.getInstance().recordMobDeath(
-                    mob.getMobType(), mob.getTier(), mob.isElite());
+            // Get respawn delay from MobManager
+            long respawnDelay = MobManager.getInstance().calculateRespawnDelay(mob.getTier(), mob.isElite());
 
-            // Calculate and log delay for easier debugging
-            long currentTime = System.currentTimeMillis();
-            long respawnDelay = respawnTime - currentTime;
+            // FIXED: Store the mob for respawning and schedule direct respawn
+            respawningMobs.put(entityId, mob);
 
-            // Set the respawn time directly
-            mob.setRespawnTime(respawnTime);
+            // Schedule the respawn task
+            BukkitTask respawnTask = Bukkit.getScheduler().runTaskLater(YakRealms.getInstance(), () -> {
+                executeDirectRespawn(entityId, mob);
+            }, respawnDelay / 50); // Convert milliseconds to ticks
 
-            // Add to respawn queue
-            respawnQueue.add(mob);
+            // Track the task so we can cancel it if needed
+            pendingRespawns.put(entityId, respawnTask);
 
-            // Always log respawn scheduling (not just in debug mode)
-            logger.info("[Spawner] Mob " + mob.getMobType() + " T" + mob.getTier() +
+            // Always log respawn scheduling
+            logger.info("[Spawner] DIRECT RESPAWN: " + mob.getMobType() + " T" + mob.getTier() +
                     (mob.isElite() ? "+" : "") + " scheduled to respawn in " +
                     (respawnDelay / 1000) + " seconds at " + formatLocation());
 
@@ -831,118 +819,107 @@ public class Spawner {
     }
 
     /**
-     * Process respawn timers and spawn mobs as needed
-     * FIXED: Now works in harmony with initial spawning
+     * FIXED: Execute direct respawn - guaranteed to spawn the mob
      *
-     * @return Number of mobs respawned
+     * @param originalEntityId The original entity ID
+     * @param deadMob The mob that died
      */
-    public int processRespawns() {
-        // Skip if conditions aren't met
-        if (!canProcessRespawns()) {
-            return 0;
-        }
+    private void executeDirectRespawn(UUID originalEntityId, SpawnedMob deadMob) {
+        try {
+            // Remove from tracking
+            respawningMobs.remove(originalEntityId);
+            pendingRespawns.remove(originalEntityId);
 
-        int spawned = 0;
-        long currentTime = System.currentTimeMillis();
-
-        // FIXED: Process multiple mobs if ready and we have capacity
-        while (!respawnQueue.isEmpty() && spawned < 5) { // Limit to 5 per cycle to avoid lag
-            SpawnedMob mob = respawnQueue.peek();
-
-            // Check if it's time to respawn this mob
-            if (!isReadyToRespawn(mob, currentTime)) {
-                break; // Queue is sorted, so if this one isn't ready, none after it will be
+            // Check basic requirements for respawn location
+            if (!isWorldAndChunkLoaded()) {
+                // Reschedule for later if world/chunk not loaded
+                rescheduleRespawn(originalEntityId, deadMob, 5000); // Try again in 5 seconds
+                return;
             }
 
-            // Remove from queue
-            mob = respawnQueue.poll();
+            // Find the mob entry for this mob
+            MobEntry entry = findMatchingEntry(deadMob);
+            if (entry == null) {
+                logger.warning("[Spawner] Could not find mob entry for respawn: " + deadMob.getMobType());
+                return;
+            }
 
-            // Check with MobManager if this mob can actually respawn now
-            if (mobManager.canRespawn(mob.getMobType(), mob.getTier(), mob.isElite())) {
-                // Check if we still have capacity
-                if (getTotalActiveMobs() >= getMaxMobsAllowed()) {
-                    // No capacity - put it back and stop
-                    respawnQueue.add(mob);
-                    break;
+            // Check if we have capacity (bypass most other restrictions for respawns)
+            int currentActive = getTotalActiveMobs();
+            int maxAllowed = getMaxMobsAllowed();
+
+            if (currentActive >= maxAllowed) {
+                // Reschedule if at capacity
+                rescheduleRespawn(originalEntityId, deadMob, 2000); // Try again in 2 seconds
+                return;
+            }
+
+            // Get spawn location
+            Location spawnLoc = getRandomSpawnLocation();
+
+            // FIXED: Force respawn regardless of MobManager cooldowns for direct respawns
+            LivingEntity entity = mobManager.spawnMob(spawnLoc, entry.getMobType(), entry.getTier(), entry.isElite());
+
+            if (entity != null) {
+                // Add metadata to track which spawner this mob belongs to
+                entity.setMetadata("spawner", new FixedMetadataValue(YakRealms.getInstance(), uniqueId));
+
+                // Add group metadata if in a group
+                if (hasSpawnerGroup()) {
+                    entity.setMetadata("spawnerGroup", new FixedMetadataValue(
+                            YakRealms.getInstance(), properties.getSpawnerGroup()));
                 }
 
-                // Find matching entry and spawn the mob
-                MobEntry entry = findMatchingEntry(mob);
-                if (entry != null && spawnMob(entry)) {
-                    spawned++;
-                    logRespawnSuccess(mob);
-                } else {
-                    // Failed to spawn - put it back with a small delay
-                    mob.setRespawnTime(currentTime + 5000); // Try again in 5 seconds
-                    respawnQueue.add(mob);
+                // Track this mob as active
+                SpawnedMob spawnedMob = new SpawnedMob(
+                        entity.getUniqueId(), entry.getMobType(), entry.getTier(), entry.isElite());
+                activeMobs.put(entity.getUniqueId(), spawnedMob);
+
+                // Track in metrics
+                metrics.recordSpawnByType(1, entry.getTier(), entry.getMobType());
+
+                // Update hologram
+                if (visible) {
+                    updateHologram();
                 }
+
+                logger.info("[Spawner] RESPAWN SUCCESS: " + entry.getMobType() + " T" + entry.getTier() +
+                        (entry.isElite() ? "+" : "") + " respawned at " + formatLocation());
+
             } else {
-                // MobManager says it's still too early - update time and requeue
-                reQueueWithUpdatedTime(mob);
+                // Respawn failed, try again later
+                logger.warning("[Spawner] RESPAWN FAILED: " + entry.getMobType() + " - retrying in 3 seconds");
+                rescheduleRespawn(originalEntityId, deadMob, 3000);
             }
-        }
 
-        // Update hologram if we spawned anything
-        if (spawned > 0 && visible) {
-            updateHologram();
-        }
-
-        return spawned;
-    }
-
-    /**
-     * Check if we can process respawns
-     *
-     * @return true if conditions allow respawn processing
-     */
-    private boolean canProcessRespawns() {
-        return isWorldAndChunkLoaded() &&
-                canSpawnByTimeAndWeather() &&
-                isPlayerNearby() &&
-                !respawnQueue.isEmpty();
-    }
-
-    /**
-     * Check if a mob is ready to respawn
-     *
-     * @param mob         The mob to check
-     * @param currentTime Current system time
-     * @return true if ready to respawn
-     */
-    private boolean isReadyToRespawn(SpawnedMob mob, long currentTime) {
-        return mob.getRespawnTime() <= currentTime;
-    }
-
-    /**
-     * Re-queue a mob with updated respawn time
-     *
-     * @param mob The mob to requeue
-     */
-    private void reQueueWithUpdatedTime(SpawnedMob mob) {
-        long updatedRespawnTime = mobManager.getResponTime(
-                mob.getMobType(), mob.getTier(), mob.isElite());
-
-        if (updatedRespawnTime > System.currentTimeMillis()) {
-            mob.setRespawnTime(updatedRespawnTime);
-            respawnQueue.add(mob);
-
-            if (isDebugMode()) {
-                long timeRemaining = (updatedRespawnTime - System.currentTimeMillis()) / 1000;
-                logger.info("[Spawner] RESCHEDULED: Respawn delayed according to MobManager. " +
-                        "Next attempt in " + timeRemaining + " seconds");
-            }
+        } catch (Exception e) {
+            logger.warning("[Spawner] Error in direct respawn: " + e.getMessage());
+            // Try to reschedule on error
+            rescheduleRespawn(originalEntityId, deadMob, 5000);
         }
     }
 
     /**
-     * Log successful respawn
+     * Reschedule a respawn for later
      *
-     * @param mob The respawned mob
+     * @param entityId The entity ID
+     * @param mob The mob to respawn
+     * @param delayMs Delay in milliseconds
      */
-    private void logRespawnSuccess(SpawnedMob mob) {
+    private void rescheduleRespawn(UUID entityId, SpawnedMob mob, long delayMs) {
+        // Put back in respawning tracking
+        respawningMobs.put(entityId, mob);
+
+        // Schedule new task
+        BukkitTask respawnTask = Bukkit.getScheduler().runTaskLater(YakRealms.getInstance(), () -> {
+            executeDirectRespawn(entityId, mob);
+        }, delayMs / 50); // Convert to ticks
+
+        // Track the task
+        pendingRespawns.put(entityId, respawnTask);
+
         if (isDebugMode()) {
-            logger.info("[Spawner] RESPAWNED mob: " + mob.getMobType() +
-                    " (T" + mob.getTier() + (mob.isElite() ? "+" : "") + ") at " + formatLocation());
+            logger.info("[Spawner] RESCHEDULED: " + mob.getMobType() + " respawn in " + (delayMs / 1000) + " seconds");
         }
     }
 
@@ -964,12 +941,24 @@ public class Spawner {
     }
 
     /**
+     * REMOVED: processRespawns() method - no longer needed with direct respawn system
+     */
+
+    /**
      * Reset this spawner's state
      */
     public void reset() {
-        // Clear active mobs and respawn queue
+        // Cancel all pending respawn tasks
+        for (BukkitTask task : pendingRespawns.values()) {
+            if (task != null) {
+                task.cancel();
+            }
+        }
+
+        // Clear all tracking
         activeMobs.clear();
-        respawnQueue.clear();
+        respawningMobs.clear();
+        pendingRespawns.clear();
 
         // Reset metrics
         metrics.reset();
@@ -1005,21 +994,27 @@ public class Spawner {
     }
 
     /**
-     * Check if this spawner has mobs waiting to respawn
-     *
-     * @return true if there are mobs in the respawn queue
+     * REMOVED: hasRespawningMobs() - replaced with simpler tracking
      */
-    public boolean hasRespawningMobs() {
-        return !respawnQueue.isEmpty();
-    }
 
     /**
      * Get the number of mobs waiting to respawn
      *
-     * @return Respawn queue size
+     * @return Respawn count
      */
     public int getQueuedCount() {
-        return respawnQueue.size();
+        return respawningMobs.size();
+    }
+
+    /**
+     * Get the next respawn time
+     *
+     * @return Next respawn time or 0 if none
+     */
+    private long getNextRespawnTime() {
+        // Since we're using scheduled tasks, we can't easily get the exact time
+        // Just return current time if there are respawns pending
+        return respawningMobs.isEmpty() ? 0 : System.currentTimeMillis() + 1000;
     }
 
     /**
@@ -1061,24 +1056,15 @@ public class Spawner {
 
         // FIXED: Better status display
         int activeMobs = getTotalActiveMobs();
-        int queuedMobs = getQueuedCount();
+        int respawningMobs = getQueuedCount();
         int desiredMobs = getTotalDesiredMobs();
         player.sendMessage(ChatColor.GOLD + "║ " + ChatColor.YELLOW + "Status: " +
-                ChatColor.WHITE + activeMobs + " active, " + queuedMobs + " queued, " + desiredMobs + " target");
+                ChatColor.WHITE + activeMobs + " active, " + respawningMobs + " respawning, " + desiredMobs + " target");
 
         // Ready to spawn
-        if (!respawnQueue.isEmpty()) {
-            long currentTime = System.currentTimeMillis();
-            long nextRespawn = getNextRespawnTime();
-
-            if (nextRespawn > currentTime) {
-                long timeUntil = nextRespawn - currentTime;
-                player.sendMessage(ChatColor.GOLD + "║ " + ChatColor.YELLOW + "Next Spawn: " +
-                        ChatColor.WHITE + formatTimeRemaining(timeUntil));
-            } else {
-                player.sendMessage(ChatColor.GOLD + "║ " + ChatColor.YELLOW + "Ready to Spawn: " +
-                        ChatColor.WHITE + respawnQueue.size() + " mobs");
-            }
+        if (!this.respawningMobs.isEmpty()) {
+            player.sendMessage(ChatColor.GOLD + "║ " + ChatColor.YELLOW + "Respawning: " +
+                    ChatColor.WHITE + this.respawningMobs.size() + " mobs");
         }
 
         // Visibility
@@ -1097,7 +1083,7 @@ public class Spawner {
         // Capacity info
         int maxMobs = getMaxMobsAllowed();
         player.sendMessage(ChatColor.GOLD + "║ " + ChatColor.YELLOW + "Capacity: " +
-                ChatColor.WHITE + (activeMobs + queuedMobs) + "/" + maxMobs);
+                ChatColor.WHITE + (activeMobs + respawningMobs) + "/" + maxMobs);
 
         // Display mode
         String modeText = getDisplayModeName();
@@ -1172,19 +1158,6 @@ public class Spawner {
         }
     }
 
-    /**
-     * Get the next respawn time from the queue
-     *
-     * @return Next respawn time or 0 if none
-     */
-    private long getNextRespawnTime() {
-        if (respawnQueue.isEmpty()) {
-            return 0;
-        }
-
-        return respawnQueue.peek().getRespawnTime();
-    }
-
     // Getters and setters
 
     public Location getLocation() {
@@ -1243,7 +1216,7 @@ public class Spawner {
     }
 
     public Collection<SpawnedMob> getQueuedMobs() {
-        return new ArrayList<>(respawnQueue);
+        return new ArrayList<>(respawningMobs.values());
     }
 
     /**

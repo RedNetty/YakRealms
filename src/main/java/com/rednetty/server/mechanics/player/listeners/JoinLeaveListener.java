@@ -1162,7 +1162,6 @@ public class JoinLeaveListener extends BaseListener {
         player.sendMessage("");
         TextUtil.sendCenteredMessage(player, "&7Alignment: &6" + yakPlayer.getAlignment());
         TextUtil.sendCenteredMessage(player, "&7Gems: &6" + yakPlayer.getGems() + " &7(server currency)");
-        TextUtil.sendCenteredMessage(player, "&7Level: &6" + yakPlayer.getLevel());
         player.sendMessage("");
         TextUtil.sendCenteredMessage(player, "&eUse &b/stats &eto view detailed character info");
         player.sendMessage("");
@@ -1185,9 +1184,8 @@ public class JoinLeaveListener extends BaseListener {
         TextUtil.sendCenteredMessage(player, "&eImportant commands to remember:");
         player.sendMessage("");
         TextUtil.sendCenteredMessage(player, "&b/help &7- Show help menu");
-        TextUtil.sendCenteredMessage(player, "&b/spawn &7- Return to spawn");
-        TextUtil.sendCenteredMessage(player, "&b/home &7- Teleport to your home");
-        TextUtil.sendCenteredMessage(player, "&b/sethome &7- Set your home location");
+        TextUtil.sendCenteredMessage(player, "&b/p(invite, accept, kick) &7- Join or start a party");
+        TextUtil.sendCenteredMessage(player, "&b/add &7- Add someones as a friend");
         TextUtil.sendCenteredMessage(player, "&b/msg <player> &7- Send private message");
         player.sendMessage("");
 
@@ -1238,7 +1236,6 @@ public class JoinLeaveListener extends BaseListener {
         player.sendMessage("");
         TextUtil.sendCenteredMessage(player, "&7• You're now ready to begin your adventure");
         TextUtil.sendCenteredMessage(player, "&7• Ask other players or staff if you need help");
-        TextUtil.sendCenteredMessage(player, "&7• Have fun exploring and building!");
         player.sendMessage("");
         TextUtil.sendCenteredMessage(player, "&a&lGood luck, adventurer!");
         player.sendMessage("");

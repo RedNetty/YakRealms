@@ -177,7 +177,7 @@ public class MarketMainMenu extends Menu {
         ItemMeta meta = item.getItemMeta();
 
         YakPlayer yakPlayer = YakPlayerManager.getInstance().getPlayer(player);
-        boolean canList = yakPlayer != null && yakPlayer.getLevel() >= 0; // Assuming min level 5
+        boolean canList = yakPlayer != null; // Assuming min level 5
 
         meta.setDisplayName(ChatColor.GREEN + "💎 List Item for Sale");
         meta.setLore(Arrays.asList(
