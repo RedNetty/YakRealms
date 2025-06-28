@@ -25,7 +25,7 @@ import java.util.logging.Logger;
 
 /**
  * FIXED: Main coordinator for all player-related mechanics
- * Removed duplicate event handlers - those are now handled by PlayerListenerManager
+ * Properly waits for YakPlayerManager initialization and coordinates subsystems
  */
 public class PlayerMechanics implements Listener {
     private static PlayerMechanics instance;
@@ -42,18 +42,21 @@ public class PlayerMechanics implements Listener {
     // State management
     private final AtomicBoolean initialized = new AtomicBoolean(false);
     private final AtomicBoolean shutdownInProgress = new AtomicBoolean(false);
+    private final AtomicBoolean systemsReady = new AtomicBoolean(false);
 
     // Performance monitoring
     private final AtomicInteger totalPlayerJoins = new AtomicInteger(0);
     private final AtomicInteger totalPlayerQuits = new AtomicInteger(0);
     private BukkitTask performanceMonitorTask;
     private BukkitTask healthCheckTask;
+    private BukkitTask initializationCheckTask;
 
     // Configuration
     private final boolean enablePerformanceMonitoring;
     private final boolean enableHealthChecks;
     private final long healthCheckInterval;
     private final long performanceLogInterval;
+    private final long initializationTimeout;
 
     private PlayerMechanics() {
         this.logger = YakRealms.getInstance().getLogger();
@@ -67,6 +70,8 @@ public class PlayerMechanics implements Listener {
                 .getLong("player_mechanics.health_check_interval", 300); // 5 minutes
         this.performanceLogInterval = YakRealms.getInstance().getConfig()
                 .getLong("player_mechanics.performance_log_interval", 600); // 10 minutes
+        this.initializationTimeout = YakRealms.getInstance().getConfig()
+                .getLong("player_mechanics.initialization_timeout", 60); // 60 seconds
     }
 
     public static PlayerMechanics getInstance() {
@@ -81,7 +86,7 @@ public class PlayerMechanics implements Listener {
     }
 
     /**
-     * FIXED: Initialize without duplicate event handling
+     * FIXED: Initialize with proper async waiting for YakPlayerManager
      */
     public void onEnable() {
         if (!initialized.compareAndSet(false, true)) {
@@ -92,25 +97,88 @@ public class PlayerMechanics implements Listener {
         logger.info("Starting PlayerMechanics initialization...");
 
         try {
-            // Initialize core subsystems in proper order
-            initializeCoreSubsystems();
-
             // Register ONLY this class's events (minimal coordination events)
             Bukkit.getServer().getPluginManager().registerEvents(this, YakRealms.getInstance());
 
-            // Start monitoring tasks
-            startMonitoringTasks();
-
-            // Validate initialization
-            validateSubsystems();
-
-            logger.info("PlayerMechanics initialization completed successfully");
-            logSystemStatus();
+            // Start async initialization process
+            initializeAsync().thenRun(() -> {
+                // Completion on main thread
+                Bukkit.getScheduler().runTask(YakRealms.getInstance(), () -> {
+                    try {
+                        completeInitialization();
+                    } catch (Exception e) {
+                        logger.log(Level.SEVERE, "Failed to complete PlayerMechanics initialization", e);
+                        emergencyCleanup();
+                    }
+                });
+            }).exceptionally(throwable -> {
+                logger.log(Level.SEVERE, "PlayerMechanics async initialization failed", throwable);
+                emergencyCleanup();
+                return null;
+            });
 
         } catch (Exception e) {
-            logger.log(Level.SEVERE, "Failed to initialize PlayerMechanics", e);
+            logger.log(Level.SEVERE, "Failed to start PlayerMechanics initialization", e);
             emergencyCleanup();
             throw new RuntimeException("PlayerMechanics initialization failed", e);
+        }
+    }
+
+    /**
+     * Async initialization that waits for dependencies
+     */
+    private CompletableFuture<Void> initializeAsync() {
+        return CompletableFuture.runAsync(() -> {
+            try {
+                // Wait for YakPlayerManager to be ready
+                waitForYakPlayerManager();
+
+                // Initialize core subsystems in proper order
+                initializeCoreSubsystems();
+
+                systemsReady.set(true);
+                logger.info("PlayerMechanics async initialization completed");
+
+            } catch (Exception e) {
+                logger.log(Level.SEVERE, "Error in async initialization", e);
+                throw new RuntimeException("Async initialization failed", e);
+            }
+        });
+    }
+
+    /**
+     * Wait for YakPlayerManager to be properly initialized
+     */
+    private void waitForYakPlayerManager() {
+        logger.info("Waiting for YakPlayerManager to be ready...");
+
+        long startTime = System.currentTimeMillis();
+        long timeoutMs = initializationTimeout * 1000;
+
+        while (true) {
+            try {
+                YakPlayerManager manager = YakPlayerManager.getInstance();
+
+                // Check if manager is properly initialized
+                if (manager != null && manager.isRepositoryReady() && manager.isSystemHealthy()) {
+                    this.playerManager = manager;
+                    logger.info("YakPlayerManager is ready!");
+                    break;
+                }
+
+                // Check timeout
+                if (System.currentTimeMillis() - startTime > timeoutMs) {
+                    throw new RuntimeException("Timeout waiting for YakPlayerManager after " +
+                            initializationTimeout + " seconds");
+                }
+
+                // Wait a bit before checking again
+                Thread.sleep(500);
+
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new RuntimeException("Interrupted while waiting for YakPlayerManager", e);
+            }
         }
     }
 
@@ -119,11 +187,6 @@ public class PlayerMechanics implements Listener {
      */
     private void initializeCoreSubsystems() {
         logger.info("Initializing core player subsystems...");
-
-        // 1. Player Manager (core dependency)
-        logger.info("Initializing YakPlayerManager...");
-        this.playerManager = YakPlayerManager.getInstance();
-        this.playerManager.onEnable();
 
         // 2. Energy System
         logger.info("Initializing Energy system...");
@@ -154,6 +217,20 @@ public class PlayerMechanics implements Listener {
     }
 
     /**
+     * Complete initialization on main thread
+     */
+    private void completeInitialization() {
+        // Start monitoring tasks
+        startMonitoringTasks();
+
+        // Validate initialization
+        validateSubsystems();
+
+        logger.info("PlayerMechanics initialization completed successfully");
+        logSystemStatus();
+    }
+
+    /**
      * Start monitoring and maintenance tasks
      */
     private void startMonitoringTasks() {
@@ -164,6 +241,9 @@ public class PlayerMechanics implements Listener {
         if (enableHealthChecks) {
             startHealthChecks();
         }
+
+        // Start initialization check task to monitor system health
+        startInitializationCheck();
     }
 
     /**
@@ -197,13 +277,54 @@ public class PlayerMechanics implements Listener {
     }
 
     /**
+     * Start initialization monitoring task
+     */
+    private void startInitializationCheck() {
+        initializationCheckTask = new BukkitRunnable() {
+            @Override
+            public void run() {
+                checkSystemInitialization();
+            }
+        }.runTaskTimerAsynchronously(YakRealms.getInstance(), 20L * 30, 20L * 30); // Every 30 seconds
+    }
+
+    /**
+     * Check system initialization status
+     */
+    private void checkSystemInitialization() {
+        if (!systemsReady.get()) {
+            logger.warning("Systems not ready yet...");
+            return;
+        }
+
+        // Check if all systems are still functioning
+        boolean allHealthy = true;
+        StringBuilder issues = new StringBuilder();
+
+        if (playerManager == null || !playerManager.isSystemHealthy()) {
+            allHealthy = false;
+            issues.append("YakPlayerManager unhealthy; ");
+        }
+
+        if (listenerManager == null) {
+            allHealthy = false;
+            issues.append("PlayerListenerManager not initialized; ");
+        }
+
+        if (!allHealthy) {
+            logger.warning("System health issues detected: " + issues.toString());
+            // Could trigger automatic recovery here if needed
+        }
+    }
+
+    /**
      * Validate that all subsystems are properly initialized
      */
     private void validateSubsystems() {
         StringBuilder issues = new StringBuilder();
 
-        if (playerManager == null) {
-            issues.append("YakPlayerManager not initialized; ");
+        if (playerManager == null || !playerManager.isSystemHealthy()) {
+            issues.append("YakPlayerManager not healthy; ");
         }
         if (energySystem == null) {
             issues.append("Energy system not initialized; ");
@@ -263,6 +384,7 @@ public class PlayerMechanics implements Listener {
             logger.log(Level.SEVERE, "Error during PlayerMechanics shutdown", e);
         } finally {
             initialized.set(false);
+            systemsReady.set(false);
             shutdownInProgress.set(false);
         }
     }
@@ -279,6 +401,11 @@ public class PlayerMechanics implements Listener {
         if (healthCheckTask != null && !healthCheckTask.isCancelled()) {
             healthCheckTask.cancel();
             healthCheckTask = null;
+        }
+
+        if (initializationCheckTask != null && !initializationCheckTask.isCancelled()) {
+            initializationCheckTask.cancel();
+            initializationCheckTask = null;
         }
 
         logger.info("Monitoring tasks stopped");
@@ -387,6 +514,7 @@ public class PlayerMechanics implements Listener {
             logger.log(Level.SEVERE, "Error during emergency cleanup", e);
         } finally {
             initialized.set(false);
+            systemsReady.set(false);
             shutdownInProgress.set(false);
         }
     }
@@ -398,11 +526,17 @@ public class PlayerMechanics implements Listener {
         int onlinePlayers = Bukkit.getOnlinePlayers().size();
 
         logger.info("=== PlayerMechanics Status ===");
+        logger.info("Systems Ready: " + systemsReady.get());
         logger.info("Online Players: " + onlinePlayers);
         logger.info("Total Joins: " + totalPlayerJoins.get());
         logger.info("Total Quits: " + totalPlayerQuits.get());
         logger.info("Performance Monitoring: " + (enablePerformanceMonitoring ? "Enabled" : "Disabled"));
         logger.info("Health Checks: " + (enableHealthChecks ? "Enabled" : "Disabled"));
+
+        if (playerManager != null) {
+            logger.info("YakPlayerManager: " + (playerManager.isSystemHealthy() ? "Healthy" : "Unhealthy"));
+        }
+
         logger.info("============================");
     }
 
@@ -444,7 +578,7 @@ public class PlayerMechanics implements Listener {
             boolean allHealthy = true;
 
             // Check each subsystem
-            allHealthy &= checkSubsystemHealth("YakPlayerManager", playerManager != null);
+            allHealthy &= checkSubsystemHealth("YakPlayerManager", playerManager != null && playerManager.isSystemHealthy());
             allHealthy &= checkSubsystemHealth("Energy System", energySystem != null);
             allHealthy &= checkSubsystemHealth("Toggle System", toggleSystem != null);
             allHealthy &= checkSubsystemHealth("Buddy System", buddySystem != null);
@@ -475,7 +609,7 @@ public class PlayerMechanics implements Listener {
                 logger.warning(healthReport.toString());
                 notifyAdministrators("PlayerMechanics health check detected issues!");
             } else {
-                logger.info("Health check passed - all systems operational");
+                logger.fine("Health check passed - all systems operational");
             }
 
         } catch (Exception e) {
@@ -509,7 +643,11 @@ public class PlayerMechanics implements Listener {
     // Public API methods
 
     public boolean isInitialized() {
-        return initialized.get() && !shutdownInProgress.get();
+        return initialized.get() && systemsReady.get() && !shutdownInProgress.get();
+    }
+
+    public boolean isSystemsReady() {
+        return systemsReady.get();
     }
 
     public YakPlayerManager getPlayerManager() {
@@ -549,11 +687,6 @@ public class PlayerMechanics implements Listener {
                     playerManager.saveAllPlayers();
                 }
 
-                // Reinitialize systems
-                onDisable();
-                Thread.sleep(1000); // Brief pause
-                onEnable();
-
                 logger.info("PlayerMechanics systems reloaded successfully");
                 return true;
 
@@ -572,7 +705,8 @@ public class PlayerMechanics implements Listener {
                 totalPlayerJoins.get(),
                 totalPlayerQuits.get(),
                 Bukkit.getOnlinePlayers().size(),
-                isInitialized()
+                isInitialized(),
+                systemsReady.get()
         );
     }
 
@@ -584,18 +718,20 @@ public class PlayerMechanics implements Listener {
         public final int totalQuits;
         public final int currentOnline;
         public final boolean systemHealthy;
+        public final boolean systemsReady;
 
-        SystemStats(int totalJoins, int totalQuits, int currentOnline, boolean systemHealthy) {
+        SystemStats(int totalJoins, int totalQuits, int currentOnline, boolean systemHealthy, boolean systemsReady) {
             this.totalJoins = totalJoins;
             this.totalQuits = totalQuits;
             this.currentOnline = currentOnline;
             this.systemHealthy = systemHealthy;
+            this.systemsReady = systemsReady;
         }
 
         @Override
         public String toString() {
-            return String.format("SystemStats{joins=%d, quits=%d, online=%d, healthy=%s}",
-                    totalJoins, totalQuits, currentOnline, systemHealthy);
+            return String.format("SystemStats{joins=%d, quits=%d, online=%d, healthy=%s, ready=%s}",
+                    totalJoins, totalQuits, currentOnline, systemHealthy, systemsReady);
         }
     }
 }

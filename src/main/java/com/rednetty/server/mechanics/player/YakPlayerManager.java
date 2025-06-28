@@ -30,7 +30,8 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
- * Enhanced YakPlayer manager with improved reliability, performance, and error handling
+ * FIXED: Enhanced YakPlayer manager with improved reliability, performance, and error handling
+ * Removed conflicting initialization patterns that were causing deadlocks
  */
 public class YakPlayerManager implements Listener {
     private static volatile YakPlayerManager instance;
@@ -41,9 +42,10 @@ public class YakPlayerManager implements Listener {
     private static final long SAVE_TIMEOUT_MS = 15000L; // 15 seconds
     private static final int MAX_CONCURRENT_LOADS = 10;
     private static final int MAX_CONCURRENT_SAVES = 5;
+    private static final long REPOSITORY_INITIALIZATION_TIMEOUT = 30000L; // 30 seconds
 
     // Core dependencies
-    private final YakPlayerRepository repository;
+    private volatile YakPlayerRepository repository;
     private final Logger logger;
     private final Plugin plugin;
 
@@ -62,10 +64,11 @@ public class YakPlayerManager implements Listener {
     private final ExecutorService ioExecutor;
     private final ExecutorService priorityExecutor;
 
-    // State management
+    // FIXED: Simplified state management - removed conflicting flags
     private final AtomicBoolean initialized = new AtomicBoolean(false);
     private final AtomicBoolean shutdownInProgress = new AtomicBoolean(false);
-    private final AtomicBoolean systemHealthy = new AtomicBoolean(true);
+    private final AtomicBoolean systemHealthy = new AtomicBoolean(false);
+    private final AtomicBoolean repositoryReady = new AtomicBoolean(false);
 
     // Tasks
     private BukkitTask autoSaveTask;
@@ -116,15 +119,37 @@ public class YakPlayerManager implements Listener {
         }
 
         // Getters
-        public UUID getPlayerId() { return playerId; }
-        public String getPlayerName() { return playerName; }
-        public long getLoadStartTime() { return loadStartTime; }
-        public CompletableFuture<YakPlayer> getLoadFuture() { return loadFuture; }
-        public boolean isCompleted() { return completed; }
-        public boolean isTimedOut() { return timedOut; }
+        public UUID getPlayerId() {
+            return playerId;
+        }
 
-        public void setCompleted(boolean completed) { this.completed = completed; }
-        public void setTimedOut(boolean timedOut) { this.timedOut = timedOut; }
+        public String getPlayerName() {
+            return playerName;
+        }
+
+        public long getLoadStartTime() {
+            return loadStartTime;
+        }
+
+        public CompletableFuture<YakPlayer> getLoadFuture() {
+            return loadFuture;
+        }
+
+        public boolean isCompleted() {
+            return completed;
+        }
+
+        public boolean isTimedOut() {
+            return timedOut;
+        }
+
+        public void setCompleted(boolean completed) {
+            this.completed = completed;
+        }
+
+        public void setTimedOut(boolean timedOut) {
+            this.timedOut = timedOut;
+        }
     }
 
     /**
@@ -132,18 +157,44 @@ public class YakPlayerManager implements Listener {
      */
     public interface PlayerLoadListener {
         void onPlayerLoaded(Player player, YakPlayer yakPlayer, boolean isNewPlayer);
+
         void onPlayerLoadFailed(Player player, Exception exception);
+
         void onPlayerLoadTimeout(Player player);
     }
 
     public interface PlayerSaveListener {
         void onPlayerSaved(YakPlayer yakPlayer);
+
         void onPlayerSaveFailed(YakPlayer yakPlayer, Exception exception);
+    }
+
+    /**
+     * Functional interface for void operations on YakPlayer (for async operations)
+     */
+    @FunctionalInterface
+    public interface PlayerOperation {
+        void execute(YakPlayer yakPlayer) throws Exception;
+    }
+
+    /**
+     * Functional interface for operations that return a value (for sync operations)
+     */
+    @FunctionalInterface
+    public interface PlayerFunction<T> {
+        T execute(YakPlayer yakPlayer) throws Exception;
+    }
+
+    /**
+     * Functional interface for operations on both Bukkit Player and YakPlayer
+     */
+    @FunctionalInterface
+    public interface BothPlayersOperation<T> {
+        T execute(Player bukkitPlayer, YakPlayer yakPlayer) throws Exception;
     }
 
     private YakPlayerManager() {
         this.plugin = YakRealms.getInstance();
-        this.repository = new YakPlayerRepository();
         this.logger = plugin.getLogger();
 
         // Load configuration
@@ -156,6 +207,8 @@ public class YakPlayerManager implements Listener {
         this.priorityExecutor = createPriorityExecutor();
 
         logger.info("YakPlayerManager initialized with enhanced error handling and performance monitoring");
+
+        // Note: Repository initialization is now handled in onEnable() to avoid timing conflicts;
     }
 
     public static YakPlayerManager getInstance() {
@@ -172,7 +225,7 @@ public class YakPlayerManager implements Listener {
     }
 
     /**
-     * Enhanced initialization with comprehensive error handling
+     * FIXED: Simplified initialization with single repository setup
      */
     public void onEnable() {
         if (!initialized.compareAndSet(false, true)) {
@@ -181,36 +234,99 @@ public class YakPlayerManager implements Listener {
         }
 
         try {
-            logger.info("Starting enhanced YakPlayerManager initialization...");
+            logger.info("Starting YakPlayerManager initialization...");
 
-            // Validate repository
-            if (!validateRepository()) {
-                throw new RuntimeException("Repository validation failed");
+            // FIXED: Single synchronous repository initialization
+            if (!initializeRepositorySynchronously()) {
+                logger.severe("Failed to initialize repository!");
+                systemHealthy.set(false);
+                emergencyCleanup();
+                return;
             }
 
-            // Register events
-            Bukkit.getServer().getPluginManager().registerEvents(this, plugin);
+            // Register events on main thread
+            Bukkit.getScheduler().runTask(plugin, () -> {
+                try {
+                    Bukkit.getServer().getPluginManager().registerEvents(this, plugin);
+                    logger.info("YakPlayerManager events registered");
+                } catch (Exception e) {
+                    logger.log(Level.SEVERE, "Failed to register events", e);
+                }
+            });
 
             // Start background tasks
             startBackgroundTasks();
 
-            // Load existing online players
+            // Load existing online players if any
             loadExistingOnlinePlayers();
 
-            // Validate initialization
+            // Final validation
             if (!validateInitialization()) {
                 throw new RuntimeException("Initialization validation failed");
             }
 
             systemHealthy.set(true);
+            repositoryReady.set(true);
             logger.info("YakPlayerManager enabled successfully");
 
         } catch (Exception e) {
-            logger.log(Level.SEVERE, "Failed to enable YakPlayerManager", e);
+            logger.log(Level.SEVERE, "Failed to initialize YakPlayerManager", e);
             systemHealthy.set(false);
             emergencyCleanup();
             throw new RuntimeException("YakPlayerManager initialization failed", e);
         }
+    }
+
+    /**
+     * FIXED: Single synchronous repository initialization to avoid conflicts
+     */
+    private boolean initializeRepositorySynchronously() {
+        int maxAttempts = 3;
+        long retryDelay = 2000; // 2 seconds
+
+        for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+            try {
+                logger.info("Repository initialization attempt " + attempt + "/" + maxAttempts);
+
+                // Initialize repository
+                this.repository = new YakPlayerRepository();
+
+                // Wait for repository to be ready with timeout
+                long startTime = System.currentTimeMillis();
+                while (!repository.isInitialized()) {
+                    if (System.currentTimeMillis() - startTime > REPOSITORY_INITIALIZATION_TIMEOUT) {
+                        throw new RuntimeException("Repository initialization timeout after " +
+                                (REPOSITORY_INITIALIZATION_TIMEOUT / 1000) + " seconds");
+                    }
+
+                    try {
+                        Thread.sleep(500); // Check every 500ms
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        throw new RuntimeException("Repository initialization interrupted", e);
+                    }
+                }
+
+                logger.info("YakPlayerRepository initialized successfully on attempt " + attempt);
+                return true;
+
+            } catch (Exception e) {
+                logger.log(Level.WARNING, "Repository initialization attempt " + attempt + " failed: " + e.getMessage(), e);
+
+                if (attempt < maxAttempts) {
+                    try {
+                        logger.info("Waiting " + (retryDelay / 1000) + " seconds before retry...");
+                        Thread.sleep(retryDelay);
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        break;
+                    }
+                }
+            }
+        }
+
+        logger.severe("Failed to initialize YakPlayerRepository after " + maxAttempts + " attempts!");
+        return false;
     }
 
     /**
@@ -224,7 +340,7 @@ public class YakPlayerManager implements Listener {
             return;
         }
 
-        if (!systemHealthy.get()) {
+        if (!systemHealthy.get() || !repositoryReady.get()) {
             event.disallow(AsyncPlayerPreLoginEvent.Result.KICK_OTHER,
                     ChatColor.RED + "Server is experiencing technical difficulties. Please try again later.");
             return;
@@ -277,6 +393,13 @@ public class YakPlayerManager implements Listener {
 
         totalPlayerJoins.incrementAndGet();
         logger.info("Player joining: " + playerName + " (" + uuid + ")");
+
+        // Check system health
+        if (!repositoryReady.get() || repository == null) {
+            logger.severe("Player joined but repository not ready: " + playerName);
+            player.sendMessage(ChatColor.RED + "Server is not ready. Please reconnect in a moment.");
+            return;
+        }
 
         // Check for duplicate processing
         if (loadingPlayers.containsKey(uuid) || onlinePlayers.containsKey(uuid)) {
@@ -764,9 +887,9 @@ public class YakPlayerManager implements Listener {
             StringBuilder healthReport = new StringBuilder("YakPlayerManager Health Check:\n");
 
             // Check repository status
-            if (!repository.isInitialized()) {
+            if (!repositoryReady.get() || repository == null || !repository.isInitialized()) {
                 healthy = false;
-                healthReport.append("- Repository not initialized\n");
+                healthReport.append("- Repository not ready\n");
             }
 
             // Check for excessive load times
@@ -846,6 +969,11 @@ public class YakPlayerManager implements Listener {
             // Save all online players
             saveAllPlayersOnShutdown();
 
+            // Shutdown repository
+            if (repository != null) {
+                repository.shutdown();
+            }
+
             // Shutdown executors
             shutdownExecutors();
 
@@ -863,6 +991,7 @@ public class YakPlayerManager implements Listener {
             logger.log(Level.SEVERE, "Error during YakPlayerManager shutdown", e);
         } finally {
             initialized.set(false);
+            repositoryReady.set(false);
         }
     }
 
@@ -937,17 +1066,8 @@ public class YakPlayerManager implements Listener {
 
     // Enhanced utility methods for system validation and management
 
-    private boolean validateRepository() {
-        try {
-            return repository != null && repository.isInitialized();
-        } catch (Exception e) {
-            logger.log(Level.SEVERE, "Repository validation failed", e);
-            return false;
-        }
-    }
-
     private boolean validateInitialization() {
-        return repository != null &&
+        return repository != null && repositoryReady.get() &&
                 scheduledExecutor != null && !scheduledExecutor.isShutdown() &&
                 ioExecutor != null && !ioExecutor.isShutdown() &&
                 priorityExecutor != null && !priorityExecutor.isShutdown();
@@ -959,6 +1079,7 @@ public class YakPlayerManager implements Listener {
             onlinePlayers.clear();
             loadingPlayers.clear();
             initialized.set(false);
+            repositoryReady.set(false);
         } catch (Exception e) {
             logger.log(Level.SEVERE, "Error during emergency cleanup", e);
         }
@@ -1110,6 +1231,249 @@ public class YakPlayerManager implements Listener {
         }
     }
 
+    // Async withPlayer methods that return CompletableFuture<Boolean>
+
+    /**
+     * Asynchronously perform an operation with a YakPlayer
+     * @param playerId The player's UUID
+     * @param operation The operation to perform
+     * @param save Whether to save the player after the operation
+     * @return CompletableFuture<Boolean> indicating success/failure
+     */
+    public CompletableFuture<Boolean> withPlayer(UUID playerId, PlayerOperation operation, boolean save) {
+        if (playerId == null || operation == null) {
+            logger.warning("withPlayer called with null playerId or operation");
+            return CompletableFuture.completedFuture(false);
+        }
+
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                YakPlayer yakPlayer = getPlayer(playerId);
+                if (yakPlayer == null) {
+                    logger.fine("Player not found for UUID: " + playerId);
+                    return false;
+                }
+
+                // Acquire player lock for thread safety
+                ReentrantReadWriteLock lock = playerLocks.get(playerId);
+                if (lock != null) {
+                    lock.writeLock().lock();
+                    try {
+                        operation.execute(yakPlayer);
+                    } finally {
+                        lock.writeLock().unlock();
+                    }
+                } else {
+                    operation.execute(yakPlayer);
+                }
+
+                // Save if requested
+                if (save) {
+                    try {
+                        CompletableFuture<Boolean> saveFuture = savePlayer(yakPlayer);
+                        return saveFuture.get(SAVE_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+                    } catch (Exception saveException) {
+                        logger.log(Level.WARNING, "Failed to save player after operation: " + playerId, saveException);
+                        return false;
+                    }
+                }
+
+                return true;
+
+            } catch (Exception e) {
+                logger.log(Level.WARNING, "Error in withPlayer operation for " + playerId, e);
+                return false;
+            }
+        }, priorityExecutor);
+    }
+
+    /**
+     * Asynchronously perform an operation with a YakPlayer (no save)
+     */
+    public CompletableFuture<Boolean> withPlayer(UUID playerId, PlayerOperation operation) {
+        return withPlayer(playerId, operation, false);
+    }
+
+    /**
+     * Asynchronously perform an operation with a YakPlayer by player name
+     */
+    public CompletableFuture<Boolean> withPlayer(String playerName, PlayerOperation operation, boolean save) {
+        if (playerName == null || playerName.trim().isEmpty() || operation == null) {
+            logger.warning("withPlayer called with invalid playerName or null operation");
+            return CompletableFuture.completedFuture(false);
+        }
+
+        UUID playerId = playerNameCache.get(playerName.toLowerCase());
+        if (playerId == null) {
+            logger.fine("Player UUID not found for name: " + playerName);
+            return CompletableFuture.completedFuture(false);
+        }
+
+        return withPlayer(playerId, operation, save);
+    }
+
+    /**
+     * Asynchronously perform an operation with a YakPlayer by player name (no save)
+     */
+    public CompletableFuture<Boolean> withPlayer(String playerName, PlayerOperation operation) {
+        return withPlayer(playerName, operation, false);
+    }
+
+    /**
+     * Asynchronously perform an operation with a YakPlayer from Bukkit Player
+     */
+    public CompletableFuture<Boolean> withPlayer(Player player, PlayerOperation operation, boolean save) {
+        if (player == null || operation == null) {
+            logger.warning("withPlayer called with null player or operation");
+            return CompletableFuture.completedFuture(false);
+        }
+
+        if (!player.isOnline()) {
+            logger.fine("Bukkit player is not online: " + player.getName());
+            return CompletableFuture.completedFuture(false);
+        }
+
+        return withPlayer(player.getUniqueId(), operation, save);
+    }
+
+    /**
+     * Asynchronously perform an operation with a YakPlayer from Bukkit Player (no save)
+     */
+    public CompletableFuture<Boolean> withPlayer(Player player, PlayerOperation operation) {
+        return withPlayer(player, operation, false);
+    }
+
+    // Synchronous withPlayer methods that return values (for read operations)
+
+    /**
+     * Synchronously perform an operation with a YakPlayer and return a value
+     */
+    public <T> T withPlayerSync(UUID playerId, PlayerFunction<T> operation) {
+        return withPlayerSync(playerId, operation, null);
+    }
+
+    /**
+     * Synchronously perform an operation with a YakPlayer and return a value, with default
+     */
+    public <T> T withPlayerSync(UUID playerId, PlayerFunction<T> operation, T defaultValue) {
+        if (playerId == null || operation == null) {
+            logger.warning("withPlayerSync called with null playerId or operation");
+            return defaultValue;
+        }
+
+        try {
+            YakPlayer yakPlayer = getPlayer(playerId);
+            if (yakPlayer == null) {
+                logger.fine("Player not found for UUID: " + playerId);
+                return defaultValue;
+            }
+
+            // Acquire read lock for thread safety
+            ReentrantReadWriteLock lock = playerLocks.get(playerId);
+            if (lock != null) {
+                lock.readLock().lock();
+                try {
+                    return operation.execute(yakPlayer);
+                } finally {
+                    lock.readLock().unlock();
+                }
+            } else {
+                return operation.execute(yakPlayer);
+            }
+
+        } catch (Exception e) {
+            logger.log(Level.WARNING, "Error in withPlayerSync operation for " + playerId, e);
+            return defaultValue;
+        }
+    }
+
+    /**
+     * Synchronously perform an operation with a YakPlayer by name and return a value
+     */
+    public <T> T withPlayerSync(String playerName, PlayerFunction<T> operation) {
+        return withPlayerSync(playerName, operation, null);
+    }
+
+    /**
+     * Synchronously perform an operation with a YakPlayer by name and return a value, with default
+     */
+    public <T> T withPlayerSync(String playerName, PlayerFunction<T> operation, T defaultValue) {
+        if (playerName == null || playerName.trim().isEmpty() || operation == null) {
+            logger.warning("withPlayerSync called with invalid playerName or null operation");
+            return defaultValue;
+        }
+
+        UUID playerId = playerNameCache.get(playerName.toLowerCase());
+        if (playerId == null) {
+            logger.fine("Player UUID not found for name: " + playerName);
+            return defaultValue;
+        }
+
+        return withPlayerSync(playerId, operation, defaultValue);
+    }
+
+    /**
+     * Synchronously perform an operation with a YakPlayer from Bukkit Player and return a value
+     */
+    public <T> T withPlayerSync(Player player, PlayerFunction<T> operation) {
+        return withPlayerSync(player, operation, null);
+    }
+
+    /**
+     * Synchronously perform an operation with a YakPlayer from Bukkit Player and return a value, with default
+     */
+    public <T> T withPlayerSync(Player player, PlayerFunction<T> operation, T defaultValue) {
+        if (player == null || operation == null) {
+            logger.warning("withPlayerSync called with null player or operation");
+            return defaultValue;
+        }
+
+        if (!player.isOnline()) {
+            logger.fine("Bukkit player is not online: " + player.getName());
+            return defaultValue;
+        }
+
+        return withPlayerSync(player.getUniqueId(), operation, defaultValue);
+    }
+
+    // Safely perform an operation with both Bukkit Player and YakPlayer
+
+    /**
+     * Safely perform an operation with both Bukkit Player and YakPlayer
+     */
+    public <T> T withBothPlayers(Player bukkitPlayer, BothPlayersOperation<T> operation) {
+        return withBothPlayers(bukkitPlayer, operation, null);
+    }
+
+    /**
+     * Safely perform an operation with both Bukkit Player and YakPlayer, with default value
+     */
+    public <T> T withBothPlayers(Player bukkitPlayer, BothPlayersOperation<T> operation, T defaultValue) {
+        if (bukkitPlayer == null || operation == null) {
+            logger.warning("withBothPlayers called with null player or operation");
+            return defaultValue;
+        }
+
+        if (!bukkitPlayer.isOnline()) {
+            logger.fine("Bukkit player is not online: " + bukkitPlayer.getName());
+            return defaultValue;
+        }
+
+        try {
+            YakPlayer yakPlayer = getPlayer(bukkitPlayer);
+            if (yakPlayer == null) {
+                logger.fine("YakPlayer not found for: " + bukkitPlayer.getName());
+                return defaultValue;
+            }
+
+            return operation.execute(bukkitPlayer, yakPlayer);
+
+        } catch (Exception e) {
+            logger.log(Level.WARNING, "Error in withBothPlayers operation for " + bukkitPlayer.getName(), e);
+            return defaultValue;
+        }
+    }
+
     // Public API methods
     public YakPlayer getPlayer(UUID uuid) {
         return onlinePlayers.get(uuid);
@@ -1161,8 +1525,133 @@ public class YakPlayerManager implements Listener {
         return systemHealthy.get();
     }
 
+    public boolean isRepositoryReady() {
+        return repositoryReady.get();
+    }
+
     public YakPlayerRepository getRepository() {
         return repository;
+    }
+
+    // Updated convenience methods using the new async pattern
+
+    /**
+     * Safely add gems to a player
+     */
+    public CompletableFuture<Boolean> addPlayerGems(UUID playerId, int amount) {
+        return withPlayer(playerId, yakPlayer -> {
+            yakPlayer.addGems(amount);
+
+            // Notify player if online
+            Player bukkitPlayer = yakPlayer.getBukkitPlayer();
+            if (bukkitPlayer != null && bukkitPlayer.isOnline()) {
+                bukkitPlayer.sendMessage(ChatColor.GREEN + "Added " + amount + " gems. New balance: " + yakPlayer.getGems());
+            }
+        }, true);
+    }
+
+    /**
+     * Safely remove gems from a player
+     */
+    public CompletableFuture<Boolean> removePlayerGems(UUID playerId, int amount) {
+        return withPlayer(playerId, yakPlayer -> {
+            if (yakPlayer.getGems() >= amount) {
+                yakPlayer.setGems(yakPlayer.getGems() - amount);
+
+                // Notify player if online
+                Player bukkitPlayer = yakPlayer.getBukkitPlayer();
+                if (bukkitPlayer != null && bukkitPlayer.isOnline()) {
+                    bukkitPlayer.sendMessage(ChatColor.YELLOW + "Removed " + amount + " gems. New balance: " + yakPlayer.getGems());
+                }
+            } else {
+                throw new RuntimeException("Insufficient gems");
+            }
+        }, true);
+    }
+
+    /**
+     * Safely set player level
+     */
+    public CompletableFuture<Boolean> setPlayerLevel(UUID playerId, int level) {
+        return withPlayer(playerId, yakPlayer -> {
+            yakPlayer.setLevel(level);
+
+            // Notify player if online
+            Player bukkitPlayer = yakPlayer.getBukkitPlayer();
+            if (bukkitPlayer != null && bukkitPlayer.isOnline()) {
+                bukkitPlayer.sendMessage(ChatColor.AQUA + "Level updated to: " + level);
+            }
+        }, true);
+    }
+
+    /**
+     * Safely get a player's gems (synchronous)
+     */
+    public int getPlayerGems(UUID playerId) {
+        return withPlayerSync(playerId, YakPlayer::getGems, 0);
+    }
+
+    /**
+     * Safely get a player's level (synchronous)
+     */
+    public int getPlayerLevel(UUID playerId) {
+        return withPlayerSync(playerId, YakPlayer::getLevel, 1);
+    }
+
+    /**
+     * Safely check if players are buddies (synchronous)
+     */
+    public boolean areBuddies(UUID player1Id, UUID player2Id) {
+        return withPlayerSync(player1Id, yakPlayer -> {
+            YakPlayer otherPlayer = getPlayer(player2Id);
+            return otherPlayer != null && yakPlayer.isBuddy(otherPlayer.getUsername());
+        }, false);
+    }
+
+    /**
+     * Safely get player's formatted display name (synchronous)
+     */
+    public String getPlayerDisplayName(UUID playerId) {
+        return withPlayerSync(playerId, YakPlayer::getFormattedDisplayName, "Unknown Player");
+    }
+
+    /**
+     * Safely update player location from Bukkit player
+     */
+    public CompletableFuture<Boolean> updatePlayerLocation(Player bukkitPlayer) {
+        return withPlayer(bukkitPlayer, yakPlayer -> {
+            yakPlayer.updateLocation(bukkitPlayer.getLocation());
+        }, false);
+    }
+
+    /**
+     * Safely update all player data from Bukkit player
+     */
+    public CompletableFuture<Boolean> updatePlayerData(Player bukkitPlayer) {
+        return withPlayer(bukkitPlayer, yakPlayer -> {
+            updatePlayerBeforeSave(yakPlayer, bukkitPlayer);
+        }, true);
+    }
+
+    /**
+     * Check if a player exists (is online and has YakPlayer data)
+     */
+    public boolean hasPlayer(UUID playerId) {
+        return playerId != null && getPlayer(playerId) != null;
+    }
+
+    /**
+     * Check if a player exists by name
+     */
+    public boolean hasPlayer(String playerName) {
+        return playerName != null && !playerName.trim().isEmpty() && getPlayer(playerName) != null;
+    }
+
+    /**
+     * Check if a Bukkit player has YakPlayer data
+     */
+    public boolean hasPlayer(Player player) {
+        return player != null && player.isOnline() && getPlayer(player) != null;
     }
 
     /**
@@ -1180,6 +1669,7 @@ public class YakPlayerManager implements Listener {
         logger.info("Failed Saves: " + failedSaves.get());
         logger.info("Load Semaphore Available: " + loadSemaphore.availablePermits() + "/" + MAX_CONCURRENT_LOADS);
         logger.info("Save Semaphore Available: " + saveSemaphore.availablePermits() + "/" + MAX_CONCURRENT_SAVES);
+        logger.info("Repository Ready: " + repositoryReady.get());
         logger.info("System Health: " + (systemHealthy.get() ? "HEALTHY" : "DEGRADED"));
         logger.info("==========================================");
     }
@@ -1196,6 +1686,7 @@ public class YakPlayerManager implements Listener {
         stats.put("failed_saves", failedSaves.get());
         stats.put("load_permits_available", loadSemaphore.availablePermits());
         stats.put("save_permits_available", saveSemaphore.availablePermits());
+        stats.put("repository_ready", repositoryReady.get());
         stats.put("system_healthy", systemHealthy.get());
         stats.put("shutdown_in_progress", shutdownInProgress.get());
         return stats;

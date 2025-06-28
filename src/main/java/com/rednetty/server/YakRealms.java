@@ -68,6 +68,7 @@ import java.util.logging.Level;
 /**
  * FIXED: Main plugin class for YakRealms
  * Handles initialization of all core systems with enhanced error handling and proper load order
+ * Fixed PlayerMechanics async initialization timing issue
  */
 public class YakRealms extends JavaPlugin {
 
@@ -121,6 +122,11 @@ public class YakRealms extends JavaPlugin {
     private final AtomicBoolean coreInitialized = new AtomicBoolean(false);
     private final AtomicBoolean systemsInitialized = new AtomicBoolean(false);
     private final AtomicBoolean commandsInitialized = new AtomicBoolean(false);
+
+    // FIXED: Configuration constants for initialization timeouts
+    private static final long PLAYER_MECHANICS_TIMEOUT_MS = 60000; // 60 seconds
+    private static final long INITIALIZATION_POLL_INTERVAL_MS = 250; // 250ms
+    private static final int MAX_INITIALIZATION_ATTEMPTS = 3;
 
     @Override
     public void onLoad() {
@@ -258,8 +264,8 @@ public class YakRealms extends JavaPlugin {
                 return false;
             }
 
-            // FIXED: Initialize player systems in correct order
-            if (!initializeCorePlayerSystems()) {
+            // FIXED: Initialize player systems with proper async waiting
+            if (!initializeCorePlayerSystemsWithWait()) {
                 getLogger().severe("Failed to initialize core player systems!");
                 return false;
             }
@@ -316,40 +322,172 @@ public class YakRealms extends JavaPlugin {
     }
 
     /**
-     * FIXED: Initialize core player systems in proper order
+     * FIXED: Initialize core player systems with proper async waiting
+     * This method properly waits for PlayerMechanics async initialization to complete
      */
-    private boolean initializeCorePlayerSystems() {
+    private boolean initializeCorePlayerSystemsWithWait() {
+        for (int attempt = 1; attempt <= MAX_INITIALIZATION_ATTEMPTS; attempt++) {
+            try {
+                getLogger().info("Initializing PlayerMechanics (attempt " + attempt + "/" + MAX_INITIALIZATION_ATTEMPTS + ")...");
+
+                // 1. Get or create PlayerMechanics instance
+                playerMechanics = PlayerMechanics.getInstance();
+                if (playerMechanics == null) {
+                    getLogger().severe("Failed to get PlayerMechanics instance!");
+                    continue;
+                }
+
+                // 2. Start PlayerMechanics initialization (this is async)
+                playerMechanics.onEnable();
+                getLogger().info("PlayerMechanics.onEnable() called, waiting for async initialization...");
+
+                // 3. FIXED: Wait for PlayerMechanics to complete its async initialization
+                if (!waitForPlayerMechanicsReady()) {
+                    getLogger().warning("PlayerMechanics initialization timeout on attempt " + attempt);
+
+                    // Clean up and retry
+                    try {
+                        if (playerMechanics != null) {
+                            playerMechanics.onDisable();
+                        }
+                    } catch (Exception cleanupError) {
+                        getLogger().log(Level.WARNING, "Error during cleanup", cleanupError);
+                    }
+
+                    if (attempt < MAX_INITIALIZATION_ATTEMPTS) {
+                        getLogger().info("Retrying PlayerMechanics initialization in 3 seconds...");
+                        Thread.sleep(3000);
+                        continue;
+                    } else {
+                        getLogger().severe("Failed to initialize PlayerMechanics after all attempts!");
+                        return false;
+                    }
+                }
+
+                getLogger().info("PlayerMechanics async initialization completed successfully");
+
+                // 4. Get references to initialized systems (now they should be available)
+                playerManager = playerMechanics.getPlayerManager();
+                if (playerManager == null) {
+                    getLogger().severe("PlayerManager is null after PlayerMechanics initialization!");
+                    continue;
+                }
+
+                playerListenerManager = playerMechanics.getListenerManager();
+                if (playerListenerManager == null) {
+                    getLogger().severe("PlayerListenerManager is null after PlayerMechanics initialization!");
+                    continue;
+                }
+
+                // 5. Validate that systems are properly initialized
+                if (!validatePlayerSystems()) {
+                    getLogger().warning("Player systems validation failed on attempt " + attempt);
+                    continue;
+                }
+
+                getLogger().info("Core player systems initialized successfully!");
+                return true;
+
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                getLogger().severe("Interrupted during PlayerMechanics initialization");
+                return false;
+            } catch (Exception e) {
+                getLogger().log(Level.SEVERE, "Error initializing core player systems (attempt " + attempt + ")", e);
+
+                if (attempt >= MAX_INITIALIZATION_ATTEMPTS) {
+                    return false;
+                }
+
+                // Brief pause before retry
+                try {
+                    Thread.sleep(2000);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    return false;
+                }
+            }
+        }
+
+        getLogger().severe("Failed to initialize core player systems after " + MAX_INITIALIZATION_ATTEMPTS + " attempts!");
+        return false;
+    }
+
+    /**
+     * FIXED: Wait for PlayerMechanics async initialization to complete
+     */
+    private boolean waitForPlayerMechanicsReady() throws InterruptedException {
+        long startTime = System.currentTimeMillis();
+        long endTime = startTime + PLAYER_MECHANICS_TIMEOUT_MS;
+
+        getLogger().info("Waiting for PlayerMechanics async initialization to complete...");
+
+        while (System.currentTimeMillis() < endTime) {
+            // Check if PlayerMechanics is ready
+            if (playerMechanics != null && playerMechanics.isSystemsReady()) {
+                long duration = System.currentTimeMillis() - startTime;
+                getLogger().info("PlayerMechanics became ready after " + duration + "ms");
+                return true;
+            }
+
+            // Check if PlayerMechanics failed
+            if (playerMechanics != null && !playerMechanics.isInitialized()) {
+                // Check if initialization failed by looking at the systems
+                try {
+                    // Give it a moment to set up
+                    if (System.currentTimeMillis() - startTime > 5000) { // After 5 seconds
+                        getLogger().warning("PlayerMechanics appears to have failed initialization");
+                        return false;
+                    }
+                } catch (Exception e) {
+                    getLogger().log(Level.WARNING, "Error checking PlayerMechanics state", e);
+                }
+            }
+
+            // Sleep before next check
+            Thread.sleep(INITIALIZATION_POLL_INTERVAL_MS);
+
+            // Log progress every 5 seconds
+            long elapsed = System.currentTimeMillis() - startTime;
+            if (elapsed > 0 && elapsed % 5000 < INITIALIZATION_POLL_INTERVAL_MS) {
+                getLogger().info("Still waiting for PlayerMechanics... (" + (elapsed / 1000) + "s elapsed)");
+            }
+        }
+
+        getLogger().severe("Timeout waiting for PlayerMechanics initialization (" + (PLAYER_MECHANICS_TIMEOUT_MS / 1000) + "s)");
+        return false;
+    }
+
+    /**
+     * FIXED: Validate that player systems are properly initialized
+     */
+    private boolean validatePlayerSystems() {
         try {
-            getLogger().info("Initializing PlayerMechanics...");
-
-            // 1. Initialize PlayerMechanics first (this will initialize YakPlayerManager)
-            playerMechanics = PlayerMechanics.getInstance();
-            if (playerMechanics == null) {
-                getLogger().severe("Failed to get PlayerMechanics instance!");
-                return false;
-            }
-
-            playerMechanics.onEnable();
-            getLogger().info("PlayerMechanics initialized successfully");
-
-            // 2. Get references to initialized systems
-            playerManager = playerMechanics.getPlayerManager();
             if (playerManager == null) {
-                getLogger().severe("PlayerManager is null after PlayerMechanics initialization!");
+                getLogger().severe("PlayerManager is null");
                 return false;
             }
 
-            playerListenerManager = playerMechanics.getListenerManager();
+            if (!playerManager.isRepositoryReady()) {
+                getLogger().severe("PlayerManager repository is not ready");
+                return false;
+            }
+
+            if (!playerManager.isSystemHealthy()) {
+                getLogger().severe("PlayerManager system is not healthy");
+                return false;
+            }
+
             if (playerListenerManager == null) {
-                getLogger().severe("PlayerListenerManager is null after PlayerMechanics initialization!");
+                getLogger().severe("PlayerListenerManager is null");
                 return false;
             }
 
-            getLogger().info("Core player systems initialized successfully!");
+            getLogger().info("Player systems validation passed");
             return true;
 
         } catch (Exception e) {
-            getLogger().log(Level.SEVERE, "Error initializing core player systems", e);
+            getLogger().log(Level.SEVERE, "Error during player systems validation", e);
             return false;
         }
     }
@@ -894,7 +1032,9 @@ public class YakRealms extends JavaPlugin {
 
             // Disconnect from database last
             if (mongoDBManager != null && mongoDBManager.isConnected()) {
+                getLogger().info("Disconnecting from MongoDB...");
                 mongoDBManager.disconnect();
+                getLogger().info("MongoDB disconnection completed");
             }
 
             getLogger().info("YakRealms has been disabled cleanly!");
@@ -909,18 +1049,36 @@ public class YakRealms extends JavaPlugin {
     private void shutdownSystems() {
         // Shutdown crate system first to complete any pending operations
         if (crateManager != null) {
-            crateManager.shutdown();
+            try {
+                crateManager.shutdown();
+                getLogger().info("Monitoring tasks stopped");
+            } catch (Exception e) {
+                getLogger().log(Level.WARNING, "Error shutting down crate manager", e);
+            }
         }
 
         // FIXED: Shutdown PlayerMechanics which handles all player systems
         if (playerMechanics != null) {
-            playerMechanics.onDisable();
+            try {
+                getLogger().info("Starting PlayerMechanics shutdown...");
+                playerMechanics.onDisable();
+                getLogger().info("PlayerMechanics shutdown completed successfully");
+            } catch (Exception e) {
+                getLogger().log(Level.WARNING, "Error shutting down PlayerMechanics", e);
+            }
         }
 
         // Disable other systems in reverse order
         if (partyMechanics != null) {
-            partyMechanics.onDisable();
+            try {
+                partyMechanics.onDisable();
+                getLogger().info("Shutting down subsystems...");
+            } catch (Exception e) {
+                getLogger().log(Level.WARNING, "Error shutting down PartyMechanics", e);
+            }
         }
+
+        getLogger().info("Final cleanup completed");
     }
 
     // Static methods and getters remain the same...

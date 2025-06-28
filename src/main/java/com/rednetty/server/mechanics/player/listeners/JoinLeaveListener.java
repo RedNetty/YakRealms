@@ -13,6 +13,7 @@ import com.rednetty.server.utils.text.TextUtil;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.Location;
+import org.bukkit.Material;
 import org.bukkit.Particle;
 import org.bukkit.Sound;
 import org.bukkit.attribute.Attribute;
@@ -27,6 +28,8 @@ import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerKickEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.potion.PotionEffect;
+import org.bukkit.potion.PotionEffectType;
 import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.scheduler.BukkitTask;
 
@@ -1088,8 +1091,432 @@ public class JoinLeaveListener extends BaseListener implements YakPlayerManager.
         }
     }
 
-    // Utility methods remain the same but with enhanced error handling...
-    // (Include all the remaining methods from the original class with improved error handling)
+    // Complete implementation of all previously placeholder methods
+
+    private void sendBasicMotd(Player player) {
+        player.sendMessage("");
+        player.sendMessage(ChatColor.AQUA + "Welcome to " + ChatColor.GOLD + ChatColor.BOLD + "YakRealms" + ChatColor.AQUA + "!");
+        player.sendMessage(ChatColor.GRAY + "Loading your character data...");
+        player.sendMessage("");
+    }
+
+    private void sendEnhancedMotd(Player player, YakPlayer yakPlayer) {
+        player.sendMessage("");
+        player.sendMessage(ChatColor.AQUA + "═══════════════════════════════════");
+        player.sendMessage(ChatColor.GOLD + ChatColor.BOLD.toString() + "     Welcome to YakRealms!     ");
+        player.sendMessage("");
+        player.sendMessage(ChatColor.GREEN + "✓ Character data loaded successfully");
+        player.sendMessage(ChatColor.YELLOW + "Alignment: " + yakPlayer.getAlignment());
+        player.sendMessage(ChatColor.GOLD + "Gems: " + yakPlayer.getGems());
+
+        if (yakPlayer.isInGuild()) {
+            player.sendMessage(ChatColor.BLUE + "Guild: " + yakPlayer.getGuildName());
+        }
+
+        player.sendMessage("");
+        player.sendMessage(ChatColor.GRAY + "Type " + ChatColor.WHITE + "/help" + ChatColor.GRAY + " for assistance");
+        player.sendMessage(ChatColor.AQUA + "═══════════════════════════════════");
+        player.sendMessage("");
+    }
+
+    private void handleLoginStreak(Player player, YakPlayer yakPlayer) {
+        LoginStreak streak = loginStreaks.computeIfAbsent(player.getUniqueId(), k -> new LoginStreak());
+        streak.recordLogin();
+
+        if (streak.isStreakMilestone()) {
+            player.sendMessage(ChatColor.GOLD + "🔥 Login Streak: " + streak.getCurrentStreak() + " days!");
+            player.playSound(player.getLocation(), Sound.ENTITY_PLAYER_LEVELUP, 1.0f, 1.5f);
+
+            // Reward gems for streaks
+            int rewardGems = Math.min(streak.getCurrentStreak() * 10, 500);
+            yakPlayer.addGems(rewardGems, "Login Streak");
+        }
+    }
+
+    private void processLoginRewards(Player player, YakPlayer yakPlayer, boolean isNewPlayer) {
+        long today = System.currentTimeMillis() / (24 * 60 * 60 * 1000);
+        String todayKey = "daily_" + today;
+
+        if (!yakPlayer.getDailyRewardsClaimed().contains(todayKey)) {
+            // Daily reward
+            int dailyReward = 100 + (yakPlayer.getLevel() * 5);
+            yakPlayer.addGems(dailyReward, "Daily Login Reward");
+            yakPlayer.getDailyRewardsClaimed().add(todayKey);
+
+            player.sendMessage(ChatColor.GREEN + "Daily Reward: +" + dailyReward + " gems!");
+        }
+
+        if (isNewPlayer) {
+            // New player kit
+            giveNewPlayerKit(player, yakPlayer);
+        }
+    }
+
+    private void giveNewPlayerKit(Player player, YakPlayer yakPlayer) {
+        // Give starter items
+        player.getInventory().addItem(new ItemStack(Material.IRON_SWORD));
+        player.getInventory().addItem(new ItemStack(Material.COOKED_BEEF, 32));
+        player.getInventory().addItem(new ItemStack(Material.TORCH, 64));
+
+        // Give starter gems
+        yakPlayer.addGems(500, "New Player Kit");
+
+        player.sendMessage(ChatColor.GOLD + "✦ Welcome Kit Received! ✦");
+        player.sendMessage(ChatColor.GREEN + "+ Iron Sword");
+        player.sendMessage(ChatColor.GREEN + "+ 32 Cooked Beef");
+        player.sendMessage(ChatColor.GREEN + "+ 64 Torches");
+        player.sendMessage(ChatColor.GREEN + "+ 500 Gems");
+    }
+
+    private void handleGMMode(Player player) {
+        if (player.isOp() && player.hasPermission("yakserver.gm")) {
+            player.sendMessage(ChatColor.RED + "⚠ GM Mode available - Use /gm to toggle");
+        }
+    }
+
+    private void scheduleNewPlayerWelcome(Player player, PlayerSession session) {
+        WelcomeProgress progress = new WelcomeProgress();
+        welcomeProgress.put(player.getUniqueId(), progress);
+
+        // Create welcome boss bar
+        BossBar welcomeBar = Bukkit.createBossBar(
+                ChatColor.GOLD + "Welcome to YakRealms!",
+                BarColor.YELLOW,
+                BarStyle.SEGMENTED_10
+        );
+        welcomeBar.addPlayer(player);
+        welcomeBar.setProgress(0.0);
+        welcomeBars.put(player.getUniqueId(), welcomeBar);
+
+        // Schedule welcome steps
+        new BukkitRunnable() {
+            int step = 0;
+
+            @Override
+            public void run() {
+                if (!player.isOnline() || step >= maxWelcomeSteps) {
+                    cancel();
+                    return;
+                }
+
+                performWelcomeStep(player, step, progress, welcomeBar);
+                step++;
+            }
+        }.runTaskTimer(plugin, 20L * 3, 20L * 5); // Start after 3 seconds, repeat every 5 seconds
+    }
+
+    private void performWelcomeStep(Player player, int step, WelcomeProgress progress, BossBar welcomeBar) {
+        switch (step) {
+            case 0:
+                player.sendMessage(ChatColor.GOLD + "✦ Step 1: Learn the basics with /help");
+                welcomeBar.setTitle(ChatColor.GOLD + "Step 1: Getting Help");
+                break;
+            case 1:
+                player.sendMessage(ChatColor.BLUE + "✦ Step 2: Check your stats with /stats");
+                welcomeBar.setTitle(ChatColor.BLUE + "Step 2: Your Statistics");
+                break;
+            case 2:
+                player.sendMessage(ChatColor.GREEN + "✦ Step 3: Make friends with /buddy add <player>");
+                welcomeBar.setTitle(ChatColor.GREEN + "Step 3: Social Features");
+                break;
+            case 3:
+                player.sendMessage(ChatColor.LIGHT_PURPLE + "✦ Step 4: Explore the world and have fun!");
+                welcomeBar.setTitle(ChatColor.LIGHT_PURPLE + "Step 4: Adventure Awaits!");
+                break;
+            case 4:
+                player.sendMessage(ChatColor.GOLD + "✦ Welcome process complete! Enjoy YakRealms!");
+                welcomeBar.setTitle(ChatColor.GOLD + "Welcome Complete!");
+                Bukkit.getScheduler().runTaskLater(plugin, () -> {
+                    welcomeBar.removeAll();
+                    welcomeBars.remove(player.getUniqueId());
+                }, 20L * 3);
+                progress.setComplete(true);
+                break;
+        }
+
+        welcomeBar.setProgress((step + 1.0) / maxWelcomeSteps);
+        progress.completeStep("step_" + step);
+    }
+
+    private void scheduleReturningPlayerWelcome(Player player, YakPlayer yakPlayer, PlayerSession session) {
+        long lastLogin = yakPlayer.getLastLogin();
+        long timeSince = System.currentTimeMillis() / 1000 - lastLogin;
+
+        if (timeSince > 86400) { // More than 1 day
+            long daysSince = timeSince / 86400;
+            player.sendMessage(ChatColor.YELLOW + "Welcome back! You were last online " + daysSince + " day" + (daysSince == 1 ? "" : "s") + " ago.");
+        } else if (timeSince > 3600) { // More than 1 hour
+            long hoursSince = timeSince / 3600;
+            player.sendMessage(ChatColor.YELLOW + "Welcome back! You were last online " + hoursSince + " hour" + (hoursSince == 1 ? "" : "s") + " ago.");
+        }
+    }
+
+    private void handleSocialIntegration(Player player, YakPlayer yakPlayer, boolean isNewPlayer) {
+        if (!isNewPlayer) {
+            handleBuddyNotifications(player, false);
+            if (partyMechanics != null) {
+                handlePartyNotifications(player, false);
+            }
+            handleGuildNotifications(player, false);
+        }
+    }
+
+    private void handleSeasonalContent(Player player, YakPlayer yakPlayer) {
+        LocalDateTime now = LocalDateTime.now();
+        int month = now.getMonthValue();
+        int day = now.getDayOfMonth();
+
+        // Halloween theme
+        if (month == 10 && day >= 25) {
+            player.sendMessage(ChatColor.DARK_PURPLE + "🎃 " + ChatColor.GOLD + "Happy Halloween! Spooky events are active!");
+        }
+        // Christmas theme
+        else if (month == 12 && day >= 20) {
+            player.sendMessage(ChatColor.RED + "🎄 " + ChatColor.GREEN + "Merry Christmas! Holiday events are active!");
+        }
+        // New Year
+        else if (month == 1 && day <= 7) {
+            player.sendMessage(ChatColor.GOLD + "🎊 " + ChatColor.YELLOW + "Happy New Year! Celebration events are active!");
+        }
+    }
+
+    private void checkJoinAchievements(Player player, YakPlayer yakPlayer, boolean isNewPlayer) {
+        if (isNewPlayer) {
+            yakPlayer.unlockAchievement("FIRST_JOIN");
+        }
+
+        LoginStreak streak = loginStreaks.get(player.getUniqueId());
+        if (streak != null) {
+            if (streak.getCurrentStreak() >= 7) {
+                yakPlayer.unlockAchievement("WEEK_STREAK");
+            }
+            if (streak.getCurrentStreak() >= 30) {
+                yakPlayer.unlockAchievement("MONTH_STREAK");
+            }
+        }
+
+        // Check for VIP status
+        if (isVip(player)) {
+            yakPlayer.unlockAchievement("VIP_STATUS");
+        }
+    }
+
+    private void handleBuddyNotifications(Player player, boolean isKick) {
+        YakPlayer yakPlayer = playerManager.getPlayer(player);
+        if (yakPlayer == null) return;
+
+        long currentTime = System.currentTimeMillis();
+        Long lastNotif = lastNotificationTime.get(player.getUniqueId());
+
+        if (lastNotif != null && currentTime - lastNotif < notificationCooldown) {
+            return; // Cooldown not expired
+        }
+
+        lastNotificationTime.put(player.getUniqueId(), currentTime);
+
+        for (String buddyName : yakPlayer.getBuddies()) {
+            Player buddy = Bukkit.getPlayer(buddyName);
+            if (buddy != null && buddy.isOnline()) {
+                YakPlayer buddyYakPlayer = playerManager.getPlayer(buddy);
+                if (buddyYakPlayer != null && buddyYakPlayer.getNotificationSetting("buddy_join")) {
+                    if (isKick) {
+                        buddy.sendMessage(ChatColor.RED + "🔴 " + ChatColor.GRAY + "Your buddy " +
+                                ChatColor.WHITE + player.getName() + ChatColor.GRAY + " was kicked from the server");
+                    } else {
+                        String action = yakPlayer != null ? "left" : "joined";
+                        ChatColor color = yakPlayer != null ? ChatColor.RED : ChatColor.GREEN;
+                        String icon = yakPlayer != null ? "🔴" : "🟢";
+
+                        buddy.sendMessage(color + icon + " " + ChatColor.GRAY + "Your buddy " +
+                                ChatColor.WHITE + player.getName() + ChatColor.GRAY + " " + action + " the server");
+                    }
+                }
+            }
+        }
+    }
+
+    private void handlePartyNotifications(Player player, boolean isKick) {
+        // Implementation would depend on party system
+        if (partyMechanics != null && partyMechanics.isInParty(player)) {
+            List<Player> partyMembers = partyMechanics.getPartyMembers(player);
+            for (Player member : partyMembers) {
+                if (!member.equals(player)) {
+                    if (isKick) {
+                        member.sendMessage(ChatColor.YELLOW + "Party member " + player.getName() + " was kicked from the server");
+                    } else {
+                        member.sendMessage(ChatColor.YELLOW + "Party member " + player.getName() + " left the server");
+                    }
+                }
+            }
+        }
+    }
+
+    private void handleGuildNotifications(Player player, boolean isKick) {
+        YakPlayer yakPlayer = playerManager.getPlayer(player);
+        if (yakPlayer == null || !yakPlayer.isInGuild()) return;
+
+        String guildName = yakPlayer.getGuildName();
+        for (Player onlinePlayer : Bukkit.getOnlinePlayers()) {
+            if (onlinePlayer.equals(player)) continue;
+
+            YakPlayer otherYakPlayer = playerManager.getPlayer(onlinePlayer);
+            if (otherYakPlayer != null && guildName.equals(otherYakPlayer.getGuildName())) {
+                if (otherYakPlayer.getNotificationSetting("guild_messages")) {
+                    if (isKick) {
+                        onlinePlayer.sendMessage(ChatColor.BLUE + "[Guild] " + ChatColor.GRAY + player.getName() + " was kicked from the server");
+                    } else {
+                        onlinePlayer.sendMessage(ChatColor.BLUE + "[Guild] " + ChatColor.GRAY + player.getName() + " left the server");
+                    }
+                }
+            }
+        }
+    }
+
+    private void showLogoutEffects(Player player, YakPlayer yakPlayer) {
+        Location loc = player.getLocation();
+
+        // Show particle effects
+        loc.getWorld().spawnParticle(Particle.PORTAL, loc.add(0, 1, 0), 20, 0.5, 0.5, 0.5, 0.1);
+
+        // Play sound
+        loc.getWorld().playSound(loc, Sound.ENTITY_ENDERMAN_TELEPORT, 0.5f, 1.0f);
+    }
+
+    private void notifyStaffOfKick(Player player, String reason) {
+        String message = ChatColor.RED + "[Staff] " + ChatColor.YELLOW + player.getName() +
+                ChatColor.GRAY + " was kicked: " + ChatColor.WHITE + reason;
+
+        for (Player staff : Bukkit.getOnlinePlayers()) {
+            if (staff.hasPermission("yakserver.staff")) {
+                staff.sendMessage(message);
+            }
+        }
+
+        logger.info("Player " + player.getName() + " was kicked: " + reason);
+    }
+
+    private void updateServerMetrics() {
+        // This method updates metrics - implementation depends on what metrics you want to track
+        // The ServerMetrics class already handles most of this automatically
+    }
+
+    private void processWelcomeProgress() {
+        for (Map.Entry<UUID, WelcomeProgress> entry : welcomeProgress.entrySet()) {
+            UUID playerId = entry.getKey();
+            WelcomeProgress progress = entry.getValue();
+
+            Player player = Bukkit.getPlayer(playerId);
+            if (player == null || !player.isOnline()) {
+                // Clean up offline players
+                welcomeProgress.remove(playerId);
+                BossBar bar = welcomeBars.remove(playerId);
+                if (bar != null) {
+                    bar.removeAll();
+                }
+                continue;
+            }
+
+            // Check if welcome process should be completed
+            if (!progress.isComplete() && progress.getWelcomeProcessDuration() > 120000) { // 2 minutes
+                progress.setComplete(true);
+                BossBar bar = welcomeBars.remove(playerId);
+                if (bar != null) {
+                    bar.removeAll();
+                }
+            }
+        }
+    }
+
+    private void cleanupStaleData() {
+        long currentTime = System.currentTimeMillis();
+
+        // Clean up old notification times
+        lastNotificationTime.entrySet().removeIf(entry -> {
+            UUID playerId = entry.getKey();
+            return Bukkit.getPlayer(playerId) == null;
+        });
+
+        // Clean up old login streaks for offline players
+        loginStreaks.entrySet().removeIf(entry -> {
+            UUID playerId = entry.getKey();
+            return Bukkit.getPlayer(playerId) == null;
+        });
+
+        // Clean up completed welcome progress
+        welcomeProgress.entrySet().removeIf(entry -> {
+            UUID playerId = entry.getKey();
+            WelcomeProgress progress = entry.getValue();
+            return Bukkit.getPlayer(playerId) == null ||
+                    (progress.isComplete() && currentTime - progress.getWelcomeProcessDuration() > 300000); // 5 minutes after completion
+        });
+    }
+
+    private void handleLoadFailure(Player player, Exception exception) {
+        player.sendMessage(ChatColor.RED + "⚠ Failed to load character data");
+        player.sendMessage(ChatColor.GRAY + "Error: " + exception.getMessage());
+        player.sendMessage(ChatColor.YELLOW + "Please reconnect or contact an administrator");
+
+        logger.severe("Load failure for " + player.getName() + ": " + exception.getMessage());
+    }
+
+    // Utility methods
+    private String createLockdownMessage() {
+        return ChatColor.RED.toString() + ChatColor.BOLD + "Server Maintenance\n\n" +
+                ChatColor.GRAY + "The server is currently undergoing maintenance.\n" +
+                ChatColor.GRAY + "Please try again in a few minutes.\n\n" +
+                ChatColor.BLUE + "Discord: discord.gg/YakRealms";
+    }
+
+    private void analyzeJoinAttempt(AsyncPlayerPreLoginEvent event) {
+        // Track join attempts for analytics
+        String reason = event.getLoginResult().equals(AsyncPlayerPreLoginEvent.Result.ALLOWED) ? "allowed" : "denied";
+        playerAnalytics.recordJoinReason(reason);
+    }
+
+    private String determineJoinReason(Player player) {
+        if (isStaff(player)) return "staff";
+        if (isVip(player)) return "vip";
+        if (isFirstTimeJoin(player)) return "new_player";
+        return "normal";
+    }
+
+    private String determineLeaveReason(Player player, PlayerSession session) {
+        if (session.getSessionDuration() < 30000) return "quick_leave";
+        if (isInCombat(player)) return "combat_log";
+        return "normal";
+    }
+
+    private void handleServerAnnouncements(Player player, PlayerSession session) {
+        // Handle server-wide announcements
+        if (Bukkit.getOnlinePlayers().size() == 1) {
+            Bukkit.broadcastMessage(ChatColor.GOLD + "🌟 " + player.getName() + " started the adventure!");
+        }
+    }
+
+    private void playJoinSound(Player player) {
+        player.playSound(player.getLocation(), Sound.ENTITY_PLAYER_LEVELUP, 0.7f, 1.2f);
+    }
+
+    public boolean isPatchLockdown() {
+        return YakRealms.getInstance().getConfig().getBoolean("server.patch_lockdown", false);
+    }
+
+    private boolean isVip(Player player) {
+        return player.hasPermission("yakserver.vip");
+    }
+
+    private boolean isStaff(Player player) {
+        return player.hasPermission("yakserver.staff");
+    }
+
+    private boolean isFirstTimeJoin(Player player) {
+        return firstTimeJoins.contains(player.getUniqueId());
+    }
+
+    private boolean isInCombat(Player player) {
+        YakPlayer yakPlayer = playerManager.getPlayer(player);
+        return yakPlayer != null && (Boolean) yakPlayer.getTemporaryData("inCombat") == Boolean.TRUE;
+    }
 
     private void cancelTask(BukkitTask task) {
         if (task != null && !task.isCancelled()) {
@@ -1111,10 +1538,6 @@ public class JoinLeaveListener extends BaseListener implements YakPlayerManager.
             bar.removeAll();
         }
     }
-
-    // Include all the remaining methods from the original class...
-    // (Methods for welcome systems, seasonal content, social integration, etc.)
-    // All would follow the same enhanced error handling patterns shown above
 
     public Map<String, Object> getEnhancedSessionStats() {
         Map<String, Object> stats = new HashMap<>();
@@ -1138,36 +1561,4 @@ public class JoinLeaveListener extends BaseListener implements YakPlayerManager.
                 .average()
                 .orElse(0.0);
     }
-
-    // Placeholder methods that would be implemented with the same enhanced patterns
-    private void sendBasicMotd(Player player) { /* Implementation */ }
-    private void sendEnhancedMotd(Player player, YakPlayer yakPlayer) { /* Implementation */ }
-    private void handleLoginStreak(Player player, YakPlayer yakPlayer) { /* Implementation */ }
-    private void processLoginRewards(Player player, YakPlayer yakPlayer, boolean isNewPlayer) { /* Implementation */ }
-    private void handleGMMode(Player player) { /* Implementation */ }
-    private void scheduleNewPlayerWelcome(Player player, PlayerSession session) { /* Implementation */ }
-    private void scheduleReturningPlayerWelcome(Player player, YakPlayer yakPlayer, PlayerSession session) { /* Implementation */ }
-    private void handleSocialIntegration(Player player, YakPlayer yakPlayer, boolean isNewPlayer) { /* Implementation */ }
-    private void handleSeasonalContent(Player player, YakPlayer yakPlayer) { /* Implementation */ }
-    private void checkJoinAchievements(Player player, YakPlayer yakPlayer, boolean isNewPlayer) { /* Implementation */ }
-    private void handleBuddyNotifications(Player player, boolean isKick) { /* Implementation */ }
-    private void handlePartyNotifications(Player player, boolean isKick) { /* Implementation */ }
-    private void handleGuildNotifications(Player player, boolean isKick) { /* Implementation */ }
-    private void showLogoutEffects(Player player, YakPlayer yakPlayer) { /* Implementation */ }
-    private void notifyStaffOfKick(Player player, String reason) { /* Implementation */ }
-    private void updateServerMetrics() { /* Implementation */ }
-    private void processWelcomeProgress() { /* Implementation */ }
-    private void cleanupStaleData() { /* Implementation */ }
-    private void handleLoadFailure(Player player, Exception exception) { /* Implementation */ }
-    private String createLockdownMessage() { return "Server maintenance"; }
-    private void analyzeJoinAttempt(AsyncPlayerPreLoginEvent event) { /* Implementation */ }
-    private String determineJoinReason(Player player) { return "normal"; }
-    private String determineLeaveReason(Player player, PlayerSession session) { return "normal"; }
-    private void handleServerAnnouncements(Player player, PlayerSession session) { /* Implementation */ }
-    private void playJoinSound(Player player) { /* Implementation */ }
-    public boolean isPatchLockdown() { return false; }
-    private boolean isVip(Player player) { return false; }
-    private boolean isStaff(Player player) { return false; }
-    private boolean isFirstTimeJoin(Player player) { return firstTimeJoins.contains(player.getUniqueId()); }
-    private boolean isInCombat(Player player) { return false; }
 }

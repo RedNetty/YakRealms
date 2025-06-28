@@ -192,7 +192,7 @@ public class LootNotifier {
             return source.getCustomName();
         }
 
-        return MobManager.getInstance().getDefaultNameForEntity(source);
+        return MobManager.getInstance().getCustomMob(source).getOriginalName();
     }
 
     /**
@@ -452,7 +452,7 @@ public class LootNotifier {
             );
         } else {
             String sourceName = source != null ?
-                    MobManager.getInstance().getDefaultNameForEntity(source) : "Unknown";
+                    MobManager.getInstance().getCustomMob(source).getOriginalName() : "Unknown";
             message = ChatColor.GRAY + "➤ " + ChatColor.RESET + sourceName +
                     ChatColor.YELLOW + " dropped " + ChatColor.RESET + itemName;
         }

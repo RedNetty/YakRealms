@@ -26,7 +26,8 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
- * Enhanced YakPlayer repository with improved error handling, caching, and data integrity
+ * FIXED: Enhanced YakPlayer repository with proper initialization timing
+ * and improved error handling for startup reliability
  */
 public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
     private static final String COLLECTION_NAME = "players";
@@ -35,6 +36,8 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
     private static final long RETRY_DELAY_MS = 1000;
     private static final long CACHE_EXPIRY_TIME = TimeUnit.MINUTES.toMillis(30);
     private static final long CACHE_CLEANUP_INTERVAL = TimeUnit.MINUTES.toMillis(5);
+    private static final int MAX_INITIALIZATION_ATTEMPTS = 5;
+    private static final long INITIALIZATION_RETRY_DELAY_MS = 2000;
 
     // Core dependencies
     private final Logger logger;
@@ -43,11 +46,12 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
     private final DocumentConverter documentConverter;
 
     // Database collections
-    private MongoCollection<Document> collection;
-    private MongoCollection<Document> backupCollection;
+    private volatile MongoCollection<Document> collection;
+    private volatile MongoCollection<Document> backupCollection;
 
-    // Repository state
+    // FIXED: Repository state with better synchronization
     private final AtomicBoolean repositoryInitialized = new AtomicBoolean(false);
+    private final AtomicBoolean initializationInProgress = new AtomicBoolean(false);
     private final AtomicBoolean performingBatchOperation = new AtomicBoolean(false);
     private final ReentrantReadWriteLock repositoryLock = new ReentrantReadWriteLock();
 
@@ -159,36 +163,54 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
             }
         }
 
-        // Initialize repository
+        // FIXED: Initialize repository synchronously to avoid timing issues
         initializeRepository();
-        startBackgroundTasks();
+
+        // Start background tasks only after initialization
+        if (repositoryInitialized.get()) {
+            startBackgroundTasks();
+        }
     }
 
     /**
-     * Enhanced repository initialization with better error handling
+     * FIXED: Synchronous repository initialization with proper error handling and retries
      */
     private void initializeRepository() {
+        if (!initializationInProgress.compareAndSet(false, true)) {
+            logger.warning("Repository initialization already in progress");
+            return;
+        }
+
+        repositoryLock.writeLock().lock();
         try {
-            Bukkit.getScheduler().runTaskLater(plugin, () -> {
-                repositoryLock.writeLock().lock();
+            int attempt = 0;
+            Exception lastException = null;
+
+            while (attempt < MAX_INITIALIZATION_ATTEMPTS && !repositoryInitialized.get()) {
+                attempt++;
                 try {
+                    logger.info("Repository initialization attempt " + attempt + "/" + MAX_INITIALIZATION_ATTEMPTS);
+
+                    // Check if MongoDB manager is available
                     MongoDBManager mongoDBManager = MongoDBManager.getInstance();
                     if (mongoDBManager == null) {
-                        logger.severe("MongoDBManager instance is null during repository initialization");
-                        return;
+                        throw new RuntimeException("MongoDBManager instance is null");
                     }
 
-                    if (!mongoDBManager.isConnected() && !mongoDBManager.connect()) {
-                        logger.severe("Failed to connect to MongoDB during repository initialization");
-                        return;
+                    // Wait for MongoDB connection if needed
+                    if (!mongoDBManager.isConnected()) {
+                        logger.info("Waiting for MongoDB connection...");
+                        if (!waitForMongoDBConnection(mongoDBManager, 10000)) {
+                            throw new RuntimeException("MongoDB connection timeout");
+                        }
                     }
 
+                    // Get collections
                     this.collection = mongoDBManager.getCollection(COLLECTION_NAME);
                     this.backupCollection = mongoDBManager.getCollection(BACKUP_COLLECTION_NAME);
 
                     if (this.collection == null) {
-                        logger.severe("Failed to get MongoDB collection: " + COLLECTION_NAME);
-                        return;
+                        throw new RuntimeException("Failed to get MongoDB collection: " + COLLECTION_NAME);
                     }
 
                     // Test connection and create indexes
@@ -196,19 +218,69 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
                     createOptimizedIndexes();
 
                     repositoryInitialized.set(true);
-                    logger.info("YakPlayerRepository initialized successfully");
+                    logger.info("YakPlayerRepository initialized successfully on attempt " + attempt);
+                    break;
 
                 } catch (Exception e) {
-                    logger.log(Level.SEVERE, "Failed to initialize YakPlayerRepository", e);
-                    repositoryInitialized.set(false);
-                } finally {
-                    repositoryLock.writeLock().unlock();
-                }
-            }, 20L);
+                    lastException = e;
+                    logger.log(Level.WARNING, "Repository initialization attempt " + attempt + " failed: " + e.getMessage(), e);
 
-        } catch (Exception e) {
-            logger.log(Level.SEVERE, "Error scheduling repository initialization", e);
+                    if (attempt < MAX_INITIALIZATION_ATTEMPTS) {
+                        try {
+                            Thread.sleep(INITIALIZATION_RETRY_DELAY_MS);
+                        } catch (InterruptedException ie) {
+                            Thread.currentThread().interrupt();
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if (!repositoryInitialized.get()) {
+                String error = "Failed to initialize YakPlayerRepository after " + MAX_INITIALIZATION_ATTEMPTS + " attempts";
+                if (lastException != null) {
+                    error += ". Last error: " + lastException.getMessage();
+                }
+                logger.severe(error);
+                throw new RuntimeException(error, lastException);
+            }
+
+        } finally {
+            initializationInProgress.set(false);
+            repositoryLock.writeLock().unlock();
         }
+    }
+
+    /**
+     * FIXED: Wait for MongoDB connection with timeout
+     */
+    private boolean waitForMongoDBConnection(MongoDBManager mongoDBManager, long timeoutMs) {
+        long startTime = System.currentTimeMillis();
+        long endTime = startTime + timeoutMs;
+
+        while (System.currentTimeMillis() < endTime) {
+            if (mongoDBManager.isConnected()) {
+                return true;
+            }
+
+            // Try to connect
+            try {
+                if (mongoDBManager.connect()) {
+                    return true;
+                }
+            } catch (Exception e) {
+                logger.fine("MongoDB connection attempt failed: " + e.getMessage());
+            }
+
+            try {
+                Thread.sleep(1000); // Wait 1 second before retry
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return false;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -233,7 +305,7 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
     }
 
     /**
-     * Enhanced connection validation
+     * FIXED: Enhanced connection validation with better null checking
      */
     private boolean ensureCollection() {
         repositoryLock.readLock().lock();
@@ -930,6 +1002,7 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
         repositoryLock.readLock().lock();
         try {
             status.put("initialized", repositoryInitialized.get());
+            status.put("initialization_in_progress", initializationInProgress.get());
             status.put("collection_available", collection != null);
             status.put("backup_collection_available", backupCollection != null);
             status.put("cached_players", playerCache.size());
