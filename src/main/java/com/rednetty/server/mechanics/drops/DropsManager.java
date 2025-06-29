@@ -604,9 +604,6 @@ public class DropsManager {
      */
     public boolean shouldDropItem(LivingEntity entity, boolean isElite, int tier) {
         // World bosses always drop items
-        if (mobManager.hasMetadata(entity, "worldboss")) {
-            return true;
-        }
 
         int baseDropRate = DropConfig.getDropRate(tier);
         int dropRate = isElite ? DropConfig.getEliteDropRate(tier) : baseDropRate;

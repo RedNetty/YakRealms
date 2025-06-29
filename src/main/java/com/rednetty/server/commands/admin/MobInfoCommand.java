@@ -49,7 +49,7 @@ public class MobInfoCommand implements CommandExecutor {
         LivingEntity mob = (LivingEntity) targetEntity;
 
         // Use the mobManager to get and display mob info
-        mobManager.displayMobInfo(player, mob);
+        //mobManager.getCustomMob(mob).
 
         return true;
     }

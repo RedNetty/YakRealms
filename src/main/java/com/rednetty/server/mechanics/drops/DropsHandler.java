@@ -366,11 +366,10 @@ public class DropsHandler implements Listener {
     private MobAnalysis analyzeMob(LivingEntity entity) {
         int tier = detectMobTier(entity);
         boolean isElite = detectEliteStatus(entity);
-        boolean isWorldBoss = mobManager.hasMetadata(entity, "worldboss");
         String mobType = extractMobType(entity);
         boolean isNamedElite = isElite && mobType != null && DropConfig.getEliteDropConfig(mobType.toLowerCase()) != null;
 
-        return new MobAnalysis(tier, isElite, isWorldBoss, isNamedElite, mobType);
+        return new MobAnalysis(tier, isElite, false, isNamedElite, mobType);
     }
 
     /**

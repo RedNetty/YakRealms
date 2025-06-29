@@ -140,7 +140,7 @@ public class Toggles implements Listener {
             // Display toggles
             addToggleDefinition("Hologram Damage", "Display", "Shows floating damage numbers in combat",
                     null, false, true, Material.NAME_TAG);
-            addToggleDefinition("Debug Mode", "Display", "Shows detailed combat and system information",
+            addToggleDefinition("Debug", "Display", "Shows detailed combat and system information",
                     null, false, false, Material.REDSTONE);
             addToggleDefinition("Trail Effects", "Display", "Displays special particle trail effects",
                     "yakserver.donator", false, false, Material.FIREWORK_ROCKET);

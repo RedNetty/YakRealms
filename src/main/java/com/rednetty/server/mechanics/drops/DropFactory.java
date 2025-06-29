@@ -1,6 +1,7 @@
 package com.rednetty.server.mechanics.drops;
 
 import com.rednetty.server.YakRealms;
+import com.rednetty.server.mechanics.crates.types.CrateType;
 import com.rednetty.server.mechanics.economy.MoneyManager;
 import com.rednetty.server.mechanics.teleport.TeleportBookSystem;
 import com.rednetty.server.mechanics.teleport.TeleportDestination;
@@ -126,39 +127,7 @@ public class DropFactory {
      * @return The created crate ItemStack with enhanced visuals
      */
     public ItemStack createCrateDrop(int tier) {
-        validateTier(tier);
-
-        ItemStack crate = new ItemStack(Material.ENDER_CHEST);
-        ItemMeta meta = crate.getItemMeta();
-
-        if (meta != null) {
-            ChatColor tierColor = TIER_COLORS.getOrDefault(tier, ChatColor.WHITE);
-
-            // Enhanced name with visual flair
-            meta.setDisplayName(tierColor + "✦ " + ChatColor.BOLD + "Loot Crate " +
-                    ChatColor.RESET + tierColor + "(Tier " + tier + ") " + ChatColor.BOLD + "✦");
-
-            // Enhanced lore with visual elements
-            List<String> lore = createCrateLore(tier, tierColor);
-            meta.setLore(lore);
-
-            // Hide all attributes for clean appearance
-            Arrays.stream(ItemFlag.values()).forEach(meta::addItemFlags);
-
-            // Store tier information in persistent data
-            PersistentDataContainer container = meta.getPersistentDataContainer();
-            NamespacedKey keyTier = new NamespacedKey(plugin, "crate_tier");
-            container.set(keyTier, PersistentDataType.INTEGER, tier);
-
-            // Add creation timestamp for tracking
-            NamespacedKey keyTimestamp = new NamespacedKey(plugin, "crate_created");
-            container.set(keyTimestamp, PersistentDataType.LONG, System.currentTimeMillis());
-
-            crate.setItemMeta(meta);
-        }
-
-        logDropCreation("crate", tier, 0, 0);
-        return crate;
+        return YakRealms.getInstance().getCrateManager().createCrate(CrateType.getByTier(tier, false),false);
     }
 
     /**

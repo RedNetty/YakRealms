@@ -21,11 +21,11 @@ import java.util.concurrent.ThreadLocalRandom;
 import java.util.logging.Logger;
 
 /**
- * FIXED: Simplified CustomMob class with reliable name tracking and reduced complexity
+ * IMPROVED: Simplified CustomMob class with proper tier-specific name handling
+ * Maintains name/health bar functionality while using MobType system correctly
  */
 public class CustomMob {
 
-    // ================ CONSTANTS ================
     protected static final Random RANDOM = new Random();
     protected static final Logger LOGGER = YakRealms.getInstance().getLogger();
     protected static final int NAME_VISIBILITY_TIMEOUT = 6500; // 6.5 seconds
@@ -36,9 +36,9 @@ public class CustomMob {
     protected final int tier;
     protected final boolean elite;
 
-    // ================ SIMPLIFIED NAME TRACKING ================
-    private String originalName; // The original name when first created
-    protected String currentDisplayName; // Current display name
+    // ================ NAME SYSTEM - PRESERVED ================
+    private String originalName; // Proper tier-specific name
+    protected String currentDisplayName; // What's currently shown
     private boolean originalNameStored = false;
 
     // ================ STATE VARIABLES ================
@@ -47,21 +47,21 @@ public class CustomMob {
     protected int criticalStateDuration;
     protected int lightningMultiplier = 0;
     protected long lastDamageTime = 0;
-    protected long lastDeathTime = 0;
 
-    // ================ VISIBILITY MANAGEMENT ================
+    // ================ VISIBILITY MANAGEMENT - PRESERVED ================
     public boolean nameVisible = true;
     private boolean showingHealthBar = false;
 
     // ================ HEALTH SYSTEM ================
     private double baseHealth = 0;
-    private boolean healthCalculated = false;
 
     /**
-     * Create a new custom mob with simplified initialization
+     * Create a new custom mob with proper tier-specific naming
      */
     public CustomMob(MobType type, int tier, boolean elite) {
-        validateConstructorParameters(type, tier);
+        if (type == null) {
+            throw new IllegalArgumentException("MobType cannot be null");
+        }
 
         this.type = type;
         this.tier = Math.max(1, Math.min(6, tier));
@@ -70,21 +70,8 @@ public class CustomMob {
         this.criticalStateDuration = 0;
     }
 
-    private void validateConstructorParameters(MobType type, int tier) {
-        if (type == null) {
-            throw new IllegalArgumentException("MobType cannot be null");
-        }
-
-        if (tier < 1 || tier > 6) {
-            LOGGER.warning(String.format("§c[CustomMob] Invalid tier %d, clamping to valid range", tier));
-        }
-    }
-
     // ================ SPAWNING SYSTEM ================
 
-    /**
-     * FIXED: Simplified spawn method with better error handling
-     */
     public boolean spawn(Location location) {
         try {
             if (!validateSpawnLocation(location)) {
@@ -99,7 +86,7 @@ public class CustomMob {
             entity = createEntity(spawnLoc);
 
             if (entity == null) {
-                LOGGER.warning(String.format("§c[CustomMob] Failed to create entity for %s", type.getId()));
+                LOGGER.warning("[CustomMob] Failed to create entity for " + type.getId());
                 return false;
             }
 
@@ -111,31 +98,21 @@ public class CustomMob {
             registerWithManager();
 
             if (YakRealms.getInstance().isDebugMode()) {
-                LOGGER.info(String.format("§a[CustomMob] §7Spawned %s T%d%s at %s",
-                        type.getId(), tier, elite ? "+" : "", formatLocation(spawnLoc)));
+                LOGGER.info("[CustomMob] Spawned " + type.getId() + " T" + tier + (elite ? "+" : "") +
+                        " at " + formatLocation(spawnLoc));
             }
 
             return true;
 
         } catch (Exception e) {
-            LOGGER.warning(String.format("§c[CustomMob] Spawn error for %s: %s", type.getId(), e.getMessage()));
+            LOGGER.warning("[CustomMob] Spawn error for " + type.getId() + ": " + e.getMessage());
             cleanup();
             return false;
         }
     }
 
     private boolean validateSpawnLocation(Location location) {
-        if (location == null) {
-            LOGGER.warning("§c[CustomMob] Spawn location is null");
-            return false;
-        }
-
-        if (location.getWorld() == null) {
-            LOGGER.warning("§c[CustomMob] Spawn world is null");
-            return false;
-        }
-
-        return true;
+        return location != null && location.getWorld() != null;
     }
 
     private boolean checkRespawnCooldown() {
@@ -145,10 +122,7 @@ public class CustomMob {
         if (typeDeath > 0) {
             long timeSinceDeath = currentTime - typeDeath;
             long requiredCooldown = calculateRespawnDelay();
-
-            if (timeSinceDeath < requiredCooldown) {
-                return false;
-            }
+            return timeSinceDeath >= requiredCooldown;
         }
 
         return true;
@@ -159,15 +133,12 @@ public class CustomMob {
     }
 
     private Location getOptimalSpawnLocation(Location baseLocation) {
-        // Try a few random locations around the base
         for (int attempts = 0; attempts < 5; attempts++) {
             Location candidate = generateRandomSpawnLocation(baseLocation);
             if (isValidSpawnLocation(candidate)) {
                 return candidate;
             }
         }
-
-        // Fallback to safe location above base
         return baseLocation.clone().add(0.5, 2.0, 0.5);
     }
 
@@ -201,7 +172,7 @@ public class CustomMob {
                 return null;
             }
         } catch (Exception e) {
-            LOGGER.warning(String.format("§c[CustomMob] Entity creation failed: %s", e.getMessage()));
+            LOGGER.warning("[CustomMob] Entity creation failed: " + e.getMessage());
             return null;
         }
     }
@@ -213,14 +184,13 @@ public class CustomMob {
             calculateAndSetHealth();
             applyTypeProperties();
 
-            // FIXED: Store original name after setup
+            // Capture original name after full setup
             captureOriginalName();
-
             lastDamageTime = 0;
             return true;
 
         } catch (Exception e) {
-            LOGGER.warning(String.format("§c[CustomMob] Initialization failed: %s", e.getMessage()));
+            LOGGER.warning("[CustomMob] Initialization failed: " + e.getMessage());
             return false;
         }
     }
@@ -242,76 +212,50 @@ public class CustomMob {
     protected void applyBasicProperties() {
         if (entity == null) return;
 
-        // Essential metadata
         setEntityMetadata();
-
-        // Configure appearance and name
         configureEntityAppearance();
-
-        // Basic behavioral settings
         configureBehavior();
-
-        // Basic effects
         applyBasicEffects();
-
-        // Initialize timing
         lastDamageTime = System.currentTimeMillis();
     }
 
     private void setEntityMetadata() {
         YakRealms plugin = YakRealms.getInstance();
 
-        // Core identification metadata
         entity.setMetadata("type", new FixedMetadataValue(plugin, type.getId()));
         entity.setMetadata("tier", new FixedMetadataValue(plugin, String.valueOf(tier)));
         entity.setMetadata("customTier", new FixedMetadataValue(plugin, tier));
         entity.setMetadata("elite", new FixedMetadataValue(plugin, elite));
         entity.setMetadata("customName", new FixedMetadataValue(plugin, type.getId()));
-
-        // Drop system metadata
         entity.setMetadata("dropTier", new FixedMetadataValue(plugin, tier));
         entity.setMetadata("dropElite", new FixedMetadataValue(plugin, elite));
 
-        // Special type metadata
         if (type.isWorldBoss()) {
             entity.setMetadata("worldboss", new FixedMetadataValue(plugin, true));
         }
     }
 
+    /**
+     * IMPROVED: Configure entity appearance using proper tier-specific names
+     */
     private void configureEntityAppearance() {
+        // Get tier-specific name from MobType system
         String tierSpecificName = type.getTierSpecificName(tier);
-        ChatColor tierColor = getTierColor(tier);
-        String formattedName = elite ?
-                tierColor.toString() + ChatColor.BOLD + tierSpecificName :
-                tierColor + tierSpecificName;
+
+        // Format with proper tier color using MobUtils
+        String formattedName = MobUtils.formatMobName(tierSpecificName, tier, elite);
 
         entity.setCustomName(formattedName);
         entity.setCustomNameVisible(true);
-
-        // Set as current display name
         currentDisplayName = formattedName;
 
-        // Store in metadata for reference
         entity.setMetadata("name", new FixedMetadataValue(YakRealms.getInstance(), formattedName));
-    }
-
-    private ChatColor getTierColor(int tier) {
-        switch (tier) {
-            case 1: return ChatColor.WHITE;
-            case 2: return ChatColor.GREEN;
-            case 3: return ChatColor.AQUA;
-            case 4: return ChatColor.LIGHT_PURPLE;
-            case 5: return ChatColor.YELLOW;
-            case 6: return ChatColor.BLUE;
-            default: return ChatColor.WHITE;
-        }
     }
 
     private void configureBehavior() {
         entity.setCanPickupItems(false);
         entity.setRemoveWhenFarAway(false);
 
-        // Entity-specific configurations
         if (entity instanceof Zombie zombie) {
             zombie.setBaby(false);
         } else if (entity instanceof PigZombie pigZombie) {
@@ -326,31 +270,40 @@ public class CustomMob {
         entity.addPotionEffect(new PotionEffect(PotionEffectType.FIRE_RESISTANCE, Integer.MAX_VALUE, 1));
     }
 
-    // ================ SIMPLIFIED NAME TRACKING ================
+    // ================ NAME SYSTEM - PRESERVED WITH IMPROVEMENTS ================
 
     /**
-     * FIXED: Simple original name capture
+     * IMPROVED: Original name capture using tier-specific names and MobUtils
      */
     private void captureOriginalName() {
         if (entity == null || originalNameStored) return;
 
         try {
-            String currentName = entity.getCustomName();
-            if (currentName != null && !currentName.isEmpty()) {
-                originalName = currentName;
+            // Use MobUtils to capture the proper original name
+            String capturedName = MobUtils.captureOriginalName(entity);
+
+            if (capturedName != null && MobUtils.isValidRestorationName(capturedName)) {
+                originalName = capturedName;
                 originalNameStored = true;
 
                 if (YakRealms.getInstance().isDebugMode()) {
-                    LOGGER.info(String.format("§6[CustomMob] §7Stored original name: '%s'", originalName));
+                    LOGGER.info("[CustomMob] Stored original name: '" + originalName + "'");
                 }
+            } else {
+                // Fallback to generating the proper tier-specific name
+                originalName = generateDefaultName();
+                originalNameStored = true;
             }
         } catch (Exception e) {
-            LOGGER.warning(String.format("§c[CustomMob] Failed to capture original name: %s", e.getMessage()));
+            LOGGER.warning("[CustomMob] Failed to capture original name: " + e.getMessage());
+            // Fallback to default name generation
+            originalName = generateDefaultName();
+            originalNameStored = true;
         }
     }
 
     /**
-     * FIXED: Simple name visibility management
+     * PRESERVED: Name visibility management - keeps name/health bar switching
      */
     public void updateNameVisibility() {
         if (!isValid()) return;
@@ -361,14 +314,12 @@ public class CustomMob {
             boolean shouldShowHealthBar = recentlyDamaged || inCriticalState;
 
             if (shouldShowHealthBar) {
-                // Show health bar
                 if (!showingHealthBar) {
                     showingHealthBar = true;
                     nameVisible = true;
                     updateHealthBar();
                 }
             } else {
-                // Restore original name
                 if (showingHealthBar || nameVisible) {
                     restoreOriginalName();
                     showingHealthBar = false;
@@ -376,12 +327,12 @@ public class CustomMob {
                 }
             }
         } catch (Exception e) {
-            LOGGER.warning(String.format("§c[CustomMob] Name visibility update failed: %s", e.getMessage()));
+            LOGGER.warning("[CustomMob] Name visibility update failed: " + e.getMessage());
         }
     }
 
     /**
-     * FIXED: Simple original name restoration
+     * IMPROVED: Original name restoration using tier-specific names
      */
     private void restoreOriginalName() {
         if (!isValid() || inCriticalState) return;
@@ -398,14 +349,19 @@ public class CustomMob {
                 currentDisplayName = nameToRestore;
             }
         } catch (Exception e) {
-            LOGGER.warning(String.format("§c[CustomMob] Name restoration failed: %s", e.getMessage()));
+            LOGGER.warning("[CustomMob] Name restoration failed: " + e.getMessage());
         }
     }
 
+    /**
+     * IMPROVED: Generate default name using proper tier-specific names and MobUtils
+     */
     private String generateDefaultName() {
-        String tierName = type.getTierSpecificName(tier);
-        ChatColor tierColor = getTierColor(tier);
-        return elite ? tierColor.toString() + ChatColor.BOLD + tierName : tierColor + tierName;
+        // Get tier-specific name from MobType system
+        String tierSpecificName = type.getTierSpecificName(tier);
+
+        // Format with proper tier color using MobUtils
+        return MobUtils.formatMobName(tierSpecificName, tier, elite);
     }
 
     // ================ EQUIPMENT SYSTEM ================
@@ -423,18 +379,16 @@ public class CustomMob {
             ItemStack weapon = createWeapon();
             ItemStack[] armor = createArmorSet(gearPieces);
 
-            // Apply equipment
             equipment.setItemInMainHand(weapon);
             equipment.setHelmet(armor[0]);
             equipment.setChestplate(armor[1]);
             equipment.setLeggings(armor[2]);
             equipment.setBoots(armor[3]);
 
-            // Prevent drops
             setDropChances(equipment);
 
         } catch (Exception e) {
-            LOGGER.warning(String.format("§c[CustomMob] Equipment application failed: %s", e.getMessage()));
+            LOGGER.warning("[CustomMob] Equipment application failed: " + e.getMessage());
         }
     }
 
@@ -462,11 +416,10 @@ public class CustomMob {
 
                 return weapon;
             } else {
-                // Fallback weapon creation
                 return createFallbackWeapon();
             }
         } catch (Exception e) {
-            LOGGER.warning(String.format("§c[CustomMob] Weapon creation failed: %s", e.getMessage()));
+            LOGGER.warning("[CustomMob] Weapon creation failed: " + e.getMessage());
             return createFallbackWeapon();
         }
     }
@@ -492,7 +445,7 @@ public class CustomMob {
 
     private void applyTierColorToWeapon(ItemStack weapon) {
         if (weapon.getItemMeta() != null && weapon.getItemMeta().hasDisplayName()) {
-            ChatColor tierColor = getTierColor(tier);
+            ChatColor tierColor = MobUtils.getTierColor(tier);
             String displayName = weapon.getItemMeta().getDisplayName();
 
             if (!displayName.startsWith(tierColor.toString())) {
@@ -520,7 +473,7 @@ public class CustomMob {
                 int armorType = RANDOM.nextInt(4);
 
                 if (armor[armorType] == null) {
-                    int dropType = armorType + 5; // Convert to drop type
+                    int dropType = armorType + 5;
                     ItemStack piece = DropsManager.getInstance().createDrop(tier, dropType);
 
                     if (elite && piece != null) {
@@ -533,7 +486,6 @@ public class CustomMob {
                 }
             }
         } else {
-            // Fallback armor creation
             armor = createFallbackArmor(gearPieces);
         }
 
@@ -581,7 +533,6 @@ public class CustomMob {
     }
 
     private void applySpecialArmorEffects(ItemStack piece, int armorType) {
-        // T6 special handling
         if (tier == 6 && armorType == 0 && piece.getType().name().contains("LEATHER_")) {
             org.bukkit.inventory.meta.ItemMeta meta = piece.getItemMeta();
             if (meta != null) {
@@ -617,13 +568,11 @@ public class CustomMob {
 
             entity.setMaxHealth(hp);
             entity.setHealth(hp);
-
             baseHealth = hp;
-            healthCalculated = true;
 
         } catch (Exception e) {
-            LOGGER.warning(String.format("§c[CustomMob] Health calculation failed: %s", e.getMessage()));
-            entity.setMaxHealth(20); // Fallback
+            LOGGER.warning("[CustomMob] Health calculation failed: " + e.getMessage());
+            entity.setMaxHealth(20);
             entity.setHealth(20);
         }
     }
@@ -665,17 +614,15 @@ public class CustomMob {
             applyMovementEffects();
             applySpecialTypeEffects();
         } catch (Exception e) {
-            LOGGER.warning(String.format("§c[CustomMob] Type properties application failed: %s", e.getMessage()));
+            LOGGER.warning("[CustomMob] Type properties application failed: " + e.getMessage());
         }
     }
 
     private void applyMovementEffects() {
-        // Elite movement effects
         if (elite && !type.equals(MobType.FROZEN_BOSS)) {
             entity.addPotionEffect(new PotionEffect(PotionEffectType.SPEED, Integer.MAX_VALUE, 1));
         }
 
-        // Tier-based movement
         if (tier > 2 && !type.equals(MobType.FROZEN_BOSS)) {
             ItemStack mainHand = entity.getEquipment().getItemInMainHand();
             if (mainHand != null && mainHand.getType().name().contains("_HOE")) {
@@ -699,9 +646,6 @@ public class CustomMob {
 
     // ================ DAMAGE PROCESSING ================
 
-    /**
-     * FIXED: Simplified damage processing
-     */
     public double damage(double damage) {
         if (!isValid()) {
             return 0;
@@ -712,13 +656,12 @@ public class CustomMob {
             updateHealthState(finalDamage);
             return finalDamage;
         } catch (Exception e) {
-            LOGGER.warning(String.format("§c[CustomMob] Damage processing error: %s", e.getMessage()));
+            LOGGER.warning("[CustomMob] Damage processing error: " + e.getMessage());
             return 0;
         }
     }
 
     private double processDamage(double damage) {
-        // Allow for custom damage modifications in subclasses
         return damage;
     }
 
@@ -744,8 +687,11 @@ public class CustomMob {
         nameVisible = true;
     }
 
-    // ================ HEALTH BAR SYSTEM ================
+    // ================ HEALTH BAR SYSTEM - PRESERVED ================
 
+    /**
+     * PRESERVED: Health bar update system
+     */
     public void updateHealthBar() {
         if (!isValid()) return;
 
@@ -759,10 +705,13 @@ public class CustomMob {
 
             lastDamageTime = System.currentTimeMillis();
         } catch (Exception e) {
-            LOGGER.warning(String.format("§c[CustomMob] Health bar update failed: %s", e.getMessage()));
+            LOGGER.warning("[CustomMob] Health bar update failed: " + e.getMessage());
         }
     }
 
+    /**
+     * IMPROVED: Health bar generation using MobUtils for consistency
+     */
     public String generateHealthBar() {
         if (!isValid()) return "";
 
@@ -770,18 +719,18 @@ public class CustomMob {
             double health = entity.getHealth();
             double maxHealth = entity.getMaxHealth();
 
-            // Ensure valid values
             if (health <= 0) health = 0.1;
             if (maxHealth <= 0) maxHealth = 1;
 
+            // Use MobUtils for consistent health bar generation
             return MobUtils.generateHealthBar(entity, health, maxHealth, tier, inCriticalState);
         } catch (Exception e) {
-            LOGGER.warning(String.format("§c[CustomMob] Health bar generation failed: %s", e.getMessage()));
-            return originalName != null ? originalName : "";
+            LOGGER.warning("[CustomMob] Health bar generation failed: " + e.getMessage());
+            return originalName != null ? originalName : generateDefaultName();
         }
     }
 
-    // ================ CRITICAL STATE SYSTEM ================
+    // ================ CRITICAL STATE SYSTEM - PRESERVED ================
 
     public void setCriticalState(int duration) {
         if (!isValid()) return;
@@ -797,19 +746,17 @@ public class CustomMob {
             applyCriticalEffects();
 
         } catch (Exception e) {
-            LOGGER.warning(String.format("§c[CustomMob] Critical state application failed: %s", e.getMessage()));
+            LOGGER.warning("[CustomMob] Critical state application failed: " + e.getMessage());
         }
     }
 
     private void applyCriticalEffects() {
         if (!elite) {
-            // Regular mob critical effects
             entity.getWorld().playSound(entity.getLocation(), org.bukkit.Sound.BLOCK_PISTON_EXTEND, 1.0f, 2.0f);
             entity.getWorld().spawnParticle(org.bukkit.Particle.CRIT,
                     entity.getLocation().clone().add(0.0, 1.0, 0.0),
                     20, 0.3, 0.3, 0.3, 0.5);
         }
-        // Elite-specific effects handled in EliteMob class
     }
 
     public boolean processCriticalStateTick() {
@@ -818,24 +765,20 @@ public class CustomMob {
         }
 
         try {
-            // Don't process negative counters (ready state)
             if (criticalStateDuration < 0) {
                 return false;
             }
 
             criticalStateDuration--;
 
-            // Play sound for regular mobs every 40 ticks (2 seconds)
             if (!elite && criticalStateDuration > 0 && criticalStateDuration % 40 == 0) {
                 entity.getWorld().playSound(entity.getLocation(), org.bukkit.Sound.BLOCK_PISTON_EXTEND, 1.0f, 2.0f);
             }
 
-            // Show periodic particles
             if (criticalStateDuration % 5 == 0) {
                 showCriticalParticles();
             }
 
-            // Maintain health bar visibility
             if (!showingHealthBar) {
                 updateHealthBar();
             }
@@ -846,7 +789,7 @@ public class CustomMob {
 
             return false;
         } catch (Exception e) {
-            LOGGER.warning(String.format("§c[CustomMob] Critical state tick processing failed: %s", e.getMessage()));
+            LOGGER.warning("[CustomMob] Critical state tick processing failed: " + e.getMessage());
             return false;
         }
     }
@@ -861,11 +804,9 @@ public class CustomMob {
 
     private boolean handleCriticalStateEnd() {
         if (!elite) {
-            // Regular mobs transition to ready state
             criticalStateDuration = -1;
             return true;
         } else {
-            // Elite mobs end critical state
             inCriticalState = false;
 
             if (entity.hasMetadata("criticalState")) {
@@ -884,34 +825,31 @@ public class CustomMob {
         try {
             this.lightningMultiplier = multiplier;
 
-            // Increase health
             double newMaxHealth = entity.getMaxHealth() * multiplier;
             entity.setMaxHealth(newMaxHealth);
             entity.setHealth(newMaxHealth);
 
-            // Apply visual effects
             entity.setGlowing(true);
 
-            // Update name with lightning theme
+            // Generate proper lightning name using tier-specific name
+            String tierSpecificName = type.getTierSpecificName(tier);
             String lightningName = String.format("§6⚡ Lightning %s ⚡",
-                    ChatColor.stripColor(entity.getCustomName()));
+                    ChatColor.stripColor(tierSpecificName));
+
             entity.setCustomName(lightningName);
             entity.setCustomNameVisible(true);
 
-            // Update name tracking
             originalName = lightningName;
             currentDisplayName = lightningName;
 
-            // Store lightning metadata
             YakRealms plugin = YakRealms.getInstance();
             entity.setMetadata("LightningMultiplier", new FixedMetadataValue(plugin, multiplier));
             entity.setMetadata("LightningMob", new FixedMetadataValue(plugin, lightningName));
 
-            LOGGER.info(String.format("§6[CustomMob] §7Enhanced %s as lightning mob (x%d)",
-                    type.getId(), multiplier));
+            LOGGER.info("[CustomMob] Enhanced " + type.getId() + " as lightning mob (x" + multiplier + ")");
 
         } catch (Exception e) {
-            LOGGER.warning(String.format("§c[CustomMob] Lightning enhancement failed: %s", e.getMessage()));
+            LOGGER.warning("[CustomMob] Lightning enhancement failed: " + e.getMessage());
         }
     }
 
@@ -941,7 +879,7 @@ public class CustomMob {
             MobManager.getInstance().unregisterMob(this);
 
         } catch (Exception e) {
-            LOGGER.warning(String.format("§c[CustomMob] Removal failed: %s", e.getMessage()));
+            LOGGER.warning("[CustomMob] Removal failed: " + e.getMessage());
         }
     }
 
@@ -971,7 +909,6 @@ public class CustomMob {
     public String getOriginalName() { return originalName; }
     public String getFormattedOriginalName() { return originalName; }
     public double getBaseHealth() { return baseHealth; }
-    public boolean isHealthCalculated() { return healthCalculated; }
     public int getLightningMultiplier() { return lightningMultiplier; }
     public boolean isShowingHealthBar() { return showingHealthBar; }
 }

@@ -361,7 +361,18 @@ public class MobEntry {
                 tier == spawnedMob.getTier() &&
                 elite == spawnedMob.isElite();
     }
-
+    /**
+     * Check if this entry matches a spawned mob
+     *
+     * @param spawnedMob The spawned mob to compare
+     * @return true if they match
+     */
+    public boolean matchesEntry(Spawner.RespawnEntry spawnedMob) {
+        if (spawnedMob == null) return false;
+        return mobType.equals(spawnedMob.getMobType()) &&
+                tier == spawnedMob.getTier() &&
+                elite == spawnedMob.isElite();
+    }
     /**
      * Get the expected respawn delay for this mob type
      *

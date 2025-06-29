@@ -79,7 +79,7 @@ public class WorldBoss extends EliteMob {
             applyBossNameFormatting();
 
             // Register with manager
-            MobManager.getInstance().registerWorldBoss(this);
+            //MobManager.getInstance().registerWorldBoss(this);
 
             // Announce spawn
             announceSpawn();
@@ -1012,7 +1012,7 @@ public class WorldBoss extends EliteMob {
             super.remove();
 
             // Unregister from world boss manager
-            MobManager.getInstance().unregisterWorldBoss();
+            //MobManager.getInstance().unregisterWorldBoss();
 
             // Clear boss-specific data
             abilityCooldowns.clear();

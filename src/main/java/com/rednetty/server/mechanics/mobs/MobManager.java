@@ -2,6 +2,7 @@ package com.rednetty.server.mechanics.mobs;
 
 import com.rednetty.server.YakRealms;
 import com.rednetty.server.mechanics.combat.pvp.AlignmentMechanics;
+import com.rednetty.server.mechanics.drops.DropsManager;
 import com.rednetty.server.mechanics.mobs.core.CustomMob;
 import com.rednetty.server.mechanics.mobs.core.EliteMob;
 import com.rednetty.server.mechanics.mobs.core.MobType;
@@ -17,6 +18,7 @@ import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.EntityDeathEvent;
+import org.bukkit.inventory.EntityEquipment;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.metadata.FixedMetadataValue;
 import org.bukkit.potion.PotionEffect;
@@ -32,7 +34,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.logging.Logger;
 
 /**
- * FIXED: Completely overhauled MobManager with reliable spawning and proper synchronous operations
+ * FIXED: Complete MobManager with proper equipment system and death handling
  */
 public class MobManager implements Listener {
 
@@ -90,7 +92,7 @@ public class MobManager implements Listener {
     private final ReentrantReadWriteLock mobLock = new ReentrantReadWriteLock();
     private final ReentrantReadWriteLock nameLock = new ReentrantReadWriteLock();
 
-    // ================ RESPAWN TRACKING - SIMPLIFIED ================
+    // ================ RESPAWN TRACKING ================
     private final Map<String, Long> respawnTimes = new ConcurrentHashMap<>();
     private final Map<String, Long> mobTypeLastDeath = new ConcurrentHashMap<>();
     private final Map<UUID, Location> mobSpawnerLocations = new ConcurrentHashMap<>();
@@ -108,12 +110,12 @@ public class MobManager implements Listener {
     private volatile double playerDetectionRange = 40.0;
     private volatile double mobRespawnDistanceCheck = 25.0;
 
-    // ================ TASKS - SIMPLIFIED ================
+    // ================ TASKS ================
     private BukkitTask mainTask;
     private BukkitTask cleanupTask;
 
     /**
-     * Constructor - simplified initialization
+     * Constructor
      */
     private MobManager() {
         this.plugin = YakRealms.getInstance();
@@ -164,7 +166,7 @@ public class MobManager implements Listener {
     }
 
     /**
-     * FIXED: Simplified task management - only essential tasks
+     * Start essential tasks
      */
     private void startTasks() {
         logger.info("§6[MobManager] §7Starting essential tasks...");
@@ -201,11 +203,10 @@ public class MobManager implements Listener {
         logger.info("§a[MobManager] §7Essential tasks started successfully");
     }
 
-    // ================ FIXED: SIMPLIFIED SPAWNER MOB SPAWNING ================
+    // ================ ENHANCED SPAWNER MOB SPAWNING ================
 
     /**
-     * FIXED: Completely rewritten spawner mob spawning - reliable and simple
-     * This method MUST work for spawners to function properly
+     * FIXED: Enhanced spawner mob spawning with proper equipment system
      */
     public LivingEntity spawnMobFromSpawner(Location location, String type, int tier, boolean elite) {
         if (!isValidSpawnRequest(location, type, tier)) {
@@ -216,12 +217,14 @@ public class MobManager implements Listener {
         }
 
         try {
-            // FIXED: Direct entity creation without complicated validation
+            // Get safe spawn location
             Location spawnLoc = getSafeSpawnLocation(location);
+
+            // Create entity
             LivingEntity entity = createEntityDirectly(spawnLoc, type, tier, elite);
 
             if (entity != null) {
-                // Apply all mob properties
+                // Apply all mob properties with proper equipment system
                 setupMobProperties(entity, type, tier, elite);
 
                 // Register with tracking systems
@@ -229,7 +232,7 @@ public class MobManager implements Listener {
 
                 if (debug) {
                     logger.info("§a[MobManager] §7Successfully spawned " + type + " T" + tier + (elite ? "+" : "") +
-                            " at " + formatLocation(spawnLoc));
+                            " at " + formatLocation(spawnLoc) + " with ID: " + entity.getUniqueId().toString().substring(0, 8));
                 }
 
                 return entity;
@@ -245,7 +248,7 @@ public class MobManager implements Listener {
     }
 
     /**
-     * FIXED: Direct entity creation without CustomMob complexity for spawners
+     * Direct entity creation with proper validation
      */
     private LivingEntity createEntityDirectly(Location location, String type, int tier, boolean elite) {
         try {
@@ -254,18 +257,15 @@ public class MobManager implements Listener {
                 logger.warning("§c[MobManager] Invalid mob type: " + type);
                 return null;
             }
+            CustomMob customMob = new CustomMob(mobType, tier, elite);
+            LivingEntity entity;
+            if(elite) {
+                customMob = new EliteMob(mobType, tier);
 
-            // Create the entity
-            EntityType entityType = mobType.getEntityType();
-            Entity spawnedEntity = location.getWorld().spawnEntity(location, entityType);
-
-            if (!(spawnedEntity instanceof LivingEntity)) {
-                spawnedEntity.remove();
-                logger.warning("§c[MobManager] Spawned entity is not a LivingEntity: " + entityType);
-                return null;
             }
-
-            LivingEntity entity = (LivingEntity) spawnedEntity;
+            customMob.spawn(location);
+            entity = customMob.getEntity();
+            if(entity == null) return null;
 
             // Prevent removal
             entity.setRemoveWhenFarAway(false);
@@ -280,7 +280,7 @@ public class MobManager implements Listener {
     }
 
     /**
-     * FIXED: Setup all mob properties reliably
+     * FIXED: Enhanced mob property setup with proper equipment integration
      */
     private void setupMobProperties(LivingEntity entity, String type, int tier, boolean elite) {
         try {
@@ -290,8 +290,8 @@ public class MobManager implements Listener {
             // Configure appearance and name
             configureEntityAppearance(entity, type, tier, elite);
 
-            // Apply equipment
-            applyEquipment(entity, tier, elite);
+            // FIXED: Apply equipment using enhanced system with guaranteed results
+            applyEquipmentGuaranteed(entity, type, tier, elite);
 
             // Set health
             setEntityHealth(entity, tier, elite);
@@ -339,140 +339,408 @@ public class MobManager implements Listener {
     }
 
     /**
-     * Apply equipment to the mob
+     * FIXED: Guaranteed equipment application that ALWAYS gives mobs full equipment
      */
-    private void applyEquipment(LivingEntity entity, int tier, boolean elite) {
+    private void applyEquipmentGuaranteed(LivingEntity entity, String type, int tier, boolean elite) {
+        if (entity == null || entity.getEquipment() == null) {
+            if (debug) {
+                logger.warning("§c[MobManager] Cannot apply equipment - entity or equipment is null");
+            }
+            return;
+        }
+
         try {
-            if (entity.getEquipment() == null) return;
+            EntityEquipment equipment = entity.getEquipment();
 
-            entity.getEquipment().clear();
+            // Clear existing equipment first
+            equipment.clear();
 
-            // Create weapon
-            ItemStack weapon = createWeaponForTier(tier, elite);
-            if (weapon != null) {
-                entity.getEquipment().setItemInMainHand(weapon);
-                entity.getEquipment().setItemInMainHandDropChance(0);
+            if (debug) {
+                logger.info("§6[MobManager] §7Applying guaranteed equipment to " + type + " T" + tier + (elite ? "+" : ""));
             }
 
-            // Create armor
-            ItemStack[] armor = createArmorForTier(tier, elite);
-            if (armor != null) {
-                entity.getEquipment().setArmorContents(armor);
-                entity.getEquipment().setHelmetDropChance(0);
-                entity.getEquipment().setChestplateDropChance(0);
-                entity.getEquipment().setLeggingsDropChance(0);
-                entity.getEquipment().setBootsDropChance(0);
+            // Create guaranteed full equipment set
+            ItemStack weapon = createGuaranteedWeapon(tier, elite);
+            ItemStack[] armorSet = createGuaranteedFullArmorSet(tier, elite);
+
+            // Apply weapon
+            if (weapon != null) {
+                equipment.setItemInMainHand(weapon);
+                if (debug) {
+                    logger.info("§a[MobManager] §7Applied weapon: " + weapon.getType());
+                }
+            }
+
+            // Apply armor - ensure all slots are filled
+            if (armorSet != null && armorSet.length == 4) {
+                // Verify all armor pieces exist before applying
+                boolean allArmorValid = true;
+                for (int i = 0; i < 4; i++) {
+                    if (armorSet[i] == null) {
+                        allArmorValid = false;
+                        break;
+                    }
+                }
+
+                if (allArmorValid) {
+                    equipment.setHelmet(armorSet[0]);
+                    equipment.setChestplate(armorSet[1]);
+                    equipment.setLeggings(armorSet[2]);
+                    equipment.setBoots(armorSet[3]);
+
+                    if (debug) {
+                        logger.info("§a[MobManager] §7Applied complete armor set:");
+                        logger.info("§7  Helmet: " + armorSet[0].getType());
+                        logger.info("§7  Chestplate: " + armorSet[1].getType());
+                        logger.info("§7  Leggings: " + armorSet[2].getType());
+                        logger.info("§7  Boots: " + armorSet[3].getType());
+                    }
+                } else {
+                    // Fallback if armor set is incomplete
+                    if (debug) {
+                        logger.warning("§e[MobManager] §7Armor set incomplete, applying fallback armor");
+                    }
+                    ItemStack[] fallbackArmor = createEmergencyArmorSet(tier, elite);
+                    equipment.setHelmet(fallbackArmor[0]);
+                    equipment.setChestplate(fallbackArmor[1]);
+                    equipment.setLeggings(fallbackArmor[2]);
+                    equipment.setBoots(fallbackArmor[3]);
+                }
+            } else {
+                // Emergency fallback
+                if (debug) {
+                    logger.warning("§e[MobManager] §7Applying emergency armor set");
+                }
+                ItemStack[] emergencyArmor = createEmergencyArmorSet(tier, elite);
+                equipment.setHelmet(emergencyArmor[0]);
+                equipment.setChestplate(emergencyArmor[1]);
+                equipment.setLeggings(emergencyArmor[2]);
+                equipment.setBoots(emergencyArmor[3]);
+            }
+
+            // CRITICAL: Set drop chances to 0 AFTER equipment is applied
+            setDropChances(equipment);
+
+            // Final verification
+            if (debug) {
+                verifyEquipmentApplication(entity, type, tier, elite);
             }
 
         } catch (Exception e) {
-            logger.warning("§c[MobManager] Error applying equipment: " + e.getMessage());
+            logger.severe("§c[MobManager] Critical equipment error: " + e.getMessage());
+            if (debug) e.printStackTrace();
+
+            // Emergency fallback - ensure mob has SOMETHING
+            try {
+                applyAbsoluteEmergencyEquipment(entity, tier, elite);
+            } catch (Exception emergencyError) {
+                logger.severe("§c[MobManager] Even emergency equipment failed: " + emergencyError.getMessage());
+            }
         }
     }
 
     /**
-     * FIXED: Simple weapon creation based on tier
+     * FIXED: Create guaranteed weapon that always works
      */
-    private ItemStack createWeaponForTier(int tier, boolean elite) {
-        Material weaponMaterial;
+    private ItemStack createGuaranteedWeapon(int tier, boolean elite) {
+        try {
+            // Try elite drops first if elite
+            if (elite) {
+                DropsManager dropsManager = DropsManager.getInstance();
+                if (dropsManager != null) {
+                    for (int weaponType = 1; weaponType <= 4; weaponType++) {
+                        try {
+                            ItemStack eliteWeapon = dropsManager.createEliteDrop("skeleton", weaponType, tier);
+                            if (eliteWeapon != null && eliteWeapon.getType() != Material.AIR) {
+                                if (debug) {
+                                    logger.info("§a[MobManager] §7Created elite weapon: " + eliteWeapon.getType());
+                                }
+                                return eliteWeapon;
+                            }
+                        } catch (Exception e) {
+                            // Continue to next weapon type
+                        }
+                    }
+                }
+            }
 
+            // Standard weapon creation
+            Material weaponMaterial = getWeaponMaterialForTier(tier);
+            ItemStack weapon = new ItemStack(weaponMaterial);
+
+            if (elite) {
+                // Add enchantment to mark as elite
+                weapon.addUnsafeEnchantment(org.bukkit.enchantments.Enchantment.LOOT_BONUS_MOBS, 1);
+            }
+
+            return weapon;
+
+        } catch (Exception e) {
+            logger.warning("§c[MobManager] Weapon creation failed: " + e.getMessage());
+            // Ultimate fallback
+            return new ItemStack(Material.WOODEN_SWORD);
+        }
+    }
+
+    /**
+     * Get appropriate weapon material for tier
+     */
+    private Material getWeaponMaterialForTier(int tier) {
         switch (tier) {
-            case 1:
-                weaponMaterial = Material.WOODEN_SWORD;
-                break;
-            case 2:
-                weaponMaterial = Material.STONE_SWORD;
-                break;
-            case 3:
-                weaponMaterial = Material.IRON_SWORD;
-                break;
-            case 4:
-                weaponMaterial = Material.DIAMOND_SWORD;
-                break;
-            case 5:
-                weaponMaterial = Material.GOLDEN_SWORD;
-                break;
+            case 1: return Material.WOODEN_SWORD;
+            case 2: return Material.STONE_SWORD;
+            case 3: return Material.IRON_SWORD;
+            case 4: return Material.DIAMOND_SWORD;
+            case 5: return Material.GOLDEN_SWORD;
             case 6:
-                weaponMaterial = Material.DIAMOND_SWORD; // Special T6 handling
-                break;
-            default:
-                weaponMaterial = Material.WOODEN_SWORD;
+                try {
+                    return Material.NETHERITE_SWORD;
+                } catch (Exception e) {
+                    return Material.DIAMOND_SWORD;
+                }
+            default: return Material.WOODEN_SWORD;
+        }
+    }
+
+    /**
+     * FIXED: Create guaranteed full armor set that ALWAYS returns 4 pieces
+     */
+    private ItemStack[] createGuaranteedFullArmorSet(int tier, boolean elite) {
+        try {
+            ItemStack[] armor = new ItemStack[4];
+
+            // Try elite armor first if elite
+            if (elite) {
+                DropsManager dropsManager = DropsManager.getInstance();
+                if (dropsManager != null) {
+                    boolean eliteArmorSuccess = true;
+
+                    // Try to create all 4 elite armor pieces
+                    for (int i = 0; i < 4; i++) {
+                        try {
+                            int armorType = i + 5; // 5=helmet, 6=chestplate, 7=leggings, 8=boots
+                            ItemStack eliteArmor = dropsManager.createEliteDrop("skeleton", armorType, tier);
+
+                            if (eliteArmor != null && eliteArmor.getType() != Material.AIR) {
+                                armor[i] = eliteArmor;
+                            } else {
+                                eliteArmorSuccess = false;
+                                break;
+                            }
+                        } catch (Exception e) {
+                            eliteArmorSuccess = false;
+                            break;
+                        }
+                    }
+
+                    // If we got all 4 elite pieces, return them
+                    if (eliteArmorSuccess) {
+                        if (debug) {
+                            logger.info("§a[MobManager] §7Created complete elite armor set");
+                        }
+                        return armor;
+                    }
+                }
+            }
+
+            // Create standard armor set
+            String armorType = getArmorTypeForTier(tier);
+
+            armor[0] = createArmorPiece(armorType, "HELMET", elite);
+            armor[1] = createArmorPiece(armorType, "CHESTPLATE", elite);
+            armor[2] = createArmorPiece(armorType, "LEGGINGS", elite);
+            armor[3] = createArmorPiece(armorType, "BOOTS", elite);
+
+            // Verify all pieces were created
+            for (int i = 0; i < 4; i++) {
+                if (armor[i] == null) {
+                    // Create fallback piece if any failed
+                    armor[i] = createFallbackArmorPiece(i, elite);
+                }
+            }
+
+            return armor;
+
+        } catch (Exception e) {
+            logger.warning("§c[MobManager] Armor creation failed: " + e.getMessage());
+            return createEmergencyArmorSet(tier, elite);
+        }
+    }
+
+    /**
+     * Get appropriate armor type for tier
+     */
+    private String getArmorTypeForTier(int tier) {
+        switch (tier) {
+            case 1: return "LEATHER";
+            case 2: return "CHAINMAIL";
+            case 3: return "IRON";
+            case 4: return "DIAMOND";
+            case 5: return "GOLDEN";
+            case 6:
+                try {
+                    // Check if Netherite exists
+                    Material.valueOf("NETHERITE_HELMET");
+                    return "NETHERITE";
+                } catch (Exception e) {
+                    return "DIAMOND";
+                }
+            default: return "LEATHER";
+        }
+    }
+
+    /**
+     * Create a single armor piece with error handling
+     */
+    private ItemStack createArmorPiece(String armorType, String pieceType, boolean elite) {
+        try {
+            Material material = Material.valueOf(armorType + "_" + pieceType);
+            ItemStack piece = new ItemStack(material);
+
+            if (elite) {
+                piece.addUnsafeEnchantment(org.bukkit.enchantments.Enchantment.LOOT_BONUS_MOBS, 1);
+            }
+
+            return piece;
+        } catch (IllegalArgumentException e) {
+            // Material doesn't exist, use leather fallback
+            return createFallbackArmorPiece(getPieceIndex(pieceType), elite);
+        }
+    }
+
+    /**
+     * Create fallback armor piece
+     */
+    private ItemStack createFallbackArmorPiece(int pieceIndex, boolean elite) {
+        Material material;
+        switch (pieceIndex) {
+            case 0: material = Material.LEATHER_HELMET; break;
+            case 1: material = Material.LEATHER_CHESTPLATE; break;
+            case 2: material = Material.LEATHER_LEGGINGS; break;
+            case 3: material = Material.LEATHER_BOOTS; break;
+            default: material = Material.LEATHER_HELMET;
         }
 
-        ItemStack weapon = new ItemStack(weaponMaterial);
+        ItemStack piece = new ItemStack(material);
+        if (elite) {
+            piece.addUnsafeEnchantment(org.bukkit.enchantments.Enchantment.LOOT_BONUS_MOBS, 1);
+        }
+        return piece;
+    }
+
+    /**
+     * Get piece index from piece type string
+     */
+    private int getPieceIndex(String pieceType) {
+        switch (pieceType) {
+            case "HELMET": return 0;
+            case "CHESTPLATE": return 1;
+            case "LEGGINGS": return 2;
+            case "BOOTS": return 3;
+            default: return 0;
+        }
+    }
+
+    /**
+     * Create emergency armor set that is guaranteed to work
+     */
+    private ItemStack[] createEmergencyArmorSet(int tier, boolean elite) {
+        ItemStack[] armor = new ItemStack[4];
+
+        armor[0] = new ItemStack(Material.LEATHER_HELMET);
+        armor[1] = new ItemStack(Material.LEATHER_CHESTPLATE);
+        armor[2] = new ItemStack(Material.LEATHER_LEGGINGS);
+        armor[3] = new ItemStack(Material.LEATHER_BOOTS);
 
         if (elite) {
-            weapon.addUnsafeEnchantment(org.bukkit.enchantments.Enchantment.LOOT_BONUS_MOBS, 1);
-        }
-
-        return weapon;
-    }
-
-    /**
-     * FIXED: Simple armor creation based on tier
-     */
-    private ItemStack[] createArmorForTier(int tier, boolean elite) {
-        Material armorMaterial;
-
-        switch (tier) {
-            case 1:
-                armorMaterial = Material.LEATHER_HELMET; // Will be used as base for all pieces
-                break;
-            case 2:
-                armorMaterial = Material.CHAINMAIL_HELMET;
-                break;
-            case 3:
-                armorMaterial = Material.IRON_HELMET;
-                break;
-            case 4:
-                armorMaterial = Material.DIAMOND_HELMET;
-                break;
-            case 5:
-                armorMaterial = Material.GOLDEN_HELMET;
-                break;
-            case 6:
-                armorMaterial = Material.LEATHER_HELMET; // Special blue leather for T6
-                break;
-            default:
-                armorMaterial = Material.LEATHER_HELMET;
-        }
-
-        // Create armor pieces
-        ItemStack[] armor = new ItemStack[4];
-        String baseName = armorMaterial.name().replace("_HELMET", "");
-
-        try {
-            armor[0] = new ItemStack(Material.valueOf(baseName + "_HELMET"));   // Helmet
-            armor[1] = new ItemStack(Material.valueOf(baseName + "_CHESTPLATE")); // Chestplate
-            armor[2] = new ItemStack(Material.valueOf(baseName + "_LEGGINGS"));  // Leggings
-            armor[3] = new ItemStack(Material.valueOf(baseName + "_BOOTS"));     // Boots
-
-            // Special handling for T6 blue leather
-            if (tier == 6) {
-                for (ItemStack piece : armor) {
-                    if (piece != null && piece.hasItemMeta()) {
-                        piece.getItemMeta().setDisplayName(ChatColor.BLUE + "T6 Armor Piece");
-                    }
+            for (ItemStack piece : armor) {
+                if (piece != null) {
+                    piece.addUnsafeEnchantment(org.bukkit.enchantments.Enchantment.LOOT_BONUS_MOBS, 1);
                 }
             }
+        }
 
-            // Add enchantments for elite mobs
-            if (elite) {
-                for (ItemStack piece : armor) {
-                    if (piece != null) {
-                        piece.addUnsafeEnchantment(org.bukkit.enchantments.Enchantment.LOOT_BONUS_MOBS, 1);
-                    }
-                }
-            }
-
-        } catch (IllegalArgumentException e) {
-            // Fallback to leather if material doesn't exist
-            armor[0] = new ItemStack(Material.LEATHER_HELMET);
-            armor[1] = new ItemStack(Material.LEATHER_CHESTPLATE);
-            armor[2] = new ItemStack(Material.LEATHER_LEGGINGS);
-            armor[3] = new ItemStack(Material.LEATHER_BOOTS);
+        if (debug) {
+            logger.info("§e[MobManager] §7Applied emergency leather armor set");
         }
 
         return armor;
+    }
+
+    /**
+     * Absolute emergency equipment application
+     */
+    private void applyAbsoluteEmergencyEquipment(LivingEntity entity, int tier, boolean elite) {
+        try {
+            EntityEquipment equipment = entity.getEquipment();
+            if (equipment == null) return;
+
+            // Give basic sword and leather armor
+            equipment.setItemInMainHand(new ItemStack(Material.WOODEN_SWORD));
+            equipment.setHelmet(new ItemStack(Material.LEATHER_HELMET));
+            equipment.setChestplate(new ItemStack(Material.LEATHER_CHESTPLATE));
+            equipment.setLeggings(new ItemStack(Material.LEATHER_LEGGINGS));
+            equipment.setBoots(new ItemStack(Material.LEATHER_BOOTS));
+
+            setDropChances(equipment);
+
+            if (debug) {
+                logger.info("§e[MobManager] §7Applied absolute emergency equipment");
+            }
+        } catch (Exception e) {
+            logger.severe("§c[MobManager] Even absolute emergency equipment failed: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Verify equipment was applied correctly
+     */
+    private void verifyEquipmentApplication(LivingEntity entity, String type, int tier, boolean elite) {
+        try {
+            EntityEquipment equipment = entity.getEquipment();
+            if (equipment == null) {
+                logger.warning("§c[MobManager] Equipment is null after application!");
+                return;
+            }
+
+            ItemStack weapon = equipment.getItemInMainHand();
+            ItemStack helmet = equipment.getHelmet();
+            ItemStack chestplate = equipment.getChestplate();
+            ItemStack leggings = equipment.getLeggings();
+            ItemStack boots = equipment.getBoots();
+
+            logger.info("§6[MobManager] §7Equipment verification for " + type + " T" + tier + (elite ? "+" : ""));
+            logger.info("§7Weapon: " + (weapon != null ? weapon.getType() : "NULL"));
+            logger.info("§7Helmet: " + (helmet != null ? helmet.getType() : "NULL"));
+            logger.info("§7Chestplate: " + (chestplate != null ? chestplate.getType() : "NULL"));
+            logger.info("§7Leggings: " + (leggings != null ? leggings.getType() : "NULL"));
+            logger.info("§7Boots: " + (boots != null ? boots.getType() : "NULL"));
+
+            // Check for missing equipment
+            if (weapon == null || helmet == null || chestplate == null || leggings == null || boots == null) {
+                logger.warning("§c[MobManager] §7MISSING EQUIPMENT DETECTED! Applying emergency fix...");
+                applyAbsoluteEmergencyEquipment(entity, tier, elite);
+            }
+        } catch (Exception e) {
+            logger.warning("§c[MobManager] Equipment verification failed: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Set equipment drop chances to 0
+     */
+    private void setDropChances(EntityEquipment equipment) {
+        try {
+            if (equipment != null) {
+                equipment.setItemInMainHandDropChance(0);
+                equipment.setHelmetDropChance(0);
+                equipment.setChestplateDropChance(0);
+                equipment.setLeggingsDropChance(0);
+                equipment.setBootsDropChance(0);
+            }
+        } catch (Exception e) {
+            logger.warning("§c[MobManager] Error setting drop chances: " + e.getMessage());
+        }
     }
 
     /**
@@ -654,7 +922,7 @@ public class MobManager implements Listener {
     }
 
     /**
-     * FIXED: Simple check for spawner mob spawning capability
+     * Check if spawner can spawn a mob (for spawner validation)
      */
     public boolean canSpawnerSpawnMob(String type, int tier, boolean elite) {
         try {
@@ -1416,7 +1684,7 @@ public class MobManager implements Listener {
                 critMobs.put(entity, 12);
             } else {
                 entity.getWorld().playSound(entity.getLocation(), Sound.BLOCK_PISTON_EXTEND, 1.0f, 2.0f);
-                entity.getWorld().spawnParticle(org.bukkit.Particle.CRIT, entity.getLocation().clone().add(0.0, 1.0, 0.0), 20, 0.3, 0.3, 0.3, 0.5);
+                entity.getWorld().spawnParticle(org.bukkit.Particle.CRIT, entity.getLocation().clone().add(0.0, 1.0, 0.0), 20, 0.3, 0.3, 0.5);
                 critMobs.put(entity, 6);
             }
 
@@ -1662,6 +1930,250 @@ public class MobManager implements Listener {
         return spawner.findNearestSpawner(location, maxDistance);
     }
 
+    // ================ ENHANCED DEATH HANDLING ================
+
+    /**
+     * FIXED: Enhanced entity death handling
+     */
+    @EventHandler(priority = EventPriority.HIGHEST)
+    public void onEntityDeath(EntityDeathEvent event) {
+        try {
+            LivingEntity entity = event.getEntity();
+            UUID entityId = entity.getUniqueId();
+
+            if (entity instanceof Player || processedEntities.contains(entityId)) {
+                return;
+            }
+
+            processedEntities.add(entityId);
+
+            // Enhanced debug logging
+            if (debug) {
+                logger.info("§6[MobManager] §7Processing death: " + entity.getType() +
+                        " ID: " + entityId.toString().substring(0, 8));
+            }
+
+            // Handle custom mob death
+            if (entity.hasMetadata("type")) {
+                handleCustomMobDeath(entity);
+            }
+
+            // CRITICAL: Always try to find and notify the spawner
+            Location spawnerLoc = findSpawnerForMob(entity);
+            if (spawnerLoc != null) {
+                spawner.registerMobDeath(spawnerLoc, entityId);
+
+                if (debug) {
+                    logger.info("§a[MobManager] §7Notified spawner at " + formatLocation(spawnerLoc) +
+                            " of mob death");
+                }
+            } else if (debug) {
+                logger.warning("§c[MobManager] §7Could not find spawner for dead mob: " + entityId.toString().substring(0, 8));
+            }
+
+            // Clean up tracking data
+            cleanupMobData(entityId);
+
+        } catch (Exception e) {
+            logger.warning("§c[MobManager] Entity death processing error: " + e.getMessage());
+            if (debug) e.printStackTrace();
+        }
+    }
+
+    private void handleCustomMobDeath(LivingEntity entity) {
+        String mobType = entity.getMetadata("type").get(0).asString();
+        int tier = getMobTier(entity);
+        boolean elite = isElite(entity);
+
+        recordMobDeath(mobType, tier, elite);
+
+        Location spawnerLoc = findSpawnerForMob(entity);
+        if (spawnerLoc != null) {
+            spawner.registerMobDeath(spawnerLoc, entity.getUniqueId());
+        }
+    }
+
+    /**
+     * FIXED: Enhanced spawner finding for dead mobs
+     */
+    private Location findSpawnerForMob(LivingEntity entity) {
+        if (entity == null) return null;
+
+        UUID entityId = entity.getUniqueId();
+
+        try {
+            // Method 1: Check cached spawner locations
+            if (mobSpawnerLocations.containsKey(entityId)) {
+                Location cachedLoc = mobSpawnerLocations.get(entityId);
+                if (isValidSpawnerLocation(cachedLoc)) {
+                    return cachedLoc;
+                } else {
+                    mobSpawnerLocations.remove(entityId);
+                }
+            }
+
+            // Method 2: Check spawner metadata
+            if (entity.hasMetadata("spawner")) {
+                try {
+                    String spawnerId = entity.getMetadata("spawner").get(0).asString();
+                    Location spawnerLoc = findSpawnerLocationById(spawnerId);
+                    if (spawnerLoc != null) {
+                        return spawnerLoc;
+                    }
+                } catch (Exception e) {
+                    if (debug) {
+                        logger.warning("§c[MobManager] Error reading spawner metadata: " + e.getMessage());
+                    }
+                }
+            }
+
+            // Method 3: Search for nearest spawner
+            Location mobLocation = entity.getLocation();
+            Location nearestSpawner = spawner.findNearestSpawner(mobLocation, mobRespawnDistanceCheck);
+
+            if (nearestSpawner != null) {
+                if (debug) {
+                    logger.info("§e[MobManager] §7Found nearest spawner for mob at distance: " +
+                            String.format("%.1f", mobLocation.distance(nearestSpawner)));
+                }
+                return nearestSpawner;
+            }
+
+            return null;
+
+        } catch (Exception e) {
+            logger.warning("§c[MobManager] Error finding spawner for mob: " + e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Validate spawner location exists
+     */
+    private boolean isValidSpawnerLocation(Location location) {
+        if (location == null || location.getWorld() == null) return false;
+
+        try {
+            // Check if this location is in the spawner system
+            Map<Location, String> allSpawners = spawner.getAllSpawners();
+
+            for (Location spawnerLoc : allSpawners.keySet()) {
+                if (spawnerLoc.getWorld().equals(location.getWorld()) &&
+                        spawnerLoc.getBlockX() == location.getBlockX() &&
+                        spawnerLoc.getBlockY() == location.getBlockY() &&
+                        spawnerLoc.getBlockZ() == location.getBlockZ()) {
+                    return true;
+                }
+            }
+
+            return false;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /**
+     * Find spawner location by ID
+     */
+    private Location findSpawnerLocationById(String spawnerId) {
+        try {
+            Map<Location, String> allSpawners = spawner.getAllSpawners();
+
+            for (Location loc : allSpawners.keySet()) {
+                String generatedId = generateSpawnerId(loc);
+                if (generatedId.equals(spawnerId)) {
+                    return loc;
+                }
+            }
+
+            return null;
+        } catch (Exception e) {
+            if (debug) {
+                logger.warning("§c[MobManager] Error finding spawner by ID: " + e.getMessage());
+            }
+            return null;
+        }
+    }
+
+    /**
+     * Clean up all mob-related data
+     */
+    private void cleanupMobData(UUID entityId) {
+        try {
+            // Remove from all tracking maps
+            mobSpawnerLocations.remove(entityId);
+            soundTimes.remove(entityId);
+            entityToSpawner.remove(entityId);
+            damageContributions.remove(entityId);
+            critMobs.remove(entityId);
+
+            // Clean up name tracking
+            nameLock.writeLock().lock();
+            try {
+                nameTrackingData.remove(entityId);
+            } finally {
+                nameLock.writeLock().unlock();
+            }
+
+            if (debug) {
+                logger.info("§6[MobManager] §7Cleaned up data for mob: " + entityId.toString().substring(0, 8));
+            }
+
+        } catch (Exception e) {
+            logger.warning("§c[MobManager] Error cleaning up mob data: " + e.getMessage());
+        }
+    }
+
+    // ================ DAMAGE EVENTS ================
+
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    public void onEntityDamageByEntity(EntityDamageByEntityEvent event) {
+        try {
+            if (!(event.getEntity() instanceof LivingEntity entity) || event.getEntity() instanceof Player) {
+                return;
+            }
+
+            Player damager = extractPlayerDamager(event);
+            if (damager == null) return;
+
+            double damage = event.getFinalDamage();
+
+            storeOriginalNameIfNeeded(entity);
+            rollForCriticalHit(entity, damage);
+            trackDamage(entity, damager, damage);
+
+            updateEntityHealthBar(entity);
+
+        } catch (Exception e) {
+            logger.severe("§c[MobManager] Entity damage event error: " + e.getMessage());
+        }
+    }
+
+    private Player extractPlayerDamager(EntityDamageByEntityEvent event) {
+        if (event.getDamager() instanceof Player) {
+            return (Player) event.getDamager();
+        } else if (event.getDamager() instanceof Projectile projectile) {
+            if (projectile.getShooter() instanceof Player) {
+                return (Player) projectile.getShooter();
+            }
+        }
+        return null;
+    }
+
+    @EventHandler(priority = EventPriority.HIGH)
+    public void onMobHitMob(EntityDamageByEntityEvent event) {
+        if (event.getDamager() instanceof LivingEntity damager &&
+                !(event.getDamager() instanceof Player) &&
+                !(event.getEntity() instanceof Player)) {
+
+            if (damager.isCustomNameVisible() &&
+                    !damager.getCustomName().equalsIgnoreCase("Celestial Ally")) {
+                event.setCancelled(true);
+                event.setDamage(0.0);
+            }
+        }
+    }
+
     // ================ SPAWNER DELEGATION ================
 
     public boolean setSpawnerVisibility(Location location, boolean visible) {
@@ -1717,118 +2229,6 @@ public class MobManager implements Listener {
     public void resetAllSpawners() {
         spawner.resetAllSpawners();
         logger.info("§a[MobManager] §7All spawners reset");
-    }
-
-    // ================ EVENT HANDLERS ================
-
-    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
-    public void onEntityDamageByEntity(EntityDamageByEntityEvent event) {
-        try {
-            if (!(event.getEntity() instanceof LivingEntity entity) || event.getEntity() instanceof Player) {
-                return;
-            }
-
-            Player damager = extractPlayerDamager(event);
-            if (damager == null) return;
-
-            double damage = event.getFinalDamage();
-
-            storeOriginalNameIfNeeded(entity);
-            rollForCriticalHit(entity, damage);
-            trackDamage(entity, damager, damage);
-
-            updateEntityHealthBar(entity);
-
-        } catch (Exception e) {
-            logger.severe("§c[MobManager] Entity damage event error: " + e.getMessage());
-        }
-    }
-
-    private Player extractPlayerDamager(EntityDamageByEntityEvent event) {
-        if (event.getDamager() instanceof Player) {
-            return (Player) event.getDamager();
-        } else if (event.getDamager() instanceof Projectile projectile) {
-            if (projectile.getShooter() instanceof Player) {
-                return (Player) projectile.getShooter();
-            }
-        }
-        return null;
-    }
-
-    @EventHandler(priority = EventPriority.HIGH)
-    public void onMobHitMob(EntityDamageByEntityEvent event) {
-        if (event.getDamager() instanceof LivingEntity damager &&
-                !(event.getDamager() instanceof Player) &&
-                !(event.getEntity() instanceof Player)) {
-
-            if (damager.isCustomNameVisible() &&
-                    !damager.getCustomName().equalsIgnoreCase("Celestial Ally")) {
-                event.setCancelled(true);
-                event.setDamage(0.0);
-            }
-        }
-    }
-
-    @EventHandler(priority = EventPriority.HIGHEST)
-    public void onEntityDeath(EntityDeathEvent event) {
-        try {
-            LivingEntity entity = event.getEntity();
-            UUID entityId = entity.getUniqueId();
-
-            if (entity instanceof Player || processedEntities.contains(entityId)) {
-                return;
-            }
-
-            processedEntities.add(entityId);
-
-            if (entity.hasMetadata("type")) {
-                handleMobDeath(entity);
-            }
-
-            mobSpawnerLocations.remove(entityId);
-            soundTimes.remove(entityId);
-
-            nameLock.writeLock().lock();
-            try {
-                nameTrackingData.remove(entityId);
-            } finally {
-                nameLock.writeLock().unlock();
-            }
-
-        } catch (Exception e) {
-            logger.warning("§c[MobManager] Entity death error: " + e.getMessage());
-        }
-    }
-
-    private void handleMobDeath(LivingEntity entity) {
-        String mobType = entity.getMetadata("type").get(0).asString();
-        int tier = getMobTier(entity);
-        boolean elite = isElite(entity);
-
-        recordMobDeath(mobType, tier, elite);
-
-        Location spawnerLoc = findSpawnerForMob(entity);
-        if (spawnerLoc != null) {
-            spawner.registerMobDeath(spawnerLoc, entity.getUniqueId());
-        }
-    }
-
-    private Location findSpawnerForMob(LivingEntity entity) {
-        if (entity == null) return null;
-
-        UUID entityId = entity.getUniqueId();
-
-        if (mobSpawnerLocations.containsKey(entityId)) {
-            return mobSpawnerLocations.get(entityId);
-        }
-
-        if (entity.hasMetadata("spawner")) {
-            String spawnerId = entity.getMetadata("spawner").get(0).asString();
-            Location spawnerLoc = findSpawnerById(spawnerId);
-            if (spawnerLoc != null) return spawnerLoc;
-        }
-
-        return spawner.findNearestSpawner(entity.getLocation(), mobRespawnDistanceCheck);
     }
 
     // ================ CONFIGURATION GETTERS ================

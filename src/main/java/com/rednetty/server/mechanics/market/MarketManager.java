@@ -990,7 +990,7 @@ public class MarketManager implements Listener {
         }
 
         YakPlayer yakPlayer = YakPlayerManager.getInstance().getPlayer(player);
-        if (yakPlayer != null && yakPlayer.getLevel() < minLevelToUse) {
+        if (yakPlayer != null && yakPlayer.getLevel() < 0) {
             player.sendMessage(ChatColor.RED + "You must be level " + minLevelToUse + " to use the market.");
             return false;
         }

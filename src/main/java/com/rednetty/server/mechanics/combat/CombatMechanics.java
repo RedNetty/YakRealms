@@ -41,6 +41,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * - Critical hits and combat effects
  * - Combat visualization (holograms, health bar)
  * - Weapon-specific mechanics
+ * FIXED: Proper mob damage to players
  */
 public class CombatMechanics implements Listener {
     // Constants
@@ -251,7 +252,6 @@ public class CombatMechanics implements Listener {
         Bukkit.getScheduler().runTask(YakRealms.getInstance(), () -> player.setWalkSpeed(speed));
     }
 
-
     /**
      * Mark a player as in combat with another player
      *
@@ -381,7 +381,6 @@ public class CombatMechanics implements Listener {
         // Create damage hologram if appropriate
         if (event.getDamager() instanceof Player damager && event.getEntity() instanceof LivingEntity entity) {
             int damage = (int) event.getDamage();
-
             //showCombatHologram(damager, entity, "dmg", damage);
         }
     }
@@ -512,7 +511,221 @@ public class CombatMechanics implements Listener {
     }
 
     /**
-     * Handle weapon damage calculation and effects
+     * FIXED: Handle mob damage to players with proper calculation
+     */
+    @EventHandler(priority = EventPriority.NORMAL)
+    public void onMobDamageToPlayer(EntityDamageByEntityEvent event) {
+        // Skip if already cancelled or no damage
+        if (event.isCancelled() || event.getDamage() <= 0) {
+            return;
+        }
+
+        // Only handle mob attackers and player defenders
+        if (event.getDamager() instanceof Player || !(event.getEntity() instanceof Player defender)) {
+            return;
+        }
+
+        // This is mob damage to a player - calculate proper damage
+        LivingEntity mobAttacker = (LivingEntity) event.getDamager();
+
+        try {
+            // Get base mob damage
+            double baseMobDamage = calculateMobBaseDamage(mobAttacker);
+
+            // Apply mob damage calculations
+            double finalDamage = applyMobDamageCalculation(defender, baseMobDamage, mobAttacker);
+
+            // Set the calculated damage
+            event.setDamage(finalDamage);
+
+            // Apply mob-specific effects
+            applyMobEffectsToPlayer(defender, mobAttacker);
+
+            // Mark player in combat (for PvP tracking purposes)
+            combatTimestamps.put(defender.getUniqueId(), System.currentTimeMillis());
+
+        } catch (Exception e) {
+            YakRealms.getInstance().getLogger().warning("Error calculating mob damage: " + e.getMessage());
+            // Fallback to original damage if calculation fails
+        }
+    }
+
+    /**
+     * Calculate base damage for a mob based on its type and metadata
+     *
+     * @param mob The attacking mob
+     * @return The base damage amount
+     */
+    private double calculateMobBaseDamage(LivingEntity mob) {
+        // Check for custom mob damage from metadata
+        if (mob.hasMetadata("baseDamage")) {
+            try {
+                return mob.getMetadata("baseDamage").get(0).asDouble();
+            } catch (Exception e) {
+                // Fall through to default calculation
+            }
+        }
+
+        // Check for weapon-based damage
+        if (mob.getEquipment() != null && mob.getEquipment().getItemInMainHand() != null) {
+            ItemStack weapon = mob.getEquipment().getItemInMainHand();
+            if (weapon.getType() != Material.AIR && weapon.hasItemMeta() && weapon.getItemMeta().hasLore()) {
+                List<Integer> damageRange = getDamageRange(weapon);
+                if (damageRange.get(0) > 1 || damageRange.get(1) > 1) {
+                    Random random = new Random();
+                    return random.nextInt(damageRange.get(1) - damageRange.get(0) + 1) + damageRange.get(0);
+                }
+            }
+        }
+
+        // Default mob damage based on type
+        EntityType mobType = mob.getType();
+        switch (mobType) {
+            case ZOMBIE:
+            case SKELETON:
+                return 8.0;
+            case ZOMBIE_VILLAGER:
+                return 9.0;
+            case HUSK:
+                return 10.0;
+            case STRAY:
+                return 7.0;
+            case WITHER_SKELETON:
+                return 15.0;
+            case PIGLIN:
+            case ZOMBIFIED_PIGLIN:
+                return 12.0;
+            case SPIDER:
+            case CAVE_SPIDER:
+                return 6.0;
+            case CREEPER:
+                return 20.0; // Explosion damage
+            case ENDERMAN:
+                return 14.0;
+            case SLIME:
+            case MAGMA_CUBE:
+                return 4.0 + (mob.getMetadata("slime.size").isEmpty() ? 0 : mob.getMetadata("slime.size").get(0).asInt() * 2);
+            case BLAZE:
+                return 11.0;
+            case GHAST:
+                return 16.0;
+            case WITHER:
+                return 25.0;
+            case ENDER_DRAGON:
+                return 30.0;
+            default:
+                return 5.0; // Default for unknown mobs
+        }
+    }
+
+    /**
+     * Apply mob damage calculation including armor, resistances, etc.
+     *
+     * @param defender The player being attacked
+     * @param baseDamage The base damage amount
+     * @param mobAttacker The attacking mob
+     * @return The final damage amount
+     */
+    private double applyMobDamageCalculation(Player defender, double baseDamage, LivingEntity mobAttacker) {
+        double damage = baseDamage;
+
+        // Calculate player's armor rating
+        double armorRating = 0.0;
+        for (ItemStack armor : defender.getInventory().getArmorContents()) {
+            if (armor != null && armor.getType() != Material.AIR && armor.hasItemMeta() && armor.getItemMeta().hasLore()) {
+                armorRating += getArmorValue(armor);
+
+                // Add strength bonus to armor
+                int strength = getElementalAttribute(armor, "STR");
+                armorRating += strength * 0.1;
+            }
+        }
+
+        // Apply diminishing returns to armor
+        double effectiveArmor = calculateDiminishingReturns(armorRating, 500, 1.5);
+
+        // Calculate damage reduction (cap at 75% for mobs to ensure they can still hurt players)
+        double damageReduction = Math.min(0.75, effectiveArmor / 100.0);
+
+        // Apply damage reduction
+        double reducedDamage = damage * (1.0 - damageReduction);
+
+        // Ensure minimum damage (mobs should always do at least 1 damage)
+        double finalDamage = Math.max(1, Math.round(reducedDamage));
+
+        // Show debug info if enabled
+        if (Toggles.isToggled(defender, "Debug")) {
+            int expectedHealth = Math.max(0, (int) (defender.getHealth() - finalDamage));
+            double effectiveReduction = ((damage - finalDamage) / damage) * 100;
+
+            String mobName = mobAttacker.hasMetadata("name") ?
+                    mobAttacker.getMetadata("name").get(0).asString() :
+                    mobAttacker.getType().name();
+
+            defender.sendMessage(ChatColor.RED + "            -" + (int)finalDamage + ChatColor.RED + ChatColor.BOLD + "HP " +
+                    ChatColor.GRAY + "[" + String.format("%.1f", effectiveReduction) + "%A] " +
+                    ChatColor.GREEN + "[" + expectedHealth + ChatColor.BOLD + "HP" + ChatColor.GREEN + "] " +
+                    ChatColor.GRAY + "from " + mobName);
+        }
+
+        return finalDamage;
+    }
+
+    /**
+     * Apply mob-specific effects to players
+     *
+     * @param defender The player being attacked
+     * @param mobAttacker The attacking mob
+     */
+    private void applyMobEffectsToPlayer(Player defender, LivingEntity mobAttacker) {
+        EntityType mobType = mobAttacker.getType();
+
+        switch (mobType) {
+            case CAVE_SPIDER:
+                // Poison effect
+                defender.addPotionEffect(new PotionEffect(PotionEffectType.POISON, 100, 0));
+                break;
+
+            case WITHER_SKELETON:
+                // Wither effect
+                defender.addPotionEffect(new PotionEffect(PotionEffectType.WITHER, 200, 0));
+                break;
+
+            case HUSK:
+                // Hunger effect
+                defender.addPotionEffect(new PotionEffect(PotionEffectType.HUNGER, 140, 0));
+                break;
+
+            case STRAY:
+                // Slowness effect
+                defender.addPotionEffect(new PotionEffect(PotionEffectType.SLOW, 200, 0));
+                break;
+
+            case MAGMA_CUBE:
+                // Fire damage
+                defender.setFireTicks(60);
+                break;
+        }
+
+        // Check for custom mob effects from metadata
+        if (mobAttacker.hasMetadata("poisonOnHit")) {
+            int duration = mobAttacker.getMetadata("poisonOnHit").get(0).asInt();
+            defender.addPotionEffect(new PotionEffect(PotionEffectType.POISON, duration, 0));
+        }
+
+        if (mobAttacker.hasMetadata("slowOnHit")) {
+            int duration = mobAttacker.getMetadata("slowOnHit").get(0).asInt();
+            defender.addPotionEffect(new PotionEffect(PotionEffectType.SLOW, duration, 0));
+        }
+
+        if (mobAttacker.hasMetadata("witherOnHit")) {
+            int duration = mobAttacker.getMetadata("witherOnHit").get(0).asInt();
+            defender.addPotionEffect(new PotionEffect(PotionEffectType.WITHER, duration, 0));
+        }
+    }
+
+    /**
+     * Handle weapon damage calculation and effects (PLAYER ATTACKERS ONLY)
      */
     @EventHandler(priority = EventPriority.NORMAL)
     public void onWeaponDamage(EntityDamageByEntityEvent event) {
@@ -602,17 +815,17 @@ public class CombatMechanics implements Listener {
     }
 
     /**
-     * Handle armor calculations
+     * Handle armor calculations (FOR PLAYER DEFENDERS)
      */
-    @EventHandler(priority = EventPriority.NORMAL)
+    @EventHandler(priority = EventPriority.HIGH)
     public void onArmorCalculation(EntityDamageByEntityEvent event) {
         // Skip if already cancelled or no damage
         if (event.isCancelled() || event.getDamage() <= 0) {
             return;
         }
 
-        // Only handle player defenders
-        if (!(event.getEntity() instanceof Player defender)) {
+        // Only handle player defenders with player attackers
+        if (!(event.getEntity() instanceof Player defender) || !(event.getDamager() instanceof Player attacker)) {
             return;
         }
 
@@ -634,25 +847,23 @@ public class CombatMechanics implements Listener {
         // Calculate armor penetration
         double armorPenetration = 0.0;
 
-        if (event.getDamager() instanceof Player attacker) {
-            ItemStack weapon = attacker.getInventory().getItemInMainHand();
+        ItemStack weapon = attacker.getInventory().getItemInMainHand();
 
-            // Weapon-based armor penetration
-            if (weapon != null && weapon.getType() != Material.AIR && weapon.hasItemMeta() && weapon.getItemMeta().hasLore()) {
-                armorPenetration = getAttributePercent(weapon, "ARMOR PEN") / 100.0;
-            }
-
-            // Dexterity-based armor penetration
-            int dexterity = 0;
-            for (ItemStack armor : attacker.getInventory().getArmorContents()) {
-                if (armor != null && armor.getType() != Material.AIR && armor.hasItemMeta() && armor.getItemMeta().hasLore()) {
-                    dexterity += getElementalAttribute(armor, "DEX");
-                }
-            }
-
-            // Add dexterity bonus to armor penetration
-            armorPenetration += dexterity * 0.0003; // 0.03% per dexterity point
+        // Weapon-based armor penetration
+        if (weapon != null && weapon.getType() != Material.AIR && weapon.hasItemMeta() && weapon.getItemMeta().hasLore()) {
+            armorPenetration = getAttributePercent(weapon, "ARMOR PEN") / 100.0;
         }
+
+        // Dexterity-based armor penetration
+        int dexterity = 0;
+        for (ItemStack armor : attacker.getInventory().getArmorContents()) {
+            if (armor != null && armor.getType() != Material.AIR && armor.hasItemMeta() && armor.getItemMeta().hasLore()) {
+                dexterity += getElementalAttribute(armor, "DEX");
+            }
+        }
+
+        // Add dexterity bonus to armor penetration
+        armorPenetration += dexterity * 0.0003; // 0.03% per dexterity point
 
         // Apply diminishing returns to armor
         double effectiveArmor = calculateDiminishingReturns(armorRating, 500, 1.5);
@@ -669,15 +880,11 @@ public class CombatMechanics implements Listener {
         int finalDamage = (int) Math.max(1, Math.round(reducedDamage));
 
         // Show debug info if applicable
-        if (event.getDamager() instanceof Player attacker) {
+        if (Toggles.isToggled(defender, "Debug")) {
+            int expectedHealth = Math.max(0, (int) (defender.getHealth() - finalDamage));
+            double effectiveReduction = ((damage - finalDamage) / damage) * 100;
 
-            Toggles.getInstance();
-            if (Toggles.isToggled(defender, "Debug")) {
-                int expectedHealth = Math.max(0, (int) (defender.getHealth() - finalDamage));
-                double effectiveReduction = ((damage - finalDamage) / damage) * 100;
-
-                defender.sendMessage(ChatColor.RED + "            -" + finalDamage + ChatColor.RED + ChatColor.BOLD + "HP " + ChatColor.GRAY + "[" + String.format("%.2f", effectiveReduction) + "%A -> -" + (int) (damage - finalDamage) + ChatColor.BOLD + "DMG" + ChatColor.GRAY + "] " + ChatColor.GREEN + "[" + expectedHealth + ChatColor.BOLD + "HP" + ChatColor.GREEN + "]");
-            }
+            defender.sendMessage(ChatColor.RED + "            -" + finalDamage + ChatColor.RED + ChatColor.BOLD + "HP " + ChatColor.GRAY + "[" + String.format("%.2f", effectiveReduction) + "%A -> -" + (int) (damage - finalDamage) + ChatColor.BOLD + "DMG" + ChatColor.GRAY + "] " + ChatColor.GREEN + "[" + expectedHealth + ChatColor.BOLD + "HP" + ChatColor.GREEN + "]");
         }
 
         // Set final damage
@@ -931,7 +1138,7 @@ public class CombatMechanics implements Listener {
     }
 
     /**
-     * Bypass armor calculation with direct health manipulation and enhanced hit effects
+     * FIXED: Only bypass armor for non-player entities to prevent issues with player damage calculation
      */
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onBypassArmor(EntityDamageEvent event) {
@@ -940,21 +1147,21 @@ public class CombatMechanics implements Listener {
             return;
         }
 
-        // Only process living entities
-        if (!(event.getEntity() instanceof LivingEntity entity)) {
+        // FIXED: Only process non-player entities to avoid interfering with player damage calculation
+        if (!(event.getEntity() instanceof LivingEntity entity) || entity instanceof Player) {
             return;
         }
 
         double damage = event.getDamage();
 
         // Apply enhanced hit effects for non-players if damaged by a player
-        if (!(entity instanceof Player) && event instanceof EntityDamageByEntityEvent edbe) {
+        if (event instanceof EntityDamageByEntityEvent edbe) {
             if (edbe.getDamager() instanceof Player attacker) {
                 playEnhancedHitEffects(attacker, entity, (int) damage);
             }
         }
 
-        // Cancel normal damage calculation
+        // Cancel normal damage calculation for mobs only
         event.setDamage(0.0);
         event.setCancelled(true);
 
@@ -1037,16 +1244,6 @@ public class CombatMechanics implements Listener {
         if (damage > 5) {
             target.getWorld().spawnParticle(Particle.CLOUD, effectLoc, 3, 0.1, 0.1, 0.1, 0.01);
         }
-    }
-
-    /**
-     * Add visual shake effect to an entity for better hit feedback
-     *
-     * @param entity The entity to shake
-     */
-    private void addVisualShakeEffect(LivingEntity entity) {
-        // This method is purposely empty now - we're removing the shake effect
-        // that made mobs look glitchy. The knockback system handles movement now.
     }
 
     /**
