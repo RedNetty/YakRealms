@@ -29,6 +29,8 @@ import com.rednetty.server.mechanics.economy.GemPouchManager;
 import com.rednetty.server.mechanics.economy.vendors.VendorManager;
 import com.rednetty.server.mechanics.economy.vendors.VendorSystemInitializer;
 import com.rednetty.server.mechanics.item.Journal;
+import com.rednetty.server.mechanics.item.MenuItemManager;
+import com.rednetty.server.mechanics.item.MenuSystemInitializer;
 import com.rednetty.server.mechanics.item.orb.OrbManager;
 import com.rednetty.server.mechanics.item.scroll.ScrollManager;
 import com.rednetty.server.mechanics.market.MarketManager;
@@ -52,6 +54,7 @@ import com.rednetty.server.mechanics.world.trail.pathing.PathManager;
 import com.rednetty.server.mechanics.world.trail.pathing.nodes.AdvancedNodeMapGenerator;
 import com.rednetty.server.mechanics.world.trail.pathing.nodes.NavNode;
 import com.rednetty.server.utils.ui.ActionBarUtil;
+import com.rednetty.server.commands.admin.MenuCommand;
 import org.bukkit.Bukkit;
 import org.bukkit.World;
 import org.bukkit.configuration.file.FileConfiguration;
@@ -89,6 +92,7 @@ public class YakRealms extends JavaPlugin {
     private ScrollManager scrollManager;
     private OrbManager orbManager;
     private Journal journalSystem;
+    private MenuItemManager menuItemManager;
     private EconomyManager economyManager;
     private BankManager bankManager;
     private GemPouchManager gemPouchManager;
@@ -338,6 +342,21 @@ public class YakRealms extends JavaPlugin {
             orbManager.initialize();
 
             journalSystem = new Journal();
+
+            // Initialize Menu Item System
+            menuItemManager = MenuItemManager.getInstance();
+            menuItemManager.initialize();
+
+            // Initialize the menu system after a small delay to ensure all dependencies are ready
+            Bukkit.getScheduler().runTaskLater(this, () -> {
+                try {
+                    MenuSystemInitializer.initialize();
+                    getLogger().info("Menu Item System initialized successfully!");
+                } catch (Exception e) {
+                    getLogger().log(Level.SEVERE, "Failed to initialize Menu Item System", e);
+                }
+            }, 20L); // 1 second delay
+
             return true;
         } catch (Exception e) {
             getLogger().log(Level.SEVERE, "Error initializing item systems", e);
@@ -544,6 +563,25 @@ public class YakRealms extends JavaPlugin {
                 success &= registerCommand("market", marketCommand, marketCommand);
             }
 
+            // Menu system command
+            if (getCommand("menu") != null) {
+                if (menuItemManager != null) {
+                    MenuCommand menuCommand = new MenuCommand();
+                    boolean menuRegistered = registerCommand("menu", menuCommand, menuCommand);
+                    success &= menuRegistered;
+
+                    if (menuRegistered) {
+                        getLogger().info("Menu command registered successfully!");
+                    } else {
+                        getLogger().warning("Failed to register menu command!");
+                    }
+                } else {
+                    getLogger().warning("Menu item manager is null - command not registered!");
+                }
+            } else {
+                getLogger().warning("Menu command not found in plugin.yml!");
+            }
+
             // Crate commands - Enhanced with better error checking
             if (getCommand("crate") != null) {
                 if (crateManager != null) {
@@ -683,6 +721,7 @@ public class YakRealms extends JavaPlugin {
         getLogger().info("Session ID: " + sessionID);
         getLogger().info("T6 Content: " + (t6Enabled ? "Enabled" : "Disabled"));
         getLogger().info("Economy System: " + (economyManager != null ? "Active" : "Inactive"));
+        getLogger().info("Menu Item System: " + (menuItemManager != null ? "Active" : "Inactive"));
         getLogger().info("Crate System: " + (crateManager != null ? "Active" : "Inactive"));
         getLogger().info("Mob System: " + (mobManager != null ? "Active" : "Inactive"));
         getLogger().info("Market System: " + (marketManager != null ? "Active" : "Inactive"));
@@ -695,6 +734,13 @@ public class YakRealms extends JavaPlugin {
     public void onDisable() {
         try {
             getLogger().info("Starting YakRealms shutdown...");
+
+            // Shutdown menu system first to clean up all online players
+            if (MenuSystemInitializer.isInitialized()) {
+                getLogger().info("Shutting down menu item system...");
+                MenuSystemInitializer.shutdown();
+                getLogger().info("Menu item system shutdown completed");
+            }
 
             // Shutdown in reverse order
             if (playerMechanics != null) {
@@ -782,6 +828,7 @@ public class YakRealms extends JavaPlugin {
     public ScrollManager getScrollManager() { return scrollManager; }
     public OrbManager getOrbManager() { return orbManager; }
     public Journal getJournalSystem() { return journalSystem; }
+    public MenuItemManager getMenuItemManager() { return menuItemManager; }
     public AlignmentMechanics getAlignmentMechanics() { return alignmentMechanics; }
     public RespawnManager getRespawnManager() { return respawnManager; }
     public DeathRemnantManager getDeathRemnantManager() { return deathRemnantManager; }
@@ -855,5 +902,22 @@ public class YakRealms extends JavaPlugin {
      */
     public static boolean isCrateSystemAvailable() {
         return instance != null && instance.crateManager != null;
+    }
+
+    /**
+     * Get menu item manager safely
+     */
+    public static MenuItemManager getMenuItemManagerSafe() {
+        if (instance == null || instance.menuItemManager == null) {
+            throw new IllegalStateException("Menu item manager not available");
+        }
+        return instance.menuItemManager;
+    }
+
+    /**
+     * Check if menu item system is available
+     */
+    public static boolean isMenuItemSystemAvailable() {
+        return instance != null && instance.menuItemManager != null && MenuSystemInitializer.isInitialized();
     }
 }

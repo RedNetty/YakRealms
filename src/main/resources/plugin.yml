@@ -120,7 +120,11 @@ commands:
     description: Manage player alignment
     usage: /alignment <subcommand> [player] [args]
     permission: yakrealms.admin.alignment
-
+  menu:
+    description: Manage the menu item system
+    usage: /menu <setup|clear|reload|stats|test|help> [player|all]
+    permission: yakrealms.admin.menu
+    aliases: [menumanager, menuitems]
   # Item Commands
   item:
     description: Item management commands
