@@ -486,8 +486,17 @@ public class YakRealms extends JavaPlugin {
 
     private boolean initializeCrateSystem() {
         try {
+            getLogger().info("Initializing Enhanced Crate System...");
             crateManager = CrateManager.getInstance();
             crateManager.initialize();
+
+            // Log crate system status
+            var stats = crateManager.getStatistics();
+            getLogger().info("Crate System loaded successfully!");
+            getLogger().info("- Configurations: " + stats.get("configurationsLoaded"));
+            getLogger().info("- Features: " + stats.get("featuresEnabled"));
+            getLogger().info("- Factory Version: " + crateManager.getCrateFactory().getFactoryStats().get("factoryVersion"));
+
             return true;
         } catch (Exception e) {
             getLogger().log(Level.SEVERE, "Error initializing crate system", e);
@@ -535,10 +544,23 @@ public class YakRealms extends JavaPlugin {
                 success &= registerCommand("market", marketCommand, marketCommand);
             }
 
-            // Crate commands
-            if (getCommand("crate") != null && crateManager != null) {
-                CrateCommand crateCommand = new CrateCommand();
-                success &= registerCommand("crate", crateCommand, crateCommand);
+            // Crate commands - Enhanced with better error checking
+            if (getCommand("crate") != null) {
+                if (crateManager != null) {
+                    CrateCommand crateCommand = new CrateCommand();
+                    boolean crateRegistered = registerCommand("crate", crateCommand, crateCommand);
+                    success &= crateRegistered;
+
+                    if (crateRegistered) {
+                        getLogger().info("Crate command registered successfully!");
+                    } else {
+                        getLogger().warning("Failed to register crate command!");
+                    }
+                } else {
+                    getLogger().warning("Crate manager is null - command not registered!");
+                }
+            } else {
+                getLogger().warning("Crate command not found in plugin.yml!");
             }
 
             // Mob commands
@@ -656,6 +678,16 @@ public class YakRealms extends JavaPlugin {
         // Initialize ActionBar utility
         ActionBarUtil.init(this);
 
+        // Log final system status
+        getLogger().info("=== YakRealms System Status ===");
+        getLogger().info("Session ID: " + sessionID);
+        getLogger().info("T6 Content: " + (t6Enabled ? "Enabled" : "Disabled"));
+        getLogger().info("Economy System: " + (economyManager != null ? "Active" : "Inactive"));
+        getLogger().info("Crate System: " + (crateManager != null ? "Active" : "Inactive"));
+        getLogger().info("Mob System: " + (mobManager != null ? "Active" : "Inactive"));
+        getLogger().info("Market System: " + (marketManager != null ? "Active" : "Inactive"));
+        getLogger().info("==============================");
+
         getLogger().info("YakRealms startup completed successfully!");
     }
 
@@ -689,8 +721,24 @@ public class YakRealms extends JavaPlugin {
 
     private void shutdownGameSystems() {
         // Shutdown systems in reverse order
-        if (crateManager != null) crateManager.shutdown();
-        if (partyMechanics != null) partyMechanics.onDisable();
+        if (crateManager != null) {
+            try {
+                getLogger().info("Shutting down crate system...");
+                crateManager.shutdown();
+                getLogger().info("Crate system shutdown completed");
+            } catch (Exception e) {
+                getLogger().log(Level.WARNING, "Error shutting down crate system", e);
+            }
+        }
+
+        if (partyMechanics != null) {
+            try {
+                partyMechanics.onDisable();
+            } catch (Exception e) {
+                getLogger().log(Level.WARNING, "Error shutting down party mechanics", e);
+            }
+        }
+
         // Add other shutdowns as needed
     }
 
@@ -790,5 +838,22 @@ public class YakRealms extends JavaPlugin {
 
     public boolean isMobsEnabled() {
         return mobsEnabled;
+    }
+
+    /**
+     * Get crate manager safely
+     */
+    public static CrateManager getCrateManagerSafe() {
+        if (instance == null || instance.crateManager == null) {
+            throw new IllegalStateException("Crate manager not available");
+        }
+        return instance.crateManager;
+    }
+
+    /**
+     * Check if crate system is available
+     */
+    public static boolean isCrateSystemAvailable() {
+        return instance != null && instance.crateManager != null;
     }
 }
