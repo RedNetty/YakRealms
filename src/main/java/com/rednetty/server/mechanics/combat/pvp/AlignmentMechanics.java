@@ -6,6 +6,7 @@ import com.rednetty.server.mechanics.moderation.Rank;
 import com.rednetty.server.mechanics.player.YakPlayer;
 import com.rednetty.server.mechanics.player.YakPlayerManager;
 import com.rednetty.server.mechanics.player.settings.Toggles;
+import com.rednetty.server.mechanics.player.stats.PlayerStatsCalculator;
 import com.rednetty.server.mechanics.world.WorldGuardManager;
 import com.rednetty.server.utils.text.TextUtil;
 import org.bukkit.*;
@@ -35,6 +36,7 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * Manages player alignment system (Lawful, Neutral, Chaotic)
  * Controls PvP behaviors, item drop rates, and city access based on alignment
+ * FIXED: Boss bar management and health regeneration using PlayerStatsCalculator
  */
 public class AlignmentMechanics implements Listener {
 
@@ -45,9 +47,12 @@ public class AlignmentMechanics implements Listener {
 
     // Combat tracking maps
     private final ConcurrentHashMap<String, Long> taggedPlayers = new ConcurrentHashMap<>();
-    private final Map<UUID, BossBar> playerBossBars = new HashMap<>();
+    private final Map<UUID, BossBar> playerBossBars = new ConcurrentHashMap<>();
     private final Map<UUID, Location> lastSafeLocations = new HashMap<>();
     private final Map<String, Player> lastAttackers = new HashMap<>();
+
+    // FIXED: Add synchronization lock for boss bar operations
+    private final Object bossBarLock = new Object();
 
     // Dependencies
     private final YakPlayerManager playerManager;
@@ -100,11 +105,17 @@ public class AlignmentMechanics implements Listener {
      * Clean up on disable
      */
     public void onDisable() {
-        // Remove all boss bars
-        for (BossBar bar : playerBossBars.values()) {
-            bar.removeAll();
+        // FIXED: Properly clean up all boss bars with synchronization
+        synchronized (bossBarLock) {
+            for (BossBar bar : playerBossBars.values()) {
+                try {
+                    bar.removeAll();
+                } catch (Exception e) {
+                    YakRealms.warn("Error removing boss bar: " + e.getMessage());
+                }
+            }
+            playerBossBars.clear();
         }
-        playerBossBars.clear();
 
         // Disable force field manager
         ForceFieldManager.getInstance().onDisable();
@@ -226,133 +237,110 @@ public class AlignmentMechanics implements Listener {
     }
 
     /**
-     * Apply passive healing to players not in combat
+     * Apply passive healing to players not in combat using PlayerStatsCalculator
      *
      * @param player The player to heal
      */
     private void healPlayer(Player player) {
-        // Calculate base healing amount
-        double healAmount = 5.0;
-        int vitality = 0;
-
-        // Get bonuses from equipped armor
-        for (ItemStack armor : player.getInventory().getArmorContents()) {
-            if (armor != null && armor.getType() != Material.AIR &&
-                    armor.hasItemMeta() && armor.getItemMeta().hasLore()) {
-
-                // Get health regen bonus from armor
-                double armorHps = getHpsFromItem(armor);
-                healAmount += armorHps;
-
-                // Get vitality from armor
-                int armorVit = getElementalFromItem(armor, "VIT");
-                vitality += armorVit;
+        try {
+            // Skip if player is dead or at full health
+            if (player.isDead() || player.getHealth() >= player.getMaxHealth()) {
+                return;
             }
-        }
 
-        // Apply vitality bonus (10% per point)
-        if (vitality > 0) {
-            healAmount += Math.round(vitality * 0.1);
-        }
+            // Use PlayerStatsCalculator for HP regen calculation
+            int healAmount = PlayerStatsCalculator.calculateTotalHealthRegen(player);
 
-        // Apply healing (capped at max health)
-        double newHealth = Math.min(player.getMaxHealth(), player.getHealth() + healAmount);
-        player.setHealth(newHealth);
+            // Apply healing (capped at max health)
+            double newHealth = Math.min(player.getMaxHealth(), player.getHealth() + healAmount);
+            player.setHealth(newHealth);
+
+        } catch (Exception e) {
+            YakRealms.warn("Error healing player " + player.getName() + ": " + e.getMessage());
+        }
     }
 
     /**
-     * Extract HPS (healing per second) value from an item
-     *
-     * @param item The item to check
-     * @return The HPS value
-     */
-    private double getHpsFromItem(ItemStack item) {
-        if (item == null || !item.hasItemMeta() || !item.getItemMeta().hasLore()) {
-            return 0;
-        }
-
-        for (String line : item.getItemMeta().getLore()) {
-            if (line.contains("HPS")) {
-                try {
-                    return Double.parseDouble(line.split(": ")[1].trim());
-                } catch (Exception e) {
-                    return 0;
-                }
-            }
-        }
-
-        return 0;
-    }
-
-    /**
-     * Extract elemental attribute from an item
-     *
-     * @param item      The item to check
-     * @param attribute The attribute name (e.g., "VIT", "STR")
-     * @return The attribute value
-     */
-    private int getElementalFromItem(ItemStack item, String attribute) {
-        if (item == null || !item.hasItemMeta() || !item.getItemMeta().hasLore()) {
-            return 0;
-        }
-
-        for (String line : item.getItemMeta().getLore()) {
-            if (line.contains(attribute + ":")) {
-                try {
-                    return Integer.parseInt(line.split(": ")[1].trim());
-                } catch (Exception e) {
-                    return 0;
-                }
-            }
-        }
-
-        return 0;
-    }
-
-    /**
-     * Update a player's health bar display
+     * FIXED: Update a player's health bar display with proper synchronization
      *
      * @param player The player to update
      */
     private void updateHealthBar(Player player) {
-        // Check if player has health bar toggled on
-        if (!Toggles.isToggled(player, "Level HP")) {
-            BossBar existingBar = playerBossBars.remove(player.getUniqueId());
-            if (existingBar != null) {
-                existingBar.removeAll();
-            }
+        if (player == null || !player.isOnline() || player.isDead()) {
             return;
         }
 
-        // Calculate health percentage
-        double healthPercentage = player.getHealth() / player.getMaxHealth();
-        float progress = (float) healthPercentage;
+        UUID playerId = player.getUniqueId();
 
-        // Determine bar color based on health
-        BarColor barColor = getHealthBarColor(player);
-        ChatColor titleColor = getHealthTextColor(player);
-
-        // Create bar title with formatting
-        String safeZoneText = isSafeZone(player.getLocation()) ?
-                ChatColor.GRAY + " - " + ChatColor.GREEN + ChatColor.BOLD + "SAFE-ZONE" : "";
-
-        String title = titleColor + "" + ChatColor.BOLD + "HP " +
-                titleColor + (int) player.getHealth() + ChatColor.BOLD + " / " +
-                titleColor + (int) player.getMaxHealth() + safeZoneText;
-
-        // Get or create boss bar
-        BossBar bossBar = playerBossBars.get(player.getUniqueId());
-        if (bossBar == null) {
-            bossBar = Bukkit.createBossBar(title, barColor, BarStyle.SOLID);
-            bossBar.addPlayer(player);
-            playerBossBars.put(player.getUniqueId(), bossBar);
-        } else {
-            bossBar.setTitle(title);
-            bossBar.setColor(barColor);
+        // Check if player has health bar toggled on
+        if (!Toggles.isToggled(player, "Level HP")) {
+            // FIXED: Remove existing boss bar if toggle is off
+            removeBossBar(playerId);
+            return;
         }
 
-        // Update progress
-        bossBar.setProgress(progress);
+        try {
+            // Calculate health percentage
+            double healthPercentage = player.getHealth() / player.getMaxHealth();
+            float progress = Math.max(0.0f, Math.min(1.0f, (float) healthPercentage));
+
+            // Determine bar color based on health
+            BarColor barColor = getHealthBarColor(player);
+            ChatColor titleColor = getHealthTextColor(player);
+
+            // Create bar title with formatting
+            String safeZoneText = isSafeZone(player.getLocation()) ?
+                    ChatColor.GRAY + " - " + ChatColor.GREEN + ChatColor.BOLD + "SAFE-ZONE" : "";
+
+            String title = titleColor + "" + ChatColor.BOLD + "HP " +
+                    titleColor + (int) player.getHealth() + ChatColor.BOLD + " / " +
+                    titleColor + (int) player.getMaxHealth() + safeZoneText;
+
+            // FIXED: Proper boss bar management with synchronization
+            synchronized (bossBarLock) {
+                BossBar bossBar = playerBossBars.get(playerId);
+
+                if (bossBar == null) {
+                    // Create new boss bar
+                    bossBar = Bukkit.createBossBar(title, barColor, BarStyle.SOLID);
+                    bossBar.addPlayer(player);
+                    playerBossBars.put(playerId, bossBar);
+                } else {
+                    // Update existing boss bar
+                    bossBar.setTitle(title);
+                    bossBar.setColor(barColor);
+
+                    // FIXED: Ensure player is added to the boss bar if not already present
+                    if (!bossBar.getPlayers().contains(player)) {
+                        bossBar.addPlayer(player);
+                    }
+                }
+
+                // Update progress
+                bossBar.setProgress(progress);
+            }
+
+        } catch (Exception e) {
+            YakRealms.warn("Error updating health bar for " + player.getName() + ": " + e.getMessage());
+        }
+    }
+
+    /**
+     * FIXED: Safely remove boss bar for a player
+     *
+     * @param playerId The player's UUID
+     */
+    private void removeBossBar(UUID playerId) {
+        synchronized (bossBarLock) {
+            BossBar existingBar = playerBossBars.remove(playerId);
+            if (existingBar != null) {
+                try {
+                    existingBar.removeAll();
+                } catch (Exception e) {
+                    YakRealms.warn("Error removing boss bar for player " + playerId + ": " + e.getMessage());
+                }
+            }
+        }
     }
 
     /**
@@ -549,9 +537,6 @@ public class AlignmentMechanics implements Listener {
                 }
             });
 
-            // Update scoreboards - if needed
-            // Scoreboards.updateAllColors();
-
             YakRealms.log("Updated alignment for player " + player.getName() + " to " + cc.name());
         } catch (Exception e) {
             YakRealms.error("Error updating alignment for player " + player.getName(), e);
@@ -607,10 +592,10 @@ public class AlignmentMechanics implements Listener {
     }
 
     /**
-     * Check if a player is chaotic-aligned
+     * Check if a player is lawful-aligned
      *
      * @param yakPlayer The YakPlayer to check
-     * @return true if chaotic
+     * @return true if lawful
      */
     public boolean isPlayerLawful(YakPlayer yakPlayer) {
         return "LAWFUL".equals(yakPlayer.getAlignment());
@@ -641,7 +626,6 @@ public class AlignmentMechanics implements Listener {
             event.setRespawnLocation(generateRandomSpawnPoint(player.getName()));
         } else {
             // Lawful/neutral players get safe spawn
-            // Replace with your central safe spawn
             World world = Bukkit.getWorlds().get(0);
             event.setRespawnLocation(world.getSpawnLocation());
         }
@@ -796,9 +780,6 @@ public class AlignmentMechanics implements Listener {
 
         YakPlayer yakKiller = playerManager.getPlayer(killer);
         if (yakKiller == null) return;
-
-        // Skip if in protection mode
-        // if (yakVictim.isInDuel()) return;
 
         // Skip neutral/chaotic victims (don't make killer chaotic)
         if ("NEUTRAL".equals(yakVictim.getAlignment()) ||
@@ -975,8 +956,7 @@ public class AlignmentMechanics implements Listener {
 
         if (yakAttacker == null || yakVictim == null) return;
 
-        // Skip for duels or anti-PvP
-        // if (yakAttacker.isInDuel() || yakVictim.isInDuel()) return;
+        // Skip for anti-PvP
         if (Toggles.isToggled(attacker, "Anti PVP")) return;
 
         // Set neutral alignment for the attacker
@@ -1000,94 +980,7 @@ public class AlignmentMechanics implements Listener {
     }
 
     /**
-     * Track player movement for safe zone boundaries
-     */
-    @EventHandler(priority = EventPriority.HIGH)
-    public void onPlayerMove(PlayerMoveEvent event) {
-        handlePlayerLocationChange(event.getPlayer(), event.getTo(), event.getFrom());
-    }
-
-    /**
-     * Track player teleport for safe zone boundaries
-     */
-    @EventHandler(priority = EventPriority.HIGH)
-    public void onPlayerTeleport(PlayerTeleportEvent event) {
-        handlePlayerLocationChange(event.getPlayer(), event.getTo(), event.getFrom());
-    }
-
-    /**
-     * Handle player location changes for safe zone enforcement
-     *
-     * @param player The player
-     * @param to     Destination location
-     * @param from   Origin location
-     */
-    private void handlePlayerLocationChange(Player player, Location to, Location from) {
-        if (to == null || from == null || to.getBlock().equals(from.getBlock())) {
-            return; // Skip if same block or null locations
-        }
-
-        // Save last safe location
-        if (!isSafeZone(to)) {
-            lastSafeLocations.put(player.getUniqueId(), from);
-        }
-
-        // Enforce safe zone restrictions
-        if (isSafeZone(to)) {
-            YakPlayer yakPlayer = playerManager.getPlayer(player);
-            if (yakPlayer == null) return;
-
-            if ("CHAOTIC".equals(yakPlayer.getAlignment())) {
-                preventSafeZoneEntry(player, from);
-            } else if (isPlayerTagged(player)) {
-                preventCombatZoneExit(player, from);
-            }
-        }
-    }
-
-    /**
-     * Prevent chaotic players from entering safe zones
-     *
-     * @param player The player
-     * @param from   Previous location
-     */
-    private void preventSafeZoneEntry(Player player, Location from) {
-        Location safeLocation = lastSafeLocations.getOrDefault(player.getUniqueId(), from);
-        player.teleport(safeLocation);
-
-        TextUtil.sendCenteredMessage(player, ChatColor.RED + "You " +
-                ChatColor.UNDERLINE + "cannot" +
-                ChatColor.RED + " enter " +
-                ChatColor.BOLD + "NON-PVP" +
-                ChatColor.RED + " zones with a chaotic alignment.");
-    }
-
-    /**
-     * Prevent combat-tagged players from leaving combat zones
-     *
-     * @param player The player
-     * @param from   Previous location
-     */
-    private void preventCombatZoneExit(Player player, Location from) {
-        Location safeLocation = lastSafeLocations.getOrDefault(player.getUniqueId(), from);
-        player.teleport(safeLocation);
-
-        // Calculate remaining combat time
-        if (taggedPlayers.containsKey(player.getName())) {
-            long combatTime = taggedPlayers.get(player.getName());
-            double timeElapsed = (System.currentTimeMillis() - combatTime) / 1000.0;
-            int timeLeft = (int) (10 - Math.round(timeElapsed));
-
-            TextUtil.sendCenteredMessage(player, ChatColor.RED + "You " +
-                    ChatColor.UNDERLINE + "cannot" +
-                    ChatColor.RED + " leave a chaotic zone while in combat.");
-            TextUtil.sendCenteredMessage(player, ChatColor.GRAY + "Out of combat in: " +
-                    ChatColor.BOLD + timeLeft + "s");
-        }
-    }
-
-    /**
-     * Handle combat logout punishment
+     * FIXED: Handle combat logout punishment and cleanup boss bars
      */
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onCombatLogout(PlayerQuitEvent event) {
@@ -1102,14 +995,11 @@ public class AlignmentMechanics implements Listener {
             player.setHealth(0);
         }
 
-        // Clean up resources
+        // FIXED: Clean up resources with proper synchronization
         UUID playerId = player.getUniqueId();
 
         // Clean up boss bar
-        BossBar bar = playerBossBars.remove(playerId);
-        if (bar != null) {
-            bar.removeAll();
-        }
+        removeBossBar(playerId);
 
         // Clean up location cache
         lastSafeLocations.remove(playerId);
@@ -1120,5 +1010,29 @@ public class AlignmentMechanics implements Listener {
 
         // Remove force field
         ForceFieldManager.getInstance().removePlayerForceField(player);
+    }
+
+    /**
+     * FIXED: Public method to force cleanup of a player's boss bar
+     * This can be called by other systems when needed
+     *
+     * @param player The player to cleanup
+     */
+    public void cleanupPlayerBossBar(Player player) {
+        if (player != null) {
+            removeBossBar(player.getUniqueId());
+        }
+    }
+
+    /**
+     * FIXED: Public method to force update of a player's health bar
+     * This can be called by other systems when health changes
+     *
+     * @param player The player to update
+     */
+    public void forceUpdateHealthBar(Player player) {
+        if (player != null && player.isOnline() && !player.isDead()) {
+            updateHealthBar(player);
+        }
     }
 }

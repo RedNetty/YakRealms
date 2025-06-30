@@ -42,6 +42,13 @@ commands:
     usage: /vendor <subcommand> [args]
     permission: yakrealms.admin.vendor
 
+  # Crate System Commands
+  crate:
+    description: Mystical crate system - open, preview, and manage crates
+    usage: /crate [give|preview|stats|info|reload|cleanup|test|help] [args...]
+    aliases: [ crates, mysticalcrate, mcrate ]
+    permission: yakrealms.crate.use
+
   # Market Commands
   market:
     description: Access the global market system
@@ -244,6 +251,7 @@ permissions:
       yakrealms.player.*: true
       yakrealms.staff.*: true
       yakrealms.admin.*: true
+      yakrealms.crate.*: true
 
   # Admin Permissions
   yakrealms.admin:
@@ -266,6 +274,7 @@ permissions:
       yakrealms.admin.invsee: true
       yakrealms.admin.alignment: true
       yakrealms.admin.item: true
+      yakrealms.crate.admin: true
 
   yakrealms.admin.*:
     description: All admin permissions
@@ -287,6 +296,7 @@ permissions:
       yakrealms.admin.invsee: true
       yakrealms.admin.alignment: true
       yakrealms.admin.item: true
+      yakrealms.crate.admin: true
 
   yakrealms.admin.economy:
     description: Grants access to economy admin commands
@@ -387,6 +397,7 @@ permissions:
       yakrealms.player.chattag: true
       yakrealms.player.lootbuff: true
       yakrealms.player.mobinfo: true
+      yakrealms.crate.use: true
 
   yakrealms.player.*:
     description: All basic player permissions
@@ -408,6 +419,45 @@ permissions:
       yakrealms.player.chattag: true
       yakrealms.player.lootbuff: true
       yakrealms.player.mobinfo: true
+      yakrealms.crate.use: true
+
+  # Crate System Permissions
+  yakrealms.crate.*:
+    description: All crate system permissions
+    default: op
+    children:
+      yakrealms.crate.use: true
+      yakrealms.crate.give: true
+      yakrealms.crate.admin: true
+
+  yakrealms.crate.use:
+    description: Basic crate usage - open crates and use preview
+    default: true
+
+  yakrealms.crate.give:
+    description: Give crates to players
+    default: op
+
+  yakrealms.crate.admin:
+    description: Full crate system administration
+    default: op
+    children:
+      yakrealms.crate.give: true
+      yakrealms.crate.reload: true
+      yakrealms.crate.cleanup: true
+      yakrealms.crate.test: true
+
+  yakrealms.crate.reload:
+    description: Reload crate system configuration
+    default: op
+
+  yakrealms.crate.cleanup:
+    description: Clean up crate system
+    default: op
+
+  yakrealms.crate.test:
+    description: Run crate system tests
+    default: op
 
   # Economy Permissions
   yakrealms.economy.*:
@@ -478,6 +528,7 @@ permissions:
       yakrealms.player.*: true
       yakrealms.economy.*: true
       yakrealms.market.*: true
+      yakrealms.crate.*: true
 
   yakrealms.premium:
     description: Premium player benefits
