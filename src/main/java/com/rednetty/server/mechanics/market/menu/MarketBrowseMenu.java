@@ -190,7 +190,7 @@ public class MarketBrowseMenu extends Menu {
 
         // Purchase information
         YakPlayer yakPlayer = YakPlayerManager.getInstance().getPlayer(getPlayer());
-        boolean canAfford = yakPlayer != null && yakPlayer.getGems() >= marketItem.getPrice();
+        boolean canAfford = yakPlayer != null && yakPlayer.getBankGems() >= marketItem.getPrice();
         boolean isOwnItem = marketItem.getOwnerUuid().equals(getPlayer().getUniqueId());
 
         if (isOwnItem) {
@@ -202,7 +202,7 @@ public class MarketBrowseMenu extends Menu {
         } else {
             lore.add(ChatColor.RED + "✗ Insufficient gems!");
             lore.add(ChatColor.GRAY + "You need " + ChatColor.RED +
-                    TextUtil.formatNumber(marketItem.getPrice() - (yakPlayer != null ? yakPlayer.getGems() : 0)) +
+                    TextUtil.formatNumber(marketItem.getPrice() - (yakPlayer != null ? yakPlayer.getBankGems() : 0)) +
                     ChatColor.GRAY + " more gems.");
         }
 

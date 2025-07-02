@@ -70,6 +70,9 @@ public class TeleportBookSystem implements Listener {
             // Load book templates from configuration
             loadBookTemplates();
 
+            // Start periodic saving to prevent data loss
+            startPeriodicSave();
+
             logger.info("TeleportBookSystem has been enabled");
         } catch (Exception e) {
             logger.log(Level.SEVERE, "Failed to enable TeleportBookSystem", e);
@@ -113,13 +116,25 @@ public class TeleportBookSystem implements Listener {
 
             config = YamlConfiguration.loadConfiguration(configFile);
 
-            // Load default books for standard destinations
+            // Load custom books from config first
+            loadCustomBooksFromConfig();
+
+            // Create default books for destinations that don't have custom books
+            boolean needsSave = false;
             for (TeleportDestination dest : teleportManager.getAllDestinations()) {
-                createBookTemplate(dest.getId(), dest.getDisplayName());
+                String defaultBookId = "book_" + dest.getId().toLowerCase();
+                if (!bookTemplates.containsKey(defaultBookId)) {
+                    ItemStack template = createBookTemplate(dest.getId(), dest.getDisplayName());
+                    if (template != null) {
+                        needsSave = true;
+                    }
+                }
             }
 
-            // Load custom books from config
-            loadCustomBooksFromConfig();
+            // Save immediately if we created new default templates
+            if (needsSave) {
+                saveBookTemplates();
+            }
 
             logger.info("Loaded " + bookTemplates.size() + " teleport book templates");
         } catch (Exception e) {
@@ -209,11 +224,26 @@ public class TeleportBookSystem implements Listener {
 
             // Save to file
             config.save(configFile);
+            logger.fine("Saved " + bookTemplates.size() + " book templates to config");
         } catch (IOException e) {
             logger.log(Level.SEVERE, "Could not save teleport book templates", e);
         } catch (Exception e) {
             logger.log(Level.SEVERE, "Unexpected error saving teleport book templates", e);
         }
+    }
+
+    /**
+     * Adds periodic saving task to prevent data loss
+     */
+    private void startPeriodicSave() {
+        // Save book templates every 5 minutes
+        Bukkit.getScheduler().runTaskTimerAsynchronously(YakRealms.getInstance(), () -> {
+            try {
+                saveBookTemplates();
+            } catch (Exception e) {
+                logger.log(Level.WARNING, "Error during periodic book template save", e);
+            }
+        }, 6000L, 6000L); // 5 minutes = 6000 ticks
     }
 
     /**
@@ -234,11 +264,6 @@ public class TeleportBookSystem implements Listener {
         }
 
         String bookId = "book_" + destId.toLowerCase();
-
-        // Skip if we already have this template
-        if (bookTemplates.containsKey(bookId)) {
-            return bookTemplates.get(bookId);
-        }
 
         // Create a new book
         ItemStack book = new ItemStack(Material.BOOK);
@@ -343,6 +368,8 @@ public class TeleportBookSystem implements Listener {
                 logger.warning("Failed to create template for destination: " + destId);
                 return null;
             }
+            // Save the new template immediately
+            saveBookTemplates();
         }
 
         // Clone the template
@@ -485,6 +512,7 @@ public class TeleportBookSystem implements Listener {
         ItemStack book = createCustomBook(bookId, destination, displayName, lore);
         if (book != null) {
             bookTemplates.put(bookId, book);
+            // Save immediately when registering custom books
             saveBookTemplates();
         }
 
@@ -618,5 +646,102 @@ public class TeleportBookSystem implements Listener {
         } catch (Exception e) {
             logger.log(Level.SEVERE, "Error reloading book templates", e);
         }
+    }
+
+    /**
+     * Debug method to check book template status
+     */
+    public void debugBookTemplates() {
+        logger.info("=== TELEPORT BOOK DEBUG INFO ===");
+        logger.info("Config file exists: " + (configFile != null && configFile.exists()));
+        logger.info("Config object: " + (config != null ? "loaded" : "null"));
+        logger.info("Book templates in memory: " + bookTemplates.size());
+
+        for (Map.Entry<String, ItemStack> entry : bookTemplates.entrySet()) {
+            String bookId = entry.getKey();
+            ItemStack book = entry.getValue();
+
+            String destId = "unknown";
+            if (book != null && book.hasItemMeta() && book.getItemMeta() != null) {
+                PersistentDataContainer container = book.getItemMeta().getPersistentDataContainer();
+                destId = container.get(destinationKey, PersistentDataType.STRING);
+            }
+
+            logger.info("  - " + bookId + " -> " + destId);
+        }
+
+        // Check config contents
+        if (config != null && config.contains("books")) {
+            Set<String> configBooks = config.getConfigurationSection("books").getKeys(false);
+            logger.info("Books in config file: " + configBooks.size());
+            for (String bookId : configBooks) {
+                String destId = config.getString("books." + bookId + ".destination");
+                logger.info("  - " + bookId + " -> " + destId);
+            }
+        } else {
+            logger.info("No books section in config file");
+        }
+
+        logger.info("Available destinations: " + teleportManager.getAllDestinations().size());
+        for (TeleportDestination dest : teleportManager.getAllDestinations()) {
+            logger.info("  - " + dest.getId() + " (" + dest.getDisplayName() + ")");
+        }
+        logger.info("=== END DEBUG INFO ===");
+    }
+
+    /**
+     * Forces a reload and save of all book templates
+     */
+    public void forceReloadAndSave() {
+        logger.info("Forcing reload and save of book templates...");
+        loadBookTemplates();
+        saveBookTemplates();
+        logger.info("Force reload and save completed");
+    }
+
+    /**
+     * Manually triggers a save of book templates
+     */
+    public void forceSave() {
+        try {
+            saveBookTemplates();
+            logger.info("Book templates saved successfully");
+        } catch (Exception e) {
+            logger.log(Level.SEVERE, "Error manually saving book templates", e);
+        }
+    }
+
+    /**
+     * Gets the number of book templates currently loaded
+     */
+    public int getBookTemplateCount() {
+        return bookTemplates.size();
+    }
+
+    /**
+     * Checks if a book template exists for a destination
+     */
+    public boolean hasBookTemplate(String destId) {
+        if (destId == null) {
+            return false;
+        }
+        String bookId = "book_" + destId.toLowerCase();
+        return bookTemplates.containsKey(bookId);
+    }
+
+    /**
+     * Removes a book template
+     */
+    public boolean removeBookTemplate(String bookId) {
+        if (bookId == null) {
+            return false;
+        }
+
+        boolean removed = bookTemplates.remove(bookId) != null;
+        if (removed) {
+            saveBookTemplates();
+        }
+
+        return removed;
     }
 }

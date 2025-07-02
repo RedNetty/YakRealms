@@ -68,14 +68,14 @@ public class PayCommand implements CommandExecutor, TabCompleter {
 
         // Check if player has enough gems
         YakPlayer yakPlayer = playerManager.getPlayer(player);
-        if (yakPlayer == null || yakPlayer.getGems() < amount) {
+        if (yakPlayer == null || economyManager.getPhysicalGems(player) < amount) {
             player.sendMessage(ChatColor.RED + "You don't have enough gems. You have " +
-                    (yakPlayer == null ? 0 : yakPlayer.getGems()) + " gems.");
+                    (yakPlayer == null ? 0 : economyManager.getPhysicalGems(player)) + " gems.");
             return true;
         }
 
         // Process payment
-        if (economyManager.transferGems(player.getUniqueId(), target.getUniqueId(), amount).isSuccess()) {
+        if (economyManager.removePhysicalGems(player, amount).isSuccess()) {
             // Notify sender
             player.sendMessage(ChatColor.GREEN + "You paid " + target.getName() + " " + amount + " gems.");
             player.playSound(player.getLocation(), Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 0.5f, 1.0f);

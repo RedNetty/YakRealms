@@ -191,7 +191,7 @@ public class MarketCommand implements CommandExecutor, TabCompleter {
                 player.sendMessage("");
                 player.sendMessage(ChatColor.GOLD + "▪ " + ChatColor.YELLOW + "Your Market Statistics" + ChatColor.GOLD + " ▪");
                 player.sendMessage("");
-                player.sendMessage(ChatColor.AQUA + "Current Gems: " + ChatColor.WHITE + TextUtil.formatNumber(yakPlayer.getGems()));
+                player.sendMessage(ChatColor.AQUA + "Current Gems: " + ChatColor.WHITE + TextUtil.formatNumber(yakPlayer.getBankGems()));
                 player.sendMessage(ChatColor.AQUA + "Active Listings: " + ChatColor.WHITE + listings.size() + "/" + marketManager.getMaxListingsPerPlayer());
                 player.sendMessage(ChatColor.AQUA + "Total Listing Value: " + ChatColor.WHITE + TextUtil.formatNumber(totalValue) + " gems");
                 player.sendMessage(ChatColor.AQUA + "Featured Listings: " + ChatColor.WHITE + featuredCount);

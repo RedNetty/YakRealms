@@ -65,15 +65,11 @@ public class BalanceCommand implements CommandExecutor, TabCompleter {
             return;
         }
 
-        int inventoryGems = yakPlayer.getGems();
         int bankGems = yakPlayer.getBankGems();
-        int total = inventoryGems + bankGems;
 
         viewer.sendMessage("");
         viewer.sendMessage(ChatColor.GOLD + "=== Balance for " + yakPlayer.getUsername() + " ===");
-        viewer.sendMessage(ChatColor.GREEN + "Inventory: " + ChatColor.WHITE + inventoryGems + " gems");
         viewer.sendMessage(ChatColor.GREEN + "Bank: " + ChatColor.WHITE + bankGems + " gems");
-        viewer.sendMessage(ChatColor.GREEN + "Total: " + ChatColor.WHITE + total + " gems");
         viewer.sendMessage("");
     }
 

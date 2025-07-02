@@ -2,6 +2,7 @@ package com.rednetty.server.mechanics.economy.vendors;
 
 import com.rednetty.server.mechanics.economy.vendors.utils.VendorUtils;
 import org.bukkit.Bukkit;
+import org.bukkit.ChatColor;
 import org.bukkit.Location;
 import org.bukkit.World;
 
@@ -66,16 +67,16 @@ public class Vendor {
         this.lastUpdated = this.creationTime;
         this.lastAccessTime = this.creationTime;
 
+        // Set behavior class and determine type FIRST
+        setBehaviorClass(VendorUtils.getOrDefault(behaviorClass,
+                "com.rednetty.server.mechanics.economy.vendors.behaviors.ShopBehavior"));
+
         // Set location with validation
         setLocation(location);
 
-        // Set hologram lines with defaults if needed
+        // Set hologram lines with defaults based on determined type
         setHologramLines(hologramLines != null && !hologramLines.isEmpty() ?
-                hologramLines : VendorUtils.createDefaultHologramLines("unknown"));
-
-        // Set behavior class and determine type
-        setBehaviorClass(VendorUtils.getOrDefault(behaviorClass,
-                "com.rednetty.server.mechanics.economy.vendors.behaviors.ShopBehavior"));
+                hologramLines : createDefaultHologramLinesForType(this.vendorType));
 
         // Validate the vendor
         validateVendor();
@@ -142,13 +143,15 @@ public class Vendor {
     }
 
     /**
-     * Enhanced hologram lines setter with validation
+     * Enhanced hologram lines setter with validation and smart defaults
      */
     public void setHologramLines(List<String> hologramLines) {
         lock.writeLock().lock();
         try {
             if (hologramLines == null || hologramLines.isEmpty()) {
-                this.hologramLines = VendorUtils.createDefaultHologramLines(this.vendorType);
+                // Use current vendor type for defaults, fallback to "unknown"
+                String currentType = this.vendorType != null ? this.vendorType : "unknown";
+                this.hologramLines = createDefaultHologramLinesForType(currentType);
             } else {
                 // Filter out null or empty lines
                 List<String> validLines = new ArrayList<>();
@@ -158,7 +161,7 @@ public class Vendor {
                     }
                 }
                 this.hologramLines = validLines.isEmpty() ?
-                        VendorUtils.createDefaultHologramLines(this.vendorType) : validLines;
+                        createDefaultHologramLinesForType(this.vendorType) : validLines;
             }
             this.lastUpdated = System.currentTimeMillis();
             validateVendor();
@@ -193,6 +196,13 @@ public class Vendor {
             this.behaviorClass = behaviorClass;
             this.vendorType = determineTypeFromBehavior(behaviorClass);
             this.lastUpdated = System.currentTimeMillis();
+
+            // Update hologram lines if they're still default/empty
+            if (this.hologramLines == null || this.hologramLines.isEmpty() ||
+                    isGenericHologramLines(this.hologramLines)) {
+                this.hologramLines = createDefaultHologramLinesForType(this.vendorType);
+            }
+
             validateVendor();
         } finally {
             lock.writeLock().unlock();
@@ -206,7 +216,7 @@ public class Vendor {
         recordAccess();
         lock.readLock().lock();
         try {
-            return vendorType;
+            return vendorType != null ? vendorType : "unknown";
         } finally {
             lock.readLock().unlock();
         }
@@ -316,6 +326,12 @@ public class Vendor {
             valid = false;
         }
 
+        // Validate vendor type
+        if (VendorUtils.isNullOrEmpty(vendorType)) {
+            errors.append("Vendor type is null or empty; ");
+            valid = false;
+        }
+
         this.isValid = valid;
         this.lastValidationError = valid ? null : errors.toString().trim();
     }
@@ -362,7 +378,7 @@ public class Vendor {
     }
 
     /**
-     * Enhanced type determination with better fallback handling
+     * Enhanced type determination with comprehensive behavior mapping
      */
     private String determineTypeFromBehavior(String behaviorClass) {
         if (VendorUtils.isNullOrEmpty(behaviorClass)) {
@@ -379,22 +395,97 @@ public class Vendor {
         if (className.endsWith("Behavior")) {
             String type = className.substring(0, className.length() - 8).toLowerCase();
 
-            // Map specific types
+            // Comprehensive mapping for all vendor types
             switch (type) {
                 case "itemvendor":
+                case "item":
                 case "shop":
                     return "item";
+                case "fisherman":
+                    return "fisherman";
                 case "bookvendor":
+                case "book":
                     return "book";
                 case "upgradevendor":
+                case "upgrade":
                     return "upgrade";
+                case "banker":
+                    return "banker";
+                case "medic":
+                    return "medic";
+                case "gambler":
+                    return "gambler";
                 default:
-                    return type;
+                    // For unknown types, try to extract meaningful name
+                    return type.isEmpty() ? "unknown" : type;
             }
         }
 
-        // Fallback for unknown patterns
+        // Fallback: try to extract type from full class name
+        String lowerCase = behaviorClass.toLowerCase();
+        if (lowerCase.contains("item") || lowerCase.contains("shop")) return "item";
+        if (lowerCase.contains("fisherman")) return "fisherman";
+        if (lowerCase.contains("book")) return "book";
+        if (lowerCase.contains("upgrade")) return "upgrade";
+        if (lowerCase.contains("banker")) return "banker";
+        if (lowerCase.contains("medic")) return "medic";
+        if (lowerCase.contains("gambler")) return "gambler";
+
         return "unknown";
+    }
+
+    /**
+     * Create appropriate default hologram lines for vendor type
+     */
+    private List<String> createDefaultHologramLinesForType(String vendorType) {
+        List<String> lines = new ArrayList<>();
+
+        switch (vendorType != null ? vendorType.toLowerCase() : "unknown") {
+            case "item":
+                lines.add(ChatColor.GOLD + "" + ChatColor.ITALIC + "Item Vendor");
+                break;
+            case "fisherman":
+                lines.add(ChatColor.AQUA + "" + ChatColor.ITALIC + "Fisherman");
+                break;
+            case "book":
+                lines.add(ChatColor.LIGHT_PURPLE + "" + ChatColor.ITALIC + "Book Vendor");
+                break;
+            case "upgrade":
+                lines.add(ChatColor.YELLOW + "" + ChatColor.ITALIC + "Upgrade Vendor");
+                break;
+            case "banker":
+                lines.add(ChatColor.GREEN + "" + ChatColor.ITALIC + "Banker");
+                break;
+            case "medic":
+                lines.add(ChatColor.RED + "" + ChatColor.ITALIC + "Medic");
+                break;
+            case "gambler":
+                lines.add(ChatColor.DARK_PURPLE + "" + ChatColor.ITALIC + "Gambler");
+                break;
+            default:
+                lines.add(ChatColor.GRAY + "" + ChatColor.ITALIC + "Vendor");
+                break;
+        }
+
+        return lines;
+    }
+
+    /**
+     * Check if hologram lines are generic/default
+     */
+    private boolean isGenericHologramLines(List<String> lines) {
+        if (lines == null || lines.isEmpty()) {
+            return true;
+        }
+
+        for (String line : lines) {
+            String stripped = ChatColor.stripColor(line).toLowerCase().trim();
+            if (stripped.equals("vendor") || stripped.equals("unknown") || stripped.isEmpty()) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -555,6 +646,9 @@ public class Vendor {
             }
             sb.append("  Location: ").append(location).append("\n");
             sb.append("  Hologram Lines: ").append(hologramLines.size()).append(" lines\n");
+            for (int i = 0; i < hologramLines.size(); i++) {
+                sb.append("    ").append(i + 1).append(": ").append(hologramLines.get(i)).append("\n");
+            }
             sb.append("  Created: ").append(VendorUtils.formatTimestamp(creationTime)).append("\n");
             sb.append("  Last Updated: ").append(VendorUtils.formatTimestamp(lastUpdated)).append("\n");
             sb.append("  Access Count: ").append(accessCount).append("\n");

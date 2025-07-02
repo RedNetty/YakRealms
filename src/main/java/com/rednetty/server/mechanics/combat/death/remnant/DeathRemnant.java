@@ -11,12 +11,15 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.SkullMeta;
 import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.util.EulerAngle;
-import org.bukkit.util.Vector;
 
 import java.util.*;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+/**
+ * UPDATED: Creates purely decorative death remnants that display visual skeleton only
+ * Items always drop separately on the ground - remnants are visual only
+ */
 public class DeathRemnant {
     private static final Logger LOGGER = Logger.getLogger(DeathRemnant.class.getName());
     private static final Map<BonePart, ItemStack> BONE_PARTS = new EnumMap<>(BonePart.class);
@@ -25,9 +28,7 @@ public class DeathRemnant {
         static final double GROUND_OFFSET = 0.5;
         static final int MAX_RIBS = 2;
         static final boolean DEBUG_MODE = true;
-        static final double ITEM_HEIGHT_OFFSET = 0.02;
         static final int GROUND_SEARCH_RANGE = 15;
-        static final double MIN_ITEM_DISTANCE = 0.8;
     }
 
     static {
@@ -41,16 +42,22 @@ public class DeathRemnant {
     private final UUID id;
     private final Location location;
     private final Map<BonePart, ArmorStand> boneStands;
-    private final List<ArmorStand> itemStands;
     private final float rotation;
     private final NamespacedKey remnantKey;
     private boolean isValid = false;
 
+    /**
+     * UPDATED: Creates a purely decorative death remnant - items parameter is ignored
+     * @param location The location to create the remnant
+     * @param items The items list (ignored - for compatibility only)
+     * @param playerUuid The UUID of the deceased player
+     * @param playerName The name of the deceased player
+     * @param key The namespaced key for tracking remnant entities
+     */
     public DeathRemnant(Location location, List<ItemStack> items, UUID playerUuid,
                         String playerName, NamespacedKey key) {
         this.id = UUID.randomUUID();
         this.boneStands = new EnumMap<>(BonePart.class);
-        this.itemStands = new ArrayList<>();
         this.remnantKey = key;
         this.rotation = (float) (Math.random() * 360);
 
@@ -69,9 +76,9 @@ public class DeathRemnant {
                 return;
             }
 
-            if (items != null && !items.isEmpty()) {
-                arrangeItems(items);
-            }
+            // Note: Items are ignored - remnants are purely decorative
+            logDebug("Created decorative death remnant for %s at %s",
+                    playerName, formatLocation(this.location));
 
             playSpawnEffects();
             isValid = true;
@@ -138,11 +145,9 @@ public class DeathRemnant {
 
     private boolean createSkull(UUID playerUuid, String playerName) {
         Location skullLoc = DeathRemnantStructure.getSkullPosition(getSpineLocation(), rotation);
-        // Change pitch from 90 to 0 degrees (first parameter)
         skullLoc.subtract(0, .25, 0);
         ArmorStand skullStand = createBoneStand(skullLoc, BonePart.SKULL,
-                new EulerAngle(Math.toRadians(0), Math.toRadians(rotation), 0)); // Fix here
-
+                new EulerAngle(Math.toRadians(0), Math.toRadians(rotation), 0));
 
         ItemStack skullItem = new ItemStack(Material.PLAYER_HEAD);
         SkullMeta meta = (SkullMeta) skullItem.getItemMeta();
@@ -208,7 +213,7 @@ public class DeathRemnant {
         return registerBone(BonePart.LEG_RIGHT, rightLeg) && registerBone(BonePart.LEG_LEFT, leftLeg);
     }
 
-    // Bone stand creation and item management
+    // Bone stand creation
     private ArmorStand createBoneStand(Location loc, BonePart part, EulerAngle angle) {
         if (loc == null || loc.getWorld() == null) return null;
 
@@ -226,56 +231,6 @@ public class DeathRemnant {
                 if (bone != null) stand.setHelmet(bone.clone());
             }
         });
-    }
-
-    private void arrangeItems(List<ItemStack> items) {
-        Vector[] positions = DeathRemnantStructure.calculateSafeScatteredPositions(
-                items.size(),
-                getSpineLocation(),
-                boneStands.values(),
-                Config.MIN_ITEM_DISTANCE
-        );
-
-        for (int i = 0; i < items.size() && i < positions.length; i++) {
-            createItemStand(getSpineLocation().add(positions[i]), items.get(i));
-        }
-    }
-
-    private void createItemStand(Location targetLoc, ItemStack item) {
-        Location groundLoc = findExactGroundLocation(targetLoc);
-        if (groundLoc == null) {
-            logDebug("Failed to find ground for item at %s", formatLocation(targetLoc));
-            return;
-        }
-        groundLoc.add(0, 0.15, 0);
-
-        ArmorStand stand = groundLoc.getWorld().spawn(groundLoc, ArmorStand.class, s -> {
-            s.setVisible(false);
-            s.setSmall(true);
-            s.setMarker(true);
-            s.setGravity(false);
-            s.setBasePlate(false);
-            s.setHelmet(item.clone());
-            s.setHeadPose(new EulerAngle(
-                    Math.toRadians(90),
-                    Math.toRadians(new Random().nextInt(360)),
-                    0
-            ));
-            s.getPersistentDataContainer().set(remnantKey, PersistentDataType.BOOLEAN, true);
-        });
-        itemStands.add(stand);
-    }
-
-    private Location findExactGroundLocation(Location loc) {
-        Location current = loc.clone();
-        for (int i = 0; i < Config.GROUND_SEARCH_RANGE; i++) {
-            Block block = current.getBlock();
-            if (block.getType().isSolid()) {
-                return block.getLocation().add(0.5, Config.ITEM_HEIGHT_OFFSET, 0.5);
-            }
-            current.subtract(0, 1, 0);
-        }
-        return null;
     }
 
     // Effects and cleanup
@@ -302,11 +257,7 @@ public class DeathRemnant {
         boneStands.values().forEach(stand -> {
             if (!stand.isDead()) stand.remove();
         });
-        itemStands.forEach(stand -> {
-            if (!stand.isDead()) stand.remove();
-        });
         boneStands.clear();
-        itemStands.clear();
     }
 
     private void playRemovalEffects() {
@@ -390,9 +341,7 @@ public class DeathRemnant {
     }
 
     public Collection<ArmorStand> getEntityCollection() {
-        List<ArmorStand> entities = new ArrayList<>(boneStands.values());
-        entities.addAll(itemStands);
-        return Collections.unmodifiableCollection(entities);
+        return Collections.unmodifiableCollection(boneStands.values());
     }
 
     private String formatLocation(Location loc) {
@@ -419,5 +368,21 @@ public class DeathRemnant {
 
     public float getRotation() {
         return rotation;
+    }
+
+    /**
+     * UPDATED: Always returns 0 since remnants are purely decorative
+     * @return Always 0 (no items are displayed in remnants)
+     */
+    public int getItemCount() {
+        return 0;
+    }
+
+    /**
+     * UPDATED: Always returns true since remnants are purely decorative
+     * @return Always true (remnants never contain items)
+     */
+    public boolean isDecorativeOnly() {
+        return true;
     }
 }

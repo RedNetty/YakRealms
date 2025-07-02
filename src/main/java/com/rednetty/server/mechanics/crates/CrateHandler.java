@@ -15,6 +15,7 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.Action;
+import org.bukkit.event.inventory.ClickType;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryCloseEvent;
 import org.bukkit.event.inventory.InventoryType;
@@ -81,23 +82,46 @@ public class CrateHandler implements Listener {
             return;
         }
 
-        // Check if this is an animation inventory
+        // Check if this is an animation inventory - always cancel these
         if (isAnimationInventory(event.getView().getTitle())) {
             event.setCancelled(true);
             return;
         }
 
+        // Get the clicked item - could be current item or cursor depending on action
         ItemStack clickedItem = event.getCurrentItem();
+        ItemStack cursorItem = event.getCursor();
 
-        // Handle crate inventory interactions
-        if (isPlayerInventoryClick(event) && isCrateItem(clickedItem)) {
-            event.setCancelled(true);
-            handleCrateInventoryClick(player, clickedItem, event);
-        }
-        // Handle crate key interactions
-        else if (isPlayerInventoryClick(event) && isCrateKeyInteraction(event)) {
+        // Debug logging
+        logger.fine("Inventory click - Player: " + player.getName() +
+                ", Click: " + event.getClick() +
+                ", Slot: " + event.getSlot() +
+                ", SlotType: " + event.getSlotType() +
+                ", InventoryType: " + event.getInventory().getType() +
+                ", CurrentItem: " + (clickedItem != null ? clickedItem.getType() : "null") +
+                ", CursorItem: " + (cursorItem != null ? cursorItem.getType() : "null"));
+
+        // Handle crate key interactions first (drag and drop)
+        if (isCrateKeyInteraction(event)) {
             event.setCancelled(true);
             handleCrateKeyUsage(player, event);
+            return;
+        }
+
+        // Handle crate inventory interactions - fixed detection
+        if (isValidCrateInventoryClick(event) && isCrateItem(clickedItem)) {
+            event.setCancelled(true);
+            handleCrateInventoryClick(player, clickedItem, event);
+            return;
+        }
+
+        // Additional check for clicking crates in other inventories
+        if (clickedItem != null && isCrateItem(clickedItem) && isPlayerRelatedInventory(event)) {
+            // Only handle left clicks for opening
+            if (event.getClick() == ClickType.LEFT) {
+                event.setCancelled(true);
+                handleCrateInventoryClick(player, clickedItem, event);
+            }
         }
     }
 
@@ -242,6 +266,14 @@ public class CrateHandler implements Listener {
                 // Consume the crate item with enhanced feedback
                 consumeCrateItem(event, crateItem);
 
+                // Force inventory update to prevent ghost items
+                new BukkitRunnable() {
+                    @Override
+                    public void run() {
+                        player.updateInventory();
+                    }
+                }.runTaskLater(plugin, 1L);
+
                 // Track the animation inventory
                 animationInventories.put(playerId, ANIMATION_INVENTORY_TITLE);
 
@@ -297,6 +329,14 @@ public class CrateHandler implements Listener {
         // Consume the key
         consumeKeyItem(event, cursor);
 
+        // Force inventory update to prevent ghost items
+        new BukkitRunnable() {
+            @Override
+            public void run() {
+                player.updateInventory();
+            }
+        }.runTaskLater(plugin, 1L);
+
         // Enhanced success feedback
         sendKeySuccessMessage(player, crateType);
 
@@ -342,16 +382,26 @@ public class CrateHandler implements Listener {
      */
     private void performScrapOperation(Player player, ItemStack crateItem, CrateType crateType, int scrapValue) {
         // Try to give gems to player
-        var result = economyManager.addGems(player.getUniqueId(), scrapValue);
+        var result = economyManager.addBankGems(player.getUniqueId(), scrapValue);
 
         if (result.isSuccess()) {
-            // Remove the crate from hand
+            // Remove the crate from hand - FIXED to prevent ghost items
             ItemStack handItem = player.getInventory().getItemInMainHand();
             if (handItem.getAmount() > 1) {
-                handItem.setAmount(handItem.getAmount() - 1);
+                ItemStack reducedItem = handItem.clone();
+                reducedItem.setAmount(handItem.getAmount() - 1);
+                player.getInventory().setItemInMainHand(reducedItem);
             } else {
                 player.getInventory().setItemInMainHand(new ItemStack(Material.AIR));
             }
+
+            // Force inventory update to prevent ghost items
+            new BukkitRunnable() {
+                @Override
+                public void run() {
+                    player.updateInventory();
+                }
+            }.runTaskLater(plugin, 1L);
 
             // Enhanced success message with animations
             sendEnhancedScrapSuccessMessage(player, crateType, scrapValue);
@@ -431,9 +481,40 @@ public class CrateHandler implements Listener {
         return title != null && title.contains("Crate Opening");
     }
 
-    private boolean isPlayerInventoryClick(InventoryClickEvent event) {
-        return event.getInventory().getType() == InventoryType.PLAYER &&
-                event.getSlotType() != InventoryType.SlotType.ARMOR;
+    /**
+     * FIXED: Better detection of valid crate inventory clicks
+     */
+    private boolean isValidCrateInventoryClick(InventoryClickEvent event) {
+        // Handle player inventory (both when opened normally and when accessed through other GUIs)
+        if (event.getSlotType() == InventoryType.SlotType.CONTAINER ||
+                event.getSlotType() == InventoryType.SlotType.QUICKBAR) {
+            return true;
+        }
+
+        // Handle clicks in player's own inventory
+        if (event.getInventory().getType() == InventoryType.PLAYER) {
+            return true;
+        }
+
+        // Handle clicks in the bottom inventory when a GUI is open
+        if (event.getView().getBottomInventory().equals(event.getClickedInventory())) {
+            return true;
+        }
+
+        // Handle specific slot types that are part of player inventory
+        return event.getSlotType() != InventoryType.SlotType.ARMOR &&
+                event.getSlotType() != InventoryType.SlotType.OUTSIDE;
+    }
+
+    /**
+     * FIXED: Better detection of player-related inventories
+     */
+    private boolean isPlayerRelatedInventory(InventoryClickEvent event) {
+        // Check if the clicked inventory belongs to the player
+        return event.getClickedInventory() != null &&
+                (event.getClickedInventory().equals(event.getView().getBottomInventory()) ||
+                        event.getInventory().getType() == InventoryType.PLAYER ||
+                        event.getClickedInventory().getType() == InventoryType.PLAYER);
     }
 
     private boolean isCrateItem(ItemStack item) {
@@ -480,11 +561,14 @@ public class CrateHandler implements Listener {
     }
 
     /**
-     * Enhanced item manipulation methods
+     * Enhanced item manipulation methods - FIXED ghost item bug
      */
     private void consumeCrateItem(InventoryClickEvent event, ItemStack crateItem) {
         if (crateItem.getAmount() > 1) {
-            crateItem.setAmount(crateItem.getAmount() - 1);
+            // Create a new ItemStack with reduced amount to prevent ghost items
+            ItemStack reducedItem = crateItem.clone();
+            reducedItem.setAmount(crateItem.getAmount() - 1);
+            event.setCurrentItem(reducedItem);
         } else {
             event.setCurrentItem(new ItemStack(Material.AIR));
         }
@@ -492,7 +576,10 @@ public class CrateHandler implements Listener {
 
     private void consumeKeyItem(InventoryClickEvent event, ItemStack keyItem) {
         if (keyItem.getAmount() > 1) {
-            keyItem.setAmount(keyItem.getAmount() - 1);
+            // Create a new ItemStack with reduced amount to prevent ghost items
+            ItemStack reducedKey = keyItem.clone();
+            reducedKey.setAmount(keyItem.getAmount() - 1);
+            event.setCursor(reducedKey);
         } else {
             event.setCursor(new ItemStack(Material.AIR));
         }
@@ -574,17 +661,7 @@ public class CrateHandler implements Listener {
         player.sendMessage(ChatColor.GRAY + "Your inventory lacks space for the mystical energies!");
         player.sendMessage(ChatColor.YELLOW + "Please ensure at least 3 empty slots and try again.");
         player.sendMessage("");
-
-        // Enhanced suggestion with clickable elements
-        net.md_5.bungee.api.chat.TextComponent bankTip =
-                new net.md_5.bungee.api.chat.TextComponent(ChatColor.AQUA + "» Quick Fix: Click here to open your bank! «");
-        bankTip.setClickEvent(new net.md_5.bungee.api.chat.ClickEvent(
-                net.md_5.bungee.api.chat.ClickEvent.Action.RUN_COMMAND, "/bank"));
-        bankTip.setHoverEvent(new net.md_5.bungee.api.chat.HoverEvent(
-                net.md_5.bungee.api.chat.HoverEvent.Action.SHOW_TEXT,
-                new net.md_5.bungee.api.chat.ComponentBuilder(ChatColor.YELLOW + "Click to open your bank storage!").create()));
-
-        player.spigot().sendMessage(bankTip);
+        
 
         playErrorSound(player);
     }

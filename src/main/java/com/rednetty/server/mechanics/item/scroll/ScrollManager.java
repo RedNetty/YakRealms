@@ -65,9 +65,11 @@ public class ScrollManager {
      * @return The created protection scroll
      */
     public ItemStack createProtectionScroll(int tier) {
-        return getScrollGenerator().createProtectionScroll(tier);
-    }
+                int protectionTier = Math.max(0, Math.min(5, tier - 1));
 
+                return getScrollGenerator().createProtectionScroll(protectionTier);
+
+        }
     /**
      * Creates an armor enhancement scroll of the specified tier
      *

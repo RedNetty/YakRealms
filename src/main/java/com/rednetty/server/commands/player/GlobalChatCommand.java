@@ -15,8 +15,10 @@ import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.logging.Level;
 
 public class GlobalChatCommand implements CommandExecutor {
     private final YakPlayerManager playerManager;
@@ -76,27 +78,51 @@ public class GlobalChatCommand implements CommandExecutor {
                 ChatColor.GREEN + "<" + ChatColor.GREEN + ChatColor.BOLD + "T" + ChatColor.GREEN + "> " :
                 ChatColor.AQUA + "<" + ChatColor.AQUA + ChatColor.BOLD + "G" + ChatColor.AQUA + "> ";
 
+        // Full prefix including formatted name
+        String fullPrefix = globalPrefix + formattedName;
+
         // Check if player is showing an item
         ItemStack itemInHand = player.getInventory().getItemInMainHand();
-        boolean showingItem = message.contains("@i@") && itemInHand != null && itemInHand.getType() != Material.AIR;
+        boolean showingItem = message.contains("@i@") && ChatMechanics.isPlayerHoldingValidItem(player);
+
+        // Get all online players as recipients
+        List<Player> recipients = new ArrayList<>(Bukkit.getOnlinePlayers());
 
         // Send to all players
         if (showingItem) {
-            // Send message with item display
-            for (Player recipient : Bukkit.getOnlinePlayers()) {
-                String fullPrefix = globalPrefix + formattedName;
-                sendItemMessage(player, itemInHand, fullPrefix, message, recipient);
+            // Send message with item display using the new public method
+            try {
+                int successCount = ChatMechanics.sendItemMessageToPlayers(player, itemInHand, fullPrefix, message, recipients);
+                Bukkit.getLogger().info("[GLOBAL" + (isTradingMessage ? "-TRADE" : "") + "] " + player.getName() +
+                        " (with item): " + message + " [sent to " + successCount + " players]");
+            } catch (Exception e) {
+                // Fallback to normal message if item display fails completely
+                Bukkit.getLogger().log(Level.WARNING, "Global item message failed, using fallback", e);
+                String itemName = ChatMechanics.getDisplayNameForItem(itemInHand);
+                String fallbackMessage = fullPrefix + ChatColor.WHITE + ": " +
+                        message.replace("@i@", ChatColor.YELLOW + "[" + itemName + "]" + ChatColor.WHITE);
+
+                for (Player recipient : recipients) {
+                    if (recipient != null && recipient.isOnline()) {
+                        recipient.sendMessage(fallbackMessage);
+                    }
+                }
+
+                Bukkit.getLogger().info("[GLOBAL" + (isTradingMessage ? "-TRADE" : "") + "] " + player.getName() +
+                        " (with item - fallback): " + message);
             }
         } else {
             // Send regular message
-            String fullMessage = globalPrefix + formattedName + ChatColor.WHITE + ": " + message;
-            for (Player recipient : Bukkit.getOnlinePlayers()) {
-                recipient.sendMessage(fullMessage);
+            String fullMessage = fullPrefix + ChatColor.WHITE + ": " + message;
+            for (Player recipient : recipients) {
+                if (recipient != null && recipient.isOnline()) {
+                    recipient.sendMessage(fullMessage);
+                }
             }
-        }
 
-        // Log the global message
-        Bukkit.getLogger().info("[GLOBAL" + (isTradingMessage ? "-TRADE" : "") + "] " + player.getName() + ": " + message);
+            // Log the global message
+            Bukkit.getLogger().info("[GLOBAL" + (isTradingMessage ? "-TRADE" : "") + "] " + player.getName() + ": " + message);
+        }
 
         return true;
     }
@@ -110,63 +136,59 @@ public class GlobalChatCommand implements CommandExecutor {
     private String getFormattedName(Player player) {
         YakPlayer yakPlayer = playerManager.getPlayer(player);
         if (yakPlayer != null) {
-            return yakPlayer.getFormattedDisplayName();
-        }
-
-        // Fallback if YakPlayer not available
-        StringBuilder name = new StringBuilder();
-
-        // Add guild tag if available
-        if (yakPlayer != null && yakPlayer.isInGuild()) {
-            name.append(ChatColor.WHITE).append("[").append(yakPlayer.getGuildName()).append("] ");
-        }
-
-        // Add chat tag if not default
-        ChatTag tag = ChatMechanics.getPlayerTag(player);
-        if (tag != ChatTag.DEFAULT) {
-            name.append(tag.getTag()).append(" ");
-        }
-
-        // Add rank if not default
-        Rank rank = ModerationMechanics.getRank(player);
-        if (rank != Rank.DEFAULT) {
-            name.append(ChatColor.translateAlternateColorCodes('&', rank.tag)).append(" ");
-        }
-
-        // Add player name with color based on alignment
-        ChatColor nameColor = ChatColor.GRAY; // Default
-
-        if (yakPlayer != null) {
-            if (yakPlayer.getAlignment().equals("NEUTRAL")) {
-                nameColor = ChatColor.YELLOW;
-            } else if (yakPlayer.getAlignment().equals("CHAOTIC")) {
-                nameColor = ChatColor.RED;
+            try {
+                return yakPlayer.getFormattedDisplayName();
+            } catch (Exception e) {
+                // Fall through to manual formatting
             }
         }
 
-        name.append(nameColor).append(player.getName());
+        // Fallback manual formatting if YakPlayer method fails
+        StringBuilder name = new StringBuilder();
+
+        try {
+            // Add guild tag if available
+            if (yakPlayer != null && yakPlayer.isInGuild()) {
+                String guildName = yakPlayer.getGuildName();
+                if (guildName != null && !guildName.isEmpty()) {
+                    name.append(ChatColor.WHITE).append("[").append(guildName).append("] ");
+                }
+            }
+
+            // Add chat tag if not default
+            ChatTag tag = ChatMechanics.getPlayerTag(player);
+            if (tag != ChatTag.DEFAULT) {
+                String tagString = tag.getTag();
+                if (tagString != null && !tagString.isEmpty()) {
+                    name.append(tagString).append(" ");
+                }
+            }
+
+            // Add rank if not default
+            Rank rank = ModerationMechanics.getRank(player);
+            if (rank != Rank.DEFAULT) {
+                name.append(ChatColor.translateAlternateColorCodes('&', rank.tag)).append(" ");
+            }
+
+            // Add player name with color based on alignment
+            ChatColor nameColor = ChatColor.GRAY; // Default
+
+            if (yakPlayer != null) {
+                String alignment = yakPlayer.getAlignment();
+                if ("NEUTRAL".equals(alignment)) {
+                    nameColor = ChatColor.YELLOW;
+                } else if ("CHAOTIC".equals(alignment)) {
+                    nameColor = ChatColor.RED;
+                }
+            }
+
+            name.append(nameColor).append(player.getName());
+        } catch (Exception e) {
+            // Final fallback
+            name.setLength(0);
+            name.append(ChatColor.GRAY).append(player.getName());
+        }
 
         return name.toString();
-    }
-
-    /**
-     * Send a message with an item showcase
-     *
-     * @param sender    The player sending the message
-     * @param item      The item to show
-     * @param prefix    The message prefix
-     * @param message   The message text containing @i@
-     * @param recipient The recipient to receive the message
-     */
-    private void sendItemMessage(Player sender, ItemStack item, String prefix, String message, Player recipient) {
-        // Use the ChatMechanics to handle item display
-        try {
-            ChatMechanics.getInstance().getClass().getDeclaredMethod(
-                            "sendItemHoverMessage", Player.class, ItemStack.class, String.class, String.class, Player.class)
-                    .invoke(ChatMechanics.getInstance(), sender, item, prefix, message, recipient);
-        } catch (Exception e) {
-            // Fallback if reflection fails
-            recipient.sendMessage(prefix + ChatColor.WHITE + ": " + message.replace("@i@", "[ITEM]"));
-        }
     }
 }

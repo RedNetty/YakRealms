@@ -41,14 +41,16 @@ public class CrateAnimationManager {
     private static final double SOUND_PITCH_VARIATION = 0.2;
 
     /**
-     * Enhanced crate opening animation phases with modern timing
+     * Enhanced crate opening animation phases with SHORTENED timing
      */
     public enum AnimationPhase {
-        PREPARATION(20),   // 1 second - Build anticipation
-        SPINNING(120),     // 6 seconds - Fast spinning
-        SLOWING(80),       // 4 seconds - Gradual slowdown
-        REVEALING(60),     // 3 seconds - Final reveal
-        CELEBRATION(40);   // 2 seconds - Victory effects
+        PREPARATION(10),   // 0.5 seconds - Build anticipation (was 20)
+        SPINNING(60),      // 3 seconds - Fast spinning (was 120)
+        SLOWING(40),       // 2 seconds - Gradual slowdown (was 80)
+        REVEALING(30),     // 1.5 seconds - Final reveal (was 60)
+        CELEBRATION(20);   // 1 second - Victory effects (was 40)
+
+        // Total: 160 ticks = 8 seconds (was 320 ticks = 16 seconds)
 
         private final int duration;
 
@@ -449,7 +451,7 @@ public class CrateAnimationManager {
 
             @Override
             public void run() {
-                if (count > 60) { // 3 seconds
+                if (count > 30) { // Reduced from 60 (1.5 seconds instead of 3)
                     cancel();
                     return;
                 }
@@ -518,7 +520,7 @@ public class CrateAnimationManager {
     }
 
     /**
-     * Enhanced inner class for handling the animation sequence with modern timing
+     * Enhanced inner class for handling the animation sequence with SHORTENED timing
      */
     private class EnhancedCrateAnimationSequence extends BukkitRunnable {
         private final CrateOpening opening;
@@ -596,79 +598,79 @@ public class CrateAnimationManager {
         }
 
         /**
-         * Handles the preparation phase
+         * Handles the preparation phase - FASTER now
          */
         private void handlePreparationPhase() {
             // Gentle pulsing effect on border
-            if (phaseProgress % 10 == 0) {
+            if (phaseProgress % 5 == 0) { // Every 5 ticks instead of 10
                 animateBorderPulse();
             }
 
             // Preparation sound
-            if (phaseProgress == 10) {
+            if (phaseProgress == 5) { // Earlier sound trigger
                 player.playSound(player.getLocation(), Sound.BLOCK_BEACON_POWER_SELECT, 0.5f, 1.5f);
             }
         }
 
         /**
-         * Handles the spinning phase
+         * Handles the spinning phase - FASTER now
          */
         private void handleSpinningPhase() {
-            // Rapid item cycling - speed decreases as phase progresses
-            int interval = Math.max(1, phaseProgress / 10);
+            // Rapid item cycling - FASTER speed
+            int interval = Math.max(1, phaseProgress / 5); // Faster division
 
             if (ticks % interval == 0) {
                 ItemStack randomItem = createRandomDisplayItem();
                 inventory.setItem(RESULT_SLOT, randomItem);
 
-                // Spinning sound with increasing pitch
-                if (ticks % 20 == 0) {
+                // Spinning sound with increasing pitch - MORE FREQUENT
+                if (ticks % 10 == 0) { // Every 10 ticks instead of 20
                     float pitch = 1.0f + (phaseProgress / (float)currentPhase.getDuration()) * 0.8f;
                     player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_PLING, 0.6f, pitch);
                 }
             }
 
-            // Animate glass panes
-            animateGlassPanes(Math.max(2, 8 - phaseProgress / 10));
+            // Animate glass panes - FASTER
+            animateGlassPanes(Math.max(2, 4 - phaseProgress / 5));
 
-            // Particle effects
-            if (phaseProgress % 5 == 0) {
+            // Particle effects - MORE FREQUENT
+            if (phaseProgress % 3 == 0) { // Every 3 ticks instead of 5
                 createSpinParticles();
             }
         }
 
         /**
-         * Handles the slowing phase
+         * Handles the slowing phase - FASTER now
          */
         private void handleSlowingPhase() {
-            // Much slower item cycling
-            int interval = 5 + (phaseProgress / 3);
+            // Much slower item cycling - but shorter overall duration
+            int interval = 3 + (phaseProgress / 2); // Faster progression
 
             if (ticks % interval == 0) {
                 ItemStack randomItem = createRandomDisplayItem();
                 inventory.setItem(RESULT_SLOT, randomItem);
 
-                // Slowing sound effects
-                if (ticks % 30 == 0) {
+                // Slowing sound effects - MORE FREQUENT
+                if (ticks % 15 == 0) { // Every 15 ticks instead of 30
                     float pitch = 1.5f - (phaseProgress / (float)currentPhase.getDuration()) * 0.5f;
                     player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_CHIME, 0.7f, pitch);
                 }
             }
 
             // Slower glass pane animation
-            animateGlassPanes(15);
+            animateGlassPanes(8); // Reduced from 15
 
-            // Mystical particle effects
-            if (phaseProgress % 8 == 0) {
+            // Mystical particle effects - MORE FREQUENT
+            if (phaseProgress % 4 == 0) { // Every 4 ticks instead of 8
                 createMysticalParticles();
             }
         }
 
         /**
-         * Handles the revealing phase
+         * Handles the revealing phase - FASTER now
          */
         private void handleRevealingPhase() {
-            if (phaseProgress == 15) {
+            if (phaseProgress == 8) { // Earlier reveal (was 15)
                 // Generate and show the actual reward
                 ItemStack actualReward = createActualReward();
                 inventory.setItem(RESULT_SLOT, actualReward);
@@ -681,30 +683,30 @@ public class CrateAnimationManager {
             }
 
             // Build suspense with slower animations
-            animateGlassPanes(20);
+            animateGlassPanes(10); // Reduced from 20
 
-            // Anticipation particles
-            if (phaseProgress % 6 == 0) {
+            // Anticipation particles - MORE FREQUENT
+            if (phaseProgress % 3 == 0) { // Every 3 ticks instead of 6
                 createAnticipationParticles();
             }
         }
 
         /**
-         * Handles the celebration phase
+         * Handles the celebration phase - FASTER now
          */
         private void handleCelebrationPhase() {
-            // Victory particle effects
-            if (phaseProgress % 3 == 0) {
+            // Victory particle effects - MORE FREQUENT
+            if (phaseProgress % 2 == 0) { // Every 2 ticks instead of 3
                 createVictoryParticles();
             }
 
-            // Final celebration sound
-            if (phaseProgress == 10) {
+            // Final celebration sound - EARLIER
+            if (phaseProgress == 5) { // Earlier sound (was 10)
                 playCelebrationEffects();
             }
 
-            // Close inventory after celebration
-            if (phaseProgress >= currentPhase.getDuration() - 5) {
+            // Close inventory after celebration - EARLIER
+            if (phaseProgress >= currentPhase.getDuration() - 3) { // 3 ticks before end instead of 5
                 player.closeInventory();
             }
         }
@@ -973,6 +975,15 @@ public class CrateAnimationManager {
         stats.put("resultSlot", RESULT_SLOT);
         stats.put("particleRadius", PARTICLE_RADIUS);
         stats.put("particleCount", PARTICLE_COUNT);
+
+        // Calculate total duration
+        int totalDuration = 0;
+        for (AnimationPhase phase : AnimationPhase.values()) {
+            totalDuration += phase.getDuration();
+        }
+        stats.put("totalAnimationTicks", totalDuration);
+        stats.put("totalAnimationSeconds", totalDuration / 20.0);
+
         return stats;
     }
 }

@@ -33,7 +33,7 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
- * Manages bank inventories and transactions
+ * Manages bank inventories and transactions with improved saving mechanisms
  */
 public class BankManager implements Listener {
     // Constants
@@ -43,6 +43,7 @@ public class BankManager implements Listener {
     public static final String BANK_TITLE_SUFFIX = "/1)";
     private static BankManager instance;
     private final Logger logger;
+
     // Cache for bank inventories
     private final Map<UUID, Map<Integer, Inventory>> playerBanks = new ConcurrentHashMap<>();
 
@@ -51,6 +52,9 @@ public class BankManager implements Listener {
 
     // Player viewing another player's bank
     private final Map<UUID, UUID> bankViewMap = new ConcurrentHashMap<>();
+
+    // Track dirty bank pages that need saving
+    private final Map<UUID, Set<Integer>> dirtyBankPages = new ConcurrentHashMap<>();
 
     /**
      * Private constructor for singleton pattern
@@ -76,6 +80,13 @@ public class BankManager implements Listener {
      */
     public void onEnable() {
         Bukkit.getServer().getPluginManager().registerEvents(this, YakRealms.getInstance());
+
+        // Start auto-save task for bank inventories
+        Bukkit.getScheduler().runTaskTimerAsynchronously(YakRealms.getInstance(), this::autoSaveBanks,
+                20L * 60 * 2, // 2 minutes initial delay
+                20L * 60 * 5  // 5 minutes interval
+        );
+
         logger.info("Bank system has been enabled");
     }
 
@@ -88,11 +99,47 @@ public class BankManager implements Listener {
     }
 
     /**
+     * Auto-save banks periodically
+     */
+    private void autoSaveBanks() {
+        try {
+            logger.fine("Auto-saving bank inventories...");
+            int savedCount = 0;
+
+            for (Map.Entry<UUID, Set<Integer>> entry : dirtyBankPages.entrySet()) {
+                UUID playerUuid = entry.getKey();
+                Set<Integer> dirtyPages = entry.getValue();
+
+                if (!dirtyPages.isEmpty()) {
+                    Map<Integer, Inventory> playerBankPages = playerBanks.get(playerUuid);
+                    if (playerBankPages != null) {
+                        for (Integer page : new HashSet<>(dirtyPages)) {
+                            Inventory bankInv = playerBankPages.get(page);
+                            if (bankInv != null) {
+                                saveBank(bankInv, playerUuid, page);
+                                savedCount++;
+                            }
+                        }
+                        dirtyPages.clear();
+                    }
+                }
+            }
+
+            if (savedCount > 0) {
+                logger.fine("Auto-saved " + savedCount + " bank pages");
+            }
+        } catch (Exception e) {
+            logger.log(Level.SEVERE, "Error during auto-save of banks", e);
+        }
+    }
+
+    /**
      * Save all banks to persistent storage
      */
     private void saveBanks() {
         try {
-            logger.info("Saving " + playerBanks.size() + " banks...");
+            logger.info("Saving " + playerBanks.size() + " player banks...");
+            int savedCount = 0;
 
             for (Map.Entry<UUID, Map<Integer, Inventory>> entry : playerBanks.entrySet()) {
                 UUID playerUuid = entry.getKey();
@@ -100,18 +147,22 @@ public class BankManager implements Listener {
 
                 for (Map.Entry<Integer, Inventory> bankEntry : banks.entrySet()) {
                     saveBank(bankEntry.getValue(), playerUuid, bankEntry.getKey());
+                    savedCount++;
                 }
             }
 
+            // Clear cache after saving
             playerBanks.clear();
-            logger.info("All banks saved successfully");
+            dirtyBankPages.clear();
+
+            logger.info("Successfully saved " + savedCount + " bank pages");
         } catch (Exception e) {
             logger.log(Level.SEVERE, "Error saving banks", e);
         }
     }
 
     /**
-     * Save a specific bank inventory
+     * Save a specific bank inventory with improved persistence
      *
      * @param inventory  The bank inventory
      * @param playerUuid The player's UUID
@@ -124,14 +175,18 @@ public class BankManager implements Listener {
             if (yakPlayer != null) {
                 // Serialize bank inventory contents
                 String serializedItems = serializeInventory(inventory);
-                yakPlayer.setSerializedBankItems(page, serializedItems);
+                if (serializedItems != null) {
+                    yakPlayer.setSerializedBankItems(page, serializedItems);
+                    logger.fine("Saved bank page " + page + " for player " + yakPlayer.getUsername());
+                } else {
+                    logger.warning("Failed to serialize bank inventory for player " + yakPlayer.getUsername() + " page " + page);
+                }
 
                 // Update bank balance from UI item
                 ItemStack balanceItem = inventory.getItem(BANK_SIZE - 5);
                 if (balanceItem != null && balanceItem.getType() == Material.EMERALD) {
-                    // Extract bank balance
-                    String displayName = balanceItem.getItemMeta().getDisplayName();
                     try {
+                        String displayName = balanceItem.getItemMeta().getDisplayName();
                         String balanceStr = ChatColor.stripColor(displayName).split(" ")[0];
                         int bankBalance = Integer.parseInt(balanceStr);
                         yakPlayer.setBankGems(bankBalance);
@@ -140,12 +195,21 @@ public class BankManager implements Listener {
                     }
                 }
 
-                // Save player data
+                // Mark for saving and save player data
                 YakPlayerManager.getInstance().savePlayer(yakPlayer);
+            } else {
+                logger.warning("Could not save bank - YakPlayer not found for UUID: " + playerUuid);
             }
         } catch (Exception e) {
-            logger.log(Level.SEVERE, "Error saving bank for player " + playerUuid, e);
+            logger.log(Level.SEVERE, "Error saving bank for player " + playerUuid + " page " + page, e);
         }
+    }
+
+    /**
+     * Mark a bank page as dirty (needs saving)
+     */
+    private void markBankDirty(UUID playerUuid, int page) {
+        dirtyBankPages.computeIfAbsent(playerUuid, k -> ConcurrentHashMap.newKeySet()).add(page);
     }
 
     /**
@@ -213,6 +277,8 @@ public class BankManager implements Listener {
         // Check if we already have this bank page cached
         Inventory cachedBank = playerBankPages.get(page);
         if (cachedBank != null) {
+            // Update UI before returning
+            updateBankUI(cachedBank, player);
             return cachedBank;
         }
 
@@ -354,17 +420,19 @@ public class BankManager implements Listener {
 
             try {
                 int page = Integer.parseInt(title.substring(title.indexOf("(") + 1, title.indexOf("/")));
+                UUID playerUuid = player.getUniqueId();
 
-                // Use async task to save the bank without blocking the main thread
-                Bukkit.getScheduler().runTaskAsynchronously(YakRealms.getInstance(), () -> {
-                    YakPlayer yakPlayer = YakPlayerManager.getInstance().getPlayer(player);
-                    if (yakPlayer != null) {
-                        YakPlayerManager.getInstance().savePlayer(yakPlayer);
-                    }
-                });
+                // Mark this page as dirty for saving
+                markBankDirty(playerUuid, page);
+
+                // Immediate save of the bank page
+                Inventory bankInventory = event.getInventory();
+                saveBank(bankInventory, playerUuid, page);
 
                 // Remove from viewing map
                 bankViewMap.remove(player.getUniqueId());
+
+                logger.fine("Bank closed and saved for player " + player.getName() + " page " + page);
             } catch (Exception e) {
                 logger.log(Level.SEVERE, "Error saving bank on close for player " + player.getName(), e);
             }
@@ -391,6 +459,14 @@ public class BankManager implements Listener {
         // Only proceed for bank inventories
         if (!title.contains(BANK_TITLE_PREFIX) || title.contains("Guild")) {
             return;
+        }
+
+        // Mark bank as dirty when items are modified
+        try {
+            int page = Integer.parseInt(title.substring(title.indexOf("(") + 1, title.indexOf("/")));
+            markBankDirty(player.getUniqueId(), page);
+        } catch (Exception e) {
+            logger.log(Level.WARNING, "Error parsing bank page from title: " + title, e);
         }
 
         // Determine click location and action
@@ -547,8 +623,8 @@ public class BankManager implements Listener {
             }
 
             // Save current page before switching
-            int finalCurrentPage = currentPage;
-            Bukkit.getScheduler().runTaskAsynchronously(YakRealms.getInstance(), () -> saveBank(player.getOpenInventory().getTopInventory(), player.getUniqueId(), finalCurrentPage));
+            markBankDirty(player.getUniqueId(), currentPage);
+            saveBank(player.getOpenInventory().getTopInventory(), player.getUniqueId(), currentPage);
 
             // Open new page
             player.closeInventory();
@@ -562,16 +638,21 @@ public class BankManager implements Listener {
     }
 
     /**
-     * Process the deposit of currency items
+     * Process the deposit of currency items with updated economy system
      */
     private void processCurrencyDeposit(Player player, ItemStack item) {
         int totalAmount = 0;
 
         try {
             if (item.getType() == Material.EMERALD) {
-                // Regular gems
-                totalAmount = item.getAmount();
-                player.getInventory().removeItem(item);
+                // Check if it's actually a gem item (not just any emerald)
+                if (isValidGemItem(item)) {
+                    totalAmount = item.getAmount();
+                    player.getInventory().removeItem(item);
+                } else {
+                    player.sendMessage(ChatColor.RED + "This emerald is not a valid gem currency.");
+                    return;
+                }
             } else if (item.getType() == Material.PAPER && isBankNote(item)) {
                 // Bank note
                 totalAmount = extractGemValue(item);
@@ -600,6 +681,18 @@ public class BankManager implements Listener {
             player.sendMessage(ChatColor.RED + "Failed to process currency deposit.");
             logger.log(Level.WARNING, "Error processing currency deposit for player " + player.getName(), e);
         }
+    }
+
+    /**
+     * Check if an emerald item is a valid gem currency item
+     */
+    private boolean isValidGemItem(ItemStack item) {
+        if (item == null || item.getType() != Material.EMERALD || !item.hasItemMeta()) {
+            return false;
+        }
+
+        ItemMeta meta = item.getItemMeta();
+        return meta.hasDisplayName() && meta.getDisplayName().contains("Gem");
     }
 
     /**
@@ -746,7 +839,7 @@ public class BankManager implements Listener {
     private boolean isCurrencyItem(ItemStack item) {
         if (item == null) return false;
 
-        return item.getType() == Material.EMERALD || isBankNote(item) || (item.getType() == Material.INK_SAC && GemPouchManager.getInstance().isGemPouch(item));
+        return isValidGemItem(item) || isBankNote(item) || (item.getType() == Material.INK_SAC && GemPouchManager.getInstance().isGemPouch(item));
     }
 
     /**

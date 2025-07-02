@@ -1,22 +1,26 @@
 package com.rednetty.server.commands.party;
 
+import com.rednetty.server.mechanics.chat.ChatMechanics;
 import com.rednetty.server.mechanics.party.PartyMechanics;
 import org.bukkit.ChatColor;
+import org.bukkit.Material;
 import org.bukkit.Sound;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
 import org.bukkit.command.TabCompleter;
 import org.bukkit.entity.Player;
+import org.bukkit.inventory.ItemStack;
 
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.logging.Level;
 
 /**
  * Enhanced Party Chat Command with comprehensive messaging features and validation
  * Integrates fully with the advanced PartyMechanics system including permission checks,
- * message formatting, and interactive features
+ * message formatting, interactive features, and item display support
  */
 public class PartyCommand implements CommandExecutor, TabCompleter {
 
@@ -74,8 +78,19 @@ public class PartyCommand implements CommandExecutor, TabCompleter {
             return true;
         }
 
-        // Send party message with enhanced features
-        boolean success = partyMechanics.sendPartyMessage(player, message);
+        // Check if player is showing an item
+        ItemStack itemInHand = player.getInventory().getItemInMainHand();
+        boolean showingItem = message.contains("@i@") && ChatMechanics.isPlayerHoldingValidItem(player);
+
+        boolean success = false;
+
+        if (showingItem) {
+            // Handle item display for party chat
+            success = sendPartyItemMessage(player, itemInHand, message);
+        } else {
+            // Send regular party message using PartyMechanics
+            success = partyMechanics.sendPartyMessage(player, message);
+        }
 
         if (success) {
             // Play subtle chat sound to sender for confirmation
@@ -84,9 +99,101 @@ public class PartyCommand implements CommandExecutor, TabCompleter {
             // Handle special message types
             handleSpecialMessageTypes(player, message);
         }
-        // Error messages are handled by PartyMechanics.sendPartyMessage()
+        // Error messages are handled by PartyMechanics.sendPartyMessage() or our item message method
 
         return true;
+    }
+
+    /**
+     * Send a party message with item display
+     *
+     * @param player  The player sending the message
+     * @param item    The item to display
+     * @param message The message containing @i@
+     * @return true if successful
+     */
+    private boolean sendPartyItemMessage(Player player, ItemStack item, String message) {
+        try {
+            // Get party members
+            List<Player> partyMembers = partyMechanics.getPartyMembers(player);
+            if (partyMembers == null || partyMembers.isEmpty()) {
+                player.sendMessage(ChatColor.RED + "❌ No party members to send message to!");
+                return false;
+            }
+
+            // Get party formatted name - try to use PartyMechanics formatting if available
+            String partyPrefix = getPartyMessagePrefix(player);
+
+            // Send item message to all party members
+            int successCount = ChatMechanics.sendItemMessageToPlayers(player, item, partyPrefix, message, partyMembers);
+
+            if (successCount > 0) {
+                // Log party message
+                try {
+                    String itemName = ChatMechanics.getDisplayNameForItem(item);
+                    System.out.println("[PARTY] " + player.getName() + " (with item " + itemName + "): " + message +
+                            " [sent to " + successCount + " members]");
+                } catch (Exception e) {
+                    System.out.println("[PARTY] " + player.getName() + " (with item): " + message);
+                }
+                return true;
+            } else {
+                player.sendMessage(ChatColor.RED + "❌ Failed to send item message to party!");
+                return false;
+            }
+
+        } catch (Exception e) {
+            // Fallback: try to send without item display
+            try {
+                String itemName = ChatMechanics.getDisplayNameForItem(item);
+                String fallbackMessage = message.replace("@i@", ChatColor.YELLOW + "[" + itemName + "]" + ChatColor.WHITE);
+                boolean fallbackSuccess = partyMechanics.sendPartyMessage(player, fallbackMessage);
+
+                if (fallbackSuccess) {
+                    player.sendMessage(ChatColor.YELLOW + "⚠ Item display failed, sent as regular message.");
+                }
+                return fallbackSuccess;
+            } catch (Exception e2) {
+                player.sendMessage(ChatColor.RED + "❌ Failed to send party message!");
+                System.err.println("Error sending party item message: " + e2.getMessage());
+                return false;
+            }
+        }
+    }
+
+    /**
+     * Get the party message prefix for the player
+     * Try to format it similar to how PartyMechanics would
+     *
+     * @param player The player
+     * @return Formatted prefix
+     */
+    private String getPartyMessagePrefix(Player player) {
+        try {
+            // Try to get party-specific formatting
+            PartyMechanics.Party party = partyMechanics.getParty(player);
+            StringBuilder prefix = new StringBuilder();
+
+            // Party prefix
+            prefix.append(ChatColor.LIGHT_PURPLE).append("[").append(ChatColor.BOLD).append("P").append(ChatColor.LIGHT_PURPLE).append("] ");
+
+            // Add role indicator if available
+            if (party != null) {
+                if (party.isLeader(player.getUniqueId())) {
+                    prefix.append(ChatColor.GOLD).append("★ ");
+                } else if (party.isOfficer(player.getUniqueId())) {
+                    prefix.append(ChatColor.YELLOW).append("♦ ");
+                }
+            }
+
+            // Add player name
+            prefix.append(ChatColor.WHITE).append(player.getName());
+
+            return prefix.toString();
+        } catch (Exception e) {
+            // Fallback prefix
+            return ChatColor.LIGHT_PURPLE + "[P] " + ChatColor.WHITE + player.getName();
+        }
     }
 
     /**
@@ -127,9 +234,10 @@ public class PartyCommand implements CommandExecutor, TabCompleter {
         // Party settings
         showPartySettings(player, party);
 
-        // Chat usage
+        // Chat usage - updated to include item display
         player.sendMessage(ChatColor.AQUA + "💬 " + ChatColor.BOLD + "Party Chat:");
         player.sendMessage(ChatColor.GRAY + "• " + ChatColor.YELLOW + "/p <message>" + ChatColor.GRAY + " - Send message to party");
+        player.sendMessage(ChatColor.GRAY + "• " + ChatColor.YELLOW + "/p <message> @i@" + ChatColor.GRAY + " - Show item in message");
         player.sendMessage(ChatColor.GRAY + "• " + ChatColor.YELLOW + "/p help" + ChatColor.GRAY + " - Show quick commands");
         player.sendMessage(ChatColor.GRAY + "• " + ChatColor.YELLOW + "/p info" + ChatColor.GRAY + " - Show this information");
 
@@ -142,7 +250,6 @@ public class PartyCommand implements CommandExecutor, TabCompleter {
      */
     private void showPartySettings(Player player, PartyMechanics.Party party) {
         player.sendMessage(ChatColor.GREEN + "⚙ " + ChatColor.BOLD + "Party Settings:");
-
 
         // Loot sharing
         boolean lootSharing = party.getBooleanSetting("loot_sharing", false);
@@ -197,6 +304,10 @@ public class PartyCommand implements CommandExecutor, TabCompleter {
         player.sendMessage(ChatColor.GRAY + "• " + ChatColor.YELLOW + "/p info" + ChatColor.GRAY + " - Party information");
         player.sendMessage(ChatColor.GRAY + "• " + ChatColor.YELLOW + "/p online" + ChatColor.GRAY + " - List online members");
         player.sendMessage(ChatColor.GRAY + "• " + ChatColor.YELLOW + "/p stats" + ChatColor.GRAY + " - Party statistics");
+        player.sendMessage("");
+        player.sendMessage(ChatColor.GRAY + "Item Display:");
+        player.sendMessage(ChatColor.GRAY + "• " + ChatColor.YELLOW + "/p Check out this @i@!" + ChatColor.GRAY + " - Show item to party");
+        player.sendMessage(ChatColor.GRAY + "• Hold item in main hand and use " + ChatColor.YELLOW + "@i@" + ChatColor.GRAY + " in your message");
         player.sendMessage("");
         player.sendMessage(ChatColor.GRAY + "Quick Messages:");
         player.sendMessage(ChatColor.GRAY + "• " + ChatColor.GREEN + "/p ready" + ChatColor.GRAY + " - Signal you're ready");
@@ -293,6 +404,11 @@ public class PartyCommand implements CommandExecutor, TabCompleter {
             player.sendMessage(ChatColor.YELLOW + "⚠ Please avoid excessive caps in party chat.");
         }
 
+        // Warn if trying to show item but not holding one
+        if (message.contains("@i@") && !ChatMechanics.isPlayerHoldingValidItem(player)) {
+            player.sendMessage(ChatColor.YELLOW + "⚠ Hold an item in your main hand to display it with @i@");
+        }
+
         return true;
     }
 
@@ -330,6 +446,12 @@ public class PartyCommand implements CommandExecutor, TabCompleter {
         if (message.endsWith("?")) {
             // Questions get a different sound to draw attention
             playPartySound(player, Sound.BLOCK_NOTE_BLOCK_PLING);
+        }
+
+        // Handle item display messages
+        if (message.contains("@i@")) {
+            // Item display gets a special sound
+            playPartySound(player, Sound.ENTITY_ITEM_PICKUP);
         }
     }
 
@@ -400,9 +522,21 @@ public class PartyCommand implements CommandExecutor, TabCompleter {
                     }
                 }
             }
+
+            // Add item display suggestion if holding an item
+            if (ChatMechanics.isPlayerHoldingValidItem(player) && "@i@".startsWith(partial)) {
+                completions.add("@i@");
+            }
         } else if (args.length > 1) {
-            // Suggest emotes for later words
+            // Suggest emotes and item display for later words
             String partial = args[args.length - 1].toLowerCase();
+
+            // Suggest @i@ if holding an item
+            if (ChatMechanics.isPlayerHoldingValidItem(player) && "@i@".startsWith(partial)) {
+                completions.add("@i@");
+            }
+
+            // Suggest emotes
             for (String emote : EMOTES) {
                 if (emote.startsWith(partial)) {
                     completions.add(emote);

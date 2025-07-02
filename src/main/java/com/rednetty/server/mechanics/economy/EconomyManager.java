@@ -5,11 +5,16 @@ import com.rednetty.server.mechanics.player.YakPlayer;
 import com.rednetty.server.mechanics.player.YakPlayerManager;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
+import org.bukkit.Material;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerJoinEvent;
+import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.meta.ItemMeta;
 
+import java.util.Arrays;
+import java.util.HashMap;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
@@ -18,7 +23,8 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
- * Manages player economy, gems, and currency transactions
+ * Manages player economy with physical gem system - no virtual player balance
+ * Players have only bank balance and physical gem items
  */
 public class EconomyManager implements Listener {
     private static EconomyManager instance;
@@ -48,7 +54,7 @@ public class EconomyManager implements Listener {
      */
     public void onEnable() {
         Bukkit.getServer().getPluginManager().registerEvents(this, YakRealms.getInstance());
-        logger.info("Economy system has been enabled");
+        logger.info("Physical gem economy system has been enabled");
     }
 
     /**
@@ -63,29 +69,18 @@ public class EconomyManager implements Listener {
             }
         }
 
-        logger.info("Economy system has been disabled");
+        logger.info("Physical gem economy system has been disabled");
     }
 
     /**
-     * Get a player's gem balance
+     * Get the total amount of physical gems a player has in their inventory
      *
      * @param player The player
-     * @return The player's gem balance
+     * @return The total amount of physical gems
      */
-    public int getGems(Player player) {
+    public int getPhysicalGems(Player player) {
         if (player == null) return 0;
-        return getGems(player.getUniqueId());
-    }
-
-    /**
-     * Get a player's gem balance
-     *
-     * @param uuid The player's UUID
-     * @return The player's gem balance
-     */
-    public int getGems(UUID uuid) {
-        YakPlayer player = YakPlayerManager.getInstance().getPlayer(uuid);
-        return player != null ? player.getGems() : 0;
+        return MoneyManager.getGems(player);
     }
 
     /**
@@ -111,53 +106,101 @@ public class EconomyManager implements Listener {
     }
 
     /**
-     * Add gems to a player's inventory balance
+     * Deposit gems to a player - gives physical gem items or bank note, or adds to bank if inventory full
      *
      * @param player The player
-     * @param amount The amount of gems to add
+     * @param amount The amount of gems to give
      * @return Transaction result
      */
-    public TransactionResult addGems(Player player, int amount) {
+    public TransactionResult depositGems(Player player, int amount) {
         if (player == null) {
             return TransactionResult.failure("Player is null");
         }
-        return addGems(player.getUniqueId(), amount);
+        return depositGems(player.getUniqueId(), amount);
     }
 
     /**
-     * Add gems to a player's inventory balance with improved synchronization
+     * Deposit gems to a player - gives physical gem items or bank note, or adds to bank if inventory full
      *
      * @param uuid   The player's UUID
-     * @param amount The amount of gems to add
+     * @param amount The amount of gems to deposit
      * @return Transaction result
      */
-    public TransactionResult addGems(UUID uuid, int amount) {
+    public TransactionResult depositGems(UUID uuid, int amount) {
         if (amount <= 0) {
             return TransactionResult.failure("Amount must be greater than zero");
         }
 
         try {
             CompletableFuture<Boolean> future = YakPlayerManager.getInstance().withPlayer(uuid, player -> {
-                int currentBalance = player.getGems();
-                player.setGems(currentBalance + amount);
-
-                // Notify player if online
                 Player bukkitPlayer = player.getBukkitPlayer();
                 if (bukkitPlayer != null && bukkitPlayer.isOnline()) {
-                    bukkitPlayer.sendMessage(ChatColor.GREEN + "Added " + amount + " gems. New balance: " + player.getGems());
+
+                    // Try to give physical gem items first
+                    if (hasInventorySpace(bukkitPlayer)) {
+                        givePhysicalGems(bukkitPlayer, amount);
+                        bukkitPlayer.sendMessage(ChatColor.GREEN + "Received " + amount + " physical gems!");
+                    } else {
+                        // Inventory full - check if we can give a bank note
+                        if (bukkitPlayer.getInventory().firstEmpty() != -1) {
+                            // Give bank note
+                            ItemStack bankNote = BankManager.getInstance().createBankNote(amount);
+                            bukkitPlayer.getInventory().addItem(bankNote);
+                            bukkitPlayer.sendMessage(ChatColor.GREEN + "Received bank note for " + amount + " gems (inventory full)!");
+                        } else {
+                            // Completely full - add to bank balance
+                            player.setBankGems(player.getBankGems() + amount);
+                            bukkitPlayer.sendMessage(ChatColor.GREEN + "Added " + amount + " gems to your bank (inventory full)!");
+                        }
+                    }
+                } else {
+                    // Player offline - add to bank balance
+                    player.setBankGems(player.getBankGems() + amount);
                 }
             }, true);
 
-            boolean success = future.get(10, TimeUnit.SECONDS); // Wait for completion with timeout
+            boolean success = future.get(10, TimeUnit.SECONDS);
 
             if (success) {
-                return TransactionResult.success("Added " + amount + " gems successfully", amount);
+                return TransactionResult.success("Deposited " + amount + " gems successfully", amount);
             } else {
-                return TransactionResult.failure("Failed to add gems");
+                return TransactionResult.failure("Failed to deposit gems");
             }
         } catch (Exception e) {
-            logger.log(Level.SEVERE, "Error adding gems to player " + uuid, e);
+            logger.log(Level.SEVERE, "Error depositing gems to player " + uuid, e);
             return TransactionResult.failure("Internal error: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Check if player has enough space in inventory for gem items
+     */
+    private boolean hasInventorySpace(Player player) {
+        return player.getInventory().firstEmpty() != -1;
+    }
+
+    /**
+     * Give physical gem items to a player
+     */
+    private void givePhysicalGems(Player player, int amount) {
+        int remaining = amount;
+
+        while (remaining > 0) {
+            int stackAmount = Math.min(remaining, 64); // Max stack size for emeralds
+            ItemStack gems = BankManager.getInstance().createGems(stackAmount);
+
+            if (gems != null) {
+                HashMap<Integer, ItemStack> notAdded = player.getInventory().addItem(gems);
+                if (!notAdded.isEmpty()) {
+                    // Drop remaining items at player's feet
+                    for (ItemStack dropped : notAdded.values()) {
+                        player.getWorld().dropItemNaturally(player.getLocation(), dropped);
+                    }
+                    player.sendMessage(ChatColor.YELLOW + "Some gems were dropped at your feet (inventory full).");
+                }
+            }
+
+            remaining -= stackAmount;
         }
     }
 
@@ -176,7 +219,7 @@ public class EconomyManager implements Listener {
     }
 
     /**
-     * Add gems to a player's bank balance with improved synchronization
+     * Add gems to a player's bank balance
      *
      * @param uuid   The player's UUID
      * @param amount The amount of gems to add
@@ -199,7 +242,7 @@ public class EconomyManager implements Listener {
                 }
             }, true);
 
-            boolean success = future.get(10, TimeUnit.SECONDS); // Wait for completion with timeout
+            boolean success = future.get(10, TimeUnit.SECONDS);
 
             if (success) {
                 return TransactionResult.success("Added " + amount + " gems to bank successfully", amount);
@@ -213,57 +256,36 @@ public class EconomyManager implements Listener {
     }
 
     /**
-     * Remove gems from a player's inventory balance
+     * Remove gems from a player's physical inventory
      *
      * @param player The player
      * @param amount The amount of gems to remove
      * @return Transaction result
      */
-    public TransactionResult removeGems(Player player, int amount) {
+    public TransactionResult removePhysicalGems(Player player, int amount) {
         if (player == null) {
             return TransactionResult.failure("Player is null");
         }
-        return removeGems(player.getUniqueId(), amount);
-    }
 
-    /**
-     * Remove gems from a player's inventory balance with improved verification
-     *
-     * @param uuid   The player's UUID
-     * @param amount The amount of gems to remove
-     * @return Transaction result
-     */
-    public TransactionResult removeGems(UUID uuid, int amount) {
         if (amount <= 0) {
             return TransactionResult.failure("Amount must be greater than zero");
         }
 
         try {
-            AtomicBoolean hasEnough = new AtomicBoolean(false);
-            CompletableFuture<Boolean> future = YakPlayerManager.getInstance().withPlayer(uuid, player -> {
-                if (player.getGems() >= amount) {
-                    hasEnough.set(true);
-                    player.setGems(player.getGems() - amount);
+            int availableGems = getPhysicalGems(player);
 
-                    // Notify player if online
-                    Player bukkitPlayer = player.getBukkitPlayer();
-                    if (bukkitPlayer != null && bukkitPlayer.isOnline()) {
-                        bukkitPlayer.sendMessage(ChatColor.YELLOW + "Removed " + amount + " gems. New balance: " + player.getGems());
-                    }
-                }
-            }, true);
-
-            boolean success = future.get(10, TimeUnit.SECONDS); // Wait for completion with timeout
-
-            if (success && hasEnough.get()) {
-                return TransactionResult.success("Removed " + amount + " gems successfully", amount);
-            } else if (!hasEnough.get()) {
-                return TransactionResult.failure("Insufficient gems");
-            } else {
-                return TransactionResult.failure("Failed to remove gems");
+            if (availableGems < amount) {
+                return TransactionResult.failure("Insufficient physical gems (has " + availableGems + ", needs " + amount + ")");
             }
+
+            // Remove physical gems using MoneyManager
+            MoneyManager.takeGems(player, amount);
+
+            player.sendMessage(ChatColor.YELLOW + "Removed " + amount + " physical gems from inventory.");
+            return TransactionResult.success("Removed " + amount + " physical gems successfully", amount);
+
         } catch (Exception e) {
-            logger.log(Level.SEVERE, "Error removing gems from player " + uuid, e);
+            logger.log(Level.SEVERE, "Error removing physical gems from player " + player.getName(), e);
             return TransactionResult.failure("Internal error: " + e.getMessage());
         }
     }
@@ -283,7 +305,7 @@ public class EconomyManager implements Listener {
     }
 
     /**
-     * Remove gems from a player's bank balance with improved verification
+     * Remove gems from a player's bank balance
      *
      * @param uuid   The player's UUID
      * @param amount The amount of gems to remove
@@ -309,7 +331,7 @@ public class EconomyManager implements Listener {
                 }
             }, true);
 
-            boolean success = future.get(10, TimeUnit.SECONDS); // Wait for completion with timeout
+            boolean success = future.get(10, TimeUnit.SECONDS);
 
             if (success && hasEnough.get()) {
                 return TransactionResult.success("Removed " + amount + " gems from bank successfully", amount);
@@ -325,30 +347,19 @@ public class EconomyManager implements Listener {
     }
 
     /**
-     * Transfer gems from one player to another
+     * Transfer physical gems from one player to another
      *
      * @param fromPlayer The sender
      * @param toPlayer   The recipient
      * @param amount     The amount to transfer
      * @return Transaction result
      */
-    public TransactionResult transferGems(Player fromPlayer, Player toPlayer, int amount) {
+    public TransactionResult transferPhysicalGems(Player fromPlayer, Player toPlayer, int amount) {
         if (fromPlayer == null || toPlayer == null) {
             return TransactionResult.failure("Player is null");
         }
-        return transferGems(fromPlayer.getUniqueId(), toPlayer.getUniqueId(), amount);
-    }
 
-    /**
-     * Transfer gems from one player to another with improved transaction handling
-     *
-     * @param fromUuid The sender's UUID
-     * @param toUuid   The recipient's UUID
-     * @param amount   The amount to transfer
-     * @return Transaction result
-     */
-    public TransactionResult transferGems(UUID fromUuid, UUID toUuid, int amount) {
-        if (fromUuid.equals(toUuid)) {
+        if (fromPlayer.getUniqueId().equals(toPlayer.getUniqueId())) {
             return TransactionResult.failure("Cannot transfer gems to yourself");
         }
 
@@ -357,88 +368,49 @@ public class EconomyManager implements Listener {
         }
 
         try {
-            // First check if sender has enough gems
-            AtomicBoolean hasEnough = new AtomicBoolean(false);
-            CompletableFuture<Boolean> checkFuture = YakPlayerManager.getInstance().withPlayer(fromUuid, player -> {
-                if (player.getGems() >= amount) {
-                    hasEnough.set(true);
-                }
-            }, false);
-
-            boolean checkSuccess = checkFuture.get(10, TimeUnit.SECONDS);
-
-            if (!checkSuccess || !hasEnough.get()) {
-                return TransactionResult.failure("Insufficient gems to transfer");
+            // Check if sender has enough physical gems
+            int availableGems = getPhysicalGems(fromPlayer);
+            if (availableGems < amount) {
+                return TransactionResult.failure("Insufficient physical gems to transfer");
             }
 
-            // Use transactional approach to ensure atomicity
-            TransactionResult withdrawResult = removeGems(fromUuid, amount);
+            // Remove from sender
+            TransactionResult withdrawResult = removePhysicalGems(fromPlayer, amount);
             if (!withdrawResult.isSuccess()) {
                 return withdrawResult;
             }
 
-            TransactionResult depositResult = addGems(toUuid, amount);
+            // Give to recipient
+            TransactionResult depositResult = depositGems(toPlayer, amount);
             if (!depositResult.isSuccess()) {
-                // If deposit fails, refund the sender
-                addGems(fromUuid, amount);
+                // If deposit fails, refund the sender by giving them back the gems
+                depositGems(fromPlayer, amount);
                 return TransactionResult.failure("Transfer failed: " + depositResult.getMessage());
             }
 
             // Notify players about the transfer
-            notifyPlayers(fromUuid, toUuid, amount);
+            fromPlayer.sendMessage(ChatColor.YELLOW + "You transferred " + amount + " gems to " + toPlayer.getName());
+            toPlayer.sendMessage(ChatColor.GREEN + "You received " + amount + " gems from " + fromPlayer.getName());
 
             return TransactionResult.success("Successfully transferred " + amount + " gems", amount);
         } catch (Exception e) {
-            logger.log(Level.SEVERE, "Error transferring gems from " + fromUuid + " to " + toUuid, e);
+            logger.log(Level.SEVERE, "Error transferring gems from " + fromPlayer.getName() + " to " + toPlayer.getName(), e);
             return TransactionResult.failure("Internal error: " + e.getMessage());
         }
     }
 
     /**
-     * Notify players about a transfer
-     */
-    private void notifyPlayers(UUID fromUuid, UUID toUuid, int amount) {
-        YakPlayerManager playerManager = YakPlayerManager.getInstance();
-        YakPlayer sender = playerManager.getPlayer(fromUuid);
-        YakPlayer recipient = playerManager.getPlayer(toUuid);
-
-        if (sender != null && sender.isOnline()) {
-            Player fromPlayer = sender.getBukkitPlayer();
-            String toName = recipient != null ? recipient.getUsername() : "another player";
-            fromPlayer.sendMessage(ChatColor.YELLOW + "You transferred " + amount + " gems to " + toName);
-        }
-
-        if (recipient != null && recipient.isOnline()) {
-            Player toPlayer = recipient.getBukkitPlayer();
-            String fromName = sender != null ? sender.getUsername() : "another player";
-            toPlayer.sendMessage(ChatColor.GREEN + "You received " + amount + " gems from " + fromName);
-        }
-    }
-
-    /**
-     * Check if a player has enough gems in their inventory
+     * Check if a player has enough physical gems in their inventory
      *
      * @param player The player
      * @param amount The amount to check
-     * @return true if the player has enough gems
+     * @return true if the player has enough physical gems
      */
-    public boolean hasGems(Player player, int amount) {
+    public boolean hasPhysicalGems(Player player, int amount) {
         if (player == null) return false;
-        return hasGems(player.getUniqueId(), amount);
-    }
-
-    /**
-     * Check if a player has enough gems in their inventory
-     *
-     * @param uuid   The player's UUID
-     * @param amount The amount to check
-     * @return true if the player has enough gems
-     */
-    public boolean hasGems(UUID uuid, int amount) {
         if (amount <= 0) return true;
 
-        YakPlayer player = YakPlayerManager.getInstance().getPlayer(uuid);
-        return player != null && player.getGems() >= amount;
+        return getPhysicalGems(player) >= amount;
     }
 
     /**
@@ -468,7 +440,7 @@ public class EconomyManager implements Listener {
     }
 
     /**
-     * Transfer gems from a player's inventory to their bank
+     * Transfer gems from a player's physical inventory to their bank
      *
      * @param player The player
      * @param amount The amount to transfer
@@ -482,7 +454,7 @@ public class EconomyManager implements Listener {
     }
 
     /**
-     * Transfer gems from a player's inventory to their bank with improved transaction handling
+     * Transfer gems from a player's physical inventory to their bank
      *
      * @param uuid   The player's UUID
      * @param amount The amount to transfer
@@ -498,17 +470,19 @@ public class EconomyManager implements Listener {
             AtomicBoolean operationSuccess = new AtomicBoolean(false);
 
             CompletableFuture<Boolean> future = YakPlayerManager.getInstance().withPlayer(uuid, player -> {
-                if (player.getGems() >= amount) {
-                    hasEnough.set(true);
-                    player.setGems(player.getGems() - amount);
-                    player.setBankGems(player.getBankGems() + amount);
-                    operationSuccess.set(true);
+                Player bukkitPlayer = player.getBukkitPlayer();
+                if (bukkitPlayer != null && bukkitPlayer.isOnline()) {
+                    int physicalGems = getPhysicalGems(bukkitPlayer);
 
-                    // Notify player if online
-                    Player bukkitPlayer = player.getBukkitPlayer();
-                    if (bukkitPlayer != null && bukkitPlayer.isOnline()) {
+                    if (physicalGems >= amount) {
+                        hasEnough.set(true);
+                        // Remove physical gems and add to bank
+                        MoneyManager.takeGems(bukkitPlayer, amount);
+                        player.setBankGems(player.getBankGems() + amount);
+                        operationSuccess.set(true);
+
                         bukkitPlayer.sendMessage(ChatColor.GREEN + "Deposited " + amount + " gems to bank. Bank balance: " +
-                                player.getBankGems() + ", Inventory balance: " + player.getGems());
+                                player.getBankGems());
                     }
                 }
             }, true);
@@ -518,7 +492,7 @@ public class EconomyManager implements Listener {
             if (success && operationSuccess.get()) {
                 return TransactionResult.success("Deposited " + amount + " gems to bank successfully", amount);
             } else if (!hasEnough.get()) {
-                return TransactionResult.failure("Insufficient gems to deposit");
+                return TransactionResult.failure("Insufficient physical gems to deposit");
             } else {
                 return TransactionResult.failure("Failed to deposit gems to bank");
             }
@@ -529,7 +503,7 @@ public class EconomyManager implements Listener {
     }
 
     /**
-     * Transfer gems from a player's bank to their inventory
+     * Transfer gems from a player's bank to their physical inventory (as bank note)
      *
      * @param player The player
      * @param amount The amount to transfer
@@ -543,7 +517,7 @@ public class EconomyManager implements Listener {
     }
 
     /**
-     * Transfer gems from a player's bank to their inventory with improved transaction handling
+     * Transfer gems from a player's bank to their physical inventory (as bank note)
      *
      * @param uuid   The player's UUID
      * @param amount The amount to transfer
@@ -562,14 +536,25 @@ public class EconomyManager implements Listener {
                 if (player.getBankGems() >= amount) {
                     hasEnough.set(true);
                     player.setBankGems(player.getBankGems() - amount);
-                    player.setGems(player.getGems() + amount);
-                    operationSuccess.set(true);
 
-                    // Notify player if online
+                    // Give bank note to player if online
                     Player bukkitPlayer = player.getBukkitPlayer();
                     if (bukkitPlayer != null && bukkitPlayer.isOnline()) {
-                        bukkitPlayer.sendMessage(ChatColor.GREEN + "Withdrew " + amount + " gems from bank. Bank balance: " +
-                                player.getBankGems() + ", Inventory balance: " + player.getGems());
+                        ItemStack bankNote = BankManager.getInstance().createBankNote(amount);
+
+                        if (bukkitPlayer.getInventory().firstEmpty() != -1) {
+                            bukkitPlayer.getInventory().addItem(bankNote);
+                        } else {
+                            bukkitPlayer.getWorld().dropItemNaturally(bukkitPlayer.getLocation(), bankNote);
+                            bukkitPlayer.sendMessage(ChatColor.YELLOW + "Bank note dropped at your feet (inventory full).");
+                        }
+
+                        bukkitPlayer.sendMessage(ChatColor.GREEN + "Withdrew " + amount + " gems from bank as bank note. Bank balance: " +
+                                player.getBankGems());
+                        operationSuccess.set(true);
+                    } else {
+                        // Player offline - operation failed, revert
+                        player.setBankGems(player.getBankGems() + amount);
                     }
                 }
             }, true);
@@ -587,6 +572,32 @@ public class EconomyManager implements Listener {
             logger.log(Level.SEVERE, "Error withdrawing gems from bank for player " + uuid, e);
             return TransactionResult.failure("Internal error: " + e.getMessage());
         }
+    }
+
+    /**
+     * Get the total gems a player has (physical + bank)
+     *
+     * @param player The player
+     * @return Total gems
+     */
+    public int getTotalGems(Player player) {
+        if (player == null) return 0;
+
+        return getPhysicalGems(player) + getBankGems(player);
+    }
+
+    /**
+     * Check if a player has enough total gems (physical + bank)
+     *
+     * @param player The player
+     * @param amount The amount to check
+     * @return true if the player has enough total gems
+     */
+    public boolean hasTotalGems(Player player, int amount) {
+        if (player == null) return false;
+        if (amount <= 0) return true;
+
+        return getTotalGems(player) >= amount;
     }
 
     /**

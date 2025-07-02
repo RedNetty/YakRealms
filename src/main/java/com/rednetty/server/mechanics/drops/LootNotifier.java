@@ -191,8 +191,8 @@ public class LootNotifier {
         if (source.getCustomName() != null) {
             return source.getCustomName();
         }
-
-        return MobManager.getInstance().getCustomMob(source).getOriginalName();
+        int tier = MobManager.getInstance().getCustomMob(source).getTier();
+        return MobManager.getInstance().getCustomMob(source).getType().getFormattedName(tier);
     }
 
     /**
@@ -451,8 +451,9 @@ public class LootNotifier {
                             ChatColor.YELLOW + " from the World Boss"
             );
         } else {
+            int tier = MobManager.getInstance().getCustomMob(source).getTier();
             String sourceName = source != null ?
-                    MobManager.getInstance().getCustomMob(source).getOriginalName() : "Unknown";
+                    MobManager.getInstance().getCustomMob(source).getType().getFormattedName(tier) : "Unknown";
             message = ChatColor.GRAY + "➤ " + ChatColor.RESET + sourceName +
                     ChatColor.YELLOW + " dropped " + ChatColor.RESET + itemName;
         }

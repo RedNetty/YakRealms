@@ -2,6 +2,9 @@ package com.rednetty.server.mechanics.combat;
 
 import com.rednetty.server.YakRealms;
 import com.rednetty.server.mechanics.combat.pvp.AlignmentMechanics;
+import com.rednetty.server.mechanics.mobs.MobManager;
+import com.rednetty.server.mechanics.mobs.core.CustomMob;
+import com.rednetty.server.mechanics.mobs.utils.MobUtils;
 import com.rednetty.server.mechanics.player.YakPlayer;
 import com.rednetty.server.mechanics.player.YakPlayerManager;
 import com.rednetty.server.mechanics.player.settings.Toggles;
@@ -23,6 +26,7 @@ import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.entity.EntityDamageEvent.DamageCause;
 import org.bukkit.event.player.PlayerInteractEvent;
+import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.material.MaterialData;
 import org.bukkit.metadata.FixedMetadataValue;
@@ -41,7 +45,8 @@ import java.util.concurrent.ConcurrentHashMap;
  * - Critical hits and combat effects
  * - Combat visualization (holograms, health bar)
  * - Weapon-specific mechanics
- * FIXED: Proper mob damage to players
+ * FIXED: Proper mob damage to players and death/respawn safety
+ * FIXED: Proper mob name resolution for debug messages
  */
 public class CombatMechanics implements Listener {
     // Constants
@@ -326,6 +331,21 @@ public class CombatMechanics implements Listener {
     }
 
     /**
+     * FIXED: Prevent any damage processing to players who are in death state
+     */
+    @EventHandler(priority = EventPriority.LOWEST)
+    public void onPreventDeadPlayerDamage(EntityDamageEvent event) {
+        // Early check to prevent any damage to dead players
+        if (event.getEntity() instanceof Player player) {
+            if (player.isDead() || player.getHealth() <= 0) {
+                event.setCancelled(true);
+                event.setDamage(0.0);
+                return;
+            }
+        }
+    }
+
+    /**
      * Prevent damage to NPCs and operators
      */
     @EventHandler(priority = EventPriority.LOWEST)
@@ -511,7 +531,7 @@ public class CombatMechanics implements Listener {
     }
 
     /**
-     * FIXED: Handle mob damage to players with proper calculation
+     * FIXED: Handle mob damage to players with proper calculation and enhanced mob name resolution
      */
     @EventHandler(priority = EventPriority.NORMAL)
     public void onMobDamageToPlayer(EntityDamageByEntityEvent event) {
@@ -658,9 +678,8 @@ public class CombatMechanics implements Listener {
             int expectedHealth = Math.max(0, (int) (defender.getHealth() - finalDamage));
             double effectiveReduction = ((damage - finalDamage) / damage) * 100;
 
-            String mobName = mobAttacker.hasMetadata("name") ?
-                    mobAttacker.getMetadata("name").get(0).asString() :
-                    mobAttacker.getType().name();
+            // FIXED: Enhanced mob name resolution
+            String mobName = getEnhancedMobName(mobAttacker);
 
             defender.sendMessage(ChatColor.RED + "            -" + (int)finalDamage + ChatColor.RED + ChatColor.BOLD + "HP " +
                     ChatColor.GRAY + "[" + String.format("%.1f", effectiveReduction) + "%A] " +
@@ -669,6 +688,89 @@ public class CombatMechanics implements Listener {
         }
 
         return finalDamage;
+    }
+
+    /**
+     * FIXED: Enhanced mob name resolution for debug messages
+     * This method tries multiple sources to get the best display name for a mob
+     * PRESERVES tier colors and elite bolding for proper debug display
+     *
+     * @param mobAttacker The attacking mob entity
+     * @return A proper display name for the mob with original formatting
+     */
+    private String getEnhancedMobName(LivingEntity mobAttacker) {
+        try {
+            // Method 1: Check if it's a CustomMob via MobManager (PRESERVE FORMATTING)
+            MobManager mobManager = MobManager.getInstance();
+            if (mobManager != null) {
+                CustomMob customMob = mobManager.getCustomMob(mobAttacker);
+                if (customMob != null) {
+                    String customName = customMob.getOriginalName();
+                    if (customName != null && !customName.isEmpty() && !MobUtils.isHealthBar(customName)) {
+                        return customName; // Keep tier colors and elite bolding
+                    }
+                }
+            }
+
+            // Method 2: Check entity's current custom name (if not a health bar) (PRESERVE FORMATTING)
+            String currentName = mobAttacker.getCustomName();
+            if (currentName != null && !currentName.isEmpty() && !MobUtils.isHealthBar(currentName)) {
+                return currentName; // Keep tier colors and elite bolding
+            }
+
+            // Method 3: Check various metadata for name information
+            String[] metadataKeys = {"name", "customName", "type", "originalName"};
+            for (String key : metadataKeys) {
+                if (mobAttacker.hasMetadata(key)) {
+                    try {
+                        String metaName = mobAttacker.getMetadata(key).get(0).asString();
+                        if (metaName != null && !metaName.isEmpty() && !MobUtils.isHealthBar(metaName)) {
+                            // If it's a type metadata, we need to reconstruct the proper formatted name
+                            if (key.equals("type")) {
+                                return reconstructFormattedMobName(mobAttacker, metaName);
+                            }
+                            // For other metadata, preserve formatting if it exists
+                            return metaName.contains("§") ? metaName : ChatColor.stripColor(metaName);
+                        }
+                    } catch (Exception e) {
+                        // Continue to next metadata key
+                    }
+                }
+            }
+
+
+        } catch (Exception e) {
+            YakRealms.getInstance().getLogger().warning("Error getting enhanced mob name: " + e.getMessage());
+        }
+
+        // Final fallback
+        return "Unknown Mob";
+    }
+
+    /**
+     * Reconstruct a properly formatted mob name from type metadata and entity properties
+     * This preserves tier colors and elite bolding when we only have the type
+     *
+     * @param mobAttacker The mob entity
+     * @param mobType The mob type from metadata
+     * @return Formatted name with tier colors and elite bolding
+     */
+    private String reconstructFormattedMobName(LivingEntity mobAttacker, String mobType) {
+        try {
+            // Get tier and elite status from MobUtils
+            int tier = MobUtils.getMobTier(mobAttacker);
+            boolean elite = MobUtils.isElite(mobAttacker);
+
+            // Get base display name
+            String baseName = MobUtils.getDisplayName(mobType);
+
+            // Apply tier color and elite formatting using MobUtils
+            return MobUtils.formatMobName(baseName, tier, elite);
+
+        } catch (Exception e) {
+            // Fallback to basic display name
+            return MobUtils.getDisplayName(mobType);
+        }
     }
 
     /**
@@ -1120,8 +1222,8 @@ public class CombatMechanics implements Listener {
         int damage = (int) event.getDamage();
         int remainingHealth = Math.max(0, (int) (target.getHealth() - damage));
 
-        // Get target name
-        String targetName = target instanceof Player ? target.getName() : (target.hasMetadata("name") ? target.getMetadata("name").get(0).asString() : "Unknown");
+        // FIXED: Get target name using enhanced resolution
+        String targetName = target instanceof Player ? target.getName() : getEnhancedMobName(target);
 
         // Show debug info if enabled
         Toggles.getInstance();
@@ -1138,7 +1240,7 @@ public class CombatMechanics implements Listener {
     }
 
     /**
-     * FIXED: Only bypass armor for non-player entities to prevent issues with player damage calculation
+     * FIXED: Only bypass armor for non-player entities AND ensure entities aren't dead
      */
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onBypassArmor(EntityDamageEvent event) {
@@ -1149,6 +1251,11 @@ public class CombatMechanics implements Listener {
 
         // FIXED: Only process non-player entities to avoid interfering with player damage calculation
         if (!(event.getEntity() instanceof LivingEntity entity) || entity instanceof Player) {
+            return;
+        }
+
+        // FIXED: Additional safety check - don't process if entity is already dead
+        if (entity.isDead() || entity.getHealth() <= 0) {
             return;
         }
 
@@ -1819,5 +1926,32 @@ public class CombatMechanics implements Listener {
      */
     private boolean isSafeZone(Location location) {
         return AlignmentMechanics.isSafeZone(location);
+    }
+
+    /**
+     * FIXED: Enhanced cleanup when player leaves to prevent lingering references
+     */
+    @EventHandler
+    public void onPlayerQuit(PlayerQuitEvent event) {
+        Player player = event.getPlayer();
+        UUID playerId = player.getUniqueId();
+
+        // Clean up combat tracking
+        combatTimestamps.remove(playerId);
+        lastAttackers.remove(player.getName());
+        playerSlowEffects.remove(playerId);
+        knockbackCooldowns.remove(playerId);
+        polearmSwingProcessed.remove(playerId);
+
+        // Clean up health bar
+        BossBar bar = healthBars.remove(playerId);
+        if (bar != null) {
+            bar.removeAll();
+        }
+
+        // Clean up entity damage effects if player UUID was somehow tracked
+        entityDamageEffects.remove(playerId);
+
+        YakRealms.debug("Cleaned up combat mechanics data for " + player.getName());
     }
 }

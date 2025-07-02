@@ -106,7 +106,7 @@ public class EcoCommand implements CommandExecutor, TabCompleter {
         }
 
         sender.sendMessage(ChatColor.YELLOW + "Processing transaction...");
-        TransactionResult result = economyManager.addGems(target.getUniqueId(), amount);
+        TransactionResult result = economyManager.addBankGems(target.getUniqueId(), amount);
 
         if (result.isSuccess()) {
             sender.sendMessage(ChatColor.GREEN + "Gave " + amount + " gems to " + target.getName() + ".");
@@ -142,7 +142,7 @@ public class EcoCommand implements CommandExecutor, TabCompleter {
         }
 
         sender.sendMessage(ChatColor.YELLOW + "Processing transaction...");
-        TransactionResult result = economyManager.removeGems(target.getUniqueId(), amount);
+        TransactionResult result = economyManager.removeBankGems(target.getUniqueId(), amount);
 
         if (result.isSuccess()) {
             sender.sendMessage(ChatColor.YELLOW + "Took " + amount + " gems from " + target.getName() + ".");
@@ -180,7 +180,7 @@ public class EcoCommand implements CommandExecutor, TabCompleter {
         sender.sendMessage(ChatColor.YELLOW + "Processing transaction...");
         try {
             CompletableFuture<Boolean> future = playerManager.withPlayer(target.getUniqueId(), player -> {
-                player.setGems(amount);
+                player.setBankGems(amount);
 
                 // Notify player
                 Player bukkitPlayer = player.getBukkitPlayer();
@@ -218,7 +218,6 @@ public class EcoCommand implements CommandExecutor, TabCompleter {
         sender.sendMessage(ChatColor.YELLOW + "Processing transaction...");
         try {
             CompletableFuture<Boolean> future = playerManager.withPlayer(target.getUniqueId(), player -> {
-                player.setGems(0);
                 player.setBankGems(0);
 
                 // Notify player

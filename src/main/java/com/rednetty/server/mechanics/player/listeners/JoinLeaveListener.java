@@ -899,7 +899,7 @@ public class JoinLeaveListener extends BaseListener {
         player.sendMessage("");
         TextUtil.sendCenteredMessage(player, "&b&lCharacter Info");
         TextUtil.sendCenteredMessage(player, "&7Alignment: &6" + yakPlayer.getAlignment() + " &7| Level: &6" + yakPlayer.getLevel());
-        TextUtil.sendCenteredMessage(player, "&7Gems: &6" + TextUtil.formatNumber(yakPlayer.getGems()));
+        TextUtil.sendCenteredMessage(player, "&7Gems: &6" + TextUtil.formatNumber(yakPlayer.getBankGems()));
 
         if (yakPlayer.isInGuild()) {
             TextUtil.sendCenteredMessage(player, "&7Guild: &d" + yakPlayer.getGuildName());
@@ -960,7 +960,7 @@ public class JoinLeaveListener extends BaseListener {
             }
 
             // Give starter gems
-            yakPlayer.addGems(1000, "New Player Kit");
+            yakPlayer.setBankGems(1000);
 
             // Subtle notification
             player.sendMessage("");
@@ -1060,7 +1060,7 @@ public class JoinLeaveListener extends BaseListener {
 
             if (streak.isStreakMilestone()) {
                 int bonus = newStreak >= 30 ? 1000 : (newStreak >= 7 ? 500 : 100);
-                yakPlayer.addGems(bonus, "Login Streak Milestone");
+                yakPlayer.setBankGems(bonus);
 
                 TextUtil.sendCenteredMessage(player, "&6🎉 &fStreak Milestone! &6+" + bonus + " gems!");
                 player.playSound(player.getLocation(), Sound.ENTITY_PLAYER_LEVELUP, 1.0f, 1.5f);
@@ -1161,7 +1161,7 @@ public class JoinLeaveListener extends BaseListener {
         TextUtil.sendCenteredMessage(player, "&7Here's your character information:");
         player.sendMessage("");
         TextUtil.sendCenteredMessage(player, "&7Alignment: &6" + yakPlayer.getAlignment());
-        TextUtil.sendCenteredMessage(player, "&7Gems: &6" + yakPlayer.getGems() + " &7(server currency)");
+        TextUtil.sendCenteredMessage(player, "&7Gems: &6" + yakPlayer.getBankGems() + " &7(server currency)");
         player.sendMessage("");
         TextUtil.sendCenteredMessage(player, "&eUse &b/stats &eto view detailed character info");
         player.sendMessage("");

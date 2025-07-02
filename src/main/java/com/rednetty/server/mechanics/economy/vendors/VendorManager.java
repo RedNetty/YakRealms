@@ -16,6 +16,7 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.plugin.Plugin;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.scheduler.BukkitTask;
 
 import java.io.File;
@@ -230,11 +231,11 @@ public class VendorManager implements Listener {
                 retryTask = null;
             }
 
+            // Clean up all holograms first
+            cleanupAllHolograms();
+
             // Save vendors
             saveVendorsToConfig();
-
-            // Clean up holograms
-            HologramManager.cleanup();
 
             // Clear vendors with lock
             vendorLock.writeLock().lock();
@@ -252,12 +253,47 @@ public class VendorManager implements Listener {
     }
 
     /**
+     * Clean up all holograms during shutdown
+     */
+    private void cleanupAllHolograms() {
+        try {
+            vendorLock.readLock().lock();
+            List<String> vendorIds;
+            try {
+                vendorIds = new ArrayList<>(vendors.keySet());
+            } finally {
+                vendorLock.readLock().unlock();
+            }
+
+            plugin.getLogger().info("Cleaning up " + vendorIds.size() + " vendor holograms...");
+
+            for (String vendorId : vendorIds) {
+                try {
+                    HologramManager.removeHologram(vendorId);
+                } catch (Exception e) {
+                    plugin.getLogger().warning("Error removing hologram for vendor " + vendorId + ": " + e.getMessage());
+                }
+            }
+
+            // Additional cleanup
+            HologramManager.cleanup();
+            plugin.getLogger().info("Hologram cleanup complete");
+
+        } catch (Exception e) {
+            plugin.getLogger().severe("Error during hologram cleanup: " + e.getMessage());
+        }
+    }
+
+    /**
      * Enhanced reload with better error recovery
      */
     public void reload() {
         long startTime = System.currentTimeMillis();
 
         try {
+            // Clean up existing holograms first
+            cleanupAllHolograms();
+
             // Clear existing vendors
             vendorLock.writeLock().lock();
             try {
@@ -313,8 +349,10 @@ public class VendorManager implements Listener {
                 // Update vendor location
                 vendor.setLocation(npc.getStoredLocation());
 
-                // Create/update hologram
-                createOrUpdateHologram(vendor);
+                // Create/update hologram with delay to ensure NPC is fully spawned
+                Bukkit.getScheduler().runTaskLater(plugin, () -> {
+                    createOrUpdateHologram(vendor);
+                }, 10L);
 
                 // Restart aura if needed
                 VendorAuraManager auraManager = VendorSystemInitializer.getAuraManager();
@@ -323,7 +361,7 @@ public class VendorManager implements Listener {
                 }
 
                 if (isDebugMode()) {
-                    plugin.getLogger().info("NPC spawned for vendor " + vendor.getVendorId());
+                    plugin.getLogger().info("NPC spawned for vendor " + vendor.getVendorId() + " (type: " + vendor.getVendorType() + ")");
                 }
             }
         } catch (Exception e) {
@@ -356,16 +394,31 @@ public class VendorManager implements Listener {
     // ================== ENHANCED HOLOGRAM UTILS ==================
 
     private void createOrUpdateHologram(Vendor vendor) {
-        if (!citizensAvailable || isShuttingDown) return;
+        if (!citizensAvailable || isShuttingDown || vendor == null) return;
 
         try {
+            String vendorId = vendor.getVendorId();
+
+            // Ensure vendor is properly configured
+            if (!vendor.isValid() || "unknown".equals(vendor.getVendorType())) {
+                plugin.getLogger().info("Fixing invalid vendor " + vendorId + " before creating hologram");
+                fixVendorConfiguration(vendor);
+            }
+
+            // Remove any existing hologram first
+            try {
+                HologramManager.removeHologram(vendorId);
+            } catch (Exception e) {
+                // Ignore removal errors
+            }
+
             NPC npc = CitizensAPI.getNPCRegistry().getById(vendor.getNpcId());
             Location hologramLocation = null;
 
-            if (npc != null && npc.isSpawned()) {
+            if (npc != null && npc.isSpawned() && npc.getEntity() != null) {
                 double hologramHeight = vendorConfig.getDouble("hologram-height");
                 if (hologramHeight <= 0) hologramHeight = 2.8;
-                hologramLocation = npc.getStoredLocation().clone().add(0, hologramHeight, 0);
+                hologramLocation = npc.getEntity().getLocation().clone().add(0, hologramHeight, 0);
             } else {
                 // Fallback to stored location
                 Location fallback = vendor.getLocation();
@@ -376,22 +429,99 @@ public class VendorManager implements Listener {
                 }
             }
 
-            if (hologramLocation != null) {
+            if (hologramLocation != null && hologramLocation.getWorld() != null) {
+                List<String> hologramLines = vendor.getHologramLines();
+
+                // Ensure we have valid hologram lines
+                if (hologramLines == null || hologramLines.isEmpty()) {
+                    hologramLines = createFallbackHologramLines(vendor.getVendorType());
+                    vendor.setHologramLines(hologramLines); // Update the vendor
+                    saveVendorsToConfig(); // Save the fix
+                }
+
                 double lineSpacing = vendorConfig.getDouble("hologram-line-spacing");
                 if (lineSpacing <= 0) lineSpacing = 0.3;
 
                 HologramManager.createOrUpdateHologram(
-                        vendor.getVendorId(),
+                        vendorId,
                         hologramLocation,
-                        vendor.getHologramLines(),
+                        hologramLines,
                         lineSpacing
                 );
+
+                plugin.getLogger().info("Successfully created/updated hologram for vendor " + vendorId +
+                        " (type: " + vendor.getVendorType() + ")");
+            } else {
+                plugin.getLogger().warning("Could not determine hologram location for vendor " + vendorId);
+                failedVendors.add(vendorId);
             }
         } catch (Exception e) {
             plugin.getLogger().warning("Failed to create/update hologram for vendor: " + vendor.getVendorId() + " - " + e.getMessage());
             addError("Hologram error for " + vendor.getVendorId() + ": " + e.getMessage());
             failedVendors.add(vendor.getVendorId());
+
+            // Schedule retry
+            Bukkit.getScheduler().runTaskLater(plugin, () -> {
+                try {
+                    createOrUpdateHologram(vendor);
+                } catch (Exception retryE) {
+                    plugin.getLogger().warning("Retry also failed for hologram " + vendor.getVendorId());
+                }
+            }, 100L); // 5 second retry
         }
+    }
+
+    /**
+     * Fix vendor configuration issues
+     */
+    private void fixVendorConfiguration(Vendor vendor) {
+        try {
+            boolean modified = false;
+            String vendorId = vendor.getVendorId();
+
+            // Fix unknown vendor type
+            if ("unknown".equals(vendor.getVendorType()) || vendor.getBehaviorClass() == null) {
+                String fixedBehavior = determineDefaultBehaviorFromId(vendorId);
+                vendor.setBehaviorClass(fixedBehavior);
+                plugin.getLogger().info("Fixed vendor " + vendorId + " type from unknown to " + vendor.getVendorType());
+                modified = true;
+            }
+
+            // Fix missing or invalid hologram lines
+            List<String> hologramLines = vendor.getHologramLines();
+            if (hologramLines == null || hologramLines.isEmpty() || isGenericHologramLines(hologramLines)) {
+                List<String> newLines = createFallbackHologramLines(vendor.getVendorType());
+                vendor.setHologramLines(newLines);
+                plugin.getLogger().info("Fixed hologram lines for vendor " + vendorId);
+                modified = true;
+            }
+
+            if (modified) {
+                failedVendors.remove(vendorId);
+                saveVendorsToConfig();
+            }
+
+        } catch (Exception e) {
+            plugin.getLogger().warning("Error fixing vendor configuration for " + vendor.getVendorId() + ": " + e.getMessage());
+        }
+    }
+
+    /**
+     * Check if hologram lines are generic/default
+     */
+    private boolean isGenericHologramLines(List<String> lines) {
+        if (lines == null || lines.isEmpty()) {
+            return true;
+        }
+
+        for (String line : lines) {
+            String stripped = ChatColor.stripColor(line).toLowerCase().trim();
+            if (stripped.equals("vendor") || stripped.equals("unknown") || stripped.isEmpty()) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     // ================== ENHANCED PUBLIC API ==================
@@ -446,19 +576,17 @@ public class VendorManager implements Listener {
                 throw new IllegalArgumentException("World not found: " + worldName);
             }
 
-            // Validate behavior class
+            // Validate and fix behavior class
             if (behaviorClass == null || behaviorClass.isEmpty()) {
-                behaviorClass = vendorConfig.getString("default-behavior-class");
-                if (behaviorClass.isEmpty()) {
-                    behaviorClass = "com.rednetty.server.mechanics.economy.vendors.behaviors.ShopBehavior";
+                behaviorClass = determineDefaultBehaviorFromId(vendorId);
+            } else {
+                // Validate behavior class exists
+                try {
+                    Class.forName(behaviorClass);
+                } catch (ClassNotFoundException e) {
+                    plugin.getLogger().warning("Invalid behavior class '" + behaviorClass + "' for vendor " + vendorId + ". Using default.");
+                    behaviorClass = determineDefaultBehaviorFromId(vendorId);
                 }
-            }
-
-            // Use default hologram lines if none provided
-            if (hologramLines == null || hologramLines.isEmpty()) {
-                hologramLines = vendorConfig.getStringList("default-hologram-text").stream()
-                        .map(line -> ChatColor.translateAlternateColorCodes('&', line))
-                        .collect(Collectors.toList());
             }
 
             // Spawn Citizens NPC
@@ -470,18 +598,29 @@ public class VendorManager implements Listener {
             npc.spawn(loc);
 
             int npcId = npc.getId();
+
+            // Create vendor with proper hologram lines based on determined type
             Vendor vendor = new Vendor(vendorId, npcId, loc, hologramLines, behaviorClass);
+
+            // Ensure hologram lines are appropriate for the vendor type
+            if (hologramLines == null || hologramLines.isEmpty()) {
+                List<String> defaultLines = createFallbackHologramLines(vendor.getVendorType());
+                vendor.setHologramLines(defaultLines);
+            }
 
             // Register vendor
             registerVendor(vendor);
 
-            // Create hologram immediately
-            createOrUpdateHologram(vendor);
+            // Create hologram immediately with delay
+            Bukkit.getScheduler().runTaskLater(plugin, () -> {
+                createOrUpdateHologram(vendor);
+            }, 10L);
 
             // Save to config
             saveVendorsToConfig();
 
             operationTimings.put("createVendor", System.currentTimeMillis() - startTime);
+            plugin.getLogger().info("Created vendor " + vendorId + " (type: " + vendor.getVendorType() + ")");
             return vendor;
 
         } catch (Exception e) {
@@ -500,9 +639,6 @@ public class VendorManager implements Listener {
         long startTime = System.currentTimeMillis();
 
         try {
-            // Stop aura effects first
-            VendorAuraManager auraManager = VendorSystemInitializer.getAuraManager();
-
             Vendor vendor;
             vendorLock.writeLock().lock();
             try {
@@ -516,8 +652,12 @@ public class VendorManager implements Listener {
                 return false;
             }
 
-            // Remove hologram
-            HologramManager.removeHologram(vendorId);
+            // Remove hologram first
+            try {
+                HologramManager.removeHologram(vendorId);
+            } catch (Exception e) {
+                plugin.getLogger().warning("Error removing hologram for vendor " + vendorId + ": " + e.getMessage());
+            }
 
             // Remove from Citizens if available
             if (citizensAvailable) {
@@ -537,6 +677,7 @@ public class VendorManager implements Listener {
             saveVendorsToConfig();
 
             operationTimings.put("deleteVendor", System.currentTimeMillis() - startTime);
+            plugin.getLogger().info("Deleted vendor " + vendorId);
             return true;
 
         } catch (Exception e) {
@@ -559,8 +700,10 @@ public class VendorManager implements Listener {
             String oldType = vendor.getVendorType();
             vendor.setBehaviorClass(behaviorClass);
 
-            // Check if type changed
+            // Check if type changed and update hologram if needed
             if (!oldType.equals(vendor.getVendorType())) {
+                createOrUpdateHologram(vendor);
+
                 VendorAuraManager auraManager = VendorSystemInitializer.getAuraManager();
                 if (auraManager != null) {
                     auraManager.updateVendorAura(vendor);
@@ -568,6 +711,7 @@ public class VendorManager implements Listener {
             }
 
             saveVendorsToConfig();
+            plugin.getLogger().info("Updated vendor " + vendorId + " behavior from " + oldType + " to " + vendor.getVendorType());
 
         } catch (Exception e) {
             plugin.getLogger().warning("Error updating vendor behavior for " + vendorId + ": " + e.getMessage());
@@ -634,11 +778,20 @@ public class VendorManager implements Listener {
             boolean modified = false;
 
             try {
+                // Check and fix vendor type
+                if ("unknown".equals(vendor.getVendorType())) {
+                    String fixedBehavior = determineDefaultBehaviorFromId(vendor.getVendorId());
+                    vendor.setBehaviorClass(fixedBehavior);
+                    plugin.getLogger().info("Fixed unknown vendor type for " + vendor.getVendorId() +
+                            " - set to " + vendor.getVendorType());
+                    modified = true;
+                    issuesFixed++;
+                }
+
                 // Check behavior class
                 String behaviorClass = vendor.getBehaviorClass();
                 if (behaviorClass == null || behaviorClass.isEmpty()) {
-                    String vendorType = vendor.getVendorType();
-                    String newBehaviorClass = getDefaultBehaviorForType(vendorType);
+                    String newBehaviorClass = determineDefaultBehaviorFromId(vendor.getVendorId());
                     vendor.setBehaviorClass(newBehaviorClass);
                     plugin.getLogger().warning("Fixed missing behavior class for vendor " + vendor.getVendorId() +
                             ". Set to " + newBehaviorClass);
@@ -649,8 +802,7 @@ public class VendorManager implements Listener {
                     try {
                         Class.forName(behaviorClass);
                     } catch (ClassNotFoundException e) {
-                        String vendorType = vendor.getVendorType();
-                        String newBehaviorClass = getDefaultBehaviorForType(vendorType);
+                        String newBehaviorClass = determineDefaultBehaviorFromId(vendor.getVendorId());
                         vendor.setBehaviorClass(newBehaviorClass);
                         plugin.getLogger().warning("Fixed invalid behavior class for vendor " + vendor.getVendorId() +
                                 ". Changed from " + behaviorClass + " to " + newBehaviorClass);
@@ -660,19 +812,20 @@ public class VendorManager implements Listener {
                 }
 
                 // Check hologram lines
-                if (vendor.getHologramLines() == null || vendor.getHologramLines().isEmpty()) {
-                    List<String> defaultLines = vendorConfig.getStringList("default-hologram-text").stream()
-                            .map(line -> ChatColor.translateAlternateColorCodes('&', line))
-                            .collect(Collectors.toList());
+                if (vendor.getHologramLines() == null || vendor.getHologramLines().isEmpty() ||
+                        isGenericHologramLines(vendor.getHologramLines())) {
 
+                    List<String> defaultLines = createFallbackHologramLines(vendor.getVendorType());
                     vendor.setHologramLines(defaultLines);
-                    plugin.getLogger().warning("Fixed missing hologram lines for vendor " + vendor.getVendorId());
+                    plugin.getLogger().warning("Fixed hologram lines for vendor " + vendor.getVendorId());
                     modified = true;
                     issuesFixed++;
                 }
 
                 if (modified) {
                     failedVendors.remove(vendor.getVendorId());
+                    // Refresh hologram if needed
+                    createOrUpdateHologram(vendor);
                 }
 
             } catch (Exception e) {
@@ -692,7 +845,7 @@ public class VendorManager implements Listener {
     }
 
     /**
-     * Enhanced configuration save with atomic operations
+     * Enhanced configuration save with atomic operations and better data preservation
      */
     public void saveVendorsToConfig() {
         if (isShuttingDown) return;
@@ -717,8 +870,16 @@ public class VendorManager implements Listener {
                         config.set(path + ".yaw", loc.getYaw());
                         config.set(path + ".pitch", loc.getPitch());
                     }
-                    config.set(path + ".lines", vendor.getHologramLines());
+
+                    // Save hologram lines
+                    List<String> hologramLines = vendor.getHologramLines();
+                    if (hologramLines != null && !hologramLines.isEmpty()) {
+                        config.set(path + ".lines", hologramLines);
+                    }
+
+                    // Save behavior class and vendor type
                     config.set(path + ".behaviorClass", vendor.getBehaviorClass());
+                    config.set(path + ".vendorType", vendor.getVendorType()); // Explicitly save vendor type
                     config.set(path + ".lastUpdated", vendor.getLastUpdated());
                 }
             } finally {
@@ -743,6 +904,68 @@ public class VendorManager implements Listener {
     }
 
     // ================== ENHANCED UTILITY METHODS ==================
+
+    /**
+     * Create fallback hologram lines based on vendor type
+     */
+    private List<String> createFallbackHologramLines(String vendorType) {
+        List<String> lines = new ArrayList<>();
+
+        switch (vendorType != null ? vendorType.toLowerCase() : "unknown") {
+            case "item":
+                lines.add(ChatColor.GOLD + "" + ChatColor.ITALIC + "Item Vendor");
+                break;
+            case "fisherman":
+                lines.add(ChatColor.AQUA + "" + ChatColor.ITALIC + "Fisherman");
+                break;
+            case "book":
+                lines.add(ChatColor.LIGHT_PURPLE + "" + ChatColor.ITALIC + "Book Vendor");
+                break;
+            case "upgrade":
+                lines.add(ChatColor.YELLOW + "" + ChatColor.ITALIC + "Upgrade Vendor");
+                break;
+            case "banker":
+                lines.add(ChatColor.GREEN + "" + ChatColor.ITALIC + "Banker");
+                break;
+            case "medic":
+                lines.add(ChatColor.RED + "" + ChatColor.ITALIC + "Medic");
+                break;
+            case "gambler":
+                lines.add(ChatColor.DARK_PURPLE + "" + ChatColor.ITALIC + "Gambler");
+                break;
+            default:
+                lines.add(ChatColor.GRAY + "" + ChatColor.ITALIC + "Vendor");
+                break;
+        }
+
+        return lines;
+    }
+
+    /**
+     * Determine default behavior from vendor ID
+     */
+    private String determineDefaultBehaviorFromId(String vendorId) {
+        String basePath = "com.rednetty.server.mechanics.economy.vendors.behaviors.";
+        String lowerVendorId = vendorId.toLowerCase();
+
+        if (lowerVendorId.contains("item") || lowerVendorId.contains("shop")) {
+            return basePath + "ItemVendorBehavior";
+        } else if (lowerVendorId.contains("fish")) {
+            return basePath + "FishermanBehavior";
+        } else if (lowerVendorId.contains("book")) {
+            return basePath + "BookVendorBehavior";
+        } else if (lowerVendorId.contains("upgrade")) {
+            return basePath + "UpgradeVendorBehavior";
+        } else if (lowerVendorId.contains("bank")) {
+            return basePath + "BankerBehavior";
+        } else if (lowerVendorId.contains("medic") || lowerVendorId.contains("heal")) {
+            return basePath + "MedicBehavior";
+        } else if (lowerVendorId.contains("gambl")) {
+            return basePath + "GamblerBehavior";
+        }
+
+        return basePath + "ShopBehavior";
+    }
 
     /**
      * Enhanced error tracking with size limits
@@ -855,7 +1078,7 @@ public class VendorManager implements Listener {
     }
 
     /**
-     * Enhanced vendor loading with better error recovery
+     * Enhanced vendor loading with better error recovery and type preservation
      */
     private void loadVendorsFromConfig() {
         if (!citizensAvailable) {
@@ -864,6 +1087,7 @@ public class VendorManager implements Listener {
         }
 
         if (!config.contains("vendors")) {
+            plugin.getLogger().info("No vendors found in config file");
             return;
         }
 
@@ -872,6 +1096,7 @@ public class VendorManager implements Listener {
 
         try {
             Set<String> vendorIds = config.getConfigurationSection("vendors").getKeys(false);
+            plugin.getLogger().info("Loading " + vendorIds.size() + " vendors from config...");
 
             for (String vendorId : vendorIds) {
                 try {
@@ -897,64 +1122,113 @@ public class VendorManager implements Listener {
     }
 
     /**
-     * Load a single vendor with enhanced error handling
+     * Load a single vendor with enhanced error handling and type preservation
      */
     private boolean loadSingleVendor(String vendorId) {
         String path = "vendors." + vendorId;
 
-        int npcId = config.getInt(path + ".npcId", -1);
-        String worldName = config.getString(path + ".world", "world");
-        double x = config.getDouble(path + ".x", 0.0);
-        double y = config.getDouble(path + ".y", 64.0);
-        double z = config.getDouble(path + ".z", 0.0);
-        float yaw = (float) config.getDouble(path + ".yaw", 0.0);
-        float pitch = (float) config.getDouble(path + ".pitch", 0.0);
-        List<String> lines = config.getStringList(path + ".lines");
-        String behaviorClass = config.getString(path + ".behaviorClass");
+        try {
+            int npcId = config.getInt(path + ".npcId", -1);
+            String worldName = config.getString(path + ".world", "world");
+            double x = config.getDouble(path + ".x", 0.0);
+            double y = config.getDouble(path + ".y", 64.0);
+            double z = config.getDouble(path + ".z", 0.0);
+            float yaw = (float) config.getDouble(path + ".yaw", 0.0);
+            float pitch = (float) config.getDouble(path + ".pitch", 0.0);
+            List<String> lines = config.getStringList(path + ".lines");
+            String behaviorClass = config.getString(path + ".behaviorClass");
+            String savedVendorType = config.getString(path + ".vendorType"); // Try to load saved vendor type
 
-        if (behaviorClass == null || behaviorClass.isEmpty()) {
-            plugin.getLogger().warning("No behavior class found for vendor " + vendorId + ". Using default ShopBehavior.");
-            behaviorClass = "com.rednetty.server.mechanics.economy.vendors.behaviors.ShopBehavior";
-        }
-
-        World world = Bukkit.getWorld(worldName);
-        if (world == null) {
-            if (!Bukkit.getWorlds().isEmpty()) {
-                world = Bukkit.getWorlds().get(0);
-                plugin.getLogger().warning("World '" + worldName + "' not found for vendor " + vendorId +
-                        ". Using " + world.getName() + " instead.");
+            // Enhanced behavior class validation and fallback
+            if (behaviorClass == null || behaviorClass.isEmpty()) {
+                plugin.getLogger().warning("No behavior class found for vendor " + vendorId + ". Determining from ID.");
+                behaviorClass = determineDefaultBehaviorFromId(vendorId);
             } else {
-                plugin.getLogger().warning("No valid world for vendor " + vendorId + ". Skipping.");
-                return false;
+                // Validate behavior class exists
+                try {
+                    Class.forName(behaviorClass);
+                } catch (ClassNotFoundException e) {
+                    plugin.getLogger().warning("Invalid behavior class '" + behaviorClass + "' for vendor " + vendorId + ". Using default.");
+                    behaviorClass = determineDefaultBehaviorFromId(vendorId);
+                }
             }
-        }
 
-        Location loc = new Location(world, x, y, z, yaw, pitch);
-        Vendor vendor = new Vendor(vendorId, npcId, loc, lines, behaviorClass);
-
-        vendorLock.writeLock().lock();
-        try {
-            vendors.put(vendorId, vendor);
-        } finally {
-            vendorLock.writeLock().unlock();
-        }
-
-        // Spawn NPC if needed
-        try {
-            NPC npc = CitizensAPI.getNPCRegistry().getById(npcId);
-            if (npc != null && !npc.isSpawned()) {
-                npc.spawn(loc);
+            World world = Bukkit.getWorld(worldName);
+            if (world == null) {
+                if (!Bukkit.getWorlds().isEmpty()) {
+                    world = Bukkit.getWorlds().get(0);
+                    plugin.getLogger().warning("World '" + worldName + "' not found for vendor " + vendorId +
+                            ". Using " + world.getName() + " instead.");
+                } else {
+                    plugin.getLogger().warning("No valid world for vendor " + vendorId + ". Skipping.");
+                    return false;
+                }
             }
-            if (npc != null && npc.isSpawned()) {
-                createOrUpdateHologram(vendor);
+
+            Location loc = new Location(world, x, y, z, yaw, pitch);
+
+            // Create vendor with proper validation
+            Vendor vendor = new Vendor(vendorId, npcId, loc, lines, behaviorClass);
+
+            // Validate vendor type matches what was saved (if available)
+            if (savedVendorType != null && !savedVendorType.equals("unknown") &&
+                    !savedVendorType.equals(vendor.getVendorType())) {
+                plugin.getLogger().info("Vendor " + vendorId + " type mismatch - saved: " + savedVendorType +
+                        ", determined: " + vendor.getVendorType() + " - keeping determined type");
             }
+
+            // Additional validation after creation
+            if (!vendor.isValid()) {
+                plugin.getLogger().warning("Created vendor " + vendorId + " failed validation: " + vendor.getLastValidationError());
+
+                // Try to fix common issues
+                if (vendor.getHologramLines().isEmpty() || isGenericHologramLines(vendor.getHologramLines())) {
+                    vendor.setHologramLines(createFallbackHologramLines(vendor.getVendorType()));
+                    plugin.getLogger().info("Fixed hologram lines for vendor " + vendorId);
+                }
+            }
+
+            // Store vendor
+            vendorLock.writeLock().lock();
+            try {
+                vendors.put(vendorId, vendor);
+            } finally {
+                vendorLock.writeLock().unlock();
+            }
+
+            // Spawn NPC and create hologram
+            try {
+                NPC npc = CitizensAPI.getNPCRegistry().getById(npcId);
+                if (npc != null) {
+                    if (!npc.isSpawned()) {
+                        npc.spawn(loc);
+                    }
+
+                    // Create hologram with delay to ensure NPC is fully spawned
+                    Bukkit.getScheduler().runTaskLater(plugin, () -> {
+                        createOrUpdateHologram(vendor);
+                    }, 20L); // 1 second delay
+                } else {
+                    plugin.getLogger().warning("NPC with ID " + npcId + " not found for vendor " + vendorId);
+                    failedVendors.add(vendorId);
+                }
+            } catch (Exception e) {
+                plugin.getLogger().warning("Error spawning NPC for vendor: " + vendorId + " - " + e.getMessage());
+                addError("NPC spawn error for " + vendorId + ": " + e.getMessage());
+                failedVendors.add(vendorId);
+            }
+
+            if (isDebugMode()) {
+                plugin.getLogger().info("Loaded vendor " + vendorId + " (type: " + vendor.getVendorType() + ")");
+            }
+
+            return true;
+
         } catch (Exception e) {
-            plugin.getLogger().warning("Error spawning NPC for vendor: " + vendorId + " - " + e.getMessage());
-            addError("NPC spawn error for " + vendorId + ": " + e.getMessage());
-            failedVendors.add(vendorId);
+            plugin.getLogger().severe("Critical error loading vendor " + vendorId + ": " + e.getMessage());
+            addError("Load vendor error: " + e.getMessage());
+            return false;
         }
-
-        return true;
     }
 
     // ================== HELPER METHODS ==================

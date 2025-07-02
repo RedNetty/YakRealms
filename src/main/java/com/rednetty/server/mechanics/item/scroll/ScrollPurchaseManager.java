@@ -99,7 +99,7 @@ public class ScrollPurchaseManager {
         int totalPrice = purchase.unitPrice * quantity;
 
         // Check if player has enough gems
-        if (!economyManager.hasGems(player.getUniqueId(), totalPrice)) {
+        if (!economyManager.hasPhysicalGems(player, totalPrice)) {
             player.sendMessage(ChatColor.RED + "You don't have enough gems for this purchase.");
             player.sendMessage(ChatColor.RED + "Cost: " + totalPrice + "g for " + quantity + " items.");
             cancelPurchase(player);
@@ -107,7 +107,7 @@ public class ScrollPurchaseManager {
         }
 
         // Process payment
-        TransactionResult result = economyManager.removeGems(player.getUniqueId(), totalPrice);
+        TransactionResult result = economyManager.removePhysicalGems(player, totalPrice);
 
         if (result.isSuccess()) {
             // Create items and give to player

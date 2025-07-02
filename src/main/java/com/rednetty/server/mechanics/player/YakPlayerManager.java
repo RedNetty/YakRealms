@@ -455,22 +455,53 @@ public class YakPlayerManager implements Listener {
             player.setExp(1.0f);
             player.setLevel(100);
 
-            // Initialize moderation rank
+            // Initialize moderation rank - FIXED: Use fromString instead of valueOf
             try {
-                Rank rank = Rank.valueOf(yakPlayer.getRank());
+                String rankString = yakPlayer.getRank();
+                if (rankString == null || rankString.trim().isEmpty()) {
+                    rankString = "default";
+                    yakPlayer.setRank("default");
+                    logger.info("Set default rank for player with null/empty rank: " + player.getName());
+                }
+
+                // Use fromString to properly convert database string to enum
+                Rank rank = Rank.fromString(rankString);
                 ModerationMechanics.rankMap.put(uuid, rank);
+
+                logger.fine("Successfully loaded rank " + rank.name() + " for player: " + player.getName());
+
             } catch (IllegalArgumentException e) {
-                logger.warning("Invalid rank for player " + player.getName() + ": " + yakPlayer.getRank());
+                logger.warning("Invalid rank for player " + player.getName() + ": " + yakPlayer.getRank() +
+                        ". Setting to DEFAULT and saving correction.");
+
+                // Set to default and save the correction
                 ModerationMechanics.rankMap.put(uuid, Rank.DEFAULT);
-                yakPlayer.setRank("DEFAULT");
+                yakPlayer.setRank("default");
+
+                // Save the correction asynchronously
+                savePlayerDataAsync(yakPlayer).whenComplete((result, error) -> {
+                    if (error != null) {
+                        logger.warning("Failed to save rank correction for " + player.getName() + ": " + error.getMessage());
+                    } else {
+                        logger.info("Successfully corrected and saved rank for " + player.getName());
+                    }
+                });
             }
 
-            // Initialize chat tag
+            // Initialize chat tag - FIXED: Better error handling
             try {
-                ChatTag tag = ChatTag.valueOf(yakPlayer.getChatTag());
+                String chatTagString = yakPlayer.getChatTag();
+                if (chatTagString == null || chatTagString.trim().isEmpty()) {
+                    chatTagString = "DEFAULT";
+                    yakPlayer.setChatTag("DEFAULT");
+                }
+
+                ChatTag tag = ChatTag.valueOf(chatTagString);
                 ChatMechanics.getPlayerTags().put(uuid, tag);
+
             } catch (IllegalArgumentException e) {
-                logger.warning("Invalid chat tag for player " + player.getName() + ": " + yakPlayer.getChatTag());
+                logger.warning("Invalid chat tag for player " + player.getName() + ": " + yakPlayer.getChatTag() +
+                        ". Setting to DEFAULT.");
                 ChatMechanics.getPlayerTags().put(uuid, ChatTag.DEFAULT);
                 yakPlayer.setChatTag("DEFAULT");
             }
@@ -904,7 +935,7 @@ public class YakPlayerManager implements Listener {
     public CompletableFuture<Boolean> addPlayerGems(UUID playerId, int amount) {
         YakPlayer yakPlayer = getPlayer(playerId);
         if (yakPlayer != null) {
-            yakPlayer.addGems(amount);
+            yakPlayer.setBankGems(yakPlayer.getBankGems() + amount);
             return savePlayer(yakPlayer);
         }
         return CompletableFuture.completedFuture(false);
@@ -912,8 +943,8 @@ public class YakPlayerManager implements Listener {
 
     public CompletableFuture<Boolean> removePlayerGems(UUID playerId, int amount) {
         YakPlayer yakPlayer = getPlayer(playerId);
-        if (yakPlayer != null && yakPlayer.getGems() >= amount) {
-            yakPlayer.setGems(yakPlayer.getGems() - amount);
+        if (yakPlayer != null && yakPlayer.getBankGems() >= amount) {
+            yakPlayer.setBankGems(yakPlayer.getBankGems() - amount);
             return savePlayer(yakPlayer);
         }
         return CompletableFuture.completedFuture(false);
@@ -921,7 +952,7 @@ public class YakPlayerManager implements Listener {
 
     public int getPlayerGems(UUID playerId) {
         YakPlayer yakPlayer = getPlayer(playerId);
-        return yakPlayer != null ? yakPlayer.getGems() : 0;
+        return yakPlayer != null ? yakPlayer.getBankGems() : 0;
     }
 
     public int getPlayerLevel(UUID playerId) {

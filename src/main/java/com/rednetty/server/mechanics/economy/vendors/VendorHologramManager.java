@@ -34,6 +34,7 @@ public class VendorHologramManager {
     private final Map<String, Location> lastKnownLocations = new ConcurrentHashMap<>();
     private final Set<String> failedHolograms = ConcurrentHashMap.newKeySet();
     private final Map<String, Integer> retryAttempts = new ConcurrentHashMap<>();
+    private final Map<String, String> lastKnownTypes = new ConcurrentHashMap<>();
 
     // Performance and metrics tracking
     private final AtomicInteger totalHologramsCreated = new AtomicInteger(0);
@@ -75,7 +76,7 @@ public class VendorHologramManager {
     }
 
     /**
-     * Enhanced initial refresh with staggered processing
+     * Enhanced initial refresh with staggered processing and better error handling
      */
     private void performInitialRefresh() {
         try {
@@ -86,6 +87,11 @@ public class VendorHologramManager {
                 plugin.getLogger().info("No vendors found for hologram refresh");
                 return;
             }
+
+            // Clear any existing tracking data
+            activeHolograms.clear();
+            lastKnownLocations.clear();
+            lastKnownTypes.clear();
 
             // Staggered processing to prevent lag
             List<String> vendorIds = new ArrayList<>(vendors.keySet());
@@ -130,7 +136,7 @@ public class VendorHologramManager {
     }
 
     /**
-     * Enhanced hologram creation with comprehensive validation
+     * Enhanced hologram creation with comprehensive validation and vendor type checking
      */
     public boolean createHologram(Vendor vendor) {
         if (vendor == null || !vendor.isValid()) {
@@ -149,6 +155,12 @@ public class VendorHologramManager {
                 }
             }
 
+            // Ensure vendor has proper type before creating hologram
+            if ("unknown".equals(vendor.getVendorType())) {
+                plugin.getLogger().warning("Vendor " + vendorId + " has unknown type, attempting to fix...");
+                fixVendorType(vendor);
+            }
+
             Location hologramLocation = calculateHologramLocation(vendor);
             if (hologramLocation == null) {
                 handleHologramError(vendorId, "location calculation",
@@ -156,11 +168,19 @@ public class VendorHologramManager {
                 return false;
             }
 
-            // Validate hologram lines
+            // Validate and fix hologram lines
             List<String> hologramLines = vendor.getHologramLines();
-            if (hologramLines == null || hologramLines.isEmpty()) {
-                hologramLines = VendorUtils.createDefaultHologramLines(vendor.getVendorType());
-                plugin.getLogger().info("Using default hologram lines for vendor " + vendorId);
+            if (hologramLines == null || hologramLines.isEmpty() || areGenericHologramLines(hologramLines)) {
+                hologramLines = createAppropriateHologramLines(vendor.getVendorType());
+                vendor.setHologramLines(hologramLines); // Update the vendor
+                plugin.getLogger().info("Updated hologram lines for vendor " + vendorId + " (type: " + vendor.getVendorType() + ")");
+            }
+
+            // Remove any existing hologram first
+            try {
+                HologramManager.removeHologram(vendorId);
+            } catch (Exception e) {
+                // Ignore removal errors
             }
 
             // Create the hologram with enhanced error handling
@@ -175,12 +195,15 @@ public class VendorHologramManager {
                 // Track successful creation
                 activeHolograms.put(vendorId, System.currentTimeMillis());
                 lastKnownLocations.put(vendorId, hologramLocation.clone());
+                lastKnownTypes.put(vendorId, vendor.getVendorType());
                 totalHologramsCreated.incrementAndGet();
 
                 // Clear failure state
                 failedHolograms.remove(vendorId);
                 retryAttempts.remove(vendorId);
 
+                plugin.getLogger().info("Successfully created hologram for vendor " + vendorId +
+                        " (type: " + vendor.getVendorType() + ")");
                 return true;
 
             } catch (Exception e) {
@@ -196,13 +219,116 @@ public class VendorHologramManager {
     }
 
     /**
+     * Fix vendor type if it's unknown
+     */
+    private void fixVendorType(Vendor vendor) {
+        try {
+            String vendorId = vendor.getVendorId();
+            String behaviorClass = vendor.getBehaviorClass();
+
+            if (behaviorClass != null && !behaviorClass.isEmpty()) {
+                // Re-set behavior class to trigger type determination
+                vendor.setBehaviorClass(behaviorClass);
+            } else {
+                // Determine behavior from vendor ID
+                String fixedBehavior = determineDefaultBehaviorFromId(vendorId);
+                vendor.setBehaviorClass(fixedBehavior);
+            }
+
+            plugin.getLogger().info("Fixed vendor " + vendorId + " type from unknown to " + vendor.getVendorType());
+        } catch (Exception e) {
+            plugin.getLogger().warning("Error fixing vendor type for " + vendor.getVendorId() + ": " + e.getMessage());
+        }
+    }
+
+    /**
+     * Determine default behavior from vendor ID
+     */
+    private String determineDefaultBehaviorFromId(String vendorId) {
+        String basePath = "com.rednetty.server.mechanics.economy.vendors.behaviors.";
+        String lowerVendorId = vendorId.toLowerCase();
+
+        if (lowerVendorId.contains("item") || lowerVendorId.contains("shop")) {
+            return basePath + "ItemVendorBehavior";
+        } else if (lowerVendorId.contains("fish")) {
+            return basePath + "FishermanBehavior";
+        } else if (lowerVendorId.contains("book")) {
+            return basePath + "BookVendorBehavior";
+        } else if (lowerVendorId.contains("upgrade")) {
+            return basePath + "UpgradeVendorBehavior";
+        } else if (lowerVendorId.contains("bank")) {
+            return basePath + "BankerBehavior";
+        } else if (lowerVendorId.contains("medic") || lowerVendorId.contains("heal")) {
+            return basePath + "MedicBehavior";
+        } else if (lowerVendorId.contains("gambl")) {
+            return basePath + "GamblerBehavior";
+        }
+
+        return basePath + "ShopBehavior";
+    }
+
+    /**
+     * Check if hologram lines are generic/default
+     */
+    private boolean areGenericHologramLines(List<String> lines) {
+        if (lines == null || lines.isEmpty()) {
+            return true;
+        }
+
+        for (String line : lines) {
+            String stripped = ChatColor.stripColor(line).toLowerCase().trim();
+            if (stripped.equals("vendor") || stripped.equals("unknown") || stripped.isEmpty()) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Create appropriate hologram lines for vendor type
+     */
+    private List<String> createAppropriateHologramLines(String vendorType) {
+        List<String> lines = new ArrayList<>();
+
+        switch (vendorType != null ? vendorType.toLowerCase() : "unknown") {
+            case "item":
+                lines.add(ChatColor.GOLD + "" + ChatColor.ITALIC + "Item Vendor");
+                break;
+            case "fisherman":
+                lines.add(ChatColor.AQUA + "" + ChatColor.ITALIC + "Fisherman");
+                break;
+            case "book":
+                lines.add(ChatColor.LIGHT_PURPLE + "" + ChatColor.ITALIC + "Book Vendor");
+                break;
+            case "upgrade":
+                lines.add(ChatColor.YELLOW + "" + ChatColor.ITALIC + "Upgrade Vendor");
+                break;
+            case "banker":
+                lines.add(ChatColor.GREEN + "" + ChatColor.ITALIC + "Banker");
+                break;
+            case "medic":
+                lines.add(ChatColor.RED + "" + ChatColor.ITALIC + "Medic");
+                break;
+            case "gambler":
+                lines.add(ChatColor.DARK_PURPLE + "" + ChatColor.ITALIC + "Gambler");
+                break;
+            default:
+                lines.add(ChatColor.GRAY + "" + ChatColor.ITALIC + "Vendor");
+                break;
+        }
+
+        return lines;
+    }
+
+    /**
      * Enhanced location calculation with multiple fallback methods
      */
     private Location calculateHologramLocation(Vendor vendor) {
         try {
             // Primary method: Get location from spawned NPC
             NPC npc = CitizensAPI.getNPCRegistry().getById(vendor.getNpcId());
-            if (npc != null && npc.isSpawned()) {
+            if (npc != null && npc.isSpawned() && npc.getEntity() != null) {
                 Location npcLocation = npc.getEntity().getLocation();
                 if (VendorUtils.isValidVendorLocation(npcLocation)) {
                     return npcLocation.clone().add(0, 2.2, 0);
@@ -230,24 +356,57 @@ public class VendorHologramManager {
     }
 
     /**
-     * Enhanced hologram refresh with intelligent updates
+     * Enhanced hologram refresh with better validation and type checking
      */
     public boolean refreshSingleHologram(Vendor vendor) {
-        if (vendor == null) return false;
+        if (vendor == null || !vendor.isValid()) {
+            return false;
+        }
 
         String vendorId = vendor.getVendorId();
 
         try {
+            // Ensure vendor has proper type and hologram lines
+            if ("unknown".equals(vendor.getVendorType()) ||
+                    vendor.getHologramLines() == null ||
+                    vendor.getHologramLines().isEmpty() ||
+                    areGenericHologramLines(vendor.getHologramLines())) {
+
+                plugin.getLogger().info("Fixing vendor " + vendorId + " with invalid type/hologram data");
+
+                // Fix vendor type first
+                fixVendorType(vendor);
+
+                // Update hologram lines based on corrected type
+                List<String> newLines = createAppropriateHologramLines(vendor.getVendorType());
+                vendor.setHologramLines(newLines);
+
+                // Save the fixes
+                vendorManager.saveVendorsToConfig();
+            }
+
+            // Check if type has changed from what we last knew
+            String lastKnownType = lastKnownTypes.get(vendorId);
+            if (lastKnownType != null && !lastKnownType.equals(vendor.getVendorType())) {
+                plugin.getLogger().info("Vendor " + vendorId + " type changed from " + lastKnownType +
+                        " to " + vendor.getVendorType() + " - updating hologram");
+            }
+
             // Remove existing hologram first
             removeHologram(vendorId);
 
-            // Small delay to ensure cleanup
+            // Small delay to ensure cleanup, then create new hologram
             new BukkitRunnable() {
                 @Override
                 public void run() {
-                    createHologram(vendor);
+                    if (createHologram(vendor)) {
+                        plugin.getLogger().info("Successfully refreshed hologram for vendor " + vendorId +
+                                " (type: " + vendor.getVendorType() + ")");
+                    } else {
+                        plugin.getLogger().warning("Failed to refresh hologram for vendor " + vendorId);
+                    }
                 }
-            }.runTaskLater(plugin, 2L);
+            }.runTaskLater(plugin, 5L);
 
             return true;
 
@@ -258,7 +417,7 @@ public class VendorHologramManager {
     }
 
     /**
-     * Enhanced hologram removal with verification
+     * Enhanced hologram removal with verification and cleanup
      */
     public boolean removeHologram(String vendorId) {
         if (VendorUtils.isNullOrEmpty(vendorId)) {
@@ -266,12 +425,14 @@ public class VendorHologramManager {
         }
 
         try {
+            // Remove from HologramManager
             HologramManager.removeHologram(vendorId);
 
             // Update tracking
             activeHolograms.remove(vendorId);
             totalHologramsRemoved.incrementAndGet();
 
+            plugin.getLogger().info("Removed hologram for vendor: " + vendorId);
             return true;
 
         } catch (Exception e) {
@@ -281,7 +442,7 @@ public class VendorHologramManager {
     }
 
     /**
-     * Enhanced hologram update with location change detection
+     * Enhanced hologram update with location change detection and type validation
      */
     public boolean updateVendorHologram(Vendor vendor) {
         if (vendor == null) return false;
@@ -289,6 +450,11 @@ public class VendorHologramManager {
         String vendorId = vendor.getVendorId();
 
         try {
+            // Check if vendor type has changed
+            String currentType = vendor.getVendorType();
+            String lastKnownType = lastKnownTypes.get(vendorId);
+            boolean typeChanged = lastKnownType == null || !lastKnownType.equals(currentType);
+
             // Check if location has changed significantly
             Location currentLocation = calculateHologramLocation(vendor);
             Location lastLocation = lastKnownLocations.get(vendorId);
@@ -301,7 +467,14 @@ public class VendorHologramManager {
             boolean timeToUpdate = lastUpdate == null ||
                     (System.currentTimeMillis() - lastUpdate) > HOLOGRAM_UPDATE_THRESHOLD;
 
-            if (locationChanged || timeToUpdate) {
+            // Check if hologram lines are appropriate for current type
+            boolean hologramNeedsUpdate = areGenericHologramLines(vendor.getHologramLines()) ||
+                    vendor.getHologramLines() == null || vendor.getHologramLines().isEmpty();
+
+            if (typeChanged || locationChanged || timeToUpdate || hologramNeedsUpdate) {
+                plugin.getLogger().info("Updating hologram for vendor " + vendorId +
+                        " - type changed: " + typeChanged + ", location changed: " + locationChanged +
+                        ", time to update: " + timeToUpdate + ", lines need update: " + hologramNeedsUpdate);
                 return refreshSingleHologram(vendor);
             }
 
@@ -334,7 +507,7 @@ public class VendorHologramManager {
     }
 
     /**
-     * Enhanced validation with comprehensive health checks
+     * Enhanced validation with comprehensive health checks and type verification
      */
     private void performValidation() {
         long startTime = System.currentTimeMillis();
@@ -351,6 +524,15 @@ public class VendorHologramManager {
             checked++;
 
             try {
+                // Check if vendor has unknown type
+                if ("unknown".equals(vendor.getVendorType())) {
+                    plugin.getLogger().info("Found vendor " + vendorId + " with unknown type during validation");
+                    fixVendorType(vendor);
+                    refreshSingleHologram(vendor);
+                    fixed++;
+                    continue;
+                }
+
                 // Check if hologram exists when it should
                 if (!activeHolograms.containsKey(vendorId)) {
                     // Hologram missing, try to create it
@@ -380,6 +562,16 @@ public class VendorHologramManager {
                             }
                         } catch (Exception e) {
                             plugin.getLogger().log(Level.WARNING, "Error checking NPC for vendor " + vendorId, e);
+                        }
+                    }
+
+                    // Check if type has changed
+                    String currentType = vendor.getVendorType();
+                    String lastKnownType = lastKnownTypes.get(vendorId);
+                    if (lastKnownType != null && !lastKnownType.equals(currentType)) {
+                        if (updateVendorHologram(vendor)) {
+                            fixed++;
+                            plugin.getLogger().info("Updated hologram for vendor " + vendorId + " due to type change");
                         }
                     }
                 }
@@ -422,21 +614,30 @@ public class VendorHologramManager {
             // Clean up tracking for vendors that no longer exist
             Set<String> currentVendors = vendorManager.getVendors().keySet();
 
+            // Remove holograms for vendors that no longer exist
             activeHolograms.entrySet().removeIf(entry -> {
                 if (!currentVendors.contains(entry.getKey())) {
-                    removeHologram(entry.getKey());
+                    try {
+                        HologramManager.removeHologram(entry.getKey());
+                        plugin.getLogger().info("Cleaned up hologram for removed vendor: " + entry.getKey());
+                    } catch (Exception e) {
+                        plugin.getLogger().warning("Error cleaning up hologram for vendor " + entry.getKey());
+                    }
                     return true;
                 }
                 return false;
             });
 
+            // Clean up other tracking maps
             lastKnownLocations.entrySet().removeIf(entry ->
+                    !currentVendors.contains(entry.getKey()));
+
+            lastKnownTypes.entrySet().removeIf(entry ->
                     !currentVendors.contains(entry.getKey()));
 
             // Reset retry attempts for vendors that haven't failed recently
             long currentTime = System.currentTimeMillis();
             retryAttempts.entrySet().removeIf(entry -> {
-                // Reset if vendor exists and no recent failures
                 return currentVendors.contains(entry.getKey());
             });
 
@@ -446,6 +647,7 @@ public class VendorHologramManager {
                     if (currentVendors.contains(vendorId)) {
                         // Give failed vendors another chance
                         retryAttempts.remove(vendorId);
+                        plugin.getLogger().info("Giving vendor " + vendorId + " another chance after maintenance");
                         return true;
                     }
                     return false;
@@ -494,6 +696,7 @@ public class VendorHologramManager {
         // Clear state
         activeHolograms.clear();
         lastKnownLocations.clear();
+        lastKnownTypes.clear();
         failedHolograms.clear();
         retryAttempts.clear();
 
@@ -556,6 +759,14 @@ public class VendorHologramManager {
             stats.put("successRate", 100.0);
         }
 
+        // Vendor type distribution
+        Map<String, Integer> typeDistribution = new HashMap<>();
+        for (Vendor vendor : vendors.values()) {
+            String type = vendor.getVendorType();
+            typeDistribution.put(type, typeDistribution.getOrDefault(type, 0) + 1);
+        }
+        stats.put("vendorTypeDistribution", typeDistribution);
+
         return stats;
     }
 
@@ -576,7 +787,7 @@ public class VendorHologramManager {
     }
 
     /**
-     * Shutdown cleanup
+     * Enhanced shutdown cleanup with thorough hologram removal
      */
     public void shutdown() {
         try {
@@ -591,14 +802,29 @@ public class VendorHologramManager {
                 maintenanceTask = null;
             }
 
-            // Clear all holograms
+            // Remove all holograms with individual error handling
+            plugin.getLogger().info("Cleaning up " + activeHolograms.size() + " active holograms...");
+
             for (String vendorId : new HashSet<>(activeHolograms.keySet())) {
-                removeHologram(vendorId);
+                try {
+                    HologramManager.removeHologram(vendorId);
+                    plugin.getLogger().info("Removed hologram for vendor: " + vendorId);
+                } catch (Exception e) {
+                    plugin.getLogger().warning("Error removing hologram for vendor " + vendorId + ": " + e.getMessage());
+                }
+            }
+
+            // Additional cleanup for any remaining holograms
+            try {
+                HologramManager.cleanup();
+            } catch (Exception e) {
+                plugin.getLogger().warning("Error during final hologram cleanup: " + e.getMessage());
             }
 
             // Clear tracking data
             activeHolograms.clear();
             lastKnownLocations.clear();
+            lastKnownTypes.clear();
             failedHolograms.clear();
             retryAttempts.clear();
 

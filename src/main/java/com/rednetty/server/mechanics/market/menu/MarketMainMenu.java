@@ -304,7 +304,7 @@ public class MarketMainMenu extends Menu {
                 ChatColor.GRAY + "View your personal",
                 ChatColor.GRAY + "market statistics.",
                 "",
-                yakPlayer != null ? ChatColor.YELLOW + "Gems: " + ChatColor.WHITE + TextUtil.formatNumber(yakPlayer.getGems()) : "",
+                yakPlayer != null ? ChatColor.YELLOW + "Gems: " + ChatColor.WHITE + TextUtil.formatNumber(yakPlayer.getBankGems()) : "",
                 ChatColor.YELLOW + "Click to view details!"
         ));
 
@@ -415,7 +415,7 @@ public class MarketMainMenu extends Menu {
         player.sendMessage("");
         player.sendMessage(ChatColor.GOLD + "▪ " + ChatColor.YELLOW + "Your Market Statistics" + ChatColor.GOLD + " ▪");
         player.sendMessage("");
-        player.sendMessage(ChatColor.AQUA + "Gems: " + ChatColor.WHITE + TextUtil.formatNumber(yakPlayer.getGems()));
+        player.sendMessage(ChatColor.AQUA + "Gems: " + ChatColor.WHITE + TextUtil.formatNumber(yakPlayer.getBankGems()));
         player.sendMessage(ChatColor.AQUA + "Level: " + ChatColor.WHITE + yakPlayer.getLevel());
         player.sendMessage(ChatColor.AQUA + "Daily Listings Used: " + ChatColor.WHITE + "TODO" + "/" + marketManager.getMaxListingsPerPlayer());
         player.sendMessage("");

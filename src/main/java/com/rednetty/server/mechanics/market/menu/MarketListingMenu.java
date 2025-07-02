@@ -95,7 +95,7 @@ public class MarketListingMenu extends Menu {
                 ChatColor.GRAY + "Select an item from your inventory",
                 ChatColor.GRAY + "to list it for sale on the market.",
                 "",
-                ChatColor.AQUA + "Your Gems: " + ChatColor.WHITE + (yakPlayer != null ? TextUtil.formatNumber(yakPlayer.getGems()) : "0"),
+                ChatColor.AQUA + "Your Gems: " + ChatColor.WHITE + (yakPlayer != null ? TextUtil.formatNumber(yakPlayer.getBankGems()) : "0"),
                 ChatColor.AQUA + "Daily Listings: " + ChatColor.WHITE + dailyListings + "/" + marketManager.getMaxListingsPerPlayer(),
                 ChatColor.AQUA + "Market Tax: " + ChatColor.WHITE + String.format("%.1f%%", marketManager.getMarketTaxRate() * 100),
                 "",
@@ -235,7 +235,7 @@ public class MarketListingMenu extends Menu {
         ItemMeta meta = item.getItemMeta();
 
         YakPlayer yakPlayer = YakPlayerManager.getInstance().getPlayer(getPlayer());
-        boolean canAffordFeatured = yakPlayer != null && yakPlayer.getGems() >= marketManager.getFeaturedListingCost();
+        boolean canAffordFeatured = yakPlayer != null && yakPlayer.getBankGems() >= marketManager.getFeaturedListingCost();
 
         meta.setDisplayName(ChatColor.GREEN + "💎 Featured Listing");
         meta.setLore(Arrays.asList(
@@ -245,7 +245,7 @@ public class MarketListingMenu extends Menu {
                 ChatColor.GRAY + "more visibility from buyers.",
                 "",
                 ChatColor.AQUA + "Cost: " + ChatColor.WHITE + TextUtil.formatNumber(marketManager.getFeaturedListingCost()) + " gems",
-                ChatColor.AQUA + "You have: " + ChatColor.WHITE + (yakPlayer != null ? TextUtil.formatNumber(yakPlayer.getGems()) : "0") + " gems",
+                ChatColor.AQUA + "You have: " + ChatColor.WHITE + (yakPlayer != null ? TextUtil.formatNumber(yakPlayer.getBankGems()) : "0") + " gems",
                 "",
                 canAffordFeatured ?
                         ChatColor.GREEN + "✓ You can afford featured listings!" :

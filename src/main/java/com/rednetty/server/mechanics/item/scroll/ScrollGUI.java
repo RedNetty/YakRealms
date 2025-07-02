@@ -120,7 +120,7 @@ public class ScrollGUI extends Menu {
 
             EconomyManager economyManager = YakRealms.getInstance().getEconomyManager();
 
-            if (economyManager.hasGems(player.getUniqueId(), price)) {
+            if (economyManager.hasPhysicalGems(player, price)) {
                 // Start the quantity selection process
                 ItemStack scroll = ItemAPI.getScrollGenerator().createProtectionScroll(tier);
                 ScrollPurchaseManager.startPurchase(player, scroll, price);

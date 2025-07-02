@@ -26,6 +26,7 @@ import java.util.logging.Logger;
 /**
  * Enhanced core player data model with improved thread safety,
  * validation, performance optimizations, and comprehensive functionality.
+ * Physical gem economy - no virtual gem balance, only bank balance and physical items.
  */
 public class YakPlayer {
     private static final Logger logger = Logger.getLogger(YakPlayer.class.getName());
@@ -93,21 +94,12 @@ public class YakPlayer {
     @Expose @SerializedName("distance_traveled")
     private volatile double distanceTraveled = 0.0;
 
-    // Economy data with validation
-    @Expose @SerializedName("gems")
-    private volatile int gems = 0;
-
+    // Economy data - ONLY bank balance, no virtual player balance
     @Expose @SerializedName("bank_gems")
     private volatile int bankGems = 0;
 
     @Expose @SerializedName("elite_shards")
     private volatile int eliteShards = 0;
-
-    @Expose @SerializedName("total_gems_earned")
-    private volatile long totalGemsEarned = 0;
-
-    @Expose @SerializedName("total_gems_spent")
-    private volatile long totalGemsSpent = 0;
 
     // Bank system with improved structure
     @Expose @SerializedName("bank_pages")
@@ -533,68 +525,6 @@ public class YakPlayer {
             return bukkitPlayer;
         } finally {
             lock.readLock().unlock();
-        }
-    }
-
-    // Enhanced gem management with validation and tracking
-    public boolean addGems(int amount) {
-        return addGems(amount, "Unknown");
-    }
-
-    public boolean addGems(int amount, String source) {
-        if (amount < 0) {
-            logger.warning("Attempted to add negative gems: " + amount + " from source: " + source);
-            return false;
-        }
-
-        lock.writeLock().lock();
-        try {
-            long newTotal = (long) gems + amount;
-            if (newTotal > MAX_GEMS) {
-                logger.warning("Gem addition would exceed maximum: " + newTotal + " for player: " + username);
-                return false;
-            }
-
-            this.gems += amount;
-            this.totalGemsEarned += amount;
-            markDirty();
-
-            // Notify player if online
-            sendMessageIfOnline(ChatColor.GREEN + "+" + amount + " gems!" +
-                    (!"Unknown".equals(source) ? " (" + source + ")" : ""));
-
-            return true;
-        } finally {
-            lock.writeLock().unlock();
-        }
-    }
-
-    public boolean removeGems(int amount) {
-        return removeGems(amount, "Unknown");
-    }
-
-    public boolean removeGems(int amount, String reason) {
-        if (amount < 0) {
-            logger.warning("Attempted to remove negative gems: " + amount + " for reason: " + reason);
-            return false;
-        }
-
-        lock.writeLock().lock();
-        try {
-            if (gems >= amount) {
-                gems -= amount;
-                totalGemsSpent += amount;
-                markDirty();
-
-                // Notify player if online
-                sendMessageIfOnline(ChatColor.RED + "-" + amount + " gems!" +
-                        (!"Unknown".equals(reason) ? " (" + reason + ")" : ""));
-
-                return true;
-            }
-            return false;
-        } finally {
-            lock.writeLock().unlock();
         }
     }
 
@@ -1800,25 +1730,6 @@ public class YakPlayer {
         }
     }
 
-    public int getGems() {
-        lock.readLock().lock();
-        try {
-            return gems;
-        } finally {
-            lock.readLock().unlock();
-        }
-    }
-
-    public void setGems(int gems) {
-        lock.writeLock().lock();
-        try {
-            this.gems = Math.max(MIN_GEMS, Math.min(MAX_GEMS, gems));
-            markDirty();
-        } finally {
-            lock.writeLock().unlock();
-        }
-    }
-
     public int getBankGems() {
         lock.readLock().lock();
         try {
@@ -2783,6 +2694,7 @@ public class YakPlayer {
     }
 
     public void setHealth(double health) {
+        if(bukkitPlayer != null && (bukkitPlayer.isDead() || bukkitPlayer.getHealth() <= 0.0)) return;
         lock.writeLock().lock();
         try {
             this.health = Math.max(0, health);
@@ -3028,48 +2940,10 @@ public class YakPlayer {
         }
     }
 
-    public long getTotalGemsEarned() {
-        lock.readLock().lock();
-        try {
-            return totalGemsEarned;
-        } finally {
-            lock.readLock().unlock();
-        }
-    }
-
-    public void setTotalGemsEarned(long totalGemsEarned) {
-        lock.writeLock().lock();
-        try {
-            this.totalGemsEarned = totalGemsEarned;
-            markDirty();
-        } finally {
-            lock.writeLock().unlock();
-        }
-    }
-
-    public long getTotalGemsSpent() {
-        lock.readLock().lock();
-        try {
-            return totalGemsSpent;
-        } finally {
-            lock.readLock().unlock();
-        }
-    }
-
-    public void setTotalGemsSpent(long totalGemsSpent) {
-        lock.writeLock().lock();
-        try {
-            this.totalGemsSpent = totalGemsSpent;
-            markDirty();
-        } finally {
-            lock.writeLock().unlock();
-        }
-    }
-
     public List<String> getBankAccessLog() {
         lock.readLock().lock();
         try {
-            return bankAccessLog;
+            return new ArrayList<>(bankAccessLog);
         } finally {
             lock.readLock().unlock();
         }
@@ -3192,7 +3066,7 @@ public class YakPlayer {
     public Map<String, Boolean> getNotificationSettings() {
         lock.readLock().lock();
         try {
-            return notificationSettings;
+            return new HashMap<>(notificationSettings);
         } finally {
             lock.readLock().unlock();
         }
@@ -3391,7 +3265,7 @@ public class YakPlayer {
     public Map<String, Integer> getWorldBossKills() {
         lock.readLock().lock();
         try {
-            return worldBossKills;
+            return new HashMap<>(worldBossKills);
         } finally {
             lock.readLock().unlock();
         }
@@ -3400,7 +3274,7 @@ public class YakPlayer {
     public Set<String> getBlockedPlayers() {
         lock.readLock().lock();
         try {
-            return blockedPlayers;
+            return new HashSet<>(blockedPlayers);
         } finally {
             lock.readLock().unlock();
         }
@@ -3419,7 +3293,7 @@ public class YakPlayer {
     public Set<String> getAchievements() {
         lock.readLock().lock();
         try {
-            return achievements;
+            return new HashSet<>(achievements);
         } finally {
             lock.readLock().unlock();
         }
@@ -3447,7 +3321,7 @@ public class YakPlayer {
     public Set<String> getDailyRewardsClaimed() {
         lock.readLock().lock();
         try {
-            return dailyRewardsClaimed;
+            return new HashSet<>(dailyRewardsClaimed);
         } finally {
             lock.readLock().unlock();
         }
@@ -3475,7 +3349,7 @@ public class YakPlayer {
     public Map<String, Integer> getEventsParticipated() {
         lock.readLock().lock();
         try {
-            return eventsParticipated;
+            return new HashMap<>(eventsParticipated);
         } finally {
             lock.readLock().unlock();
         }
@@ -3484,7 +3358,7 @@ public class YakPlayer {
     public Map<String, Integer> getEventWins() {
         lock.readLock().lock();
         try {
-            return eventWins;
+            return new HashMap<>(eventWins);
         } finally {
             lock.readLock().unlock();
         }
@@ -3566,7 +3440,6 @@ public class YakPlayer {
         }
     }
 
-
     public void setRespawnItems(ItemStack[] items) {
         this.respawnItems = items != null ? items.clone() : null;
     }
@@ -3588,7 +3461,6 @@ public class YakPlayer {
                     ", world='" + world + '\'' +
                     ", location=(" + locationX + "," + locationY + "," + locationZ + ")" +
                     ", health=" + health + "/" + maxHealth +
-                    ", gems=" + gems +
                     ", bankGems=" + bankGems +
                     ", online=" + isOnline() +
                     ", buddies=" + buddies.size() +
@@ -3599,7 +3471,6 @@ public class YakPlayer {
             lock.readLock().unlock();
         }
     }
-
 
     // Helper classes for serialization
     private static class ItemSerializer {

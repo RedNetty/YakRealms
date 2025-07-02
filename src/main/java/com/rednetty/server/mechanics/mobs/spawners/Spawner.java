@@ -21,8 +21,13 @@ import java.util.logging.Logger;
 import java.util.stream.Collectors;
 
 /**
- * IMPROVED: Complete Spawner class with enhanced functionality and reliability
- * Maintains all functionality while reducing complexity and improving performance
+ * FIXED: Complete Spawner class with enhanced reliability, error handling, and MAIN THREAD SAFETY
+ * - Fixed entity creation validation and spawn failure handling
+ * - Enhanced mob type validation with comprehensive error reporting
+ * - Improved spawn success rates with better location finding
+ * - Added detailed logging for debugging spawn failures
+ * - Fixed respawn queue management and mob counting issues
+ * - ALL entity operations happen on MAIN THREAD ONLY
  */
 public class Spawner {
     private final Location location;
@@ -53,11 +58,16 @@ public class Spawner {
     private static final long PLAYER_CHECK_INTERVAL = 2000; // 2 seconds between player checks
     private static final long VALIDATION_INTERVAL = 10000; // 10 seconds between validations
 
-    // Performance tracking
+    // Enhanced performance tracking
     private int totalSpawnAttempts = 0;
     private int successfulSpawns = 0;
     private int failedSpawns = 0;
     private long lastPerformanceReset = System.currentTimeMillis();
+
+    // Enhanced failure tracking
+    private final Map<String, Integer> mobTypeFailures = new ConcurrentHashMap<>();
+    private final Map<String, Long> lastFailureTime = new ConcurrentHashMap<>();
+    private final Set<String> temporarilyDisabledTypes = new HashSet<>();
 
     /**
      * Tracks what type of mob should respawn and when.
@@ -89,18 +99,14 @@ public class Spawner {
                     tier == entry.getTier() &&
                     elite == entry.isElite();
         }
-        /**
-         * Check if this entry matches a spawned mob
-         *
-         * @param spawnedMob The spawned mob to compare
-         * @return true if they match
-         */
+
         public boolean matchesEntry(RespawnEntry spawnedMob) {
             if (spawnedMob == null) return false;
             return mobType.equals(spawnedMob.getMobType()) &&
                     tier == spawnedMob.getTier() &&
                     elite == spawnedMob.isElite();
         }
+
         public boolean isExpired() {
             // Consider respawn entry expired if it's been in queue for more than 30 minutes
             return System.currentTimeMillis() - creationTime > 1800000L;
@@ -137,38 +143,87 @@ public class Spawner {
                 location.getBlockZ();
     }
 
-    // ================ DATA PARSING ================
+    // ================ ENHANCED DATA PARSING ================
 
     /**
-     * Parse mob data from string format
+     * Parse mob data from string format with enhanced validation
      */
     public void parseSpawnerData(String data) {
         mobEntries.clear();
 
         if (data == null || data.trim().isEmpty()) {
-            logger.warning("[Spawner] Empty spawner data");
+            logger.warning("[Spawner] Empty spawner data for " + formatLocation());
             return;
         }
 
         try {
             String[] entries = data.split(",");
+            int validEntries = 0;
+            int invalidEntries = 0;
+
             for (String entry : entries) {
                 entry = entry.trim();
                 if (entry.isEmpty()) continue;
 
-                MobEntry mobEntry = MobEntry.fromString(entry);
-                mobEntries.add(mobEntry);
+                try {
+                    MobEntry mobEntry = MobEntry.fromString(entry);
+
+                    // Enhanced validation
+                    if (validateMobEntry(mobEntry)) {
+                        mobEntries.add(mobEntry);
+                        validEntries++;
+                    } else {
+                        invalidEntries++;
+                        logger.warning("[Spawner] Invalid mob entry rejected: " + entry + " at " + formatLocation());
+                    }
+                } catch (Exception e) {
+                    invalidEntries++;
+                    logger.warning("[Spawner] Failed to parse mob entry '" + entry + "' at " + formatLocation() + ": " + e.getMessage());
+                }
             }
 
             needsHologramUpdate = true;
 
             if (isDebugMode()) {
-                logger.info("[Spawner] Parsed " + mobEntries.size() + " mob entries for " + formatLocation());
+                logger.info(String.format("[Spawner] Parsed %d valid entries (%d invalid) for %s",
+                        validEntries, invalidEntries, formatLocation()));
             }
 
         } catch (Exception e) {
-            logger.warning("[Spawner] Error parsing spawner data: " + e.getMessage());
+            logger.warning("[Spawner] Error parsing spawner data at " + formatLocation() + ": " + e.getMessage());
             mobEntries.clear();
+        }
+    }
+
+    /**
+     * Enhanced mob entry validation
+     */
+    private boolean validateMobEntry(MobEntry entry) {
+        if (entry == null) return false;
+
+        try {
+            // Check if mob type is temporarily disabled due to failures
+            if (temporarilyDisabledTypes.contains(entry.getMobType())) {
+                return false;
+            }
+
+            // Check if this mob type can be spawned by the manager
+            if (!mobManager.canSpawnerSpawnMob(entry.getMobType(), entry.getTier(), entry.isElite())) {
+                return false;
+            }
+
+            // Check failure rate for this mob type
+            String mobKey = getMobTypeKey(entry);
+            int failures = mobTypeFailures.getOrDefault(mobKey, 0);
+            if (failures > 10) {
+                // Too many recent failures
+                return false;
+            }
+
+            return true;
+        } catch (Exception e) {
+            logger.warning("[Spawner] Error validating mob entry: " + e.getMessage());
+            return false;
         }
     }
 
@@ -181,12 +236,19 @@ public class Spawner {
                 .collect(Collectors.joining(","));
     }
 
-    // ================ MAIN PROCESSING ================
+    // ================ ENHANCED MAIN PROCESSING ================
 
     /**
-     * Main tick processing method - called every second from MobSpawner
+     * FIXED: Main tick processing method with MAIN THREAD SAFETY
+     * Called every second from MobSpawner - always on main thread
      */
     public void tick() {
+        // CRITICAL: Verify we're on the main thread for entity operations
+        if (!Bukkit.isPrimaryThread()) {
+            logger.severe("[Spawner] CRITICAL: tick() called from async thread! Location: " + formatLocation());
+            return;
+        }
+
         long currentTime = System.currentTimeMillis();
 
         // Don't process too frequently
@@ -196,18 +258,19 @@ public class Spawner {
         lastProcessTime = currentTime;
 
         try {
-            // Step 1: Validate and clean up invalid mobs
+            // Step 1: Validate and clean up invalid mobs - MAIN THREAD
             if (currentTime - lastValidationTime > VALIDATION_INTERVAL) {
                 validateAndCleanupMobs();
+                cleanupFailureTracking(currentTime);
                 lastValidationTime = currentTime;
             }
 
             // Only proceed if spawn conditions are met
             if (canSpawnHere(currentTime)) {
-                // Step 2: Process the respawn queue first
+                // Step 2: Process the respawn queue first - MAIN THREAD
                 processRespawnQueue(currentTime);
 
-                // Step 3: Spawn any additional missing mobs if not at capacity
+                // Step 3: Spawn any additional missing mobs if not at capacity - MAIN THREAD
                 spawnMissingMobs();
             }
 
@@ -226,9 +289,15 @@ public class Spawner {
     }
 
     /**
-     * Enhanced mob validation and cleanup
+     * FIXED: Enhanced mob validation and cleanup with MAIN THREAD SAFETY
      */
     private void validateAndCleanupMobs() {
+        // CRITICAL: Verify we're on the main thread for entity operations
+        if (!Bukkit.isPrimaryThread()) {
+            logger.severe("[Spawner] CRITICAL: validateAndCleanupMobs called from async thread!");
+            return;
+        }
+
         if (activeMobs.isEmpty()) return;
 
         boolean changed = false;
@@ -238,6 +307,7 @@ public class Spawner {
             Map.Entry<UUID, SpawnedMob> entry = iterator.next();
             UUID uuid = entry.getKey();
 
+            // Entity lookup - MAIN THREAD
             Entity entity = Bukkit.getEntity(uuid);
             if (entity == null || !entity.isValid() || entity.isDead()) {
                 iterator.remove();
@@ -266,9 +336,46 @@ public class Spawner {
     }
 
     /**
-     * Process mobs waiting in the respawn queue.
+     * Clean up failure tracking data
+     */
+    private void cleanupFailureTracking(long currentTime) {
+        try {
+            // Re-enable temporarily disabled types after 5 minutes
+            Iterator<String> disabledIterator = temporarilyDisabledTypes.iterator();
+            while (disabledIterator.hasNext()) {
+                String mobType = disabledIterator.next();
+                Long lastFailure = lastFailureTime.get(mobType);
+                if (lastFailure != null && (currentTime - lastFailure) > 300000L) { // 5 minutes
+                    disabledIterator.remove();
+                    mobTypeFailures.put(mobType, 0); // Reset failure count
+                    if (isDebugMode()) {
+                        logger.info("[Spawner] Re-enabled mob type: " + mobType);
+                    }
+                }
+            }
+
+            // Reset failure counts that are old
+            mobTypeFailures.entrySet().removeIf(entry -> {
+                String mobType = entry.getKey();
+                Long lastFailure = lastFailureTime.get(mobType);
+                return lastFailure != null && (currentTime - lastFailure) > 600000L; // 10 minutes
+            });
+
+        } catch (Exception e) {
+            logger.warning("[Spawner] Error cleaning up failure tracking: " + e.getMessage());
+        }
+    }
+
+    /**
+     * FIXED: Process mobs waiting in the respawn queue with MAIN THREAD SAFETY
      */
     private void processRespawnQueue(long currentTime) {
+        // CRITICAL: Verify we're on the main thread for entity spawning
+        if (!Bukkit.isPrimaryThread()) {
+            logger.severe("[Spawner] CRITICAL: processRespawnQueue called from async thread!");
+            return;
+        }
+
         if (respawnQueue.isEmpty()) return;
 
         List<UUID> readyToRespawn = new ArrayList<>();
@@ -280,34 +387,55 @@ public class Spawner {
 
         if (readyToRespawn.isEmpty()) return;
 
+        int processedCount = 0;
         for (UUID queueId : readyToRespawn) {
             RespawnEntry respawnEntry = respawnQueue.remove(queueId);
             if (respawnEntry == null) continue;
 
             // Check if we still need a mob of this type and are not at global capacity
-            if (!isAtCapacity() && spawnSingleMob(respawnEntry.getMobType(), respawnEntry.getTier(), respawnEntry.isElite())) {
+            if (!isAtCapacity() && spawnSingleMobEnhanced(respawnEntry.getMobType(), respawnEntry.getTier(), respawnEntry.isElite())) {
                 if (isDebugMode()) {
-                    logger.info("[Spawner] Respawned: " + respawnEntry.getMobType());
+                    logger.info("[Spawner] Respawned: " + respawnEntry.getMobType() + " T" + respawnEntry.getTier() +
+                            (respawnEntry.isElite() ? "+" : ""));
                 }
                 successfulSpawns++;
+                processedCount++;
             } else {
-                // Spawning failed (e.g. at capacity), put it back in the queue for a short delay
-                respawnQueue.put(UUID.randomUUID(), new RespawnEntry(
-                        respawnEntry.getMobType(),
-                        respawnEntry.getTier(),
-                        respawnEntry.isElite(),
-                        currentTime + 5000
-                ));
+                // Spawning failed, check if we should retry or give up
+                String mobKey = getMobTypeKey(respawnEntry.getMobType(), respawnEntry.getTier(), respawnEntry.isElite());
+                int failures = mobTypeFailures.getOrDefault(mobKey, 0);
+
+                if (failures < 5) {
+                    // Put it back in the queue for a short delay
+                    respawnQueue.put(UUID.randomUUID(), new RespawnEntry(
+                            respawnEntry.getMobType(),
+                            respawnEntry.getTier(),
+                            respawnEntry.isElite(),
+                            currentTime + 10000 // 10 second delay
+                    ));
+                }
                 failedSpawns++;
             }
+
+            // Limit processing per tick to avoid lag
+            if (processedCount >= 3) break;
         }
-        needsHologramUpdate = true;
+
+        if (processedCount > 0) {
+            needsHologramUpdate = true;
+        }
     }
 
     /**
-     * Spawn mobs to meet the configured amounts, respecting the total mob count.
+     * FIXED: Spawn mobs to meet the configured amounts with MAIN THREAD SAFETY
      */
     private void spawnMissingMobs() {
+        // CRITICAL: Verify we're on the main thread for entity spawning
+        if (!Bukkit.isPrimaryThread()) {
+            logger.severe("[Spawner] CRITICAL: spawnMissingMobs called from async thread!");
+            return;
+        }
+
         if (isAtCapacity()) return;
 
         for (MobEntry entry : mobEntries) {
@@ -317,11 +445,12 @@ public class Spawner {
                 if (isAtCapacity()) return; // Stop if we hit capacity mid-spawn
 
                 totalSpawnAttempts++;
-                if (spawnSingleMob(entry.getMobType(), entry.getTier(), entry.isElite())) {
+                if (spawnSingleMobEnhanced(entry.getMobType(), entry.getTier(), entry.isElite())) {
                     metrics.recordSpawn(1);
                     successfulSpawns++;
                     if (isDebugMode()) {
-                        logger.info("[Spawner] Spawned missing mob: " + entry.getMobType());
+                        logger.info("[Spawner] Spawned missing mob: " + entry.getMobType() + " T" + entry.getTier() +
+                                (entry.isElite() ? "+" : ""));
                     }
                 } else {
                     failedSpawns++;
@@ -333,34 +462,139 @@ public class Spawner {
     }
 
     /**
-     * Unified method to spawn a single mob.
-     * @return true if successful.
+     * FIXED: Enhanced mob spawning with MAIN THREAD SAFETY
      */
-    private boolean spawnSingleMob(String mobType, int tier, boolean elite) {
-        try {
-            Location spawnLoc = getRandomSpawnLocation();
-            if (spawnLoc == null) return false;
+    private boolean spawnSingleMobEnhanced(String mobType, int tier, boolean elite) {
+        // CRITICAL: Verify we're on the main thread for entity operations
+        if (!Bukkit.isPrimaryThread()) {
+            logger.severe("[Spawner] CRITICAL: spawnSingleMobEnhanced called from async thread!");
+            return false;
+        }
 
+        String mobKey = getMobTypeKey(mobType, tier, elite);
+
+        try {
+            // Check if this mob type is temporarily disabled
+            if (temporarilyDisabledTypes.contains(mobType)) {
+                if (isDebugMode()) {
+                    logger.info("[Spawner] Skipping temporarily disabled mob type: " + mobType);
+                }
+                return false;
+            }
+
+            // Get a safe spawn location with enhanced validation
+            Location spawnLoc = getRandomSpawnLocationEnhanced();
+            if (spawnLoc == null) {
+                recordSpawnFailure(mobKey, "No safe spawn location found");
+                return false;
+            }
+
+            // Validate mob type before attempting spawn
+            if (!validateMobTypeForSpawning(mobType, tier, elite)) {
+                recordSpawnFailure(mobKey, "Mob type validation failed");
+                return false;
+            }
+
+            // Attempt to spawn the mob using MobManager - MAIN THREAD
             LivingEntity entity = mobManager.spawnMobFromSpawner(spawnLoc, mobType, tier, elite);
 
-            if (entity != null) {
-                // Track this new mob
+            if (entity != null && entity.isValid()) {
+                // Success! Track this new mob
                 activeMobs.put(entity.getUniqueId(), new SpawnedMob(entity.getUniqueId(), mobType, tier, elite));
 
-                // Add metadata
+                // Add metadata for tracking - MAIN THREAD
                 entity.setMetadata("spawner", new FixedMetadataValue(YakRealms.getInstance(), uniqueId));
                 if (hasSpawnerGroup()) {
                     entity.setMetadata("spawnerGroup", new FixedMetadataValue(YakRealms.getInstance(), properties.getSpawnerGroup()));
                 }
 
                 needsHologramUpdate = true;
+
+                // Reset failure count on success
+                mobTypeFailures.put(mobKey, 0);
+
+                if (isDebugMode()) {
+                    logger.info(String.format("[Spawner] Successfully spawned %s T%d%s at %s (ID: %s)",
+                            mobType, tier, elite ? "+" : "", formatLocation(),
+                            entity.getUniqueId().toString().substring(0, 8)));
+                }
+
                 return true;
+            } else {
+                recordSpawnFailure(mobKey, "MobManager returned null or invalid entity");
+                return false;
             }
         } catch (Exception e) {
-            logger.warning("[Spawner] Failed to spawn mob '" + mobType + "': " + e.getMessage());
+            recordSpawnFailure(mobKey, "Exception during spawn: " + e.getMessage());
+            logger.warning("[Spawner] Failed to spawn mob '" + mobType + "' T" + tier + (elite ? "+" : "") +
+                    " at " + formatLocation() + ": " + e.getMessage());
+            if (isDebugMode()) {
+                e.printStackTrace();
+            }
             metrics.recordFailedSpawn();
+            return false;
         }
-        return false;
+    }
+
+    /**
+     * Record spawn failure and update failure tracking
+     */
+    private void recordSpawnFailure(String mobKey, String reason) {
+        int failures = mobTypeFailures.getOrDefault(mobKey, 0) + 1;
+        mobTypeFailures.put(mobKey, failures);
+        lastFailureTime.put(mobKey, System.currentTimeMillis());
+
+        if (failures >= 10) {
+            // Temporarily disable this mob type
+            String mobType = mobKey.split(":")[0];
+            temporarilyDisabledTypes.add(mobType);
+            logger.warning(String.format("[Spawner] Temporarily disabled mob type '%s' after %d failures. Reason: %s",
+                    mobType, failures, reason));
+        } else if (isDebugMode()) {
+            logger.info(String.format("[Spawner] Spawn failure #%d for %s: %s", failures, mobKey, reason));
+        }
+    }
+
+    /**
+     * Get mob type key for failure tracking
+     */
+    private String getMobTypeKey(String mobType, int tier, boolean elite) {
+        return mobType + ":" + tier + ":" + (elite ? "elite" : "normal");
+    }
+
+    private String getMobTypeKey(MobEntry entry) {
+        return getMobTypeKey(entry.getMobType(), entry.getTier(), entry.isElite());
+    }
+
+    /**
+     * Enhanced mob type validation
+     */
+    private boolean validateMobTypeForSpawning(String mobType, int tier, boolean elite) {
+        try {
+            // Check with MobManager
+            if (!mobManager.canSpawnerSpawnMob(mobType, tier, elite)) {
+                return false;
+            }
+
+            // Additional validation checks
+            if (mobType == null || mobType.trim().isEmpty()) {
+                return false;
+            }
+
+            if (tier < 1 || tier > 6) {
+                return false;
+            }
+
+            // Check T6 availability
+            if (tier > 5 && !YakRealms.isT6Enabled()) {
+                return false;
+            }
+
+            return true;
+        } catch (Exception e) {
+            logger.warning("[Spawner] Error validating mob type: " + e.getMessage());
+            return false;
+        }
     }
 
     /**
@@ -381,52 +615,92 @@ public class Spawner {
     }
 
     /**
-     * Generate a random spawn location near this spawner
+     * FIXED: Enhanced random spawn location generation with better validation
      */
-    private Location getRandomSpawnLocation() {
+    private Location getRandomSpawnLocationEnhanced() {
         double radiusX = properties.getSpawnRadiusX();
         double radiusY = properties.getSpawnRadiusY();
         double radiusZ = properties.getSpawnRadiusZ();
 
-        // Try multiple locations to find a safe one
-        for (int attempts = 0; attempts < 5; attempts++) {
-            double offsetX = (Math.random() * 2 - 1) * radiusX;
+        // Try multiple locations to find a safe one with expanding search
+        for (int attempts = 0; attempts < 15; attempts++) {
+            // Expand search radius with attempts
+            double expansionFactor = 1.0 + (attempts * 0.2);
+
+            double offsetX = (Math.random() * 2 - 1) * radiusX * expansionFactor;
             double offsetY = (Math.random() * 2 - 1) * radiusY;
-            double offsetZ = (Math.random() * 2 - 1) * radiusZ;
+            double offsetZ = (Math.random() * 2 - 1) * radiusZ * expansionFactor;
 
             Location spawnLoc = location.clone().add(offsetX, offsetY, offsetZ);
 
             // Enhanced safety check
-            if (isSafeSpawnLocation(spawnLoc)) {
+            if (isSafeSpawnLocationEnhanced(spawnLoc)) {
                 return spawnLoc;
             }
         }
 
-        // Fallback location
-        Location fallback = location.clone().add(0, 2, 0);
-        return isSafeSpawnLocation(fallback) ? fallback : location.clone();
+        // Try some fallback locations
+        Location[] fallbacks = {
+                location.clone().add(0, 2, 0),
+                location.clone().add(1, 2, 1),
+                location.clone().add(-1, 2, -1),
+                location.clone().add(0, 3, 0)
+        };
+
+        for (Location fallback : fallbacks) {
+            if (isSafeSpawnLocationEnhanced(fallback)) {
+                if (isDebugMode()) {
+                    logger.info("[Spawner] Using fallback location: " + formatLocation());
+                }
+                return fallback;
+            }
+        }
+
+        // Final fallback
+        return location.clone().add(0.5, 3, 0.5);
     }
 
     /**
-     * Enhanced safe spawn location check
+     * Enhanced safe spawn location check with detailed validation
      */
-    private boolean isSafeSpawnLocation(Location loc) {
+    private boolean isSafeSpawnLocationEnhanced(Location loc) {
         try {
+            if (loc == null || loc.getWorld() == null) {
+                return false;
+            }
+
+            // Check Y bounds
+            if (loc.getY() < 0 || loc.getY() > loc.getWorld().getMaxHeight() - 3) {
+                return false;
+            }
+
+            // Check if chunk is loaded
+            if (!loc.getWorld().isChunkLoaded(loc.getBlockX() >> 4, loc.getBlockZ() >> 4)) {
+                return false;
+            }
+
+            // Check current block
             if (loc.getBlock().getType().isSolid()) {
                 return false;
             }
 
+            // Check block above
             if (loc.clone().add(0, 1, 0).getBlock().getType().isSolid()) {
                 return false;
             }
 
-            // Check if location is in void
-            if (loc.getY() < 0) {
+            // Check for dangerous blocks
+            String blockName = loc.getBlock().getType().name();
+            if (blockName.contains("LAVA") || blockName.contains("FIRE") ||
+                    blockName.contains("MAGMA") || blockName.contains("CACTUS")) {
                 return false;
             }
 
             return true;
         } catch (Exception e) {
+            if (isDebugMode()) {
+                logger.warning("[Spawner] Error checking spawn location: " + e.getMessage());
+            }
             return false;
         }
     }
@@ -446,7 +720,26 @@ public class Spawner {
         return isWorldAndChunkLoaded() &&
                 canSpawnByTimeAndWeather() &&
                 isPlayerNearby() &&
-                !isSpawnerDisabled();
+                !isSpawnerDisabled() &&
+                hasValidMobEntries();
+    }
+
+    /**
+     * Check if spawner has any valid mob entries
+     */
+    private boolean hasValidMobEntries() {
+        if (mobEntries.isEmpty()) {
+            return false;
+        }
+
+        // Check if any mob entries are not temporarily disabled
+        for (MobEntry entry : mobEntries) {
+            if (!temporarilyDisabledTypes.contains(entry.getMobType())) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -534,6 +827,7 @@ public class Spawner {
 
             if (isDebugMode()) {
                 logger.info("[Spawner] Mob death registered: " + deadMob.getMobType() +
+                        " T" + deadMob.getTier() + (deadMob.isElite() ? "+" : "") +
                         " will respawn in " + (respawnDelay / 1000) + " seconds");
             }
         } else if (isDebugMode()) {
@@ -622,11 +916,24 @@ public class Spawner {
                 lines.add(ChatColor.YELLOW + "Group: " + ChatColor.WHITE + properties.getSpawnerGroup());
             }
 
-            // Status indicator
-            String statusColor = isSpawnerDisabled() ? ChatColor.RED.toString() :
-                    isAtCapacity() ? ChatColor.YELLOW.toString() : ChatColor.GREEN.toString();
-            String statusText = isSpawnerDisabled() ? "DISABLED" :
-                    isAtCapacity() ? "FULL" : "ACTIVE";
+            // Status indicator with enhanced status
+            String statusColor;
+            String statusText;
+
+            if (isSpawnerDisabled()) {
+                statusColor = ChatColor.RED.toString();
+                statusText = "DISABLED";
+            } else if (!hasValidMobEntries()) {
+                statusColor = ChatColor.DARK_RED.toString();
+                statusText = "NO VALID MOBS";
+            } else if (isAtCapacity()) {
+                statusColor = ChatColor.YELLOW.toString();
+                statusText = "FULL";
+            } else {
+                statusColor = ChatColor.GREEN.toString();
+                statusText = "ACTIVE";
+            }
+
             lines.add(statusColor + "● " + statusText + " ●");
 
             // Mob types
@@ -640,12 +947,18 @@ public class Spawner {
                     ChatColor.GRAY + " | " + ChatColor.YELLOW + "Queued: " + ChatColor.WHITE + respawning +
                     ChatColor.GRAY + " | " + ChatColor.AQUA + "Target: " + ChatColor.WHITE + desired);
 
-            // Detailed info for higher display modes
+            // Enhanced failure tracking info
             if (displayMode >= 1) {
                 // Performance info
                 if (totalSpawnAttempts > 0) {
                     double successRate = (double) successfulSpawns / totalSpawnAttempts * 100;
                     lines.add(ChatColor.GRAY + "Success Rate: " + ChatColor.WHITE + String.format("%.1f%%", successRate));
+                }
+
+                // Show temporarily disabled types
+                if (!temporarilyDisabledTypes.isEmpty()) {
+                    lines.add(ChatColor.RED + "Disabled: " + ChatColor.WHITE +
+                            String.join(", ", temporarilyDisabledTypes));
                 }
 
                 if (!respawnQueue.isEmpty()) {
@@ -681,6 +994,12 @@ public class Spawner {
                             " spawned, " + metrics.getTotalKilled() + " killed");
                 }
 
+                // Enhanced failure tracking
+                int totalFailures = mobTypeFailures.values().stream().mapToInt(Integer::intValue).sum();
+                if (totalFailures > 0) {
+                    lines.add(ChatColor.DARK_GRAY + "Failures: " + totalFailures);
+                }
+
                 // Uptime
                 lines.add(ChatColor.DARK_GRAY + "Uptime: " + metrics.getFormattedUptime());
             }
@@ -712,8 +1031,14 @@ public class Spawner {
             String mobName = MobUtils.getDisplayName(entry.getMobType());
             ChatColor tierColor = getTierColor(entry.getTier());
 
-            result.append(tierColor).append(mobName)
-                    .append(" T").append(entry.getTier())
+            // Check if this mob type is disabled
+            if (temporarilyDisabledTypes.contains(entry.getMobType())) {
+                result.append(ChatColor.RED).append("✗").append(mobName);
+            } else {
+                result.append(tierColor).append(mobName);
+            }
+
+            result.append(" T").append(entry.getTier())
                     .append(entry.isElite() ? "+" : "")
                     .append("×").append(entry.getAmount());
         }
@@ -792,27 +1117,45 @@ public class Spawner {
         }
 
         double successRate = (double) successfulSpawns / totalSpawnAttempts * 100;
-        return String.format("Performance: %d/%d spawns (%.1f%% success)",
-                successfulSpawns, totalSpawnAttempts, successRate);
+        int totalFailures = mobTypeFailures.values().stream().mapToInt(Integer::intValue).sum();
+
+        return String.format("Performance: %d/%d spawns (%.1f%% success), %d total failures, %d disabled types",
+                successfulSpawns, totalSpawnAttempts, successRate, totalFailures, temporarilyDisabledTypes.size());
     }
 
     // ================ MANAGEMENT METHODS ================
 
     /**
-     * Enhanced spawner reset with better cleanup
+     * FIXED: Enhanced spawner reset with MAIN THREAD SAFETY
      */
     public void reset() {
-        // Remove all active mobs
+        // CRITICAL: Verify we're on the main thread for entity operations
+        if (!Bukkit.isPrimaryThread()) {
+            logger.severe("[Spawner] CRITICAL: reset called from async thread!");
+
+            // Schedule on main thread
+            Bukkit.getScheduler().runTask(YakRealms.getInstance(), () -> {
+                reset();
+            });
+            return;
+        }
+
+        // Remove all active mobs - MAIN THREAD
         for (UUID mobId : new HashSet<>(activeMobs.keySet())) {
             Entity entity = Bukkit.getEntity(mobId);
             if (entity != null && entity.isValid()) {
-                entity.remove();
+                entity.remove(); // Safe - on main thread
             }
         }
 
         activeMobs.clear();
         respawnQueue.clear();
         metrics.reset();
+
+        // Reset failure tracking
+        mobTypeFailures.clear();
+        lastFailureTime.clear();
+        temporarilyDisabledTypes.clear();
 
         // Reset performance counters
         totalSpawnAttempts = 0;
@@ -851,13 +1194,27 @@ public class Spawner {
 
         player.sendMessage(ChatColor.GOLD + "║ " + ChatColor.YELLOW + "Mobs: " + ChatColor.WHITE + formatSpawnerData());
 
-        // Status with more detail
-        String status = isSpawnerDisabled() ? ChatColor.RED + "DISABLED" :
-                isAtCapacity() ? ChatColor.YELLOW + "FULL" : ChatColor.GREEN + "ACTIVE";
+        // Enhanced status with more detail
+        String status;
+        if (isSpawnerDisabled()) {
+            status = ChatColor.RED + "DISABLED";
+        } else if (!hasValidMobEntries()) {
+            status = ChatColor.DARK_RED + "NO VALID MOBS";
+        } else if (isAtCapacity()) {
+            status = ChatColor.YELLOW + "FULL";
+        } else {
+            status = ChatColor.GREEN + "ACTIVE";
+        }
         player.sendMessage(ChatColor.GOLD + "║ " + ChatColor.YELLOW + "Status: " + status);
 
         player.sendMessage(ChatColor.GOLD + "║ " + ChatColor.YELLOW + "Counts: " +
                 ChatColor.WHITE + getActiveMobCount() + " active, " + respawnQueue.size() + " respawning, " + getDesiredMobCount() + " target");
+
+        // Enhanced failure information
+        if (!temporarilyDisabledTypes.isEmpty()) {
+            player.sendMessage(ChatColor.GOLD + "║ " + ChatColor.RED + "Disabled Types: " +
+                    ChatColor.WHITE + String.join(", ", temporarilyDisabledTypes));
+        }
 
         if (!respawnQueue.isEmpty()) {
             long nextRespawn = respawnQueue.values().stream()
@@ -877,12 +1234,14 @@ public class Spawner {
         boolean weatherOk = !properties.isWeatherRestricted() || properties.canSpawnByWeather(location.getWorld());
         boolean playersOk = isPlayerNearby();
         boolean chunkOk = isWorldAndChunkLoaded();
+        boolean validMobs = hasValidMobEntries();
 
         player.sendMessage(ChatColor.GOLD + "║ " + ChatColor.YELLOW + "Conditions: " +
                 (timeOk ? ChatColor.GREEN + "T" : ChatColor.RED + "T") + ChatColor.GRAY + " | " +
                 (weatherOk ? ChatColor.GREEN + "W" : ChatColor.RED + "W") + ChatColor.GRAY + " | " +
                 (playersOk ? ChatColor.GREEN + "P" : ChatColor.RED + "P") + ChatColor.GRAY + " | " +
-                (chunkOk ? ChatColor.GREEN + "C" : ChatColor.RED + "C"));
+                (chunkOk ? ChatColor.GREEN + "C" : ChatColor.RED + "C") + ChatColor.GRAY + " | " +
+                (validMobs ? ChatColor.GREEN + "M" : ChatColor.RED + "M"));
 
         if (properties.isTimeRestricted()) {
             player.sendMessage(ChatColor.GOLD + "║ " + ChatColor.YELLOW + "Time: " +
@@ -911,11 +1270,9 @@ public class Spawner {
                     metrics.getTotalKilled() + " killed");
         }
 
-        // Performance info
-        if (totalSpawnAttempts > 0) {
-            player.sendMessage(ChatColor.GOLD + "║ " + ChatColor.YELLOW + "Performance: " +
-                    ChatColor.WHITE + getPerformanceInfo());
-        }
+        // Enhanced performance info
+        player.sendMessage(ChatColor.GOLD + "║ " + ChatColor.YELLOW + "Performance: " +
+                ChatColor.WHITE + getPerformanceInfo());
 
         player.sendMessage(ChatColor.GOLD + "║ " + ChatColor.YELLOW + "Uptime: " + ChatColor.WHITE + metrics.getFormattedUptime());
 
@@ -956,7 +1313,9 @@ public class Spawner {
 
         for (int i = 0; i < mobEntries.size(); i++) {
             MobEntry entry = mobEntries.get(i);
-            debug.append("  [").append(i).append("] ").append(entry.toString()).append("\n");
+            boolean disabled = temporarilyDisabledTypes.contains(entry.getMobType());
+            debug.append("  [").append(i).append("] ").append(entry.toString())
+                    .append(disabled ? " (DISABLED)" : "").append("\n");
         }
 
         debug.append("Active Mobs: ").append(getActiveMobCount()).append("\n");
@@ -976,17 +1335,41 @@ public class Spawner {
         debug.append("Total Killed: ").append(metrics.getTotalKilled()).append("\n");
         debug.append("Total Capacity: ").append(getTotalMobCount()).append("/").append(getMaxMobsAllowed()).append("\n");
         debug.append("Performance: ").append(getPerformanceInfo()).append("\n");
+        debug.append("Failure Tracking:\n");
+
+        for (Map.Entry<String, Integer> entry : mobTypeFailures.entrySet()) {
+            if (entry.getValue() > 0) {
+                debug.append("  ").append(entry.getKey()).append(": ").append(entry.getValue()).append(" failures\n");
+            }
+        }
+
+        if (!temporarilyDisabledTypes.isEmpty()) {
+            debug.append("Disabled Types: ").append(String.join(", ", temporarilyDisabledTypes)).append("\n");
+        }
+
         debug.append("Conditions: Time=").append(canSpawnByTimeAndWeather())
                 .append(", Players=").append(isPlayerNearby())
-                .append(", Chunk=").append(isWorldAndChunkLoaded()).append("\n");
+                .append(", Chunk=").append(isWorldAndChunkLoaded())
+                .append(", ValidMobs=").append(hasValidMobEntries()).append("\n");
 
         return debug.toString();
     }
 
     /**
-     * Force an immediate spawn attempt for testing
+     * FIXED: Force an immediate spawn attempt with MAIN THREAD SAFETY
      */
     public boolean forceSpawn() {
+        // CRITICAL: Verify we're on the main thread for entity operations
+        if (!Bukkit.isPrimaryThread()) {
+            logger.severe("[Spawner] CRITICAL: forceSpawn called from async thread!");
+
+            // Schedule on main thread
+            Bukkit.getScheduler().runTask(YakRealms.getInstance(), () -> {
+                forceSpawn();
+            });
+            return false;
+        }
+
         if (mobEntries.isEmpty()) {
             if (isDebugMode()) {
                 logger.warning("[Spawner] Cannot force spawn - no mob entries configured");
@@ -997,7 +1380,7 @@ public class Spawner {
         try {
             MobEntry entry = mobEntries.get(0);
             totalSpawnAttempts++;
-            boolean success = spawnSingleMob(entry.getMobType(), entry.getTier(), entry.isElite());
+            boolean success = spawnSingleMobEnhanced(entry.getMobType(), entry.getTier(), entry.isElite());
 
             if (success) {
                 successfulSpawns++;
@@ -1027,54 +1410,19 @@ public class Spawner {
         int desired = getDesiredMobCount();
         int capacity = getMaxMobsAllowed();
 
-        String status = isSpawnerDisabled() ? "DISABLED" :
-                isAtCapacity() ? "FULL" : "ACTIVE";
-
-        return String.format("Status: %s | %d/%d active, %d queued, %d/%d capacity",
-                status, active, desired, queued, getTotalMobCount(), capacity);
-    }
-
-    // ================ ADVANCED FEATURES ================
-
-    /**
-     * Pause/unpause spawner
-     */
-    public void setPaused(boolean paused) {
-        needsHologramUpdate = true;
-
-        if (isDebugMode()) {
-            logger.info("[Spawner] " + (paused ? "Paused" : "Unpaused") + " spawner at " + formatLocation());
+        String status;
+        if (isSpawnerDisabled()) {
+            status = "DISABLED";
+        } else if (!hasValidMobEntries()) {
+            status = "NO VALID MOBS";
+        } else if (isAtCapacity()) {
+            status = "FULL";
+        } else {
+            status = "ACTIVE";
         }
-    }
 
-    /**
-     * Check if spawner is paused
-     */
-    public boolean isPaused() {
-        return false;
-    }
-
-    /**
-     * Get detailed status for admin commands
-     */
-    public Map<String, Object> getDetailedStatus() {
-        Map<String, Object> status = new HashMap<>();
-
-        status.put("location", formatLocation());
-        status.put("id", uniqueId);
-        status.put("visible", visible);
-        status.put("paused", isPaused());
-        status.put("activeMobs", getActiveMobCount());
-        status.put("queuedMobs", respawnQueue.size());
-        status.put("desiredMobs", getDesiredMobCount());
-        status.put("capacity", getMaxMobsAllowed());
-        status.put("totalSpawned", metrics.getTotalSpawned());
-        status.put("totalKilled", metrics.getTotalKilled());
-        status.put("uptime", metrics.getFormattedUptime());
-        status.put("canSpawn", canSpawnHere(System.currentTimeMillis()));
-        status.put("performance", getPerformanceInfo());
-
-        return status;
+        return String.format("Status: %s | %d/%d active, %d queued, %d/%d capacity, %d disabled types",
+                status, active, desired, queued, getTotalMobCount(), capacity, temporarilyDisabledTypes.size());
     }
 
     // ================ GETTERS AND SETTERS ================
@@ -1122,5 +1470,57 @@ public class Spawner {
             lastHologramUpdate = 0; // Force immediate update
             updateHologram();
         }
+    }
+
+    // ================ THREAD SAFETY HELPERS ================
+
+    /**
+     * THREAD SAFETY HELPER: Check if we're on the main thread
+     */
+    private boolean ensureMainThread(String methodName) {
+        if (!Bukkit.isPrimaryThread()) {
+            logger.severe("[Spawner] CRITICAL: " + methodName + " called from async thread!");
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * THREAD SAFETY HELPER: Schedule task on main thread if needed
+     */
+    private void scheduleOnMainThread(Runnable task) {
+        if (Bukkit.isPrimaryThread()) {
+            task.run();
+        } else {
+            Bukkit.getScheduler().runTask(YakRealms.getInstance(), task);
+        }
+    }
+
+    // ================ DIAGNOSTIC METHODS ================
+
+    /**
+     * Get detailed diagnostic information for troubleshooting
+     */
+    public Map<String, Object> getDetailedDiagnostics() {
+        Map<String, Object> diagnostics = new HashMap<>();
+
+        diagnostics.put("location", formatLocation());
+        diagnostics.put("uniqueId", uniqueId);
+        diagnostics.put("visible", visible);
+        diagnostics.put("mobEntries", mobEntries.size());
+        diagnostics.put("activeMobs", activeMobs.size());
+        diagnostics.put("respawnQueue", respawnQueue.size());
+        diagnostics.put("totalSpawnAttempts", totalSpawnAttempts);
+        diagnostics.put("successfulSpawns", successfulSpawns);
+        diagnostics.put("failedSpawns", failedSpawns);
+        diagnostics.put("mobTypeFailures", new HashMap<>(mobTypeFailures));
+        diagnostics.put("temporarilyDisabledTypes", new HashSet<>(temporarilyDisabledTypes));
+        diagnostics.put("canSpawn", canSpawnHere(System.currentTimeMillis()));
+        diagnostics.put("hasValidMobs", hasValidMobEntries());
+        diagnostics.put("isAtCapacity", isAtCapacity());
+        diagnostics.put("playerNearby", isPlayerNearby());
+        diagnostics.put("chunkLoaded", isWorldAndChunkLoaded());
+
+        return diagnostics;
     }
 }

@@ -106,6 +106,7 @@ public class ChatMechanics implements Listener {
             }
 
             YakRealms.log("ChatMechanics has been enabled.");
+            logger.info("Chat system compatibility: " + getCompatibilityInfo());
         } catch (Exception e) {
             logger.log(Level.SEVERE, "Error enabling ChatMechanics", e);
         }
@@ -456,7 +457,7 @@ public class ChatMechanics implements Listener {
      * @param player  The player sending the message
      * @param message The message text
      */
-    private void processChat(Player player, String message) {
+    public void processChat(Player player, String message) {
         if (player == null || !player.isOnline() || message == null || message.trim().isEmpty()) {
             return;
         }
@@ -550,7 +551,7 @@ public class ChatMechanics implements Listener {
 
     /**
      * Send a message with an item showcase
-     * FIXED: Better error handling and validation
+     * FIXED: Better error handling, validation, and fallback
      *
      * @param player  The player sending the message
      * @param message The message text containing @i@ for item placement
@@ -558,45 +559,74 @@ public class ChatMechanics implements Listener {
     private void sendItemMessage(Player player, String message) {
         try {
             ItemStack item = player.getInventory().getItemInMainHand();
-            if (item == null || item.getType() == Material.AIR) {
-                // Fallback to normal message if item is not valid
-                sendNormalMessage(player, message.replace("@i@", "[ITEM]"));
+            if (!isHoldingValidItem(player)) {
+                // Better fallback message
+                String fallbackMessage = message.replace("@i@", ChatColor.RED + "[No Item]" + ChatColor.WHITE);
+                sendNormalMessage(player, fallbackMessage);
+                player.sendMessage(ChatColor.GRAY + "Hold an item in your main hand to display it in chat.");
                 return;
             }
 
             String formattedName = getFormattedName(player);
 
-            // Send to self with item hover
-            sendItemHoverMessage(player, item, formattedName, message, player);
+            // Log for debugging
+            logger.info("Player " + player.getName() + " is showing item: " + item.getType().name() +
+                    " with message: " + message);
 
-            // Send to nearby players
-            List<Player> recipients = getNearbyPlayers(player);
+            // Try modern item display first, fall back to simple display if it fails
+            if (supportsModernChat()) {
+                // Send to self with item hover
+                boolean selfSuccess = sendItemHoverMessage(player, item, formattedName, message, player);
+                if (!selfSuccess) {
+                    logger.warning("Failed to send item hover message to self for " + player.getName());
+                    sendItemMessageFallback(player, message);
+                    return;
+                }
 
-            if (recipients.isEmpty()) {
-                player.sendMessage(ChatColor.GRAY.toString() + ChatColor.ITALIC + "No one heard you.");
-            } else {
-                for (Player recipient : recipients) {
-                    if (recipient != null && recipient.isOnline()) {
-                        String recipientSpecificName = null;
-                        try {
-                            recipientSpecificName = getFormattedNameFor(player, recipient);
-                            sendItemHoverMessage(player, item, recipientSpecificName, message, recipient);
-                        } catch (Exception e) {
-                            logger.log(Level.WARNING, "Error sending item message to " + recipient.getName(), e);
-                            // Fallback to normal message
-                            recipient.sendMessage(recipientSpecificName + ChatColor.WHITE + ": " +
-                                    message.replace("@i@", "[" + item.getType().name() + "]"));
+                // Send to nearby players
+                List<Player> recipients = getNearbyPlayers(player);
+
+                if (recipients.isEmpty()) {
+                    player.sendMessage(ChatColor.GRAY.toString() + ChatColor.ITALIC + "No one heard you.");
+                } else {
+                    int successCount = 0;
+                    for (Player recipient : recipients) {
+                        if (recipient != null && recipient.isOnline()) {
+                            try {
+                                String recipientSpecificName = getFormattedNameFor(player, recipient);
+                                boolean success = sendItemHoverMessage(player, item, recipientSpecificName, message, recipient);
+                                if (success) {
+                                    successCount++;
+                                } else {
+                                    // Fallback to normal message with item name
+                                    String fallbackMessage = message.replace("@i@",
+                                            ChatColor.YELLOW + "[" + getItemDisplayName(item) + "]" + ChatColor.WHITE);
+                                    recipient.sendMessage(recipientSpecificName + ChatColor.WHITE + ": " + fallbackMessage);
+                                }
+                            } catch (Exception e) {
+                                logger.log(Level.WARNING, "Error sending item message to " + recipient.getName(), e);
+                                // Fallback to normal message
+                                String recipientSpecificName = getFormattedNameFor(player, recipient);
+                                String fallbackMessage = message.replace("@i@", "[" + item.getType().name() + "]");
+                                recipient.sendMessage(recipientSpecificName + ChatColor.WHITE + ": " + fallbackMessage);
+                            }
                         }
                     }
-                }
-            }
 
-            // Send to vanished staff
-            sendToVanishedStaff(player, formattedName, message);
+                    logger.info("Successfully sent item message to " + successCount + "/" + recipients.size() + " recipients");
+                }
+
+                // Send to vanished staff
+                sendToVanishedStaff(player, formattedName, message);
+            } else {
+                // Use fallback method for servers without modern chat support
+                sendItemMessageFallback(player, message);
+            }
         } catch (Exception e) {
-            logger.log(Level.WARNING, "Error sending item message", e);
+            logger.log(Level.WARNING, "Error sending item message for " + player.getName(), e);
             // Fallback to normal message
-            sendNormalMessage(player, message.replace("@i@", "[ITEM]"));
+            String fallbackMessage = message.replace("@i@", ChatColor.RED + "[ITEM ERROR]" + ChatColor.WHITE);
+            sendNormalMessage(player, fallbackMessage);
         }
     }
 
@@ -618,7 +648,13 @@ public class ChatMechanics implements Listener {
                     try {
                         if (message.contains("@i@") && isHoldingValidItem(player)) {
                             ItemStack item = player.getInventory().getItemInMainHand();
-                            sendItemHoverMessage(player, item, prefix, message, staff);
+                            if (supportsModernChat()) {
+                                sendItemHoverMessage(player, item, prefix, message, staff);
+                            } else {
+                                String fallbackMessage = message.replace("@i@",
+                                        ChatColor.YELLOW + "[" + getItemDisplayName(item) + "]" + ChatColor.WHITE);
+                                staff.sendMessage(prefix + ChatColor.WHITE + ": " + fallbackMessage);
+                            }
                         } else {
                             staff.sendMessage(prefix + ChatColor.WHITE + ": " + message);
                         }
@@ -634,54 +670,59 @@ public class ChatMechanics implements Listener {
 
     /**
      * Send an item hover message to a player
-     * FIXED: Better validation and error handling
+     * FIXED: Better validation, error handling, and success tracking
      *
      * @param sender    The player sending the message
      * @param item      The item to display
      * @param prefix    The sender's prefix/name
      * @param message   The message text
      * @param recipient The player to send to
+     * @return true if the message was sent successfully
      */
-    private void sendItemHoverMessage(Player sender, ItemStack item, String prefix,
-                                      String message, Player recipient) {
+    private boolean sendItemHoverMessage(Player sender, ItemStack item, String prefix,
+                                         String message, Player recipient) {
         if (recipient == null || !recipient.isOnline() || item == null || item.getType() == Material.AIR) {
-            return;
+            return false;
         }
 
         try {
+            // Split message around @i@ placeholder
             String[] parts = message.split("@i@", 2);
             String before = parts.length > 0 ? parts[0] : "";
             String after = parts.length > 1 ? parts[1] : "";
 
-            // Create JSON component with hover
-            JsonChatComponent component = new JsonChatComponent(prefix + ChatColor.WHITE + ": " + before);
+            // Create the base message part
+            String baseMessage = prefix + ChatColor.WHITE + ": " + before;
 
-            // Add hover text from item lore
+            // Create JSON component
+            JsonChatComponent component = new JsonChatComponent(baseMessage);
+
+            // Get item display info
+            String itemDisplayName = getItemDisplayName(item);
             List<String> hoverText = getItemHoverText(item);
-            component.addHoverItem("[" + getItemDisplayName(item) + "]", hoverText);
 
-            // Add rest of message
+            // Add the hoverable item part with proper color handling
+            String itemText = formatItemDisplay(itemDisplayName);
+            component.addHoverItem(itemText, hoverText);
+
+            // Add rest of message if there is any
             if (!after.isEmpty()) {
-                component.addText(ChatColor.WHITE + after);
+                component.addText(after);
             }
 
-            // Send to recipient
+            // Try to send the component
             component.send(recipient);
+
+            return true;
         } catch (Exception e) {
-            logger.log(Level.WARNING, "Error sending item hover message", e);
-            // Fallback to normal message
-            try {
-                String fallbackMessage = message.replace("@i@", "[" + getItemDisplayName(item) + "]");
-                recipient.sendMessage(prefix + ChatColor.WHITE + ": " + fallbackMessage);
-            } catch (Exception e2) {
-                logger.log(Level.SEVERE, "Failed to send fallback item message", e2);
-            }
+            logger.log(Level.WARNING, "Error creating/sending item hover message to " + recipient.getName(), e);
+            return false;
         }
     }
 
     /**
      * Get a list of text to display when hovering over an item
-     * FIXED: Better handling of item meta and null checks
+     * FIXED: Better handling of item meta and null checks (no enchantments)
      *
      * @param item The item to get hover text for
      * @return List of hover text lines
@@ -690,99 +731,56 @@ public class ChatMechanics implements Listener {
         List<String> text = new ArrayList<>();
 
         if (item == null || item.getType() == Material.AIR) {
-            text.add("Air");
+            text.add(ChatColor.GRAY + "Air");
             return text;
         }
 
         try {
             ItemMeta meta = item.getItemMeta();
 
-            // Add item name
+            // Add item name (with color if custom)
             if (meta != null && meta.hasDisplayName()) {
                 text.add(meta.getDisplayName());
             } else {
-                text.add(getItemDisplayName(item));
+                text.add(ChatColor.WHITE + getItemDisplayName(item));
             }
 
             // Add amount if more than 1
             if (item.getAmount() > 1) {
-                text.add(ChatColor.GRAY + "Amount: " + item.getAmount());
+                text.add(ChatColor.GRAY + "Amount: " + ChatColor.WHITE + item.getAmount());
             }
 
-            // Add lore
+            // Add durability info for tools/armor
+            if (item.getType().getMaxDurability() > 0) {
+                short durability = item.getDurability();
+                short maxDurability = item.getType().getMaxDurability();
+                if (durability > 0) {
+                    int remaining = maxDurability - durability;
+                    text.add(ChatColor.GRAY + "Durability: " + ChatColor.WHITE + remaining + "/" + maxDurability);
+                }
+            }
+
+            // Add lore if present
             if (meta != null && meta.hasLore()) {
                 List<String> lore = meta.getLore();
                 if (lore != null && !lore.isEmpty()) {
-                    text.add(""); // Empty line
+                    text.add(""); // Empty line separator
                     text.addAll(lore);
                 }
             }
 
-            // Add material type if no custom name
-            if (meta == null || !meta.hasDisplayName()) {
-                text.add(ChatColor.DARK_GRAY + "(" + item.getType().name() + ")");
-            }
+            // Add material type info
+            text.add(""); // Empty line separator
+            text.add(ChatColor.DARK_GRAY + "Type: " + ChatColor.GRAY + item.getType().name());
+
         } catch (Exception e) {
-            logger.log(Level.WARNING, "Error getting item hover text", e);
+            logger.log(Level.WARNING, "Error generating item hover text", e);
             text.clear();
-            text.add(getItemDisplayName(item));
+            text.add(ChatColor.WHITE + getItemDisplayName(item));
+            text.add(ChatColor.GRAY + "(" + item.getType().name() + ")");
         }
 
         return text;
-    }
-
-    /**
-     * FIXED: Get proper display name for item
-     *
-     * @param item The item
-     * @return The display name
-     */
-    private String getItemDisplayName(ItemStack item) {
-        if (item == null || item.getType() == Material.AIR) {
-            return "Air";
-        }
-
-        try {
-            ItemMeta meta = item.getItemMeta();
-            if (meta != null && meta.hasDisplayName()) {
-                return meta.getDisplayName();
-            }
-
-            // Use TextUtil if available, otherwise format manually
-            try {
-                return TextUtil.formatItemName(item.getType().name());
-            } catch (Exception e) {
-                // Fallback formatting
-                return formatItemName(item.getType().name());
-            }
-        } catch (Exception e) {
-            return item.getType().name();
-        }
-    }
-
-    /**
-     * FIXED: Fallback item name formatting
-     *
-     * @param materialName The material name
-     * @return Formatted name
-     */
-    private String formatItemName(String materialName) {
-        if (materialName == null || materialName.isEmpty()) {
-            return "Unknown";
-        }
-
-        String[] words = materialName.toLowerCase().split("_");
-        StringBuilder result = new StringBuilder();
-
-        for (String word : words) {
-            if (word.length() > 0) {
-                result.append(Character.toUpperCase(word.charAt(0)))
-                        .append(word.substring(1))
-                        .append(" ");
-            }
-        }
-
-        return result.toString().trim();
     }
 
     /**
@@ -1069,7 +1067,7 @@ public class ChatMechanics implements Listener {
 
     /**
      * Check if a player is holding an item that can be shown
-     * FIXED: Better validation
+     * FIXED: More thorough validation
      *
      * @param player The player to check
      * @return true if the player is holding a valid item
@@ -1081,11 +1079,339 @@ public class ChatMechanics implements Listener {
 
         try {
             ItemStack item = player.getInventory().getItemInMainHand();
-            return item != null && item.getType() != Material.AIR && item.getAmount() > 0;
+            if (item == null || item.getType() == Material.AIR || item.getAmount() <= 0) {
+                return false;
+            }
+
+            // Additional check: ensure item type is not null (shouldn't happen but just in case)
+            return item.getType() != null;
         } catch (Exception e) {
+            logger.log(Level.WARNING, "Error checking if player is holding valid item", e);
             return false;
         }
     }
+
+    /**
+     * FIXED: Get proper display name for item
+     *
+     * @param item The item
+     * @return The display name
+     */
+    private String getItemDisplayName(ItemStack item) {
+        if (item == null || item.getType() == Material.AIR) {
+            return "Air";
+        }
+
+        try {
+            ItemMeta meta = item.getItemMeta();
+            if (meta != null && meta.hasDisplayName()) {
+                return meta.getDisplayName();
+            }
+
+            // Use TextUtil if available, otherwise format manually
+            try {
+                return TextUtil.formatItemName(item.getType().name());
+            } catch (Exception e) {
+                // Fallback formatting
+                return formatItemName(item.getType().name());
+            }
+        } catch (Exception e) {
+            return item.getType().name();
+        }
+    }
+
+    /**
+     * Format item display with proper bracket colors
+     * FIXED: Matches bracket colors to item name color
+     *
+     * @param itemDisplayName The item's display name (may contain color codes)
+     * @return Formatted display with proper bracket colors
+     */
+    private String formatItemDisplay(String itemDisplayName) {
+        if (itemDisplayName == null || itemDisplayName.isEmpty()) {
+            return ChatColor.YELLOW + "[Unknown]";
+        }
+
+        // Check if the item name contains color codes
+        if (itemDisplayName.contains("§") || itemDisplayName.contains(ChatColor.COLOR_CHAR + "")) {
+            // Extract the first color from the item name
+            String firstColor = extractFirstColor(itemDisplayName);
+            if (firstColor != null) {
+                // Use the item's color for brackets too
+                return firstColor + "[" + itemDisplayName + firstColor + "]" + ChatColor.WHITE;
+            }
+        }
+
+        // Default: yellow brackets for items without custom colors
+        return ChatColor.YELLOW + "[" + itemDisplayName + "]" + ChatColor.WHITE;
+    }
+
+    /**
+     * Extract the first color code from a string
+     *
+     * @param text The text to check
+     * @return The first color code found, or null if none
+     */
+    private String extractFirstColor(String text) {
+        if (text == null || text.length() < 2) {
+            return null;
+        }
+
+        for (int i = 0; i < text.length() - 1; i++) {
+            char current = text.charAt(i);
+            char next = text.charAt(i + 1);
+
+            if (current == '§' || current == ChatColor.COLOR_CHAR) {
+                // Check if it's a color code (not formatting code)
+                switch (next) {
+                    case '0': return ChatColor.BLACK.toString();
+                    case '1': return ChatColor.DARK_BLUE.toString();
+                    case '2': return ChatColor.DARK_GREEN.toString();
+                    case '3': return ChatColor.DARK_AQUA.toString();
+                    case '4': return ChatColor.DARK_RED.toString();
+                    case '5': return ChatColor.DARK_PURPLE.toString();
+                    case '6': return ChatColor.GOLD.toString();
+                    case '7': return ChatColor.GRAY.toString();
+                    case '8': return ChatColor.DARK_GRAY.toString();
+                    case '9': return ChatColor.BLUE.toString();
+                    case 'a': return ChatColor.GREEN.toString();
+                    case 'b': return ChatColor.AQUA.toString();
+                    case 'c': return ChatColor.RED.toString();
+                    case 'd': return ChatColor.LIGHT_PURPLE.toString();
+                    case 'e': return ChatColor.YELLOW.toString();
+                    case 'f': return ChatColor.WHITE.toString();
+                    // Skip formatting codes (k, l, m, n, o, r) and continue looking
+                    default:
+                        continue;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * FIXED: Fallback item name formatting
+     *
+     * @param materialName The material name
+     * @return Formatted name
+     */
+    private String formatItemName(String materialName) {
+        if (materialName == null || materialName.isEmpty()) {
+            return "Unknown";
+        }
+
+        String[] words = materialName.toLowerCase().split("_");
+        StringBuilder result = new StringBuilder();
+
+        for (String word : words) {
+            if (word.length() > 0) {
+                result.append(Character.toUpperCase(word.charAt(0)))
+                        .append(word.substring(1))
+                        .append(" ");
+            }
+        }
+
+        return result.toString().trim();
+    }
+
+    /**
+     * Alternative item display method using plain text formatting
+     * Use this as a fallback if JSON components don't work
+     */
+    private void sendItemMessageFallback(Player player, String message) {
+        try {
+            ItemStack item = player.getInventory().getItemInMainHand();
+            if (!isHoldingValidItem(player)) {
+                String fallbackMessage = message.replace("@i@", ChatColor.RED + "[No Item]" + ChatColor.WHITE);
+                sendNormalMessage(player, fallbackMessage);
+                return;
+            }
+
+            String formattedName = getFormattedName(player);
+
+            // Create a detailed item description with proper color matching
+            StringBuilder itemDesc = new StringBuilder();
+            String itemText = formatItemDisplay(getItemDisplayName(item));
+            itemDesc.append(itemText);
+
+            ItemMeta meta = item.getItemMeta();
+            if (meta != null && meta.hasEnchants()) {
+                itemDesc.append(ChatColor.LIGHT_PURPLE).append("*"); // Indicate enchanted
+            }
+
+            if (item.getAmount() > 1) {
+                itemDesc.append(ChatColor.GRAY).append(" x").append(item.getAmount());
+            }
+
+            String finalMessage = message.replace("@i@", itemDesc.toString() + ChatColor.WHITE);
+
+            // Send to self
+            player.sendMessage(formattedName + ChatColor.WHITE + ": " + finalMessage);
+
+            // Send item details in a separate message
+            player.sendMessage(ChatColor.GRAY + "Item Details: " + ChatColor.WHITE +
+                    item.getType().name() +
+                    (meta != null && meta.hasDisplayName() ? " (" + meta.getDisplayName() + ")" : ""));
+
+            // Send to nearby players
+            List<Player> recipients = getNearbyPlayers(player);
+            if (recipients.isEmpty()) {
+                player.sendMessage(ChatColor.GRAY.toString() + ChatColor.ITALIC + "No one heard you.");
+            } else {
+                for (Player recipient : recipients) {
+                    if (recipient != null && recipient.isOnline()) {
+                        String recipientSpecificName = getFormattedNameFor(player, recipient);
+                        recipient.sendMessage(recipientSpecificName + ChatColor.WHITE + ": " + finalMessage);
+                    }
+                }
+            }
+
+            // Send to vanished staff
+            sendToVanishedStaff(player, formattedName, finalMessage);
+
+        } catch (Exception e) {
+            logger.log(Level.WARNING, "Error in fallback item message", e);
+            sendNormalMessage(player, message.replace("@i@", "[ITEM]"));
+        }
+    }
+
+    /**
+     * Check if the server supports modern chat features
+     */
+    public static boolean supportsModernChat() {
+        try {
+            // Check if BungeeCord chat classes are available
+            Class.forName("net.md_5.bungee.api.chat.TextComponent");
+            Class.forName("net.md_5.bungee.api.chat.HoverEvent");
+            return true;
+        } catch (ClassNotFoundException e) {
+            return false;
+        }
+    }
+
+    /**
+     * Get server compatibility information
+     */
+    public static String getCompatibilityInfo() {
+        StringBuilder info = new StringBuilder();
+
+        info.append("Server: ").append(Bukkit.getName()).append(" ")
+                .append(Bukkit.getVersion()).append(" | ");
+
+        info.append("Bukkit Version: ").append(Bukkit.getBukkitVersion()).append(" | ");
+
+        info.append("Modern Chat Support: ").append(supportsModernChat() ? "Yes" : "No");
+
+        return info.toString();
+    }
+
+    /**
+     * Test method to verify item display functionality
+     * Add this as a command: /testitemchat
+     */
+    public static void testItemDisplay(Player player) {
+        if (player == null || !player.isOnline()) {
+            return;
+        }
+
+        try {
+            YakRealms.getInstance().getLogger().info("Testing item display for " + player.getName());
+
+            // Check if player is holding an item
+            ItemStack item = player.getInventory().getItemInMainHand();
+            if (item == null || item.getType() == Material.AIR) {
+                player.sendMessage(ChatColor.RED + "Hold an item in your main hand to test item display.");
+                return;
+            }
+
+            player.sendMessage(ChatColor.GREEN + "Testing item display functionality...");
+
+            // Test 1: Basic item info
+            player.sendMessage(ChatColor.YELLOW + "Item Type: " + item.getType().name());
+            player.sendMessage(ChatColor.YELLOW + "Item Amount: " + item.getAmount());
+
+            // Test 2: Check if BungeeCord Chat API is available
+            if (supportsModernChat()) {
+                player.sendMessage(ChatColor.GREEN + "✓ BungeeCord Chat API is available");
+            } else {
+                player.sendMessage(ChatColor.RED + "✗ BungeeCord Chat API is NOT available - using fallback mode");
+            }
+
+            // Test 3: Try sending a simple hover message
+            try {
+                JsonChatComponent testComponent = new JsonChatComponent(ChatColor.BLUE + "Hover over this text!");
+                testComponent.addHoverText(ChatColor.YELLOW + " [HOVER TEST] ", "This is a hover test message");
+                testComponent.send(player);
+                player.sendMessage(ChatColor.GREEN + "✓ Basic hover message sent");
+            } catch (Exception e) {
+                player.sendMessage(ChatColor.RED + "✗ Failed to send hover message: " + e.getMessage());
+                YakRealms.getInstance().getLogger().warning("Failed to send hover message: " + e.getMessage());
+            }
+
+            // Test 4: Try item display
+            try {
+                getInstance().processChat(player, "Testing item display @i@ here!");
+                player.sendMessage(ChatColor.GREEN + "✓ Item display test completed");
+            } catch (Exception e) {
+                player.sendMessage(ChatColor.RED + "✗ Item display test failed: " + e.getMessage());
+                YakRealms.getInstance().getLogger().warning("Item display test failed: " + e.getMessage());
+            }
+
+        } catch (Exception e) {
+            player.sendMessage(ChatColor.RED + "Error during testing: " + e.getMessage());
+            YakRealms.getInstance().getLogger().log(Level.SEVERE, "Error during item display testing", e);
+        }
+    }
+
+    /**
+     * Debug method to check chat system status
+     */
+    public static void debugChatSystem(Player player) {
+        if (player == null || !player.isOnline()) {
+            return;
+        }
+
+        player.sendMessage(ChatColor.GOLD + "=== Chat System Debug Info ===");
+
+        // Server version info
+        String version = Bukkit.getVersion();
+        String bukkitVersion = Bukkit.getBukkitVersion();
+        player.sendMessage(ChatColor.YELLOW + "Server Version: " + ChatColor.WHITE + version);
+        player.sendMessage(ChatColor.YELLOW + "Bukkit Version: " + ChatColor.WHITE + bukkitVersion);
+
+        // Check if Spigot methods are available
+        try {
+            player.spigot().sendMessage(new net.md_5.bungee.api.chat.TextComponent("Spigot test"));
+            player.sendMessage(ChatColor.GREEN + "✓ Spigot API available");
+        } catch (Exception e) {
+            player.sendMessage(ChatColor.RED + "✗ Spigot API not available: " + e.getMessage());
+        }
+
+        // Chat mechanics status
+        ChatMechanics mechanics = getInstance();
+        if (mechanics != null) {
+            player.sendMessage(ChatColor.GREEN + "✓ ChatMechanics instance active");
+
+            // Player data status
+            ChatTag tag = getPlayerTag(player);
+            player.sendMessage(ChatColor.YELLOW + "Current Chat Tag: " + ChatColor.WHITE + tag.name());
+
+            boolean muted = isMuted(player);
+            player.sendMessage(ChatColor.YELLOW + "Muted: " + ChatColor.WHITE + (muted ? "Yes" : "No"));
+
+            // Cooldown status
+            boolean hasCooldown = chatCooldown.containsKey(player.getUniqueId());
+            player.sendMessage(ChatColor.YELLOW + "Chat Cooldown Active: " + ChatColor.WHITE + (hasCooldown ? "Yes" : "No"));
+
+        } else {
+            player.sendMessage(ChatColor.RED + "✗ ChatMechanics instance not found");
+        }
+
+        player.sendMessage(ChatColor.GOLD + "=== End Debug Info ===");
+    }
+
+    // Static utility methods for external access
 
     /**
      * Get the player's current chat tag
@@ -1313,5 +1639,95 @@ public class ChatMechanics implements Listener {
             return 0;
         }
         return mutedPlayers.getOrDefault(player.getUniqueId(), 0);
+    }
+
+    /**
+     * PUBLIC METHOD: Send an item message to a specific player
+     * This method can be called from other commands like GlobalChatCommand and PartyCommand
+     *
+     * @param sender    The player sending the message
+     * @param item      The item to display
+     * @param prefix    The message prefix (including sender name)
+     * @param message   The message text containing @i@
+     * @param recipient The player to receive the message
+     * @return true if the message was sent successfully
+     */
+    public static boolean sendItemMessageToPlayer(Player sender, ItemStack item, String prefix, String message, Player recipient) {
+        if (getInstance() != null) {
+            return getInstance().sendItemHoverMessage(sender, item, prefix, message, recipient);
+        }
+        return false;
+    }
+
+    /**
+     * PUBLIC METHOD: Send an item message to multiple players
+     * This method can be called from other commands for broadcasting
+     *
+     * @param sender     The player sending the message
+     * @param item       The item to display
+     * @param prefix     The message prefix (including sender name)
+     * @param message    The message text containing @i@
+     * @param recipients List of players to receive the message
+     * @return number of successful sends
+     */
+    public static int sendItemMessageToPlayers(Player sender, ItemStack item, String prefix, String message, List<Player> recipients) {
+        int successCount = 0;
+        ChatMechanics instance = getInstance();
+
+        if (instance == null || recipients == null) {
+            return successCount;
+        }
+
+        for (Player recipient : recipients) {
+            if (recipient != null && recipient.isOnline()) {
+                try {
+                    boolean success = instance.sendItemHoverMessage(sender, item, prefix, message, recipient);
+                    if (success) {
+                        successCount++;
+                    } else {
+                        // Fallback to normal message with item name using proper color formatting
+                        String itemName = instance.getItemDisplayName(item);
+                        String itemDisplay = instance.formatItemDisplay(itemName);
+                        String fallbackMessage = message.replace("@i@", itemDisplay);
+                        recipient.sendMessage(prefix + ChatColor.WHITE + ": " + fallbackMessage);
+                        successCount++; // Count fallback as success
+                    }
+                } catch (Exception e) {
+                    instance.logger.log(Level.WARNING, "Error sending item message to " + recipient.getName(), e);
+                    // Final fallback
+                    String fallbackMessage = message.replace("@i@", "[ITEM]");
+                    recipient.sendMessage(prefix + ChatColor.WHITE + ": " + fallbackMessage);
+                    successCount++; // Count fallback as success
+                }
+            }
+        }
+
+        return successCount;
+    }
+
+    /**
+     * PUBLIC METHOD: Check if a player is holding a valid item for display
+     *
+     * @param player The player to check
+     * @return true if the player is holding a valid item
+     */
+    public static boolean isPlayerHoldingValidItem(Player player) {
+        if (getInstance() != null) {
+            return getInstance().isHoldingValidItem(player);
+        }
+        return false;
+    }
+
+    /**
+     * PUBLIC METHOD: Get the display name of an item
+     *
+     * @param item The item
+     * @return The formatted display name
+     */
+    public static String getDisplayNameForItem(ItemStack item) {
+        if (getInstance() != null) {
+            return getInstance().getItemDisplayName(item);
+        }
+        return item != null ? item.getType().name() : "Unknown";
     }
 }

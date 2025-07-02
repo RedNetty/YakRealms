@@ -7,6 +7,7 @@ import com.rednetty.server.mechanics.chat.ChatTag;
 import com.rednetty.server.mechanics.player.YakPlayer;
 import com.rednetty.server.mechanics.player.YakPlayerManager;
 import org.bukkit.Bukkit;
+import org.bukkit.ChatColor;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
@@ -17,6 +18,7 @@ import org.bukkit.permissions.PermissionAttachment;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
@@ -139,31 +141,81 @@ public class ModerationMechanics implements Listener {
     }
 
     /**
-     * Handler for player quit to clean up
+     * Handler for player quit to clean up - FIXED to ensure rank synchronization
      */
     @EventHandler
     public void onPlayerQuit(PlayerQuitEvent event) {
         Player player = event.getPlayer();
         UUID uuid = player.getUniqueId();
 
-        // Save rank if changed
-        YakPlayer yakPlayer = playerManager.getPlayer(player);
-        if (yakPlayer != null && rankMap.containsKey(uuid)) {
-            String currentRank = yakPlayer.getRank();
-            String memoryRank = Rank.getString(rankMap.get(uuid));
+        try {
+            // Get player data before cleanup
+            YakPlayer yakPlayer = playerManager.getPlayer(player);
 
-            // Only save if ranks differ
-            if (!currentRank.equals(memoryRank)) {
-                YakRealms.log("Saving changed rank for " + player.getName() + ": " + currentRank + " -> " + memoryRank);
-                yakPlayer.setRank(memoryRank);
-                playerManager.savePlayer(yakPlayer);
+            if (yakPlayer != null) {
+                // Ensure rank is synchronized between memory and player data
+                if (rankMap.containsKey(uuid)) {
+                    Rank memoryRank = rankMap.get(uuid);
+                    String currentRankStr = yakPlayer.getRank();
+                    String memoryRankStr = Rank.getString(memoryRank);
+
+                    // Only save if ranks differ
+                    if (!memoryRankStr.equals(currentRankStr)) {
+                        YakRealms.log("Synchronizing rank on quit for " + player.getName() +
+                                ": " + currentRankStr + " -> " + memoryRankStr);
+                        yakPlayer.setRank(memoryRankStr);
+
+                        // Force save the updated rank
+                        playerManager.savePlayer(yakPlayer);
+                    } else {
+                        YakRealms.log("Rank already synchronized for " + player.getName() + ": " + memoryRankStr);
+                    }
+                } else {
+                    // No rank in memory cache - this shouldn't happen but let's handle it
+                    YakRealms.log("WARNING: No rank in memory cache for quitting player: " + player.getName());
+
+                    // Try to get rank from player data and verify it's valid
+                    String currentRankStr = yakPlayer.getRank();
+                    if (currentRankStr == null || currentRankStr.isEmpty()) {
+                        yakPlayer.setRank("default");
+                        playerManager.savePlayer(yakPlayer);
+                        YakRealms.log("Set default rank for player with missing rank: " + player.getName());
+                    } else {
+                        try {
+                            Rank.fromString(currentRankStr); // Validate rank string
+                        } catch (IllegalArgumentException e) {
+                            YakRealms.log("Invalid rank detected on quit for " + player.getName() +
+                                    ": " + currentRankStr + ". Setting to default.");
+                            yakPlayer.setRank("default");
+                            playerManager.savePlayer(yakPlayer);
+                        }
+                    }
+                }
+            } else {
+                YakRealms.log("WARNING: No player data found for quitting player: " + player.getName());
             }
-        }
 
-        // Clean up permission attachment
-        if (permissionMap.containsKey(uuid)) {
-            player.removeAttachment(permissionMap.get(uuid));
+            // Clean up permission attachment
+            if (permissionMap.containsKey(uuid)) {
+                try {
+                    player.removeAttachment(permissionMap.get(uuid));
+                } catch (Exception e) {
+                    logger.log(Level.WARNING, "Error removing permission attachment for " + player.getName(), e);
+                }
+                permissionMap.remove(uuid);
+            }
+
+            // Clean up rank cache (do this last)
+            rankMap.remove(uuid);
+
+            YakRealms.log("Completed quit cleanup for player: " + player.getName());
+
+        } catch (Exception e) {
+            logger.log(Level.SEVERE, "Error during player quit cleanup for " + player.getName(), e);
+
+            // Ensure cleanup even if there's an error
             permissionMap.remove(uuid);
+            rankMap.remove(uuid);
         }
     }
 
@@ -296,9 +348,8 @@ public class ModerationMechanics implements Listener {
         // You can expand this to use your own player tag system
         return player.hasMetadata(tag);
     }
-
     /**
-     * Get a player's rank - FIXED to handle null YakPlayer safely
+     * Get a player's rank - FIXED to handle null YakPlayer safely and cache results
      *
      * @param player The player to check
      * @return The player's rank
@@ -306,8 +357,9 @@ public class ModerationMechanics implements Listener {
     public static Rank getRank(Player player) {
         if (player == null) return Rank.DEFAULT;
 
-        // First check memory cache
         UUID uuid = player.getUniqueId();
+
+        // First check memory cache
         if (rankMap.containsKey(uuid)) {
             return rankMap.get(uuid);
         }
@@ -315,19 +367,80 @@ public class ModerationMechanics implements Listener {
         // Try to get from YakPlayer data
         YakPlayer yakPlayer = YakPlayerManager.getInstance().getPlayer(player);
         if (yakPlayer == null) {
-            return Rank.DEFAULT;  // Player data not loaded yet, return default
+            // Player data not loaded yet, cache DEFAULT temporarily
+            rankMap.put(uuid, Rank.DEFAULT);
+            return Rank.DEFAULT;
         }
 
         String rankStr = yakPlayer.getRank();
         if (rankStr == null || rankStr.isEmpty()) {
+            // Set and cache default rank
+            rankMap.put(uuid, Rank.DEFAULT);
+            yakPlayer.setRank("default");
+
+            // Save the correction asynchronously
+            YakPlayerManager.getInstance().savePlayer(yakPlayer);
+            YakRealms.log("Set default rank for player with null rank: " + player.getName());
+
             return Rank.DEFAULT;
         }
 
         try {
-            return Rank.fromString(rankStr);
+            Rank rank = Rank.fromString(rankStr);
+
+            // Cache the result
+            rankMap.put(uuid, rank);
+
+            return rank;
+
         } catch (IllegalArgumentException e) {
+            YakRealms.log("Invalid rank found for " + player.getName() + ": " + rankStr + ". Setting to DEFAULT.");
+
+            // Set and cache default rank
+            rankMap.put(uuid, Rank.DEFAULT);
+            yakPlayer.setRank("default");
+
+            // Save the correction asynchronously
+            YakPlayerManager.getInstance().savePlayer(yakPlayer);
+
             return Rank.DEFAULT;
         }
+    }
+
+    /**
+     * Enhanced version of setRank with better error handling and validation
+     */
+    public void setRank(Player player, Rank rank) {
+        if (player == null || rank == null) {
+            logger.warning("Attempted to set null rank or for null player");
+            return;
+        }
+
+        UUID uuid = player.getUniqueId();
+        Rank oldRank = rankMap.get(uuid);
+
+        // Update memory cache immediately
+        rankMap.put(uuid, rank);
+
+        // Update permissions on the main thread
+        Bukkit.getScheduler().runTask(YakRealms.getInstance(), () -> setupPermissions(player));
+
+        // Save to player data asynchronously with better error handling
+        updateAndSaveRank(uuid, rank, () -> {
+            // If this is a donator rank, unlock all chat tags
+            if (isDonator(player)) {
+                unlockAllChatTags(player);
+            }
+
+            String oldRankName = oldRank != null ? oldRank.name() : "null";
+            YakRealms.log("Successfully updated rank for " + player.getName() + ": " +
+                    oldRankName + " -> " + rank.name());
+
+            // Send confirmation message to player
+            player.sendMessage(ChatColor.GREEN + "Your rank has been updated to: " +
+                    ChatColor.translateAlternateColorCodes('&', rank.getTag()) +
+                    ChatColor.RESET + ChatColor.GREEN + " " + rank.name());
+        });
     }
 
     /**
@@ -362,31 +475,7 @@ public class ModerationMechanics implements Listener {
         });
     }
 
-    /**
-     * Set a player's rank - FIXED to be non-blocking
-     *
-     * @param player The player to update
-     * @param rank   The new rank
-     */
-    public void setRank(Player player, Rank rank) {
-        UUID uuid = player.getUniqueId();
-        Rank oldRank = rankMap.get(uuid);
-        rankMap.put(uuid, rank);
 
-        // Update permissions on the main thread
-        Bukkit.getScheduler().runTask(YakRealms.getInstance(), () -> setupPermissions(player));
-
-        // Save to player data asynchronously
-        updateAndSaveRank(uuid, rank, () -> {
-            // If this is a donator rank, unlock all chat tags
-            if (isDonator(player)) {
-                unlockAllChatTags(player);
-            }
-
-            YakRealms.log("Successfully updated rank for " + player.getName() + ": " +
-                    (oldRank != null ? oldRank.name() : "null") + " -> " + rank.name());
-        });
-    }
 
     /**
      * Unlock all chat tags for a player

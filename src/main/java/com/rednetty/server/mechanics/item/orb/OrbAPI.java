@@ -146,7 +146,7 @@ public class OrbAPI {
         // Simple validation based on item material
         String material = item.getType().name();
         if (material.contains("_SWORD") || material.contains("_AXE") ||
-                material.contains("_HOE") || material.contains("_SPADE") ||
+                material.contains("_HOE") || material.contains("_SPADE") || material.contains("_SHOVEL") ||
                 material.contains("_HELMET") || material.contains("_CHESTPLATE") ||
                 material.contains("_LEGGINGS") || material.contains("_BOOTS")) {
 
@@ -172,7 +172,7 @@ public class OrbAPI {
         if (materialName.contains("_HOE")) {
             return TYPE_STAFF;
         }
-        if (materialName.contains("_SPADE")) {
+        if (materialName.contains("_SPADE") || materialName.contains("_SHOVEL")) {
             return TYPE_SPEAR;
         }
         if (materialName.contains("_SWORD")) {

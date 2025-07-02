@@ -1,6 +1,7 @@
 package com.rednetty.server.mechanics.market;
 
 import com.rednetty.server.YakRealms;
+import com.rednetty.server.mechanics.economy.EconomyManager;
 import com.rednetty.server.mechanics.market.menu.MarketMainMenu;
 import com.rednetty.server.mechanics.player.YakPlayer;
 import com.rednetty.server.mechanics.player.YakPlayerManager;
@@ -502,6 +503,7 @@ public class MarketManager implements Listener {
      * List an item on the market
      */
     public CompletableFuture<TransactionResult> listItem(Player player, ItemStack item, int price, boolean featured) {
+        EconomyManager economyManager = YakRealms.getInstance().getEconomyManager();
         return CompletableFuture.supplyAsync(() -> {
             // Validation
             TransactionResult validation = validateListing(player, item, price);
@@ -517,7 +519,7 @@ public class MarketManager implements Listener {
 
                 // Calculate total cost (featured listing cost)
                 int totalCost = featured ? featuredListingCost : 0;
-                if (totalCost > 0 && yakPlayer.getGems() < totalCost) {
+                if (totalCost > 0 && yakPlayer.getBankGems() < totalCost) {
                     return TransactionResult.INSUFFICIENT_FUNDS;
                 }
 
@@ -528,7 +530,7 @@ public class MarketManager implements Listener {
 
                 // Deduct cost
                 if (totalCost > 0) {
-                    yakPlayer.removeGems(totalCost, "Market featured listing");
+                    economyManager.removeBankGems(player, totalCost);
                 }
 
                 // Create market item
@@ -571,6 +573,7 @@ public class MarketManager implements Listener {
      * Purchase an item from the market
      */
     public CompletableFuture<TransactionResult> purchaseItem(Player buyer, UUID itemId) {
+        EconomyManager economyManager = YakRealms.getInstance().getEconomyManager();
         return CompletableFuture.supplyAsync(() -> {
             try {
                 // Get the item
@@ -597,7 +600,7 @@ public class MarketManager implements Listener {
 
                 // Check funds
                 int totalCost = marketItem.getPrice();
-                if (buyerData.getGems() < totalCost) {
+                if (buyerData.getBankGems() < totalCost) {
                     return TransactionResult.INSUFFICIENT_FUNDS;
                 }
 
@@ -607,7 +610,7 @@ public class MarketManager implements Listener {
                 }
 
                 // Process transaction
-                buyerData.removeGems(totalCost, "Market purchase");
+                economyManager.removeBankGems(buyer, totalCost);
 
                 // Calculate seller payment (after tax)
                 int tax = (int) (totalCost * marketTaxRate);
@@ -616,7 +619,7 @@ public class MarketManager implements Listener {
                 // Pay seller
                 YakPlayer sellerData = YakPlayerManager.getInstance().getPlayer(marketItem.getOwnerUuid());
                 if (sellerData != null) {
-                    sellerData.addGems(sellerPayment, "Market sale");
+                    sellerData.setBankGems(sellerData.getBankGems() + sellerPayment);
                 } else {
                     // Handle offline seller
                     YakPlayerManager.getInstance().getRepository()
@@ -624,7 +627,7 @@ public class MarketManager implements Listener {
                             .thenAccept(sellerOpt -> {
                                 if (sellerOpt.isPresent()) {
                                     YakPlayer seller = sellerOpt.get();
-                                    seller.addGems(sellerPayment, "Market sale");
+                                    seller.setBankGems(seller.getBankGems() + sellerPayment);
                                     YakPlayerManager.getInstance().getRepository().save(seller);
                                 }
                             });
@@ -791,7 +794,7 @@ public class MarketManager implements Listener {
             // Ask about featured listing
             Bukkit.getScheduler().runTask(plugin, () -> {
                 YakPlayer yakPlayer = YakPlayerManager.getInstance().getPlayer(player);
-                boolean canAffordFeatured = yakPlayer != null && yakPlayer.getGems() >= featuredListingCost;
+                boolean canAffordFeatured = yakPlayer != null && yakPlayer.getBankGems() >= featuredListingCost;
 
                 player.sendMessage("");
                 player.sendMessage(ChatColor.YELLOW + "Price set to: " + ChatColor.GREEN + TextUtil.formatNumber(price) + " gems");

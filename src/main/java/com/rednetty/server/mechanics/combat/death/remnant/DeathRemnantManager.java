@@ -15,6 +15,10 @@ import org.bukkit.scheduler.BukkitTask;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
+/**
+ * FIXED: Manages decorative death remnants that create visual skeleton displays
+ * Death remnants no longer contain actual items - items drop normally on the ground
+ */
 public class DeathRemnantManager {
     private static final String REMNANT_ID_KEY = "death_remnant_id";
     private static final int AUTO_REMOVE_SECONDS = 3600; // 1 hour
@@ -34,10 +38,20 @@ public class DeathRemnantManager {
         initializeCleanupTask();
     }
 
+    /**
+     * FIXED: Creates a death remnant - items parameter can be null or empty for decorative-only remnants
+     * @param location The location to create the remnant
+     * @param items The items to display (can be null/empty for purely decorative remnant)
+     * @param player The player who died
+     * @return The created death remnant, or null if creation failed
+     */
     public DeathRemnant createDeathRemnant(Location location, List<ItemStack> items, Player player) {
+        // Handle null items list
+        List<ItemStack> safeItems = (items != null) ? new ArrayList<>(items) : Collections.emptyList();
+
         DeathRemnant remnant = new DeathRemnant(
                 location,
-                new ArrayList<>(items),
+                safeItems,
                 player.getUniqueId(),
                 player.getName(),
                 remnantKey
@@ -51,6 +65,16 @@ public class DeathRemnantManager {
         activeRemnants.put(remnant.getId(), remnant);
         tagRemnantEntities(remnant);
         scheduleAutoRemoval(remnant.getId());
+
+        // Log creation details
+        if (remnant.isDecorativeOnly()) {
+            plugin.getLogger().info("Created decorative death remnant for " + player.getName() +
+                    " at " + formatLocation(location));
+        } else {
+            plugin.getLogger().info("Created death remnant with " + remnant.getItemCount() +
+                    " items for " + player.getName() + " at " + formatLocation(location));
+        }
+
         return remnant;
     }
 
@@ -144,6 +168,20 @@ public class DeathRemnantManager {
                 remnant.getLocation().getChunk().isLoaded();
     }
 
+    /**
+     * Formats a location for logging
+     */
+    private String formatLocation(Location loc) {
+        if (loc == null || loc.getWorld() == null) {
+            return "Unknown location";
+        }
+        return String.format("%s (%.1f, %.1f, %.1f)",
+                loc.getWorld().getName(),
+                loc.getX(),
+                loc.getY(),
+                loc.getZ());
+    }
+
     public Collection<DeathRemnant> getActiveRemnants() {
         return Collections.unmodifiableCollection(activeRemnants.values());
     }
@@ -161,7 +199,23 @@ public class DeathRemnantManager {
                 .min(Comparator.comparingDouble(r -> r.getLocation().distanceSquared(location)));
     }
 
+    /**
+     * Get statistics about active remnants
+     */
+    public String getStatistics() {
+        int total = activeRemnants.size();
+        long decorativeOnly = activeRemnants.values().stream()
+                .mapToLong(r -> r.isDecorativeOnly() ? 1 : 0)
+                .sum();
+        long withItems = total - decorativeOnly;
+
+        return String.format("Death Remnants - Total: %d, Decorative: %d, With Items: %d",
+                total, decorativeOnly, withItems);
+    }
+
     public void shutdown() {
+        plugin.getLogger().info("Shutting down death remnant manager - " + getStatistics());
+
         activeRemnants.values().forEach(DeathRemnant::remove);
         activeRemnants.clear();
         activeTasks.forEach(BukkitTask::cancel);

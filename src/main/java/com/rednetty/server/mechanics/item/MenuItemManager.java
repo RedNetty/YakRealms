@@ -9,6 +9,7 @@ import org.bukkit.ChatColor;
 import org.bukkit.Material;
 import org.bukkit.entity.Player;
 import org.bukkit.event.inventory.InventoryClickEvent;
+import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemFlag;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
@@ -21,6 +22,7 @@ import java.util.logging.Logger;
 /**
  * Manages menu items in the player's 2x2 crafting grid.
  * Provides a clean interface for adding menu items that open various interfaces.
+ * FIXED: Uses correct crafting slot access method and auto-setup
  */
 public class MenuItemManager {
 
@@ -34,7 +36,10 @@ public class MenuItemManager {
     // Configuration
     private static final String MENU_ITEM_NBT_KEY = "yakMenuItemType";
     private static final String MENU_ITEM_ID_KEY = "yakMenuItemId";
-    private static final int[] CRAFTING_SLOTS = {1, 2, 3, 4}; // 2x2 crafting grid slots
+
+    // FIXED: Correct crafting slot numbers for crafting inventory view
+    private static final int[] CRAFTING_SLOTS = {1, 2, 3, 4}; // 2x2 crafting grid slots in crafting view
+    private static final int CRAFTING_RESULT_SLOT = 0;
 
     /**
      * Enum defining available menu item types
@@ -117,7 +122,7 @@ public class MenuItemManager {
     }
 
     /**
-     * Set up menu items for a player
+     * FIXED: Set up menu items for a player using the correct crafting inventory access
      */
     public void setupMenuItems(Player player) {
         if (player == null || !player.isOnline()) {
@@ -127,17 +132,25 @@ public class MenuItemManager {
         UUID playerId = player.getUniqueId();
 
         try {
+            // FIXED: Check if player has crafting inventory open
+            if (!hasCraftingInventoryOpen(player)) {
+                return;
+            }
+
             // Clear any existing menu items first
             clearMenuItems(player);
 
-            // Get menu item configuration (can be customized per player or globally)
+            // Get the crafting inventory
+            Inventory craftingInventory = player.getOpenInventory().getTopInventory();
+
+            // Get menu item configuration
             List<MenuItemData> menuItems = getMenuItemConfiguration(player);
 
             // Place each menu item in the appropriate slot
             for (MenuItemData itemData : menuItems) {
                 if (itemData.isEnabled() && isValidCraftingSlot(itemData.getSlot())) {
                     ItemStack menuItem = createMenuItem(itemData.getType());
-                    player.getInventory().setItem(itemData.getSlot(), menuItem);
+                    craftingInventory.setItem(itemData.getSlot(), menuItem);
                 }
             }
 
@@ -150,7 +163,7 @@ public class MenuItemManager {
     }
 
     /**
-     * Clear all menu items from a player's crafting grid
+     * FIXED: Clear all menu items from a player's crafting grid using correct inventory access
      */
     public void clearMenuItems(Player player) {
         if (player == null) {
@@ -160,11 +173,20 @@ public class MenuItemManager {
         UUID playerId = player.getUniqueId();
 
         try {
+            // FIXED: Check if player has crafting inventory open
+            if (!hasCraftingInventoryOpen(player)) {
+                playersWithMenuItems.remove(playerId);
+                return;
+            }
+
+            // Get the crafting inventory
+            Inventory craftingInventory = player.getOpenInventory().getTopInventory();
+
             // Clear all crafting slots
             for (int slot : CRAFTING_SLOTS) {
-                ItemStack item = player.getInventory().getItem(slot);
+                ItemStack item = craftingInventory.getItem(slot);
                 if (isMenuItem(item)) {
-                    player.getInventory().setItem(slot, null);
+                    craftingInventory.setItem(slot, null);
                 }
             }
 
@@ -173,6 +195,17 @@ public class MenuItemManager {
 
         } catch (Exception e) {
             logger.warning("Error clearing menu items for " + player.getName() + ": " + e.getMessage());
+        }
+    }
+
+    /**
+     * FIXED: Check if player has crafting inventory open (their own inventory)
+     */
+    private boolean hasCraftingInventoryOpen(Player player) {
+        try {
+            return player.getOpenInventory().getType() == org.bukkit.event.inventory.InventoryType.CRAFTING;
+        } catch (Exception e) {
+            return false;
         }
     }
 
@@ -449,10 +482,21 @@ public class MenuItemManager {
     }
 
     /**
-     * Check if a slot is a crafting slot
+     * Check if a slot is a crafting slot (for use by other systems)
      */
     public boolean isCraftingSlot(int slot) {
         return isValidCraftingSlot(slot);
+    }
+
+    /**
+     * FIXED: Check if a raw slot ID corresponds to a crafting slot in the open inventory
+     */
+    public boolean isCraftingSlotInView(int rawSlot, Player player) {
+        if (!hasCraftingInventoryOpen(player)) {
+            return false;
+        }
+        // For crafting inventory, raw slots 1-4 are the crafting grid
+        return rawSlot >= 1 && rawSlot <= 4;
     }
 
     /**
@@ -470,6 +514,21 @@ public class MenuItemManager {
      */
     public boolean hasMenuItems(Player player) {
         return player != null && playersWithMenuItems.contains(player.getUniqueId());
+    }
+
+    /**
+     * FIXED: Force refresh menu items for a player
+     */
+    public void refreshMenuItems(Player player) {
+        if (player != null && player.isOnline()) {
+            // Schedule refresh after a brief delay to ensure inventory is ready
+            new BukkitRunnable() {
+                @Override
+                public void run() {
+                    setupMenuItems(player);
+                }
+            }.runTaskLater(YakRealms.getInstance(), 1L);
+        }
     }
 
     /**

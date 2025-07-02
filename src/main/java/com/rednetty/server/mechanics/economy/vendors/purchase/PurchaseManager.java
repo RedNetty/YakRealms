@@ -318,8 +318,8 @@ public class PurchaseManager implements Listener {
             }
 
             // Check if player has enough gems
-            if (!economyManager.hasGems(player, (int) totalCost)) {
-                player.sendMessage(ChatColor.RED + "Insufficient funds! You need " + VendorUtils.formatCurrency(totalCost) + " but only have " + VendorUtils.formatCurrency(economyManager.getGems(player)) + ".");
+            if (!economyManager.hasPhysicalGems(player, (int) totalCost)) {
+                player.sendMessage(ChatColor.RED + "Insufficient funds! You need " + VendorUtils.formatCurrency(totalCost) + " but only have " + VendorUtils.formatCurrency(economyManager.getPhysicalGems(player)) + ".");
                 player.sendMessage(ChatColor.GRAY + "Calculation: " + quantity + " × " + VendorUtils.formatCurrency(transaction.pricePerItem) + " = " + VendorUtils.formatCurrency(totalCost));
                 return;
             }
@@ -384,14 +384,14 @@ public class PurchaseManager implements Listener {
 
         try {
             // Double-check funds (race condition protection)
-            if (!economyManager.hasGems(player, totalCost)) {
+            if (!economyManager.hasPhysicalGems(player, totalCost)) {
                 player.sendMessage(ChatColor.RED + "Insufficient funds! Your balance may have changed.");
                 cancelTransaction(playerId);
                 return;
             }
 
             // Remove gems first
-            if (!economyManager.removeGems(player, totalCost).isSuccess()) {
+            if (!economyManager.removePhysicalGems(player, totalCost).isSuccess()) {
                 player.sendMessage(ChatColor.RED + "Failed to process payment. Transaction cancelled.");
                 cancelTransaction(playerId);
                 return;
@@ -402,7 +402,7 @@ public class PurchaseManager implements Listener {
 
             if (!itemsGiven) {
                 // Refund if item giving failed
-                economyManager.addGems(player, totalCost);
+                economyManager.addBankGems(player, totalCost);
                 player.sendMessage(ChatColor.RED + "Failed to give items. Payment refunded.");
                 cancelTransaction(playerId);
                 return;
@@ -421,7 +421,7 @@ public class PurchaseManager implements Listener {
 
             // Attempt refund
             try {
-                economyManager.addGems(player, totalCost);
+                economyManager.addBankGems(player, totalCost);
                 player.sendMessage(ChatColor.RED + "Purchase failed due to an error. Payment refunded.");
             } catch (Exception refundError) {
                 plugin.getLogger().log(Level.SEVERE, "Failed to refund player " + player.getName() + " " + totalCost + " gems", refundError);
@@ -488,7 +488,7 @@ public class PurchaseManager implements Listener {
         player.sendMessage(ChatColor.GREEN + "▬▬▬▬▬▬▬ " + ChatColor.GOLD + "PURCHASE SUCCESSFUL" + ChatColor.GREEN + " ▬▬▬▬▬▬▬");
         player.sendMessage(ChatColor.GREEN + "✓ Purchased: " + ChatColor.WHITE + quantity + "x " + itemName);
         player.sendMessage(ChatColor.GREEN + "✓ Total cost: " + ChatColor.RED + "-" + VendorUtils.formatCurrency(totalCost));
-        player.sendMessage(ChatColor.GREEN + "✓ Remaining balance: " + ChatColor.GOLD + VendorUtils.formatCurrency(economyManager.getGems(player)));
+        player.sendMessage(ChatColor.GREEN + "✓ Remaining balance: " + ChatColor.GOLD + VendorUtils.formatCurrency(economyManager.getPhysicalGems(player)));
         player.sendMessage(ChatColor.GREEN + "▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬");
         player.sendMessage("");
     }

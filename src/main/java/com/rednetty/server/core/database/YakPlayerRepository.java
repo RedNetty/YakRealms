@@ -23,7 +23,7 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
- * Simplified YakPlayer repository with reliable synchronous operations
+ * YakPlayer repository with physical gem economy support (no virtual player balance)
  */
 public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
     private static final String COLLECTION_NAME = "players";
@@ -555,9 +555,9 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
         }
 
         // Fix common data issues
-        if (player.getGems() < 0) {
-            logger.warning("Player validation: negative gems for " + player.getUsername() + ", resetting to 0");
-            player.setGems(0);
+        if (player.getBankGems() < 0) {
+            logger.warning("Player validation: negative bank gems for " + player.getUsername() + ", resetting to 0");
+            player.setBankGems(0);
         }
 
         if (player.getLevel() < 1) {
@@ -672,7 +672,7 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
     }
 
     /**
-     * Document conversion helper class
+     * Document conversion helper class - updated for physical gem economy
      */
     private class DocumentConverter {
 
@@ -715,12 +715,9 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
                 player.setBlocksBroken(doc.getInteger("blocks_broken", 0));
                 player.setDistanceTraveled(doc.getDouble("distance_traveled") != null ? doc.getDouble("distance_traveled") : 0.0);
 
-                // Load economic data
-                player.setGems(doc.getInteger("gems", 0));
+                // Load economic data - ONLY bank gems, no virtual player balance
                 player.setBankGems(doc.getInteger("bank_gems", 0));
                 player.setEliteShards(doc.getInteger("elite_shards", 0));
-                player.setTotalGemsEarned(doc.getLong("total_gems_earned") != null ? doc.getLong("total_gems_earned") : 0L);
-                player.setTotalGemsSpent(doc.getLong("total_gems_spent") != null ? doc.getLong("total_gems_spent") : 0L);
 
                 // Load bank data
                 player.setBankPages(doc.getInteger("bank_pages", 1));
@@ -791,12 +788,9 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
                 doc.append("blocks_broken", player.getBlocksBroken());
                 doc.append("distance_traveled", player.getDistanceTraveled());
 
-                // Economic data
-                doc.append("gems", player.getGems());
+                // Economic data - ONLY bank gems, no virtual player balance
                 doc.append("bank_gems", player.getBankGems());
                 doc.append("elite_shards", player.getEliteShards());
-                doc.append("total_gems_earned", player.getTotalGemsEarned());
-                doc.append("total_gems_spent", player.getTotalGemsSpent());
 
                 // Bank data
                 doc.append("bank_pages", player.getBankPages());
