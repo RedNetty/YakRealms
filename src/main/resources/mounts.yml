@@ -1,72 +1,91 @@
-# Mount System Configuration
+# Enhanced Mount System Configuration
+# This configuration file controls all mount-related features
 
-# Horse mount settings
 horse:
-  # Time to summon a horse (in seconds)
+  # Time in seconds to summon a horse mount
   summon_time: 5
 
-  # Time to summon a horse for chaotic players (in seconds)
+  # Time in seconds for chaotic players to summon a horse mount
   chaotic_summon_time: 8
 
-  # Whether horses can be summoned instantly in safe zones
+  # Whether horses can be instantly summoned in safe zones
   instant_mount_in_safe_zone: true
 
-  # Horse tiers and their stats
+  # Horse tier configurations
   tiers:
-    # Tier 2 - Old Horse Mount
     2:
-      speed: 0.30
-      jump: 0.5
-      name: "Old Horse Mount"
+      speed: 0.35
+      jump: 0.6
+      name: "Swift Stallion"
       color: "GREEN"
-      description: "An old brown starter horse."
-      price: 1000
-      armor: "NONE"
-
-    # Tier 3 - Traveler's Horse Mount
+      description: "A reliable mount for basic travel"
+      price: 2500
+      armor: "LEATHER"
     3:
       speed: 0.42
-      jump: 0.85
-      name: "Traveler's Horse Mount"
+      jump: 0.75
+      name: "War Horse"
       color: "AQUA"
-      description: "A standard healthy horse."
-      price: 1500
+      description: "A sturdy battle-tested mount"
+      price: 5000
       armor: "IRON"
-
-    # Tier 4 - Knight's Horse Mount
     4:
-      speed: 0.48
-      jump: 0.95
-      name: "Knight's Horse Mount"
+      speed: 0.50
+      jump: 0.85
+      name: "Royal Destrier"
       color: "LIGHT_PURPLE"
-      description: "A fast well-bred horse."
-      price: 2500
+      description: "A majestic mount fit for nobility"
+      price: 10000
+      armor: "GOLD"
+    5:
+      speed: 0.58
+      jump: 1.0
+      name: "Legendary Pegasus"
+      color: "YELLOW"
+      description: "The fastest mount in all the realms"
+      price: 25000
       armor: "DIAMOND"
 
-    # Tier 5 - War Stallion Mount
-    5:
-      speed: 0.55
-      jump: 1.05
-      name: "War Stallion Mount"
-      color: "YELLOW"
-      description: "A trusty powerful steed."
-      price: 4000
-      armor: "GOLD"
-
-# Elytra mount settings
 elytra:
-  # Time to summon an elytra (in seconds)
+  # Time in seconds to summon elytra mount
   summon_time: 5
 
-  # Duration of elytra flight (in seconds)
+  # Duration in seconds that elytra mount lasts
   duration: 30
 
-  # Whether to disable damage while gliding
+  # Cooldown in seconds after taking damage before elytra can be summoned
+  damage_cooldown: 120
+
+  # Whether to disable damage while gliding (except fall damage)
   disable_damage: true
 
-  # Height limits for each region
+  # Enhanced elytra features
+  transfer_chestplate_properties: true  # Copy enchantments and properties from chestplate to elytra
+  enable_landing_detection: true        # Automatically dismount when player lands
+  landing_check_interval: 5            # How often to check for landing (in ticks)
+  landing_velocity_threshold: 0.1      # Velocity threshold for landing detection
+  ground_check_distance: 3             # Distance in blocks to check for ground
+
+  # Height limits for different regions (Y coordinate)
   height_limits:
     frostfall: 195.0
     deadpeaks: 70.0
     avalon: 130.0
     default: 100.0
+
+  # Additional region configurations can be added here
+  # custom_region: 150.0
+
+# Advanced settings
+advanced:
+  # Debug mode for mount system
+  debug_mode: false
+
+  # Whether to log mount usage statistics
+  log_usage_stats: false
+
+  # Maximum distance a player can move while summoning before cancellation
+  max_summon_movement: 2.0
+
+  # Whether to persist damage cooldowns across server restarts
+  persist_damage_cooldowns: false
