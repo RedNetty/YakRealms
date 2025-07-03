@@ -33,6 +33,11 @@ import com.rednetty.server.mechanics.item.MenuItemManager;
 import com.rednetty.server.mechanics.item.MenuSystemInitializer;
 import com.rednetty.server.mechanics.item.orb.OrbManager;
 import com.rednetty.server.mechanics.item.scroll.ScrollManager;
+import com.rednetty.server.mechanics.item.awakening.AwakeningStoneSystem;
+import com.rednetty.server.mechanics.item.binding.BindingRuneSystem;
+import com.rednetty.server.mechanics.item.corruption.CorruptionSystem;
+import com.rednetty.server.mechanics.item.essence.EssenceCrystalSystem;
+import com.rednetty.server.mechanics.item.forge.ForgeHammerSystem;
 import com.rednetty.server.mechanics.lootchests.LootChestManager;
 import com.rednetty.server.mechanics.market.MarketManager;
 import com.rednetty.server.mechanics.mobs.MobManager;
@@ -94,6 +99,14 @@ public class YakRealms extends JavaPlugin {
     private OrbManager orbManager;
     private Journal journalSystem;
     private MenuItemManager menuItemManager;
+
+    // New Item Enhancement Systems
+    private AwakeningStoneSystem awakeningStoneSystem;
+    private BindingRuneSystem bindingRuneSystem;
+    private CorruptionSystem corruptionSystem;
+    private EssenceCrystalSystem essenceCrystalSystem;
+    private ForgeHammerSystem forgeHammerSystem;
+
     private EconomyManager economyManager;
     private BankManager bankManager;
     private GemPouchManager gemPouchManager;
@@ -240,6 +253,7 @@ public class YakRealms extends JavaPlugin {
             allSuccess &= safeInitialize("Player Movement", this::initializePlayerMovement);
             allSuccess &= safeInitialize("Mount System", this::initializeMountSystem);
             allSuccess &= safeInitialize("Item Systems", this::initializeItemSystems);
+            allSuccess &= safeInitialize("Item Enhancement Systems", this::initializeItemEnhancementSystems);
             allSuccess &= safeInitialize("Chat Mechanics", this::initializeChatMechanics);
             allSuccess &= safeInitialize("Economy Systems", this::initializeEconomySystems);
             allSuccess &= safeInitialize("Market System", this::initializeMarketSystem);
@@ -363,6 +377,45 @@ public class YakRealms extends JavaPlugin {
             return true;
         } catch (Exception e) {
             getLogger().log(Level.SEVERE, "Error initializing item systems", e);
+            return false;
+        }
+    }
+
+    /**
+     * Initialize all item enhancement systems
+     */
+    private boolean initializeItemEnhancementSystems() {
+        try {
+            getLogger().info("Initializing item enhancement systems...");
+
+            // Initialize Awakening Stone System
+            awakeningStoneSystem = AwakeningStoneSystem.getInstance();
+            awakeningStoneSystem.initialize();
+            getLogger().info("Awakening Stone System initialized successfully!");
+
+            // Initialize Binding Rune System
+            bindingRuneSystem = BindingRuneSystem.getInstance();
+            bindingRuneSystem.initialize();
+            getLogger().info("Binding Rune System initialized successfully!");
+
+            // Initialize Corruption System
+            corruptionSystem = CorruptionSystem.getInstance();
+            corruptionSystem.initialize();
+            getLogger().info("Corruption System initialized successfully!");
+
+            // Initialize Essence Crystal System
+            essenceCrystalSystem = EssenceCrystalSystem.getInstance();
+            essenceCrystalSystem.initialize();
+            getLogger().info("Essence Crystal System initialized successfully!");
+
+            // Initialize Forge Hammer System
+            forgeHammerSystem = ForgeHammerSystem.getInstance();
+            forgeHammerSystem.initialize();
+            getLogger().info("Forge Hammer System initialized successfully!");
+
+            return true;
+        } catch (Exception e) {
+            getLogger().log(Level.SEVERE, "Error initializing item enhancement systems", e);
             return false;
         }
     }
@@ -675,7 +728,7 @@ public class YakRealms extends JavaPlugin {
             success &= registerCommand("alignment", new AlignmentCommand(alignmentMechanics));
             success &= registerCommand("invsee", new InvseeCommand());
 
-            // Item commands
+            // Item commands - Updated with enhanced ItemCommand
             success &= registerCommand("item", new ItemCommand(this));
             success &= registerCommand("journal", new JournalCommand());
             success &= registerCommand("scroll", new ScrollCommand(scrollManager));
@@ -771,6 +824,11 @@ public class YakRealms extends JavaPlugin {
         getLogger().info("Loot Chest System: " + (lootChestManager != null ? "Active" : "Inactive"));
         getLogger().info("Mob System: " + (mobManager != null ? "Active" : "Inactive"));
         getLogger().info("Market System: " + (marketManager != null ? "Active" : "Inactive"));
+        getLogger().info("Awakening Stone System: " + (awakeningStoneSystem != null ? "Active" : "Inactive"));
+        getLogger().info("Binding Rune System: " + (bindingRuneSystem != null ? "Active" : "Inactive"));
+        getLogger().info("Corruption System: " + (corruptionSystem != null ? "Active" : "Inactive"));
+        getLogger().info("Essence Crystal System: " + (essenceCrystalSystem != null ? "Active" : "Inactive"));
+        getLogger().info("Forge Hammer System: " + (forgeHammerSystem != null ? "Active" : "Inactive"));
         getLogger().info("==============================");
 
         getLogger().info("YakRealms startup completed successfully!");
@@ -841,6 +899,10 @@ public class YakRealms extends JavaPlugin {
             }
         }
 
+        // Shutdown item enhancement systems
+        getLogger().info("Shutting down item enhancement systems...");
+        // These systems typically don't need explicit shutdown as they're event-based
+
         // Add other shutdowns as needed
     }
 
@@ -885,6 +947,14 @@ public class YakRealms extends JavaPlugin {
     public OrbManager getOrbManager() { return orbManager; }
     public Journal getJournalSystem() { return journalSystem; }
     public MenuItemManager getMenuItemManager() { return menuItemManager; }
+
+    // New getters for item enhancement systems
+    public AwakeningStoneSystem getAwakeningStoneSystem() { return awakeningStoneSystem; }
+    public BindingRuneSystem getBindingRuneSystem() { return bindingRuneSystem; }
+    public CorruptionSystem getCorruptionSystem() { return corruptionSystem; }
+    public EssenceCrystalSystem getEssenceCrystalSystem() { return essenceCrystalSystem; }
+    public ForgeHammerSystem getForgeHammerSystem() { return forgeHammerSystem; }
+
     public AlignmentMechanics getAlignmentMechanics() { return alignmentMechanics; }
     public RespawnManager getRespawnManager() { return respawnManager; }
     public DeathRemnantManager getDeathRemnantManager() { return deathRemnantManager; }
@@ -993,5 +1063,66 @@ public class YakRealms extends JavaPlugin {
      */
     public static boolean isLootChestSystemAvailable() {
         return instance != null && instance.lootChestManager != null;
+    }
+
+    /**
+     * Safe getters for item enhancement systems
+     */
+    public static AwakeningStoneSystem getAwakeningStoneSystemSafe() {
+        if (instance == null || instance.awakeningStoneSystem == null) {
+            throw new IllegalStateException("Awakening Stone System not available");
+        }
+        return instance.awakeningStoneSystem;
+    }
+
+    public static BindingRuneSystem getBindingRuneSystemSafe() {
+        if (instance == null || instance.bindingRuneSystem == null) {
+            throw new IllegalStateException("Binding Rune System not available");
+        }
+        return instance.bindingRuneSystem;
+    }
+
+    public static CorruptionSystem getCorruptionSystemSafe() {
+        if (instance == null || instance.corruptionSystem == null) {
+            throw new IllegalStateException("Corruption System not available");
+        }
+        return instance.corruptionSystem;
+    }
+
+    public static EssenceCrystalSystem getEssenceCrystalSystemSafe() {
+        if (instance == null || instance.essenceCrystalSystem == null) {
+            throw new IllegalStateException("Essence Crystal System not available");
+        }
+        return instance.essenceCrystalSystem;
+    }
+
+    public static ForgeHammerSystem getForgeHammerSystemSafe() {
+        if (instance == null || instance.forgeHammerSystem == null) {
+            throw new IllegalStateException("Forge Hammer System not available");
+        }
+        return instance.forgeHammerSystem;
+    }
+
+    /**
+     * Check if item enhancement systems are available
+     */
+    public static boolean isAwakeningStoneSystemAvailable() {
+        return instance != null && instance.awakeningStoneSystem != null;
+    }
+
+    public static boolean isBindingRuneSystemAvailable() {
+        return instance != null && instance.bindingRuneSystem != null;
+    }
+
+    public static boolean isCorruptionSystemAvailable() {
+        return instance != null && instance.corruptionSystem != null;
+    }
+
+    public static boolean isEssenceCrystalSystemAvailable() {
+        return instance != null && instance.essenceCrystalSystem != null;
+    }
+
+    public static boolean isForgeHammerSystemAvailable() {
+        return instance != null && instance.forgeHammerSystem != null;
     }
 }
