@@ -73,7 +73,7 @@ public class LootChestHandler implements Listener {
             handleChestInteraction(event, player, chestLocation, chestData);
         } else if (blockType == Material.ENDER_CHEST) {
             handleCarePackageInteraction(event, player, chestLocation, chestData);
-        } else if (blockType == Material.GLOWSTONE) {
+        } else if (blockType == Material.BARREL) { // Changed from GLOWSTONE
             handleSpecialChestInteraction(event, player, chestLocation, chestData);
         }
     }
@@ -101,10 +101,14 @@ public class LootChestHandler implements Listener {
                 player.sendMessage(ChatColor.RED + "Unable to open this chest right now.");
             }
         } else if (event.getAction() == Action.LEFT_CLICK_BLOCK) {
-            // Break chest
-            boolean success = manager.breakChest(player, location);
-            if (!success) {
-                player.sendMessage(ChatColor.RED + "Unable to break this chest right now.");
+            // Only allow breaking if player is sneaking to prevent accidental breaks
+            if (player.isSneaking()) {
+                boolean success = manager.breakChest(player, location);
+                if (!success) {
+                    player.sendMessage(ChatColor.RED + "Unable to break this chest right now.");
+                }
+            } else {
+                player.sendMessage(ChatColor.YELLOW + "Sneak + left-click to break this chest");
             }
         }
     }
@@ -130,39 +134,49 @@ public class LootChestHandler implements Listener {
     }
 
     /**
-     * Handles special chest interactions (glowstone)
+     * Handles special chest interactions (barrel)
      */
     private void handleSpecialChestInteraction(PlayerInteractEvent event, Player player,
                                                LootChestLocation location, LootChestData chestData) {
-        // Only ops can interact with glowstone for chest creation
-        if (!player.isOp()) {
+        if (chestData == null) {
+            // Only ops can interact with barrels for chest creation
+            if (!player.isOp()) {
+                return;
+            }
+
+            if (event.getAction() == Action.RIGHT_CLICK_BLOCK) {
+                event.setCancelled(true);
+                createLootChestFromBarrel(player, location);
+            }
             return;
         }
 
-        if (event.getAction() == Action.RIGHT_CLICK_BLOCK) {
-            event.setCancelled(true);
+        // This is a managed special chest
+        event.setCancelled(true);
 
-            if (chestData == null) {
-                // Create new chest
-                createLootChestFromGlowstone(player, location);
-            } else {
-                // Open existing special chest
-                boolean success = manager.openChest(player, location);
-                if (!success) {
-                    player.sendMessage(ChatColor.RED + "Unable to open this special chest right now.");
-                }
+        if (event.getAction() == Action.RIGHT_CLICK_BLOCK) {
+            // Open existing special chest
+            boolean success = manager.openChest(player, location);
+            if (!success) {
+                player.sendMessage(ChatColor.RED + "Unable to open this special chest right now.");
+            }
+        } else if (event.getAction() == Action.LEFT_CLICK_BLOCK) {
+            // Break special chest with left-click
+            boolean success = manager.breakChest(player, location);
+            if (!success) {
+                player.sendMessage(ChatColor.RED + "Unable to break this special chest right now.");
             }
         }
     }
 
     /**
-     * Creates a loot chest from a glowstone block (admin function)
+     * Creates a loot chest from a barrel block (admin function)
      */
-    private void createLootChestFromGlowstone(Player player, LootChestLocation location) {
+    private void createLootChestFromBarrel(Player player, LootChestLocation location) {
         // Determine tier based on player's tool or default to tier 3
         ChestTier tier = getPlayerTier(player);
 
-        // Create the chest
+        // Create the chest (will convert barrel to appropriate chest type)
         LootChestData chestData = manager.createChest(location.getBukkitLocation(), tier, ChestType.NORMAL);
 
         // Send confirmation to player
@@ -203,7 +217,7 @@ public class LootChestHandler implements Listener {
     }
 
     /**
-     * Handles chest block breaking
+     * Handles chest block breaking - Updated to handle all chest types properly
      */
     @EventHandler(priority = EventPriority.HIGH)
     public void onBlockBreak(BlockBreakEvent event) {
@@ -216,22 +230,30 @@ public class LootChestHandler implements Listener {
         LootChestData chestData = manager.getChest(chestLocation);
 
         if (chestData != null) {
-            // This is a managed loot chest
+            // This is a managed loot chest - always cancel the break event
             event.setCancelled(true);
 
-            if (player.isOp() && block.getType() == Material.GLOWSTONE) {
-                // Admin removing a loot chest
+            Material blockType = block.getType();
+
+            if (player.isOp() && (blockType == Material.BARREL || blockType == Material.GLOWSTONE)) {
+                // Admin removing a loot chest (special chests or legacy glowstone)
                 boolean success = manager.removeChest(chestLocation);
                 if (success) {
                     player.sendMessage(ChatColor.RED.toString() + ChatColor.BOLD + "     *** LOOT CHEST REMOVED ***");
                     manager.getRepository().deleteChest(chestLocation);
                 }
-            } else if (block.getType() == Material.CHEST) {
-                // Player trying to break a normal loot chest
-                manager.breakChest(player, chestLocation);
+            } else if (blockType == Material.CHEST) {
+                // Regular players breaking normal chests - redirect to interaction handler
+                player.sendMessage(ChatColor.RED + "You cannot break loot chests with tools. Use left-click instead.");
+            } else if (blockType == Material.BARREL) {
+                // Special chest - redirect to interaction handler
+                player.sendMessage(ChatColor.RED + "You cannot break special chests with tools. Use left-click instead.");
+            } else if (blockType == Material.ENDER_CHEST) {
+                // Care packages cannot be broken
+                player.sendMessage(ChatColor.RED + "Care packages cannot be broken!");
             } else {
-                // Not allowed to break this type
-                player.sendMessage(ChatColor.RED + "You cannot break this type of chest.");
+                // Unknown block type
+                player.sendMessage(ChatColor.RED + "You cannot break this type of loot chest.");
             }
         }
     }
@@ -248,7 +270,10 @@ public class LootChestHandler implements Listener {
         // Check if this is a loot chest inventory
         String title = event.getView().getTitle();
         if (title.contains("Loot Chest") || title.contains("Care Package") || title.contains("Special Loot Chest")) {
-            manager.handleInventoryClose(player);
+            // Run on next tick to avoid async issues
+            Bukkit.getScheduler().runTask(YakRealms.getInstance(), () -> {
+                manager.handleInventoryClose(player);
+            });
         }
     }
 
@@ -259,8 +284,10 @@ public class LootChestHandler implements Listener {
     public void onPlayerQuit(PlayerQuitEvent event) {
         Player player = event.getPlayer();
 
-        // Clean up any viewing state for this player
-        manager.handleInventoryClose(player);
+        // Clean up any viewing state for this player - run sync
+        Bukkit.getScheduler().runTask(YakRealms.getInstance(), () -> {
+            manager.handleInventoryClose(player);
+        });
     }
 
     /**
@@ -470,5 +497,7 @@ public class LootChestHandler implements Listener {
         player.sendMessage(ChatColor.WHITE + "/lootchest carepackage - Spawn a care package");
         player.sendMessage(ChatColor.WHITE + "/lootchest special [tier] - Create a special chest");
         player.sendMessage(ChatColor.GRAY + "Tiers: 1-6, Types: NORMAL, CARE_PACKAGE, SPECIAL");
+        player.sendMessage(ChatColor.GRAY + "Note: Use left-click to break chests");
+        player.sendMessage(ChatColor.GRAY + "Special chests use barrel blocks and don't respawn when broken");
     }
 }

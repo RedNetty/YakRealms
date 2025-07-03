@@ -8,16 +8,13 @@ import org.bukkit.Material;
  */
 public enum MarketCategory {
     WEAPONS("Weapons", Material.DIAMOND_SWORD, ChatColor.RED,
-            "sword", "bow", "crossbow", "trident", "axe"),
+            "sword", "bow", "crossbow", "trident", "axe", "axe", "shovel", "hoe"),
 
     ARMOR("Armor", Material.DIAMOND_CHESTPLATE, ChatColor.BLUE,
             "helmet", "chestplate", "leggings", "boots", "shield"),
 
     TOOLS("Tools", Material.DIAMOND_PICKAXE, ChatColor.YELLOW,
-            "pickaxe", "axe", "shovel", "hoe", "shears", "flint_and_steel"),
-
-    BLOCKS("Blocks", Material.STONE, ChatColor.GRAY,
-            "stone", "wood", "plank", "brick", "block", "log"),
+            "pickaxe", "shears", "flint_and_steel"),
 
     FOOD("Food", Material.BREAD, ChatColor.GOLD,
             "bread", "meat", "fish", "fruit", "vegetable", "cookie", "cake"),
@@ -28,20 +25,8 @@ public enum MarketCategory {
     ENCHANTED("Enchanted Items", Material.ENCHANTED_BOOK, ChatColor.AQUA,
             "enchanted", "book"),
 
-    REDSTONE("Redstone", Material.REDSTONE, ChatColor.DARK_RED,
-            "redstone", "piston", "dispenser", "repeater", "comparator"),
-
-    DECORATION("Decoration", Material.PAINTING, ChatColor.GREEN,
-            "painting", "item_frame", "flower", "banner", "carpet"),
-
-    TRANSPORTATION("Transportation", Material.MINECART, ChatColor.DARK_BLUE,
-            "minecart", "boat", "horse", "saddle", "rails"),
-
-    RARE("Rare Items", Material.NETHER_STAR, ChatColor.WHITE,
-            "nether_star", "dragon", "elytra", "totem", "heart_of_the_sea"),
-
     MISCELLANEOUS("Miscellaneous", Material.STICK, ChatColor.GRAY,
-            "stick", "string", "paper", "book", "misc");
+            "stick", "paper", "book", "misc");
 
     private final String displayName;
     private final Material icon;

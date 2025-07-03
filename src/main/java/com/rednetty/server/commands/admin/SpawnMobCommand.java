@@ -23,7 +23,11 @@ import java.util.logging.Logger;
 import java.util.stream.Collectors;
 
 /**
- * IMPROVED: Enhanced SpawnMobCommand with better integration with the MobManager system
+ * FIXED: Enhanced SpawnMobCommand with proper elite support and validation
+ * - Fixed validation logic for elite-only types
+ * - Enhanced entity creation with better error handling
+ * - Improved spawning success rates for all mob types including elites
+ * - Better integration with the MobManager system
  */
 public class SpawnMobCommand implements CommandExecutor, TabCompleter {
     private final MobManager mobManager;
@@ -230,7 +234,7 @@ public class SpawnMobCommand implements CommandExecutor, TabCompleter {
     }
 
     /**
-     * IMPROVED: Spawn a single mob using the MobManager's improved system
+     * FIXED: Enhanced single mob spawning with proper elite support
      */
     private LivingEntity spawnSingleMob(Location location, String mobType, int tier, boolean elite) {
         try {
@@ -240,26 +244,28 @@ public class SpawnMobCommand implements CommandExecutor, TabCompleter {
                 return null;
             }
 
-            CustomMob customMob = new CustomMob(MobType.getById(mobType), tier, elite);
-            LivingEntity entity;
-            if(elite) {
-                customMob = new EliteMob(MobType.getById(mobType), tier);
+            // FIXED: Use MobManager for reliable spawning
+            LivingEntity entity = mobManager.spawnMobFromSpawner(location, mobType, tier, elite);
 
+            if (entity != null) {
+                // Prevent removal
+                entity.setRemoveWhenFarAway(false);
+                entity.setCanPickupItems(false);
+
+                if (YakRealms.getInstance().isDebugMode()) {
+                    logger.info(String.format("[SpawnMobCommand] Successfully spawned %s T%d%s at %s (ID: %s)",
+                            mobType, tier, elite ? "+" : "", formatLocation(location),
+                            entity.getUniqueId().toString().substring(0, 8)));
+                }
+
+                return entity;
+            } else {
+                logger.warning("[SpawnMobCommand] MobManager returned null entity for " + mobType);
+                return null;
             }
-            customMob.spawn(location);
-            entity = customMob.getEntity();
-            if(entity == null) return null;
-
-            // Prevent removal
-            entity.setRemoveWhenFarAway(false);
-            entity.setCanPickupItems(false);
-
-
-            logger.warning("Both CustomMob and fallback spawning failed for: " + mobType);
-            return null;
 
         } catch (Exception e) {
-            logger.warning("Single mob spawn error: " + e.getMessage());
+            logger.warning("[SpawnMobCommand] Single mob spawn error: " + e.getMessage());
             if (YakRealms.getInstance().isDebugMode()) {
                 e.printStackTrace();
             }
@@ -313,7 +319,7 @@ public class SpawnMobCommand implements CommandExecutor, TabCompleter {
     }
 
     /**
-     * IMPROVED: Validate spawn request with detailed feedback
+     * FIXED: Enhanced validation with proper elite support
      */
     private ValidationResult validateSpawnRequest(SpawnRequest request) {
         // Check mob type
@@ -327,6 +333,9 @@ public class SpawnMobCommand implements CommandExecutor, TabCompleter {
         }
 
         MobType type = MobType.getById(request.mobType);
+        if (type == null) {
+            return ValidationResult.invalid("Failed to get mob type: " + request.mobType);
+        }
 
         // Check tier validity for this mob type
         if (!type.isValidTier(request.tier)) {
@@ -341,16 +350,18 @@ public class SpawnMobCommand implements CommandExecutor, TabCompleter {
             return ValidationResult.invalid("Tier 6 mobs are not enabled on this server.");
         }
 
-        // Check elite validity
-        if (request.elite && type.isElite()) {
-            return ValidationResult.invalid(
-                    request.mobType + " is already an elite mob type. Set elite to false.",
-                    "Elite mob types: " + getEliteMobTypesList()
-            );
-        }
-
-        if (request.elite && type.isWorldBoss()) {
-            return ValidationResult.invalid("World bosses cannot be made elite.");
+        // FIXED: Enhanced elite validation logic
+        if (type.isElite()) {
+            // This is an elite-only type (like T5 elites)
+            if (!request.elite) {
+                return ValidationResult.invalid(
+                        request.mobType + " is an elite-only mob type. Set elite to true.",
+                        "Elite-only types: " + getEliteOnlyMobTypesList()
+                );
+            }
+        } else {
+            // This is a regular mob type that can be made elite
+            // Both elite=true and elite=false are valid
         }
 
         // Check amount limits
@@ -427,13 +438,31 @@ public class SpawnMobCommand implements CommandExecutor, TabCompleter {
     }
 
     /**
-     * Get list of elite mob types
+     * FIXED: Get list of elite-only mob types
      */
-    private String getEliteMobTypesList() {
+    private String getEliteOnlyMobTypesList() {
         return Arrays.stream(MobType.values())
                 .filter(MobType::isElite)
                 .map(MobType::getId)
                 .collect(Collectors.joining(", "));
+    }
+
+    /**
+     * Get list of all elite mob types (including those that can be made elite)
+     */
+    private String getEliteMobTypesList() {
+        List<String> eliteTypes = new ArrayList<>();
+
+        // Add elite-only types
+        Arrays.stream(MobType.values())
+                .filter(MobType::isElite)
+                .map(MobType::getId)
+                .forEach(eliteTypes::add);
+
+        // Add note about regular types
+        eliteTypes.add("(plus any regular mob type with elite=true)");
+
+        return String.join(", ", eliteTypes);
     }
 
     /**
@@ -507,6 +536,7 @@ public class SpawnMobCommand implements CommandExecutor, TabCompleter {
         player.sendMessage(ChatColor.YELLOW + "Examples:");
         player.sendMessage(ChatColor.WHITE + "/spawnmob skeleton 3 false 5");
         player.sendMessage(ChatColor.WHITE + "/spawnmob witherskeleton 5 true 1");
+        player.sendMessage(ChatColor.WHITE + "/spawnmob meridian 5 true 1  " + ChatColor.GRAY + "(T5 elite)");
         player.sendMessage(ChatColor.WHITE + "/spawnmob multi skeleton:3@false#2,zombie:4@true#1");
         player.sendMessage("");
         player.sendMessage(ChatColor.GRAY + "Use '/spawnmob help' to see all valid mob types.");
@@ -519,7 +549,7 @@ public class SpawnMobCommand implements CommandExecutor, TabCompleter {
         player.sendMessage(ChatColor.GOLD + "===== Valid Mob Types =====");
 
         List<String> regularMobs = new ArrayList<>();
-        List<String> eliteMobs = new ArrayList<>();
+        List<String> eliteOnlyMobs = new ArrayList<>();
         List<String> worldBosses = new ArrayList<>();
 
         for (MobType type : MobType.values()) {
@@ -527,24 +557,30 @@ public class SpawnMobCommand implements CommandExecutor, TabCompleter {
             if (type.isWorldBoss()) {
                 worldBosses.add(typeName);
             } else if (type.isElite()) {
-                eliteMobs.add(typeName);
+                eliteOnlyMobs.add(typeName);
             } else {
                 regularMobs.add(typeName);
             }
         }
 
-        player.sendMessage(ChatColor.GREEN + "Regular Mobs:");
+        player.sendMessage(ChatColor.GREEN + "Regular Mobs (can be made elite):");
         showMobTypesInColumns(player, regularMobs, ChatColor.WHITE);
 
-        if (!eliteMobs.isEmpty()) {
-            player.sendMessage(ChatColor.LIGHT_PURPLE.toString() + "Elite Mobs:");
-            showMobTypesInColumns(player, eliteMobs, ChatColor.LIGHT_PURPLE);
+        if (!eliteOnlyMobs.isEmpty()) {
+            player.sendMessage(ChatColor.LIGHT_PURPLE + "Elite-Only Mobs (elite=true required):");
+            showMobTypesInColumns(player, eliteOnlyMobs, ChatColor.LIGHT_PURPLE);
         }
 
         if (!worldBosses.isEmpty()) {
             player.sendMessage(ChatColor.RED + "World Bosses:");
             showMobTypesInColumns(player, worldBosses, ChatColor.GOLD);
         }
+
+        player.sendMessage("");
+        player.sendMessage(ChatColor.YELLOW + "Elite Examples:");
+        player.sendMessage(ChatColor.WHITE + "/spawnmob meridian 5 true 1  " + ChatColor.GRAY + "(T5 Elite - Cosmic Warden)");
+        player.sendMessage(ChatColor.WHITE + "/spawnmob pyrion 5 true 1   " + ChatColor.GRAY + "(T5 Elite - Fire Lord)");
+        player.sendMessage(ChatColor.WHITE + "/spawnmob skeleton 4 true 2 " + ChatColor.GRAY + "(Regular mob made elite)");
     }
 
     /**
@@ -561,6 +597,20 @@ public class SpawnMobCommand implements CommandExecutor, TabCompleter {
             }
             player.sendMessage(line.toString());
         }
+    }
+
+    /**
+     * Format location for display
+     */
+    private String formatLocation(Location location) {
+        if (location == null || location.getWorld() == null) {
+            return "Unknown";
+        }
+        return String.format("%s [%d, %d, %d]",
+                location.getWorld().getName(),
+                location.getBlockX(),
+                location.getBlockY(),
+                location.getBlockZ());
     }
 
     @Override
@@ -604,10 +654,19 @@ public class SpawnMobCommand implements CommandExecutor, TabCompleter {
         }
 
         if (args.length == 3 && !args[0].equalsIgnoreCase("multi")) {
-            // Third argument: elite status
-            return Arrays.asList("true", "false").stream()
-                    .filter(s -> s.toLowerCase().startsWith(args[2].toLowerCase()))
-                    .collect(Collectors.toList());
+            // Third argument: elite status - enhanced for elite-only types
+            MobType type = MobType.getById(args[0]);
+            if (type != null && type.isElite()) {
+                // Elite-only type, only suggest true
+                return Arrays.asList("true").stream()
+                        .filter(s -> s.toLowerCase().startsWith(args[2].toLowerCase()))
+                        .collect(Collectors.toList());
+            } else {
+                // Regular type, can be true or false
+                return Arrays.asList("true", "false").stream()
+                        .filter(s -> s.toLowerCase().startsWith(args[2].toLowerCase()))
+                        .collect(Collectors.toList());
+            }
         }
 
         if (args.length == 4 && !args[0].equalsIgnoreCase("multi")) {

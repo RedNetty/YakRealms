@@ -70,8 +70,6 @@ public class MarketMainMenu extends Menu {
         setItem(29, createQuickCategoryButton(MarketCategory.ARMOR));
         setItem(30, createQuickCategoryButton(MarketCategory.TOOLS));
         setItem(32, createQuickCategoryButton(MarketCategory.ENCHANTED));
-        setItem(33, createQuickCategoryButton(MarketCategory.RARE));
-        setItem(34, createQuickCategoryButton(MarketCategory.BLOCKS));
 
         // Close button
         setItem(40, createCloseButton());

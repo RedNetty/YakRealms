@@ -7,23 +7,28 @@ import com.rednetty.server.mechanics.lootchests.types.ChestType;
 import com.rednetty.server.mechanics.lootchests.types.LootChestLocation;
 
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Contains all data for a loot chest
+ * Contains all data for a loot chest with thread-safe operations
  */
 public class LootChestData {
-    private final com.rednetty.server.mechanics.lootchests.types.LootChestLocation location;
+    private final LootChestLocation location;
     private final ChestTier tier;
     private final ChestType type;
     private final long creationTime;
 
-    private ChestState state;
-    private long respawnTime;
-    private long lastInteractionTime;
+    // Volatile for thread safety
+    private volatile ChestState state;
+    private volatile long respawnTime;
+    private volatile long lastInteractionTime;
+    private volatile long lastStateChangeTime;
+
+    // Thread-safe collections
     private final Set<UUID> playersWhoInteracted;
     private final Map<String, Object> metadata;
 
-    public LootChestData(com.rednetty.server.mechanics.lootchests.types.LootChestLocation location, ChestTier tier, ChestType type) {
+    public LootChestData(LootChestLocation location, ChestTier tier, ChestType type) {
         this.location = location;
         this.tier = tier;
         this.type = type;
@@ -31,8 +36,9 @@ public class LootChestData {
         this.state = ChestState.AVAILABLE;
         this.respawnTime = 0;
         this.lastInteractionTime = 0;
-        this.playersWhoInteracted = new HashSet<>();
-        this.metadata = new HashMap<>();
+        this.lastStateChangeTime = this.creationTime;
+        this.playersWhoInteracted = ConcurrentHashMap.newKeySet();
+        this.metadata = new ConcurrentHashMap<>();
     }
 
     // === Getters ===
@@ -43,29 +49,33 @@ public class LootChestData {
     public ChestState getState() { return state; }
     public long getRespawnTime() { return respawnTime; }
     public long getLastInteractionTime() { return lastInteractionTime; }
+    public long getLastStateChangeTime() { return lastStateChangeTime; }
     public Set<UUID> getPlayersWhoInteracted() { return new HashSet<>(playersWhoInteracted); }
     public Map<String, Object> getMetadata() { return new HashMap<>(metadata); }
 
     // === Setters ===
-    public void setState(ChestState state) {
-        this.state = state;
-        updateLastInteractionTime();
+    public synchronized void setState(ChestState newState) {
+        if (this.state != newState) {
+            this.state = newState;
+            this.lastStateChangeTime = System.currentTimeMillis();
+            updateLastInteractionTime();
+        }
     }
 
-    public void setRespawnTime(long respawnTime) {
+    public synchronized void setRespawnTime(long respawnTime) {
         this.respawnTime = respawnTime;
     }
 
-    public void resetRespawnTime() {
+    public synchronized void resetRespawnTime() {
         this.respawnTime = 0;
     }
 
-    private void updateLastInteractionTime() {
+    private synchronized void updateLastInteractionTime() {
         this.lastInteractionTime = System.currentTimeMillis();
     }
 
     // === Player Interaction Tracking ===
-    public void addInteraction(UUID playerUuid) {
+    public synchronized void addInteraction(UUID playerUuid) {
         playersWhoInteracted.add(playerUuid);
         updateLastInteractionTime();
     }
@@ -78,9 +88,17 @@ public class LootChestData {
         return playersWhoInteracted.size();
     }
 
+    public synchronized void clearInteractions() {
+        playersWhoInteracted.clear();
+    }
+
     // === Metadata Management ===
     public void setMetadata(String key, Object value) {
-        metadata.put(key, value);
+        if (value == null) {
+            metadata.remove(key);
+        } else {
+            metadata.put(key, value);
+        }
     }
 
     public Object getMetadata(String key) {
@@ -116,6 +134,12 @@ public class LootChestData {
             return System.currentTimeMillis() - creationTime > 300000 &&
                     playersWhoInteracted.isEmpty();
         }
+
+        // Care packages expire after 10 minutes regardless
+        if (type == ChestType.CARE_PACKAGE) {
+            return System.currentTimeMillis() - creationTime > 600000;
+        }
+
         return false;
     }
 
@@ -131,6 +155,12 @@ public class LootChestData {
         return state == ChestState.RESPAWNING;
     }
 
+    public boolean isStuck() {
+        // Consider a chest "stuck" if it's been in the same state for over 30 minutes
+        // This helps identify chests that might have issues
+        return System.currentTimeMillis() - lastStateChangeTime > 1800000; // 30 minutes
+    }
+
     // === Time Utilities ===
     public long getAge() {
         return System.currentTimeMillis() - creationTime;
@@ -142,11 +172,32 @@ public class LootChestData {
                 getAge();
     }
 
+    public long getTimeSinceLastStateChange() {
+        return System.currentTimeMillis() - lastStateChangeTime;
+    }
+
     public long getRespawnTimeRemaining() {
         if (state != ChestState.RESPAWNING || respawnTime <= 0) {
             return 0;
         }
         return Math.max(0, respawnTime - System.currentTimeMillis());
+    }
+
+    public String getRespawnTimeRemainingFormatted() {
+        long remaining = getRespawnTimeRemaining();
+        if (remaining <= 0) {
+            return "Ready";
+        }
+
+        long seconds = remaining / 1000;
+        long minutes = seconds / 60;
+        seconds = seconds % 60;
+
+        if (minutes > 0) {
+            return String.format("%dm %ds", minutes, seconds);
+        } else {
+            return String.format("%ds", seconds);
+        }
     }
 
     // === Display Methods ===
@@ -158,9 +209,56 @@ public class LootChestData {
         return switch (state) {
             case AVAILABLE -> tier.getColor() + "Available";
             case OPENED -> "§eOpened";
-            case RESPAWNING -> "§cRespawning (" + (getRespawnTimeRemaining() / 1000) + "s)";
+            case RESPAWNING -> "§cRespawning (" + getRespawnTimeRemainingFormatted() + ")";
             case EXPIRED -> "§8Expired";
         };
+    }
+
+    public String getDetailedStatusString() {
+        StringBuilder status = new StringBuilder();
+        status.append(getStatusString());
+
+        if (isStuck()) {
+            status.append(" §4[STUCK]");
+        }
+
+        if (playersWhoInteracted.size() > 0) {
+            status.append(" §7(").append(playersWhoInteracted.size()).append(" interactions)");
+        }
+
+        return status.toString();
+    }
+
+    // === Debugging Methods ===
+    public Map<String, Object> getDebugInfo() {
+        Map<String, Object> debug = new HashMap<>();
+        debug.put("location", location.toString());
+        debug.put("tier", tier.name());
+        debug.put("type", type.name());
+        debug.put("state", state.name());
+        debug.put("age", getAge() / 1000 + "s");
+        debug.put("timeSinceLastInteraction", getTimeSinceLastInteraction() / 1000 + "s");
+        debug.put("timeSinceLastStateChange", getTimeSinceLastStateChange() / 1000 + "s");
+        debug.put("interactionCount", playersWhoInteracted.size());
+        debug.put("respawnTimeRemaining", getRespawnTimeRemainingFormatted());
+        debug.put("isExpired", isExpired());
+        debug.put("isStuck", isStuck());
+        debug.put("metadataKeys", new ArrayList<>(metadata.keySet()));
+        return debug;
+    }
+
+    // === Reset Methods ===
+    public synchronized void reset() {
+        setState(ChestState.AVAILABLE);
+        resetRespawnTime();
+        clearInteractions();
+        metadata.clear();
+    }
+
+    public synchronized void softReset() {
+        setState(ChestState.AVAILABLE);
+        resetRespawnTime();
+        // Keep interactions and metadata
     }
 
     @Override
@@ -171,6 +269,7 @@ public class LootChestData {
                 ", type=" + type +
                 ", state=" + state +
                 ", interactions=" + playersWhoInteracted.size() +
+                ", age=" + (getAge() / 1000) + "s" +
                 '}';
     }
 

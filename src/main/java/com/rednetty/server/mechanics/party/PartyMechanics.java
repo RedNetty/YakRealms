@@ -12,6 +12,7 @@ import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
+import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.scheduler.BukkitTask;
@@ -317,6 +318,9 @@ public class PartyMechanics implements Listener {
         // Save party statistics
         savePartyStatistics();
 
+        // Clean up scoreboards
+        PartyScoreboards.cleanupAll();
+
         // Clear data
         parties.clear();
         invites.clear();
@@ -334,15 +338,17 @@ public class PartyMechanics implements Listener {
         scoreboardRefreshTask = new BukkitRunnable() {
             @Override
             public void run() {
-                for (Player player : Bukkit.getOnlinePlayers()) {
-                    try {
-                        PartyScoreboards.refreshPlayerScoreboard(player);
-                    } catch (Exception e) {
-                        logger.warning("Error refreshing party scoreboard for " + player.getName() + ": " + e.getMessage());
-                    }
+                try {
+                    // Update all party scoreboards
+                    PartyScoreboards.refreshAllPartyScoreboards();
+
+                    // Update health displays for all players
+                    PartyScoreboards.updateAllPlayerHealth();
+                } catch (Exception e) {
+                    logger.warning("Error refreshing party scoreboards: " + e.getMessage());
                 }
             }
-        }.runTaskTimer(YakRealms.getInstance(), 20L, 20L);
+        }.runTaskTimer(YakRealms.getInstance(), 20L, 20L); // Every second
     }
 
     /**
@@ -615,10 +621,11 @@ public class PartyMechanics implements Listener {
                 }
             });
 
-            // Update scoreboard
+            // Update scoreboard and team assignments
             Player bukkitPlayer = Bukkit.getPlayer(playerId);
             if (bukkitPlayer != null) {
                 PartyScoreboards.updatePlayerScoreboard(bukkitPlayer);
+                PartyScoreboards.updatePlayerTeamAssignments(bukkitPlayer);
 
                 // Show creation effects
                 showPartyCreationEffects(bukkitPlayer);
@@ -668,8 +675,8 @@ public class PartyMechanics implements Listener {
                 }
             });
 
-            // Update scoreboards for all party members
-            updatePartyScoreboards(party);
+            // Update scoreboards and teams for all party members
+            updateAllPartyMemberVisuals(party);
 
             // Show join effects
             Player bukkitPlayer = Bukkit.getPlayer(playerId);
@@ -750,8 +757,8 @@ public class PartyMechanics implements Listener {
                 // Disband empty party
                 disbandParty(partyId);
             } else {
-                // Update scoreboards for remaining members
-                updatePartyScoreboards(party);
+                // Update visuals for remaining members
+                updateAllPartyMemberVisuals(party);
 
                 // Notify remaining members
                 notifyPartyMembers(party, ChatColor.LIGHT_PURPLE + "<" + ChatColor.BOLD + "P" + ChatColor.LIGHT_PURPLE + ">" +
@@ -759,10 +766,11 @@ public class PartyMechanics implements Listener {
                         ChatColor.RED + ChatColor.UNDERLINE + "left" + ChatColor.GRAY + " the party.");
             }
 
-            // Update leaving player's scoreboard
+            // Update leaving player's visuals
             Player leavingPlayer = Bukkit.getPlayer(playerId);
             if (leavingPlayer != null) {
                 PartyScoreboards.clearPlayerScoreboard(leavingPlayer);
+                PartyScoreboards.updatePlayerTeamAssignments(leavingPlayer);
                 showPartyLeaveEffects(leavingPlayer);
             }
 
@@ -800,12 +808,13 @@ public class PartyMechanics implements Listener {
                 }
             });
 
-            // Notify all members and clear scoreboards
+            // Notify all members and update visuals
             for (UUID memberId : party.getAllMembers()) {
                 Player member = Bukkit.getPlayer(memberId);
                 if (member != null && member.isOnline()) {
                     member.sendMessage(ChatColor.RED + "The party has been disbanded.");
                     PartyScoreboards.clearPlayerScoreboard(member);
+                    PartyScoreboards.updatePlayerTeamAssignments(member);
                     showPartyDisbandEffects(member);
                 }
             }
@@ -1228,7 +1237,7 @@ public class PartyMechanics implements Listener {
             sendMessage(playerId, ChatColor.GOLD + "★ You have been promoted to party officer! ★");
             playSound(playerId, Sound.ENTITY_PLAYER_LEVELUP, 1.0f, 1.5f);
 
-            updatePartyScoreboards(party);
+            updateAllPartyMemberVisuals(party);
             return true;
         } finally {
             lock.writeLock().unlock();
@@ -1267,10 +1276,23 @@ public class PartyMechanics implements Listener {
             sendMessage(playerId, ChatColor.YELLOW + "You have been demoted from party officer.");
             playSound(playerId, Sound.BLOCK_NOTE_BLOCK_BASS, 1.0f, 1.0f);
 
-            updatePartyScoreboards(party);
+            updateAllPartyMemberVisuals(party);
             return true;
         } finally {
             lock.writeLock().unlock();
+        }
+    }
+
+    /**
+     * Update all visual elements for party members
+     */
+    private void updateAllPartyMemberVisuals(Party party) {
+        for (UUID memberId : party.getAllMembers()) {
+            Player member = Bukkit.getPlayer(memberId);
+            if (member != null && member.isOnline()) {
+                PartyScoreboards.updatePlayerScoreboard(member);
+                PartyScoreboards.updatePlayerTeamAssignments(member);
+            }
         }
     }
 
@@ -1373,18 +1395,6 @@ public class PartyMechanics implements Listener {
         String inviterName = getPlayerName(invite.getInviter());
         sendMessage(invite.getInvited(), ChatColor.RED + "Party invite from " + inviterName + " has expired.");
         sendMessage(invite.getInviter(), ChatColor.RED + "Party invite to " + getPlayerName(invite.getInvited()) + " has expired.");
-    }
-
-    /**
-     * Update scoreboards for all party members
-     */
-    private void updatePartyScoreboards(Party party) {
-        for (UUID memberId : party.getAllMembers()) {
-            Player member = Bukkit.getPlayer(memberId);
-            if (member != null && member.isOnline()) {
-                PartyScoreboards.updatePlayerScoreboard(member);
-            }
-        }
     }
 
     /**
@@ -1491,12 +1501,33 @@ public class PartyMechanics implements Listener {
     }
 
     /**
+     * Handle player join event to set up their scoreboard
+     */
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onPlayerJoin(PlayerJoinEvent event) {
+        Player player = event.getPlayer();
+
+        // Delay initial setup to ensure player is fully loaded
+        Bukkit.getScheduler().runTaskLater(YakRealms.getInstance(), () -> {
+            if (player.isOnline()) {
+                if (isInParty(player)) {
+                    PartyScoreboards.updatePlayerScoreboard(player);
+                }
+                PartyScoreboards.updatePlayerTeamAssignments(player);
+            }
+        }, 20L); // 1 second delay
+    }
+
+    /**
      * Handle player quit event to remove them from their party
      */
     @EventHandler(priority = EventPriority.MONITOR)
     public void onPlayerQuit(PlayerQuitEvent event) {
         Player player = event.getPlayer();
         UUID playerId = player.getUniqueId();
+
+        // Clean up scoreboard resources
+        PartyScoreboards.cleanupPlayer(player);
 
         if (isInParty(playerId)) {
             // Update statistics before leaving
@@ -1554,6 +1585,7 @@ public class PartyMechanics implements Listener {
         try {
             for (Player player : Bukkit.getOnlinePlayers()) {
                 PartyScoreboards.clearPlayerScoreboard(player);
+                PartyScoreboards.updatePlayerTeamAssignments(player);
             }
 
             // Fire disband events for all parties

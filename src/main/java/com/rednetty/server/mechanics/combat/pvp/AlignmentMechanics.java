@@ -3,6 +3,7 @@ package com.rednetty.server.mechanics.combat.pvp;
 import com.rednetty.server.YakRealms;
 import com.rednetty.server.mechanics.moderation.ModerationMechanics;
 import com.rednetty.server.mechanics.moderation.Rank;
+import com.rednetty.server.mechanics.party.PartyScoreboards;
 import com.rednetty.server.mechanics.player.YakPlayer;
 import com.rednetty.server.mechanics.player.YakPlayerManager;
 import com.rednetty.server.mechanics.player.settings.Toggles;
@@ -34,9 +35,10 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Manages player alignment system (Lawful, Neutral, Chaotic)
- * Controls PvP behaviors, item drop rates, and city access based on alignment
- * FIXED: Boss bar management and health regeneration using PlayerStatsCalculator
+ * FIXED: Manages player alignment system with proper scoreboard integration
+ * - Fixed scoreboard duplication when alignment changes
+ * - Proper integration with PartyScoreboards for color updates
+ * - Enhanced boss bar management and health regeneration
  */
 public class AlignmentMechanics implements Listener {
 
@@ -64,8 +66,6 @@ public class AlignmentMechanics implements Listener {
 
     /**
      * Get the singleton instance
-     *
-     * @return The AlignmentMechanics instance
      */
     public static AlignmentMechanics getInstance() {
         if (instance == null) {
@@ -158,12 +158,11 @@ public class AlignmentMechanics implements Listener {
     }
 
     /**
-     * Update alignment timers for a player
-     *
-     * @param player    The player to update
-     * @param yakPlayer The YakPlayer data
+     * FIXED: Update alignment timers with proper scoreboard updates
      */
     private void updateTimers(Player player, YakPlayer yakPlayer) {
+        String oldAlignment = yakPlayer.getAlignment();
+
         // Update chaotic timer
         if ("CHAOTIC".equals(yakPlayer.getAlignment())) {
             int timeLeft = yakPlayer.getChaoticTime() > 0 ?
@@ -176,6 +175,9 @@ public class AlignmentMechanics implements Listener {
                 playerManager.savePlayer(yakPlayer);
                 updatePlayerAlignment(player);
                 setNeutralAlignment(player);
+
+                // FIXED: Notify scoreboard system of alignment change
+                handleAlignmentChanged(player, oldAlignment, "NEUTRAL");
             }
         }
 
@@ -190,15 +192,29 @@ public class AlignmentMechanics implements Listener {
                 playerManager.savePlayer(yakPlayer);
                 updatePlayerAlignment(player);
                 setLawfulAlignment(player);
+
+                // FIXED: Notify scoreboard system of alignment change
+                handleAlignmentChanged(player, oldAlignment, "LAWFUL");
             }
         }
     }
 
     /**
+     * FIXED: Handle alignment changes and update all relevant scoreboards
+     */
+    private void handleAlignmentChanged(Player player, String oldAlignment, String newAlignment) {
+        // Update the player's display name immediately
+        updatePlayerAlignment(player);
+
+        // FIXED: Notify party scoreboard system of the alignment change
+        PartyScoreboards.handleAlignmentChange(player);
+
+        // Log the change
+        YakRealms.log("Player " + player.getName() + " alignment changed from " + oldAlignment + " to " + newAlignment);
+    }
+
+    /**
      * Check if a player is currently combat tagged
-     *
-     * @param player The player to check
-     * @return true if combat tagged
      */
     public boolean isPlayerTagged(Player player) {
         return taggedPlayers.containsKey(player.getName()) &&
@@ -207,9 +223,6 @@ public class AlignmentMechanics implements Listener {
 
     /**
      * Get time since player was last tagged
-     *
-     * @param player The player to check
-     * @return milliseconds since last tag, or Long.MAX_VALUE if not tagged
      */
     public long getTimeSinceLastTag(Player player) {
         if (taggedPlayers.containsKey(player.getName())) {
@@ -220,8 +233,6 @@ public class AlignmentMechanics implements Listener {
 
     /**
      * Mark a player as combat tagged
-     *
-     * @param player The player to tag
      */
     public void markCombatTagged(Player player) {
         taggedPlayers.put(player.getName(), System.currentTimeMillis());
@@ -229,8 +240,6 @@ public class AlignmentMechanics implements Listener {
 
     /**
      * Clear a player's combat tag
-     *
-     * @param player The player to untag
      */
     public void clearCombatTag(Player player) {
         taggedPlayers.remove(player.getName());
@@ -238,8 +247,6 @@ public class AlignmentMechanics implements Listener {
 
     /**
      * Apply passive healing to players not in combat using PlayerStatsCalculator
-     *
-     * @param player The player to heal
      */
     private void healPlayer(Player player) {
         try {
@@ -262,8 +269,6 @@ public class AlignmentMechanics implements Listener {
 
     /**
      * FIXED: Update a player's health bar display with proper synchronization
-     *
-     * @param player The player to update
      */
     private void updateHealthBar(Player player) {
         if (player == null || !player.isOnline() || player.isDead()) {
@@ -327,8 +332,6 @@ public class AlignmentMechanics implements Listener {
 
     /**
      * FIXED: Safely remove boss bar for a player
-     *
-     * @param playerId The player's UUID
      */
     private void removeBossBar(UUID playerId) {
         synchronized (bossBarLock) {
@@ -345,9 +348,6 @@ public class AlignmentMechanics implements Listener {
 
     /**
      * Get appropriate boss bar color based on health percentage
-     *
-     * @param player The player to check
-     * @return The boss bar color
      */
     private BarColor getHealthBarColor(Player player) {
         double healthPercentage = player.getHealth() / player.getMaxHealth();
@@ -363,9 +363,6 @@ public class AlignmentMechanics implements Listener {
 
     /**
      * Get appropriate text color based on health percentage
-     *
-     * @param player The player to check
-     * @return The text color
      */
     private ChatColor getHealthTextColor(Player player) {
         double healthPercentage = player.getHealth() / player.getMaxHealth();
@@ -381,8 +378,6 @@ public class AlignmentMechanics implements Listener {
 
     /**
      * Kick a chaotic player from a safe zone
-     *
-     * @param player The player to kick
      */
     private void kickFromSafeZone(Player player) {
         TextUtil.sendCenteredMessage(player, ChatColor.RED + "The guards have kicked you out of the " +
@@ -396,9 +391,6 @@ public class AlignmentMechanics implements Listener {
 
     /**
      * Generate a random spawn point for chaotic players
-     *
-     * @param playerName The player name
-     * @return A random spawn location
      */
     public static Location generateRandomSpawnPoint(String playerName) {
         World world = Bukkit.getWorlds().get(0); // Main world
@@ -429,23 +421,19 @@ public class AlignmentMechanics implements Listener {
 
     /**
      * Check if a location is in a safe zone
-     *
-     * @param location The location to check
-     * @return true if in a safe zone
      */
     public static boolean isSafeZone(Location location) {
         return WorldGuardManager.getInstance().isSafeZone(location);
     }
 
     /**
-     * Set a player to lawful alignment
-     *
-     * @param player The player to update
+     * FIXED: Set a player to lawful alignment with scoreboard updates
      */
     public static void setLawfulAlignment(Player player) {
         YakPlayer yakPlayer = YakPlayerManager.getInstance().getPlayer(player);
         if (yakPlayer == null) return;
 
+        String oldAlignment = yakPlayer.getAlignment();
         yakPlayer.setAlignment("LAWFUL");
         YakPlayerManager.getInstance().savePlayer(yakPlayer);
         updatePlayerAlignment(player);
@@ -455,17 +443,21 @@ public class AlignmentMechanics implements Listener {
         TextUtil.sendCenteredMessage(player, ChatColor.GRAY + "Instead, all armor will lose 30% of its durability when you die. ");
         TextUtil.sendCenteredMessage(player, ChatColor.GRAY + "Any players who kill you while you're lawfully aligned will become chaotic.");
         TextUtil.sendCenteredMessage(player, ChatColor.GREEN + "* YOU ARE NOW " + ChatColor.BOLD + "LAWFUL" + ChatColor.GREEN + " ALIGNMENT *");
+
+        // FIXED: Update scoreboards for alignment change
+        if (!oldAlignment.equals("LAWFUL")) {
+            PartyScoreboards.handleAlignmentChange(player);
+        }
     }
 
     /**
-     * Set a player to neutral alignment
-     *
-     * @param player The player to update
+     * FIXED: Set a player to neutral alignment with scoreboard updates
      */
     public static void setNeutralAlignment(Player player) {
         YakPlayer yakPlayer = YakPlayerManager.getInstance().getPlayer(player);
         if (yakPlayer == null) return;
 
+        String oldAlignment = yakPlayer.getAlignment();
         yakPlayer.setAlignment("NEUTRAL");
         yakPlayer.setNeutralTime(System.currentTimeMillis() / 1000 + NEUTRAL_SECONDS);
         YakPlayerManager.getInstance().savePlayer(yakPlayer);
@@ -476,18 +468,21 @@ public class AlignmentMechanics implements Listener {
         TextUtil.sendCenteredMessage(player, ChatColor.GRAY + "You have a 50% chance of dropping your weapon, and a 25% chance of dropping each piece of equipped armor on death.");
         TextUtil.sendCenteredMessage(player, ChatColor.GRAY + "Neutral alignment will expire 2 minutes after last hit on player.");
         TextUtil.sendCenteredMessage(player, ChatColor.YELLOW + "* YOU ARE NOW " + ChatColor.BOLD + "NEUTRAL" + ChatColor.YELLOW + " ALIGNMENT *");
+
+        // FIXED: Update scoreboards for alignment change
+        if (!oldAlignment.equals("NEUTRAL")) {
+            PartyScoreboards.handleAlignmentChange(player);
+        }
     }
 
     /**
-     * Set a player to chaotic alignment
-     *
-     * @param player The player to update
-     * @param time   Duration in seconds
+     * FIXED: Set a player to chaotic alignment with scoreboard updates
      */
     public static void setChaoticAlignment(Player player, int time) {
         YakPlayer yakPlayer = YakPlayerManager.getInstance().getPlayer(player);
         if (yakPlayer == null) return;
 
+        String oldAlignment = yakPlayer.getAlignment();
         yakPlayer.setAlignment("CHAOTIC");
         yakPlayer.setChaoticTime(System.currentTimeMillis() / 1000 + time);
         YakPlayerManager.getInstance().savePlayer(yakPlayer);
@@ -497,12 +492,15 @@ public class AlignmentMechanics implements Listener {
         TextUtil.sendCenteredMessage(player, ChatColor.RED + "* YOU ARE NOW " + ChatColor.BOLD + "CHAOTIC" + ChatColor.RED + " ALIGNMENT *");
 
         updatePlayerAlignment(player);
+
+        // FIXED: Update scoreboards for alignment change
+        if (!oldAlignment.equals("CHAOTIC")) {
+            PartyScoreboards.handleAlignmentChange(player);
+        }
     }
 
     /**
-     * Update player display name based on alignment
-     *
-     * @param player The player to update
+     * FIXED: Update player display name based on alignment with scoreboard integration
      */
     public static void updatePlayerAlignment(Player player) {
         try {
@@ -545,9 +543,6 @@ public class AlignmentMechanics implements Listener {
 
     /**
      * Get player's alignment as a string with color code
-     *
-     * @param player The player to check
-     * @return Alignment string with color code
      */
     public static String getAlignmentString(Player player) {
         YakPlayer yakPlayer = YakPlayerManager.getInstance().getPlayer(player);
@@ -561,9 +556,6 @@ public class AlignmentMechanics implements Listener {
 
     /**
      * Get remaining alignment time for a player
-     *
-     * @param player The player to check
-     * @return Time remaining in seconds
      */
     public static int getAlignmentTime(Player player) {
         YakPlayer yakPlayer = YakPlayerManager.getInstance().getPlayer(player);
@@ -583,9 +575,6 @@ public class AlignmentMechanics implements Listener {
 
     /**
      * Check if a player is chaotic-aligned
-     *
-     * @param yakPlayer The YakPlayer to check
-     * @return true if chaotic
      */
     public static boolean isPlayerChaotic(YakPlayer yakPlayer) {
         return "CHAOTIC".equals(yakPlayer.getAlignment());
@@ -593,9 +582,6 @@ public class AlignmentMechanics implements Listener {
 
     /**
      * Check if a player is lawful-aligned
-     *
-     * @param yakPlayer The YakPlayer to check
-     * @return true if lawful
      */
     public boolean isPlayerLawful(YakPlayer yakPlayer) {
         return "LAWFUL".equals(yakPlayer.getAlignment());
@@ -603,9 +589,6 @@ public class AlignmentMechanics implements Listener {
 
     /**
      * Check if a player is neutral-aligned
-     *
-     * @param yakPlayer The YakPlayer to check
-     * @return true if neutral
      */
     public boolean isPlayerNeutral(YakPlayer yakPlayer) {
         return "NEUTRAL".equals(yakPlayer.getAlignment());
@@ -761,7 +744,7 @@ public class AlignmentMechanics implements Listener {
     }
 
     /**
-     * Handle player death and alignment changes
+     * FIXED: Handle player death and alignment changes with scoreboard updates
      */
     @EventHandler(priority = EventPriority.LOW)
     public void onPlayerDeath(PlayerDeathEvent event) {
@@ -788,6 +771,7 @@ public class AlignmentMechanics implements Listener {
         }
 
         // Handle killer alignment change
+        String oldKillerAlignment = yakKiller.getAlignment();
         if ("CHAOTIC".equals(yakKiller.getAlignment())) {
             // Reset chaotic timer
             yakKiller.setChaoticTime(System.currentTimeMillis() / 1000 + CHAOTIC_SECONDS);
@@ -796,6 +780,11 @@ public class AlignmentMechanics implements Listener {
         } else {
             // Make killer chaotic
             setChaoticAlignment(killer, CHAOTIC_SECONDS);
+
+            // FIXED: Handle alignment change for scoreboards
+            if (!oldKillerAlignment.equals("CHAOTIC")) {
+                PartyScoreboards.handleAlignmentChange(killer);
+            }
         }
     }
 
@@ -899,24 +888,29 @@ public class AlignmentMechanics implements Listener {
     }
 
     /**
-     * Handle player join/login
+     * FIXED: Handle player join/login with proper scoreboard setup
      */
     @EventHandler
     public void onPlayerJoin(PlayerJoinEvent event) {
         Player player = event.getPlayer();
 
-        // Schedule update of alignment display
+        // Schedule update of alignment display and scoreboards
         new BukkitRunnable() {
             @Override
             public void run() {
                 if (!player.isOnline() || player.isDead()) return;
+
                 updatePlayerAlignment(player);
+
+                // FIXED: Initialize scoreboard properly for alignment colors
+                PartyScoreboards.updatePlayerTeamAssignments(player);
+                PartyScoreboards.handleAlignmentChange(player);
             }
-        }.runTaskLater(YakRealms.getInstance(), 1L);
+        }.runTaskLater(YakRealms.getInstance(), 3L); // Increased delay to ensure proper loading
     }
 
     /**
-     * Handle player PvP and alignment changes
+     * FIXED: Handle player PvP and alignment changes with scoreboard updates
      */
     @EventHandler(priority = EventPriority.NORMAL)
     public void onPlayerDamage(EntityDamageByEntityEvent event) {
@@ -945,10 +939,7 @@ public class AlignmentMechanics implements Listener {
     }
 
     /**
-     * Process a PvP attack between players
-     *
-     * @param attacker The attacking player
-     * @param victim   The victim player
+     * FIXED: Process a PvP attack between players with alignment updates
      */
     private void handlePvPAttack(Player attacker, Player victim) {
         YakPlayer yakAttacker = playerManager.getPlayer(attacker);
@@ -958,6 +949,8 @@ public class AlignmentMechanics implements Listener {
 
         // Skip for anti-PvP
         if (Toggles.isToggled(attacker, "Anti PVP")) return;
+
+        String oldAlignment = yakAttacker.getAlignment();
 
         // Set neutral alignment for the attacker
         if ("CHAOTIC".equals(yakAttacker.getAlignment())) {
@@ -969,6 +962,11 @@ public class AlignmentMechanics implements Listener {
         } else {
             // Change to neutral
             setNeutralAlignment(attacker);
+
+            // FIXED: Handle alignment change for scoreboards
+            if (!oldAlignment.equals("NEUTRAL")) {
+                PartyScoreboards.handleAlignmentChange(attacker);
+            }
         }
 
         // Combat tag both players
@@ -1010,13 +1008,13 @@ public class AlignmentMechanics implements Listener {
 
         // Remove force field
         ForceFieldManager.getInstance().removePlayerForceField(player);
+
+        // FIXED: Clean up party scoreboards
+        PartyScoreboards.cleanupPlayer(player);
     }
 
     /**
      * FIXED: Public method to force cleanup of a player's boss bar
-     * This can be called by other systems when needed
-     *
-     * @param player The player to cleanup
      */
     public void cleanupPlayerBossBar(Player player) {
         if (player != null) {
@@ -1026,9 +1024,6 @@ public class AlignmentMechanics implements Listener {
 
     /**
      * FIXED: Public method to force update of a player's health bar
-     * This can be called by other systems when health changes
-     *
-     * @param player The player to update
      */
     public void forceUpdateHealthBar(Player player) {
         if (player != null && player.isOnline() && !player.isDead()) {

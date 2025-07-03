@@ -14,20 +14,20 @@ malachar:
   stats:
     damage:
       min: 18
-      max: 28
+      max: 25
     vitality:
       min: 20
-      max: 40
+      max: 60
     blockChance:
       min: 4
       max: 7
   weaponStats:
     fireDamage:
-      min: 8
-      max: 12
-    lifeSteal:
       min: 5
       max: 10
+    lifeSteal:
+      min: 3
+      max: 6
   armorStats:
     energyRegen:
       min: 4
@@ -75,25 +75,25 @@ xerathen:
   rarity: 2
   stats:
     damage:
-      min: 18
-      max: 30
+      min: 16
+      max: 24
     strength:
-      min: 20
-      max: 40
+      min: 25
+      max: 55
     criticalHit:
-      min: 8
-      max: 12
+      min: 4
+      max: 7
   weaponStats:
     poisonDamage:
-      min: 8
-      max: 12
+      min: 6
+      max: 11
   armorStats:
     dodgeChance:
       min: 4
       max: 7
     dps:
       min: 2
-      max: 7
+      max: 5
     hp:
       helmet:
         min: 100
@@ -134,22 +134,22 @@ veridiana:
   rarity: 2
   stats:
     damage:
-      min: 20
-      max: 32
+      min: 17
+      max: 23
     vitality:
-      min: 25
-      max: 60
+      min: 30
+      max: 65
   weaponStats:
     poisonDamage:
       min: 7
-      max: 17
+      max: 12
   armorStats:
     dps:
       min: 2
       max: 4
     energyRegen:
       min: 5
-      max: 11
+      max: 9
     hp:
       helmet:
         min: 120
@@ -191,18 +191,18 @@ thorgrim:
   rarity: 2
   stats:
     damage:
-      min: 40
-      max: 55
+      min: 45
+      max: 62
     vitality:
-      min: 30
-      max: 60
+      min: 65
+      max: 125
     criticalHit:
-      min: 10
-      max: 15
+      min: 6
+      max: 9
   weaponStats:
     poisonDamage:
-      min: 16
-      max: 20
+      min: 12
+      max: 18
   armorStats:
     energyRegen:
       min: 5
@@ -250,23 +250,23 @@ lysander:
   rarity: 3
   stats:
     damage:
-      min: 40
-      max: 65
+      min: 58
+      max: 72
     strength:
-      min: 60
-      max: 120
+      min: 85
+      max: 140
     intellect:
-      min: 40
-      max: 90
+      min: 70
+      max: 130
   weaponStats:
     iceDamage:
-      min: 18
-      max: 22
+      min: 14
+      max: 18
     pureDamage:
-      min: 15
-      max: 20
+      min: 10
+      max: 15
     lifeSteal:
-      min: 5
+      min: 4
       max: 7
   armorStats:
     energyRegen:
@@ -277,17 +277,17 @@ lysander:
       max: 8
     hp:
       helmet:
-        min: 250
-        max: 300
+        min: 280
+        max: 320
       chestplate:
-        min: 450
-        max: 550
+        min: 520
+        max: 580
       leggings:
-        min: 450
-        max: 550
+        min: 520
+        max: 580
       boots:
-        min: 250
-        max: 300
+        min: 280
+        max: 320
   items:
     1:
       name: "Lysander's Celestial Edge"
@@ -315,21 +315,21 @@ morgana:
   rarity: 2
   stats:
     damage:
-      min: 40
-      max: 55
+      min: 48
+      max: 65
     strength:
-      min: 60
-      max: 120
+      min: 75
+      max: 135
     criticalHit:
-      min: 10
-      max: 17
+      min: 6
+      max: 9
   weaponStats:
     pureDamage:
-      min: 10
-      max: 15
+      min: 8
+      max: 14
     criticalHit:
-      min: 7
-      max: 10
+      min: 5
+      max: 8
   armorStats:
     energyRegen:
       min: 3
@@ -339,17 +339,17 @@ morgana:
       max: 8
     hp:
       helmet:
-        min: 250
-        max: 300
+        min: 270
+        max: 310
       chestplate:
         min: 500
-        max: 600
+        max: 580
       leggings:
         min: 500
-        max: 600
+        max: 580
       boots:
-        min: 250
-        max: 300
+        min: 270
+        max: 310
   items:
     1:
       name: "Morgana's Soul Ripper"
@@ -378,24 +378,24 @@ vex:
   rarity: 2
   stats:
     damage:
-      min: 60
-      max: 100
+      min: 78
+      max: 105
     strength:
-      min: 80
-      max: 190
+      min: 125
+      max: 220
     blockChance:
-      min: 6
-      max: 14
+      min: 8
+      max: 11
   weaponStats:
     poisonDamage:
-      min: 18
-      max: 22
+      min: 20
+      max: 25
     lifeSteal:
-      min: 10
-      max: 15
+      min: 6
+      max: 10
     criticalHit:
-      min: 9
-      max: 14
+      min: 7
+      max: 11
   armorStats:
     energyRegen:
       min: 6
@@ -443,41 +443,41 @@ cornelius:
   rarity: 3
   stats:
     damage:
-      min: 75
-      max: 110
+      min: 95
+      max: 120
     strength:
-      min: 80
-      max: 160
+      min: 140
+      max: 210
     blockChance:
       min: 8
-      max: 16
+      max: 11
   weaponStats:
     fireDamage:
-      min: 18
-      max: 22
+      min: 22
+      max: 26
     lifeSteal:
-      min: 8
-      max: 12
+      min: 6
+      max: 9
   armorStats:
     energyRegen:
       min: 7
-      max: 13
+      max: 11
     dps:
       min: 6
       max: 12
     hp:
       helmet:
-        min: 500
-        max: 600
+        min: 550
+        max: 630
       chestplate:
-        min: 1000
-        max: 1200
+        min: 1100
+        max: 1250
       leggings:
-        min: 1000
-        max: 1200
+        min: 1100
+        max: 1250
       boots:
-        min: 500
-        max: 600
+        min: 550
+        max: 630
   items:
     1:
       name: "Cornelius's Avarice Cleaver"
@@ -505,38 +505,38 @@ valdris:
   rarity: 2
   stats:
     damage:
-      min: 70
-      max: 110
+      min: 85
+      max: 112
     vitality:
-      min: 80
-      max: 160
+      min: 155
+      max: 235
     accuracy:
-      min: 30
-      max: 40
+      min: 15
+      max: 22
   weaponStats:
     pureDamage:
-      min: 15
-      max: 20
+      min: 18
+      max: 24
   armorStats:
     energyRegen:
       min: 7
-      max: 12
+      max: 11
     dps:
       min: 5
       max: 9
     hp:
       helmet:
-        min: 500
-        max: 600
+        min: 520
+        max: 610
       chestplate:
-        min: 1000
-        max: 1200
+        min: 1050
+        max: 1180
       leggings:
-        min: 1000
-        max: 1200
+        min: 1050
+        max: 1180
       boots:
-        min: 500
-        max: 600
+        min: 520
+        max: 610
   items:
     1:
       name: "Valdris's Eternal Blade"
@@ -564,35 +564,35 @@ seraphina:
   rarity: 3
   stats:
     damage:
-      min: 70
-      max: 100
+      min: 92
+      max: 115
     intellect:
-      min: 125
-      max: 200
+      min: 180
+      max: 270
   weaponStats:
     lifeSteal:
-      min: 10
-      max: 17
+      min: 7
+      max: 11
   armorStats:
     hpsregen:
       min: 40
-      max: 90
+      max: 70
     dps:
       min: 8
-      max: 16
+      max: 14
     hp:
       helmet:
-        min: 550
-        max: 650
+        min: 580
+        max: 660
       chestplate:
-        min: 1100
+        min: 1150
         max: 1300
       leggings:
-        min: 1100
+        min: 1150
         max: 1300
       boots:
-        min: 550
-        max: 650
+        min: 580
+        max: 660
   items:
     1:
       name: "Seraphina's Mercy Scythe"
@@ -620,41 +620,41 @@ arachnia:
   rarity: 2
   stats:
     damage:
-      min: 90
-      max: 200
+      min: 88
+      max: 118
     intellect:
-      min: 60
-      max: 90
+      min: 140
+      max: 210
     dodge:
-      min: 7
-      max: 12
+      min: 8
+      max: 11
   weaponStats:
     poisonDamage:
-      min: 40
-      max: 60
+      min: 24
+      max: 28
     accuracy:
-      min: 12
-      max: 18
+      min: 8
+      max: 12
   armorStats:
     hpsregen:
-      min: 60
-      max: 80
+      min: 50
+      max: 75
     dps:
       min: 4
       max: 8
     hp:
       helmet:
-        min: 1000
-        max: 1100
+        min: 480
+        max: 580
       chestplate:
-        min: 2200
-        max: 2600
+        min: 980
+        max: 1150
       leggings:
-        min: 2200
-        max: 2600
+        min: 980
+        max: 1150
       boots:
-        min: 1000
-        max: 1100
+        min: 480
+        max: 580
   items:
     1:
       name: "Arachnia's Web Weaver Fang"
@@ -683,21 +683,21 @@ karnath:
   rarity: 3
   stats:
     damage:
-      min: 200
-      max: 250
+      min: 250
+      max: 300
     vitality:
-      min: 60
-      max: 180
+      min: 220
+      max: 320
   weaponStats:
     iceDamage:
-      min: 25
-      max: 60
+      min: 28
+      max: 35
     criticalHit:
-      min: 12
-      max: 18
+      min: 9
+      max: 12
     lifeSteal:
-      min: 10
-      max: 16
+      min: 8
+      max: 11
   armorStats:
     energyRegen:
       min: 7
@@ -707,17 +707,17 @@ karnath:
       max: 12
     hp:
       helmet:
-        min: 1000
-        max: 1100
+        min: 800
+        max: 950
       chestplate:
-        min: 2100
-        max: 2500
+        min: 1600
+        max: 1900
       leggings:
-        min: 2100
-        max: 2500
+        min: 1600
+        max: 1900
       boots:
-        min: 1000
-        max: 1100
+        min: 800
+        max: 950
   items:
     1:
       name: "Karnath's Carnage Cleaver"
@@ -745,44 +745,44 @@ zephyr:
   rarity: 2
   stats:
     damage:
-      min: 110
-      max: 190
+      min: 220
+      max: 260
     strength:
-      min: 80
-      max: 160
+      min: 195
+      max: 290
     blockChance:
-      min: 6
+      min: 9
       max: 12
   weaponStats:
     poisonDamage:
-      min: 20
+      min: 30
       max: 35
     pureDamage:
-      min: 15
-      max: 30
+      min: 20
+      max: 28
     criticalHit:
-      min: 5
-      max: 12
+      min: 8
+      max: 11
   armorStats:
     hpsregen:
-      min: 90
-      max: 120
+      min: 80
+      max: 110
     dps:
       min: 10
-      max: 16
+      max: 15
     hp:
       helmet:
-        min: 1400
-        max: 1600
+        min: 750
+        max: 900
       chestplate:
-        min: 3000
-        max: 3200
+        min: 1500
+        max: 1800
       leggings:
-        min: 3000
-        max: 3200
+        min: 1500
+        max: 1800
       boots:
-        min: 1400
-        max: 1600
+        min: 750
+        max: 900
   items:
     1:
       name: "Zephyr's Wind Ripper Staff"
@@ -811,24 +811,24 @@ rimeclaw:
   rarity: 3
   stats:
     damage:
-      min: 460
-      max: 540
+      min: 450
+      max: 500
     vitality:
-      min: 275
-      max: 375
+      min: 320
+      max: 420
     dodgeChance:
-      min: 12
-      max: 15
+      min: 10
+      max: 12
   weaponStats:
     iceDamage:
-      min: 30
-      max: 65
+      min: 38
+      max: 45
     criticalHit:
-      min: 7
+      min: 8
       max: 12
     pureDamage:
-      min: 30
-      max: 65
+      min: 35
+      max: 42
   armorStats:
     energyRegen:
       min: 4
@@ -838,37 +838,37 @@ rimeclaw:
       max: 15
     hp:
       helmet:
-        min: 2500
-        max: 3000
+        min: 1200
+        max: 1450
       chestplate:
-        min: 5600
-        max: 6000
+        min: 2400
+        max: 2900
       leggings:
-        min: 5600
-        max: 6000
+        min: 2400
+        max: 2900
       boots:
-        min: 2500
-        max: 3000
+        min: 1200
+        max: 1450
   items:
     1:
       name: "Rimeclaw's Eternal Winter Axe"
-      material: GOLD_AXE
+      material: GOLDEN_AXE
       lore: "An axe that brings the end of all seasons."
     5:
       name: "Rimeclaw's Glacier Crown"
-      material: GOLD_HELMET
+      material: GOLDEN_HELMET
       lore: "A crown carved from ice that never melts."
     6:
       name: "Rimeclaw's Permafrost Plate"
-      material: GOLD_CHESTPLATE
+      material: GOLDEN_CHESTPLATE
       lore: "Armor that preserves the wearer in eternal cold."
     7:
       name: "Rimeclaw's Avalanche Guards"
-      material: GOLD_LEGGINGS
+      material: GOLDEN_LEGGINGS
       lore: "Leg armor that brings the weight of winter's wrath."
     8:
       name: "Rimeclaw's Blizzard Boots"
-      material: GOLD_BOOTS
+      material: GOLDEN_BOOTS
       lore: "Boots that leave a trail of endless winter."
 
 thalassa:
@@ -876,18 +876,18 @@ thalassa:
   rarity: 3
   stats:
     damage:
-      min: 300
-      max: 395
+      min: 450
+      max: 500
     vitality:
-      min: 200
-      max: 250
+      min: 285
+      max: 380
     dodgeChance:
-      min: 6
-      max: 13
+      min: 9
+      max: 12
   weaponStats:
     iceDamage:
-      min: 25
-      max: 55
+      min: 35
+      max: 42
   armorStats:
     energyRegen:
       min: 2
@@ -897,37 +897,37 @@ thalassa:
       max: 13
     hp:
       helmet:
-        min: 2200
-        max: 2600
+        min: 1100
+        max: 1350
       chestplate:
-        min: 4200
-        max: 5000
-      leggings:
-        min: 4200
-        max: 5000
-      boots:
         min: 2200
-        max: 2600
+        max: 2700
+      leggings:
+        min: 2200
+        max: 2700
+      boots:
+        min: 1100
+        max: 1350
   items:
     1:
       name: "Thalassa's Tide Turner War Axe"
-      material: GOLD_AXE
+      material: GOLDEN_AXE
       lore: "An axe forged in the deepest ocean trenches."
     5:
       name: "Thalassa's Coral Crown"
-      material: GOLD_HELMET
+      material: GOLDEN_HELMET
       lore: "A crown grown from the bones of sea monsters."
     6:
       name: "Thalassa's Abyssal Plate"
-      material: GOLD_CHESTPLATE
+      material: GOLDEN_CHESTPLATE
       lore: "Armor that withstands the crushing depths of the ocean."
     7:
       name: "Thalassa's Current Riders"
-      material: GOLD_LEGGINGS
+      material: GOLDEN_LEGGINGS
       lore: "Leg armor that flows like the eternal tides."
     8:
       name: "Thalassa's Deep Walker Boots"
-      material: GOLD_BOOTS
+      material: GOLDEN_BOOTS
       lore: "Boots that can walk upon the ocean floor."
 
 pyrion:
@@ -935,24 +935,24 @@ pyrion:
   rarity: 3
   stats:
     damage:
-      min: 350
-      max: 475
+      min: 450
+      max: 500
     intellect:
-      min: 150
-      max: 330
+      min: 350
+      max: 480
     criticalHit:
-      min: 6
+      min: 9
       max: 12
     dodgeChance:
-      min: 6
-      max: 9
+      min: 8
+      max: 11
   weaponStats:
     fireDamage:
-      min: 50
-      max: 100
+      min: 40
+      max: 45
     pureDamage:
-      min: 30
-      max: 65
+      min: 36
+      max: 43
   armorStats:
     energyRegen:
       min: 3
@@ -962,37 +962,37 @@ pyrion:
       max: 13
     hp:
       helmet:
-        min: 2200
-        max: 2600
+        min: 1150
+        max: 1400
       chestplate:
-        min: 4200
-        max: 5000
+        min: 2300
+        max: 2800
       leggings:
-        min: 4200
-        max: 5000
+        min: 2300
+        max: 2800
       boots:
-        min: 2200
-        max: 2600
+        min: 1150
+        max: 1400
   items:
     1:
       name: "Pyrion's Inferno Cleaver"
-      material: GOLD_AXE
+      material: GOLDEN_AXE
       lore: "An axe that burns with the fires of creation itself."
     5:
       name: "Pyrion's Solar Crown"
-      material: GOLD_HELMET
+      material: GOLDEN_HELMET
       lore: "A crown that blazes with the light of a dying star."
     6:
       name: "Pyrion's Phoenix Heart Plate"
-      material: GOLD_CHESTPLATE
+      material: GOLDEN_CHESTPLATE
       lore: "Armor forged in the heart of an eternal flame."
     7:
       name: "Pyrion's Cinder Guards"
-      material: GOLD_LEGGINGS
+      material: GOLDEN_LEGGINGS
       lore: "Leg armor that smolders with undying embers."
     8:
       name: "Pyrion's Magma Walker Boots"
-      material: GOLD_BOOTS
+      material: GOLDEN_BOOTS
       lore: "Boots that can stride across molten stone."
 
 meridian:
@@ -1000,27 +1000,27 @@ meridian:
   rarity: 3
   stats:
     damage:
-      min: 290
-      max: 390
+      min: 450
+      max: 500
     intellect:
-      min: 300
-      max: 400
+      min: 380
+      max: 500
     criticalHit:
-      min: 8
-      max: 13
+      min: 9
+      max: 12
     dodgeChance:
       min: 10
-      max: 14
+      max: 12
   weaponStats:
     iceDamage:
-      min: 25
-      max: 55
-    pureDamage:
-      min: 15
+      min: 33
       max: 40
+    pureDamage:
+      min: 30
+      max: 38
     lifeSteal:
-      min: 3
-      max: 8
+      min: 6
+      max: 10
   armorStats:
     energyRegen:
       min: 2
@@ -1030,37 +1030,37 @@ meridian:
       max: 13
     hp:
       helmet:
-        min: 2200
-        max: 2550
+        min: 1080
+        max: 1320
       chestplate:
-        min: 4100
-        max: 4900
+        min: 2160
+        max: 2640
       leggings:
-        min: 4100
-        max: 4900
+        min: 2160
+        max: 2640
       boots:
-        min: 2200
-        max: 2550
+        min: 1080
+        max: 1320
   items:
     1:
       name: "Meridian's Reality Fracture Staff"
-      material: GOLD_HOE
+      material: GOLDEN_HOE
       lore: "A staff that bends the very fabric of existence."
     5:
       name: "Meridian's Cosmic Eye Circlet"
-      material: GOLD_HELMET
+      material: GOLDEN_HELMET
       lore: "A circlet that perceives all possible timelines."
     6:
       name: "Meridian's Quantum Flux Robes"
-      material: GOLD_CHESTPLATE
+      material: GOLDEN_CHESTPLATE
       lore: "Robes that exist in multiple dimensions simultaneously."
     7:
       name: "Meridian's Paradox Wraps"
-      material: GOLD_LEGGINGS
+      material: GOLDEN_LEGGINGS
       lore: "Leg wraps that defy the laws of causality."
     8:
       name: "Meridian's Void Step Sandals"
-      material: GOLD_BOOTS
+      material: GOLDEN_BOOTS
       lore: "Sandals that walk between moments in time."
 
 nethys:
@@ -1068,56 +1068,56 @@ nethys:
   rarity: 3
   stats:
     damage:
-      min: 300
-      max: 380
+      min: 450
+      max: 500
     intellect:
-      min: 300
-      max: 450
+      min: 420
+      max: 500
     pureDamage:
-      min: 25
-      max: 45
+      min: 32
+      max: 40
   weaponStats:
     fireDamage:
-      min: 50
-      max: 70
+      min: 38
+      max: 44
   armorStats:
     hpsregen:
-      min: 175
-      max: 450
+      min: 120
+      max: 180
     dps:
       min: 6
       max: 10
     hp:
       helmet:
-        min: 2500
-        max: 2800
+        min: 1250
+        max: 1500
       chestplate:
-        min: 5000
-        max: 5600
-      leggings:
-        min: 5000
-        max: 5600
-      boots:
         min: 2500
-        max: 2800
+        max: 3000
+      leggings:
+        min: 2500
+        max: 3000
+      boots:
+        min: 1250
+        max: 1500
   items:
     1:
       name: "Nethys's Void Calling Scepter"
-      material: GOLD_HOE
+      material: GOLDEN_HOE
       lore: "A scepter that commands the power of the dark between worlds."
     5:
       name: "Nethys's Abyssal Crown"
-      material: GOLD_HELMET
+      material: GOLDEN_HELMET
       lore: "A crown forged from crystallized darkness."
     6:
       name: "Nethys's Shadow Flame Robes"
-      material: GOLD_CHESTPLATE
+      material: GOLDEN_CHESTPLATE
       lore: "Robes that burn with cold fire from the void."
     7:
       name: "Nethys's Entropy Wraps"
-      material: GOLD_LEGGINGS
+      material: GOLDEN_LEGGINGS
       lore: "Leg wraps that consume light and hope."
     8:
       name: "Nethys's Oblivion Steps"
-      material: GOLD_BOOTS
+      material: GOLDEN_BOOTS
       lore: "Boots that walk the path to nothingness."

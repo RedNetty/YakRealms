@@ -7,12 +7,12 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * COMPLETE: MobType enum with guaranteed initialization and comprehensive mob definitions
- * - Updated with new elite configuration from YAML
- * - All custom mobs and elites are properly defined
- * - Static initialization is bulletproof and always works
- * - Enhanced ID mapping with multiple fallback systems
- * - Better error handling and validation
+ * FIXED: MobType enum with guaranteed initialization and comprehensive elite mob support
+ * - Fixed static initialization to include ALL mob types including elites
+ * - Enhanced validation for elite-only types
+ * - Better error handling and debugging
+ * - Comprehensive ID mapping with elite variations
+ * - UPDATED: Enhanced epic names for all named elite mobs
  */
 public enum MobType {
 
@@ -104,68 +104,71 @@ public enum MobType {
     SLIME("slime", EntityType.SLIME, false, 1, 5, "Slime",
             MobCategory.SLIME, MobDifficulty.EASY, EnumSet.of(MobAbility.BOUNCING)),
 
+    WARDEN("warden", EntityType.WARDEN, false, 5, 6, "Warden",
+            MobCategory.CONSTRUCT, MobDifficulty.LEGENDARY, EnumSet.of(MobAbility.MASSIVE_HEALTH, MobAbility.SONIC_BOOM)),
+
     // ================ TIER 1 ELITES ================
 
-    MALACHAR("malachar", EntityType.WITHER_SKELETON, true, 1, 1, "Malachar",
+    MALACHAR("malachar", EntityType.WITHER_SKELETON, true, 1, 1, "Malachar The Ember Lord",
             MobCategory.UNDEAD, MobDifficulty.ELITE, EnumSet.of(MobAbility.FIRE_MASTERY, MobAbility.LIFE_STEAL, MobAbility.EMBER_AURA)),
 
-    XERATHEN("xerathen", EntityType.ZOMBIE, true, 1, 1, "Xerathen",
+    XERATHEN("xerathen", EntityType.ZOMBIE, true, 1, 1, "Xerathen The Thorn Warden",
             MobCategory.NATURE, MobDifficulty.ELITE, EnumSet.of(MobAbility.POISON_MASTERY, MobAbility.THORN_STRIKE, MobAbility.NATURE_CORRUPTION)),
 
-    VERIDIANA("veridiana", EntityType.HUSK, true, 1, 1, "Veridiana",
+    VERIDIANA("veridiana", EntityType.HUSK, true, 1, 1, "Veridiana The Plague Bringer",
             MobCategory.UNDEAD, MobDifficulty.ELITE, EnumSet.of(MobAbility.PLAGUE_MASTERY, MobAbility.DISEASE_SPREAD, MobAbility.TOXIC_AURA)),
 
     // ================ TIER 2 ELITES ================
 
-    THORGRIM("thorgrim", EntityType.ZOMBIFIED_PIGLIN, true, 2, 2, "Thorgrim",
+    THORGRIM("thorgrim", EntityType.ZOMBIFIED_PIGLIN, true, 2, 2, "Thorgrim The Mountain King",
             MobCategory.DWARF, MobDifficulty.ELITE, EnumSet.of(MobAbility.MOUNTAIN_STRENGTH, MobAbility.SIEGE_MASTERY, MobAbility.DWARVEN_FURY)),
 
-    LYSANDER("lysander", EntityType.VINDICATOR, true, 2, 2, "Lysander",
+    LYSANDER("lysander", EntityType.VINDICATOR, true, 2, 2, "Lysander The Divine Blade",
             MobCategory.HOLY, MobDifficulty.ELITE, EnumSet.of(MobAbility.DIVINE_POWER, MobAbility.ICE_MASTERY, MobAbility.CELESTIAL_EDGE)),
 
-    MORGANA("morgana", EntityType.WITHER_SKELETON, true, 2, 2, "Morgana",
+    MORGANA("morgana", EntityType.WITHER_SKELETON, true, 2, 2, "Morgana The Soul Ripper",
             MobCategory.UNDEAD, MobDifficulty.ELITE, EnumSet.of(MobAbility.SOUL_RIPPER, MobAbility.DEATH_MASTERY, MobAbility.MOURNING_AURA)),
 
     // ================ TIER 3 ELITES ================
 
-    VEX_ELITE("vex_elite", EntityType.ZOMBIE, true, 3, 3, "Vex",
+    VEX_ELITE("vex_elite", EntityType.ZOMBIE, true, 3, 3, "Vex The Nightmare Weaver",
             MobCategory.SPECTRAL, MobDifficulty.ELITE, EnumSet.of(MobAbility.NIGHTMARE_MASTERY, MobAbility.REALITY_SHIFT, MobAbility.DREAM_WEAVER)),
 
-    CORNELIUS("cornelius", EntityType.ZOMBIE_VILLAGER, true, 3, 3, "Cornelius",
+    CORNELIUS("cornelius", EntityType.ZOMBIE_VILLAGER, true, 3, 3, "Cornelius The Golden Tyrant",
             MobCategory.HUMANOID, MobDifficulty.ELITE, EnumSet.of(MobAbility.AVARICE_MASTERY, MobAbility.GOLDEN_TOUCH, MobAbility.TREASURE_HOARD)),
 
-    VALDRIS("valdris", EntityType.WITHER_SKELETON, true, 3, 3, "Valdris",
+    VALDRIS("valdris", EntityType.WITHER_SKELETON, true, 3, 3, "Valdris The Bone Emperor",
             MobCategory.UNDEAD, MobDifficulty.ELITE, EnumSet.of(MobAbility.BONE_MASTERY, MobAbility.ETERNAL_BLADE, MobAbility.UNDEAD_COMMAND)),
 
-    SERAPHINA("seraphina", EntityType.ZOMBIE, true, 3, 3, "Seraphina",
+    SERAPHINA("seraphina", EntityType.ZOMBIE, true, 3, 3, "Seraphina The Mercy Maiden",
             MobCategory.HOLY, MobDifficulty.ELITE, EnumSet.of(MobAbility.MERCY_MASTERY, MobAbility.COMPASSION_AURA, MobAbility.DIVINE_HEALING)),
 
-    ARACHNIA("arachnia", EntityType.SPIDER, true, 3, 3, "Arachnia",
+    ARACHNIA("arachnia", EntityType.SPIDER, true, 3, 3, "Arachnia The Web Mistress",
             MobCategory.ARTHROPOD, MobDifficulty.ELITE, EnumSet.of(MobAbility.WEB_MASTERY, MobAbility.SPIDER_SPAWN, MobAbility.SILK_SPINNER)),
 
     // ================ TIER 4 ELITES ================
 
-    KARNATH("karnath", EntityType.ZOMBIE, true, 4, 4, "Karnath",
+    KARNATH("karnath", EntityType.ZOMBIE, true, 4, 4, "Karnath The Blood Reaper",
             MobCategory.UNDEAD, MobDifficulty.ELITE, EnumSet.of(MobAbility.CARNAGE_MASTERY, MobAbility.BLOOD_FRENZY, MobAbility.SLAUGHTER_AURA)),
 
-    ZEPHYR("zephyr", EntityType.WITHER_SKELETON, true, 4, 4, "Zephyr",
+    ZEPHYR("zephyr", EntityType.WITHER_SKELETON, true, 4, 4, "Zephyr The Storm Caller",
             MobCategory.ELEMENTAL, MobDifficulty.ELITE, EnumSet.of(MobAbility.WIND_MASTERY, MobAbility.STORM_CALLER, MobAbility.TEMPEST_FURY)),
 
     // ================ TIER 5 ELITES - THE ANCIENT LORDS ================
 
-    RIMECLAW("rimeclaw", EntityType.STRAY, true, 5, 5, "Rimeclaw",
+    RIMECLAW("rimeclaw", EntityType.STRAY, true, 5, 5, "Rimeclaw The Eternal Winter",
             MobCategory.ELEMENTAL, MobDifficulty.LEGENDARY, EnumSet.of(MobAbility.ETERNAL_WINTER, MobAbility.GLACIER_MASTERY, MobAbility.PERMAFROST_AURA)),
 
-    THALASSA("thalassa", EntityType.DROWNED, true, 5, 5, "Thalassa",
+    THALASSA("thalassa", EntityType.DROWNED, true, 5, 5, "Thalassa The Ocean Sovereign",
             MobCategory.ELEMENTAL, MobDifficulty.LEGENDARY, EnumSet.of(MobAbility.OCEAN_MASTERY, MobAbility.TIDE_TURNER, MobAbility.ABYSSAL_POWER)),
 
-    PYRION("pyrion", EntityType.WITHER_SKELETON, true, 5, 5, "Pyrion",
+    PYRION("pyrion", EntityType.WITHER_SKELETON, true, 5, 5, "Pyrion The Flame Emperor",
             MobCategory.ELEMENTAL, MobDifficulty.LEGENDARY, EnumSet.of(MobAbility.INFERNO_MASTERY, MobAbility.PHOENIX_HEART, MobAbility.SOLAR_CROWN)),
 
-    MERIDIAN("meridian", EntityType.ZOMBIE_VILLAGER, true, 5, 5, "Meridian",
+    MERIDIAN("meridian", EntityType.WARDEN, true, 5, 5, "Meridian The Reality Breaker",
             MobCategory.COSMIC, MobDifficulty.LEGENDARY, EnumSet.of(MobAbility.REALITY_FRACTURE, MobAbility.QUANTUM_FLUX, MobAbility.COSMIC_EYE)),
 
-    NETHYS("nethys", EntityType.WITHER_SKELETON, true, 5, 5, "Nethys",
+    NETHYS("nethys", EntityType.WITHER_SKELETON, true, 5, 5, "Nethys The Void Sovereign",
             MobCategory.VOID, MobDifficulty.LEGENDARY, EnumSet.of(MobAbility.VOID_CALLING, MobAbility.SHADOW_FLAME, MobAbility.ABYSSAL_CROWN)),
 
     // ================ WORLD BOSSES ================
@@ -176,13 +179,13 @@ public enum MobType {
     FROZEN_BOSS("frozenboss", EntityType.WITHER_SKELETON, true, 5, 6, "The Conqueror of The North",
             MobCategory.ELEMENTAL, MobDifficulty.WORLD_BOSS, EnumSet.of(MobAbility.ARCTIC_COMMAND, MobAbility.BLIZZARD_FURY), true),
 
-    FROZEN_GOLEM("frozengolem", EntityType.IRON_GOLEM, true, 5, 6, "Crypt Guardian",
+    FROZEN_GOLEM("frozengolem", EntityType.IRON_GOLEM, true, 5, 6, "The Eternal Crypt Guardian",
             MobCategory.CONSTRUCT, MobDifficulty.WORLD_BOSS, EnumSet.of(MobAbility.ICE_ARMOR, MobAbility.CRYPT_POWER), true),
 
     FROSTWING("frostwing", EntityType.PHANTOM, true, 5, 6, "Frost-Wing The Frozen Titan",
             MobCategory.DRAGON, MobDifficulty.WORLD_BOSS, EnumSet.of(MobAbility.FLIGHT, MobAbility.ICE_BREATH), true),
 
-    CHRONOS("chronos", EntityType.WITHER, true, 5, 6, "Chronos, Lord of Time",
+    CHRONOS("chronos", EntityType.WITHER, true, 5, 6, "Chronos, The Time Lord",
             MobCategory.TEMPORAL, MobDifficulty.WORLD_BOSS, EnumSet.of(MobAbility.TIME_MASTERY, MobAbility.TEMPORAL_SHIFT), true),
 
     // ================ SPECIAL TYPES ================
@@ -190,7 +193,7 @@ public enum MobType {
     PRISONER("prisoner", EntityType.ZOMBIE, false, 3, 5, "Prisoner",
             MobCategory.HUMANOID, MobDifficulty.NORMAL, EnumSet.of(MobAbility.DESPERATION)),
 
-    SKELLY_GUARDIAN("skellyDSkeletonGuardian", EntityType.SKELETON, true, 4, 5, "Skeletal Guardian",
+    SKELLY_GUARDIAN("skellyDSkeletonGuardian", EntityType.SKELETON, true, 4, 5, "The Skeletal Guardian Overlord",
             MobCategory.UNDEAD, MobDifficulty.ELITE, EnumSet.of(MobAbility.GUARDIAN_DUTY, MobAbility.PROTECTIVE_AURA)),
 
     SPECTRAL_GUARD("spectralguard", EntityType.ZOMBIFIED_PIGLIN, true, 1, 1, "The Evil Spectral's Impish Guard",
@@ -199,11 +202,14 @@ public enum MobType {
     BOSS_SKELETON("bossSkeletonDungeon", EntityType.WITHER_SKELETON, true, 5, 5, "The Restless Skeleton Deathlord",
             MobCategory.UNDEAD, MobDifficulty.BOSS, EnumSet.of(MobAbility.DEATH_COMMAND, MobAbility.UNDEAD_LEGION)),
 
-    WEAK_SKELETON("weakskeleton", EntityType.SKELETON, true, 5, 5, "Skeletal Keeper",
+    WEAK_SKELETON("weakskeleton", EntityType.SKELETON, true, 5, 5, "The Infernal Skeletal Keeper",
             MobCategory.UNDEAD, MobDifficulty.ELITE, EnumSet.of(MobAbility.SOUL_KEEPING, MobAbility.SPIRIT_GUARD)),
 
     SPECTRAL_KNIGHT("spectralKnight", EntityType.ZOMBIFIED_PIGLIN, true, 4, 4, "The Evil Spectral Overlord",
-            MobCategory.SPECTRAL, MobDifficulty.ELITE, EnumSet.of(MobAbility.PHASE_SHIFT, MobAbility.SPECTRAL_ARMY));
+            MobCategory.SPECTRAL, MobDifficulty.ELITE, EnumSet.of(MobAbility.PHASE_SHIFT, MobAbility.SPECTRAL_ARMY)),
+
+    FROSTKING("frostking", EntityType.WITHER_SKELETON, true, 6, 6, "The Frost King Eternal",
+            MobCategory.ELEMENTAL, MobDifficulty.WORLD_BOSS, EnumSet.of(MobAbility.ICE_MASTERY, MobAbility.ROYAL_COMMAND), true);
 
     // ================ ENUMS FOR CATEGORIZATION ================
 
@@ -317,7 +323,7 @@ public enum MobType {
     private final MobDifficulty difficulty;
     private final Set<MobAbility> abilities;
 
-    // ================ GUARANTEED STATIC LOOKUP SYSTEM ================
+    // ================ ENHANCED STATIC LOOKUP SYSTEM ================
 
     // Static lookup cache - using ConcurrentHashMap for thread safety
     private static final Map<String, MobType> BY_ID = new ConcurrentHashMap<>();
@@ -330,7 +336,7 @@ public enum MobType {
     private static final Object initLock = new Object();
 
     /**
-     * BULLETPROOF: Static initialization that CANNOT fail
+     * FIXED: Static initialization that CANNOT fail
      */
     static {
         try {
@@ -344,14 +350,14 @@ public enum MobType {
     }
 
     /**
-     * GUARANTEED: Initialize all static mappings - this WILL work
+     * FIXED: Initialize all static mappings including ALL elite types
      */
     private static void initializeStaticMappings() {
         synchronized (initLock) {
             if (initialized) return;
 
             try {
-                System.out.println("[MobType] Starting bulletproof static initialization...");
+                System.out.println("[MobType] Starting comprehensive static initialization...");
 
                 // Clear all maps first
                 BY_ID.clear();
@@ -359,7 +365,7 @@ public enum MobType {
                 BY_CATEGORY.clear();
                 BY_DIFFICULTY.clear();
 
-                // Process each enum value with individual error handling
+                // Process each enum value with comprehensive error handling
                 int successful = 0;
                 int failed = 0;
 
@@ -378,14 +384,19 @@ public enum MobType {
                         BY_ID.put(typeId, type);
                         NORMALIZED_MAPPINGS.put(typeId, type);
 
-                        // Add variations for this type
-                        addVariationsForType(type);
+                        // Add comprehensive variations for this type (ESPECIALLY elites)
+                        addComprehensiveVariationsForType(type);
 
                         // Category mappings
                         BY_CATEGORY.computeIfAbsent(type.category, k -> new ArrayList<>()).add(type);
                         BY_DIFFICULTY.computeIfAbsent(type.difficulty, k -> new ArrayList<>()).add(type);
 
                         successful++;
+
+                        // Debug elite types specifically
+                        if (type.isElite()) {
+                            System.out.println("[MobType] Registered elite type: " + typeId + " -> " + type.name());
+                        }
 
                     } catch (Exception e) {
                         System.err.println("[MobType] Error processing " + type.name() + ": " + e.getMessage());
@@ -394,14 +405,22 @@ public enum MobType {
                 }
 
                 // Add comprehensive legacy mappings
-                addLegacyMappings();
+                addComprehensiveLegacyMappings();
 
-                // Validate critical mappings exist
-                validateCriticalMappings();
+                // CRITICAL: Validate that all T5 elites are properly mapped
+                validateCriticalEliteTypes();
 
                 initialized = true;
                 System.out.println("[MobType] Initialization complete: " + successful + " types loaded, " +
                         failed + " failed, " + NORMALIZED_MAPPINGS.size() + " total mappings");
+
+                // Debug: Print all registered elite types
+                System.out.println("[MobType] Registered elite types:");
+                for (Map.Entry<String, MobType> entry : NORMALIZED_MAPPINGS.entrySet()) {
+                    if (entry.getValue().isElite()) {
+                        System.out.println("  " + entry.getKey() + " -> " + entry.getValue().name());
+                    }
+                }
 
             } catch (Exception e) {
                 System.err.println("[MobType] Critical initialization error: " + e.getMessage());
@@ -412,15 +431,24 @@ public enum MobType {
     }
 
     /**
-     * Add comprehensive variations for each mob type
+     * FIXED: Add comprehensive variations for each mob type, especially elites
      */
-    private static void addVariationsForType(MobType type) {
+    private static void addComprehensiveVariationsForType(MobType type) {
         String baseId = type.id;
 
         try {
             // Basic variations
             addMapping(baseId.replace("_", ""), type);
             addMapping(baseId.replace(" ", ""), type);
+
+            // ELITE-SPECIFIC VARIATIONS - This is critical for T5 elites
+            if (type.isElite()) {
+                // Add elite suffix variations
+                addMapping(baseId + "_elite", type);
+                addMapping(baseId + "elite", type);
+                addMapping("elite_" + baseId, type);
+                addMapping("elite" + baseId, type);
+            }
 
             // Specific type variations
             switch (baseId) {
@@ -466,6 +494,128 @@ public enum MobType {
                     addMapping("igolem", type);
                     break;
 
+                // CRITICAL: Elite-specific mappings for T5 elites
+                case "meridian":
+                    addMapping("meridian_elite", type);
+                    addMapping("warden", type); // Entity type mapping
+                    addMapping("reality_breaker", type);
+                    addMapping("realitybreaker", type);
+                    break;
+
+                case "pyrion":
+                    addMapping("pyrion_elite", type);
+                    addMapping("fire_lord", type);
+                    addMapping("firelord", type);
+                    addMapping("flame_emperor", type);
+                    addMapping("flameemperor", type);
+                    break;
+
+                case "rimeclaw":
+                    addMapping("rimeclaw_elite", type);
+                    addMapping("ice_lord", type);
+                    addMapping("icelord", type);
+                    addMapping("eternal_winter", type);
+                    addMapping("eternalwinter", type);
+                    break;
+
+                case "thalassa":
+                    addMapping("thalassa_elite", type);
+                    addMapping("ocean_lord", type);
+                    addMapping("oceanlord", type);
+                    addMapping("ocean_sovereign", type);
+                    addMapping("oceansovereign", type);
+                    break;
+
+                case "nethys":
+                    addMapping("nethys_elite", type);
+                    addMapping("void_lord", type);
+                    addMapping("voidlord", type);
+                    addMapping("void_sovereign", type);
+                    addMapping("voidsovereign", type);
+                    break;
+
+                // Other elite mappings with new titles
+                case "malachar":
+                    addMapping("malachar_elite", type);
+                    addMapping("ember_lord", type);
+                    addMapping("emberlord", type);
+                    break;
+
+                case "xerathen":
+                    addMapping("xerathen_elite", type);
+                    addMapping("thorn_warden", type);
+                    addMapping("thornwarden", type);
+                    break;
+
+                case "veridiana":
+                    addMapping("veridiana_elite", type);
+                    addMapping("plague_bringer", type);
+                    addMapping("plaguebringer", type);
+                    break;
+
+                case "thorgrim":
+                    addMapping("thorgrim_elite", type);
+                    addMapping("mountain_king", type);
+                    addMapping("mountainking", type);
+                    break;
+
+                case "lysander":
+                    addMapping("lysander_elite", type);
+                    addMapping("divine_blade", type);
+                    addMapping("divineblade", type);
+                    break;
+
+                case "morgana":
+                    addMapping("morgana_elite", type);
+                    addMapping("soul_ripper", type);
+                    addMapping("soulripper", type);
+                    break;
+
+                case "vex_elite":
+                    addMapping("vex", type);
+                    addMapping("vexelite", type);
+                    addMapping("nightmare_weaver", type);
+                    addMapping("nightmareweaver", type);
+                    break;
+
+                case "cornelius":
+                    addMapping("cornelius_elite", type);
+                    addMapping("golden_tyrant", type);
+                    addMapping("goldentyrant", type);
+                    break;
+
+                case "valdris":
+                    addMapping("valdris_elite", type);
+                    addMapping("bone_emperor", type);
+                    addMapping("boneemperor", type);
+                    break;
+
+                case "seraphina":
+                    addMapping("seraphina_elite", type);
+                    addMapping("mercy_maiden", type);
+                    addMapping("mercymaiden", type);
+                    break;
+
+                case "arachnia":
+                    addMapping("arachnia_elite", type);
+                    addMapping("spider_queen", type);
+                    addMapping("spiderqueen", type);
+                    addMapping("web_mistress", type);
+                    addMapping("webmistress", type);
+                    break;
+
+                case "karnath":
+                    addMapping("karnath_elite", type);
+                    addMapping("blood_reaper", type);
+                    addMapping("bloodreaper", type);
+                    break;
+
+                case "zephyr":
+                    addMapping("zephyr_elite", type);
+                    addMapping("storm_caller", type);
+                    addMapping("stormcaller", type);
+                    break;
+
                 // Boss and elite variations
                 case "bossSkeletonDungeon":
                     addMapping("boss_skeleton_dungeon", type);
@@ -492,6 +642,8 @@ public enum MobType {
                     addMapping("frozen_golem", type);
                     addMapping("icegolem", type);
                     addMapping("ice_golem", type);
+                    addMapping("crypt_guardian", type);
+                    addMapping("cryptguardian", type);
                     break;
 
                 case "spectralguard":
@@ -517,80 +669,17 @@ public enum MobType {
                     addMapping("skellyd", type);
                     break;
 
-                // New Elite name variations
-                case "malachar":
-                    addMapping("malachar_elite", type);
+                case "frostking":
+                    addMapping("frost_king", type);
+                    addMapping("iceking", type);
+                    addMapping("ice_king", type);
+                    addMapping("frost_king_eternal", type);
+                    addMapping("frostkingeteranl", type);
                     break;
 
-                case "xerathen":
-                    addMapping("xerathen_elite", type);
-                    break;
-
-                case "veridiana":
-                    addMapping("veridiana_elite", type);
-                    break;
-
-                case "thorgrim":
-                    addMapping("thorgrim_elite", type);
-                    break;
-
-                case "lysander":
-                    addMapping("lysander_elite", type);
-                    break;
-
-                case "morgana":
-                    addMapping("morgana_elite", type);
-                    break;
-
-                case "vex_elite":
-                    addMapping("vex", type);
-                    addMapping("vexelite", type);
-                    break;
-
-                case "cornelius":
-                    addMapping("cornelius_elite", type);
-                    break;
-
-                case "valdris":
-                    addMapping("valdris_elite", type);
-                    break;
-
-                case "seraphina":
-                    addMapping("seraphina_elite", type);
-                    break;
-
-                case "arachnia":
-                    addMapping("arachnia_elite", type);
-                    addMapping("spider_queen", type);
-                    addMapping("spiderqueen", type);
-                    break;
-
-                case "karnath":
-                    addMapping("karnath_elite", type);
-                    break;
-
-                case "zephyr":
-                    addMapping("zephyr_elite", type);
-                    break;
-
-                case "rimeclaw":
-                    addMapping("rimeclaw_elite", type);
-                    break;
-
-                case "thalassa":
-                    addMapping("thalassa_elite", type);
-                    break;
-
-                case "pyrion":
-                    addMapping("pyrion_elite", type);
-                    break;
-
-                case "meridian":
-                    addMapping("meridian_elite", type);
-                    break;
-
-                case "nethys":
-                    addMapping("nethys_elite", type);
+                case "chronos":
+                    addMapping("time_lord", type);
+                    addMapping("timelord", type);
                     break;
             }
         } catch (Exception e) {
@@ -603,14 +692,15 @@ public enum MobType {
      */
     private static void addMapping(String key, MobType type) {
         if (key != null && !key.trim().isEmpty() && type != null) {
-            NORMALIZED_MAPPINGS.put(key.toLowerCase().trim(), type);
+            String normalizedKey = key.toLowerCase().trim();
+            NORMALIZED_MAPPINGS.put(normalizedKey, type);
         }
     }
 
     /**
-     * Add comprehensive legacy mappings
+     * Add comprehensive legacy mappings including elite shortcuts
      */
-    private static void addLegacyMappings() {
+    private static void addComprehensiveLegacyMappings() {
         try {
             // Common shortcuts
             safePutMapping("skelly", "skeleton");
@@ -623,6 +713,9 @@ public enum MobType {
             safePutMapping("boss", "bossSkeletonDungeon");
             safePutMapping("frozen", "frozenboss");
             safePutMapping("ice", "frozenboss");
+
+            // CRITICAL: Elite shortcuts for T5 elites
+            safePutMapping("warden", "meridian"); // Warden entity type maps to Meridian elite
 
             System.out.println("[MobType] Legacy mappings added successfully");
 
@@ -646,23 +739,33 @@ public enum MobType {
     }
 
     /**
-     * Validate that critical mappings exist
+     * CRITICAL: Validate that all important elite types are properly mapped
      */
-    private static void validateCriticalMappings() {
-        String[] criticalTypes = {"skeleton", "zombie", "witherskeleton", "spider", "cavespider", "magmacube"};
-        boolean allValid = true;
+    private static void validateCriticalEliteTypes() {
+        String[] criticalEliteTypes = {
+                "meridian", "pyrion", "rimeclaw", "thalassa", "nethys",
+                "malachar", "xerathen", "veridiana", "thorgrim", "lysander", "morgana",
+                "cornelius", "valdris", "seraphina", "arachnia", "karnath", "zephyr",
+                "frozenboss", "frozenelite", "frozengolem", "frostwing", "chronos"
+        };
 
-        for (String type : criticalTypes) {
+        boolean allValid = true;
+        StringBuilder missing = new StringBuilder();
+
+        for (String type : criticalEliteTypes) {
             if (!NORMALIZED_MAPPINGS.containsKey(type)) {
-                System.err.println("[MobType] Missing critical mapping: " + type);
+                System.err.println("[MobType] Missing critical elite mapping: " + type);
+                missing.append(type).append(", ");
                 allValid = false;
+            } else {
+                System.out.println("[MobType] ✓ Elite type validated: " + type);
             }
         }
 
         if (allValid) {
-            System.out.println("[MobType] All critical mappings validated successfully");
+            System.out.println("[MobType] All critical elite mappings validated successfully");
         } else {
-            System.err.println("[MobType] Some critical mappings are missing!");
+            System.err.println("[MobType] Missing elite mappings: " + missing.toString());
         }
     }
 
@@ -683,6 +786,12 @@ public enum MobType {
                         String id = type.id.toLowerCase().trim();
                         BY_ID.put(id, type);
                         NORMALIZED_MAPPINGS.put(id, type);
+
+                        // For elites, add basic variations
+                        if (type.isElite()) {
+                            NORMALIZED_MAPPINGS.put(id + "_elite", type);
+                            NORMALIZED_MAPPINGS.put(id + "elite", type);
+                        }
                     }
                 } catch (Exception e) {
                     // Ignore individual failures in emergency mode
@@ -720,10 +829,10 @@ public enum MobType {
         this.abilities = EnumSet.copyOf(abilities);
     }
 
-    // ================ BULLETPROOF LOOKUP METHODS ================
+    // ================ ENHANCED LOOKUP METHODS ================
 
     /**
-     * GUARANTEED: Get mob type by ID - this WILL work
+     * FIXED: Get mob type by ID with enhanced elite support
      */
     public static MobType getById(String id) {
         if (id == null || id.trim().isEmpty()) {
@@ -745,6 +854,14 @@ public enum MobType {
             // Direct lookup
             MobType type = NORMALIZED_MAPPINGS.get(normalizedId);
             if (type != null) {
+                return type;
+            }
+
+            // Enhanced elite pattern matching
+            type = tryElitePatternMatching(normalizedId);
+            if (type != null) {
+                // Cache successful transformation
+                NORMALIZED_MAPPINGS.put(normalizedId, type);
                 return type;
             }
 
@@ -770,6 +887,51 @@ public enum MobType {
             System.err.println("[MobType] Error looking up '" + id + "': " + e.getMessage());
             return null;
         }
+    }
+
+    /**
+     * NEW: Enhanced elite pattern matching
+     */
+    private static MobType tryElitePatternMatching(String id) {
+        // Handle elite-specific patterns
+        if (id.contains("elite")) {
+            String baseId = id.replace("elite", "").replace("_", "");
+            MobType type = NORMALIZED_MAPPINGS.get(baseId);
+            if (type != null && type.isElite()) {
+                return type;
+            }
+        }
+
+        // Handle T5 elite names specifically
+        switch (id) {
+            case "warden":
+                return NORMALIZED_MAPPINGS.get("meridian");
+            case "fire_lord":
+            case "firelord":
+            case "flame_emperor":
+            case "flameemperor":
+                return NORMALIZED_MAPPINGS.get("pyrion");
+            case "ice_lord":
+            case "icelord":
+            case "eternal_winter":
+            case "eternalwinter":
+                return NORMALIZED_MAPPINGS.get("rimeclaw");
+            case "ocean_lord":
+            case "oceanlord":
+            case "ocean_sovereign":
+            case "oceansovereign":
+                return NORMALIZED_MAPPINGS.get("thalassa");
+            case "void_lord":
+            case "voidlord":
+            case "void_sovereign":
+            case "voidsovereign":
+                return NORMALIZED_MAPPINGS.get("nethys");
+            case "reality_breaker":
+            case "realitybreaker":
+                return NORMALIZED_MAPPINGS.get("meridian");
+        }
+
+        return null;
     }
 
     /**
@@ -822,10 +984,11 @@ public enum MobType {
     }
 
     /**
-     * Check if a type ID is valid
+     * FIXED: Check if a type ID is valid - enhanced for elites
      */
     public static boolean isValidType(String id) {
-        return getById(id) != null;
+        MobType found = getById(id);
+        return found != null;
     }
 
     /**
@@ -863,7 +1026,7 @@ public enum MobType {
                 id.equals("witch") || id.equals("vindicator") || id.equals("evoker") ||
                 id.equals("pillager") || id.equals("ravager") || id.equals("vex") ||
                 id.equals("shulker") || id.equals("slime") || id.equals("turkey") ||
-                id.equals("giant") || id.equals("prisoner");
+                id.equals("giant") || id.equals("prisoner") || id.equals("warden");
     }
 
     private String generateTierSpecificName(int tier) {
@@ -901,6 +1064,8 @@ public enum MobType {
                 return getGuardianTierName(tier);
             case "elderguardian":
                 return getElderGuardianTierName(tier);
+            case "warden":
+                return getWardenTierName(tier);
             case "weakskeleton":
                 return getRandomSkeletalKeeperName();
             case "prisoner":
@@ -1108,6 +1273,18 @@ public enum MobType {
         }
     }
 
+    private String getWardenTierName(int tier) {
+        switch (tier) {
+            case 1: return "Young Warden";
+            case 2: return "Warden";
+            case 3: return "Ancient Warden";
+            case 4: return "Warden Lord";
+            case 5: return "Primordial Warden";
+            case 6: return "Cosmic Warden";
+            default: return "Warden";
+        }
+    }
+
     private String getRandomSkeletalKeeperName() {
         String[] names = {
                 "Infernal Skeletal Keeper",
@@ -1165,7 +1342,7 @@ public enum MobType {
     }
 
     /**
-     * Check if a tier is valid for this mob type
+     * FIXED: Check if a tier is valid for this mob type
      */
     public boolean isValidTier(int tier) {
         return tier >= minTier && tier <= maxTier;
@@ -1245,12 +1422,22 @@ public enum MobType {
         info.append("Initialized: ").append(initialized).append("\n");
         info.append("Total Types: ").append(values().length).append("\n");
         info.append("Total Mappings: ").append(NORMALIZED_MAPPINGS.size()).append("\n");
-        info.append("Critical Types:\n");
+        info.append("Elite Types Count: ").append(
+                Arrays.stream(values()).mapToInt(t -> t.isElite() ? 1 : 0).sum()).append("\n");
 
-        String[] criticalTypes = {"skeleton", "zombie", "witherskeleton", "spider", "cavespider", "magmacube"};
+        info.append("Critical Types:\n");
+        String[] criticalTypes = {"skeleton", "zombie", "witherskeleton", "spider", "cavespider", "magmacube", "meridian", "pyrion"};
         for (String type : criticalTypes) {
             MobType found = getById(type);
             info.append("  ").append(type).append(": ").append(found != null ? "✓" : "✗").append("\n");
+        }
+
+        info.append("Elite Types:\n");
+        for (MobType type : values()) {
+            if (type.isElite()) {
+                boolean mapped = NORMALIZED_MAPPINGS.containsKey(type.getId());
+                info.append("  ").append(type.getId()).append(": ").append(mapped ? "✓" : "✗").append("\n");
+            }
         }
 
         return info.toString();

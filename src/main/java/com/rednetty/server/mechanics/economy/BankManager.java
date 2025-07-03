@@ -3,6 +3,7 @@ package com.rednetty.server.mechanics.economy;
 import com.rednetty.server.YakRealms;
 import com.rednetty.server.mechanics.player.YakPlayer;
 import com.rednetty.server.mechanics.player.YakPlayerManager;
+import com.rednetty.server.utils.nbt.NBTAccessor;
 import com.rednetty.server.utils.text.TextUtil;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
@@ -29,6 +30,7 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -347,6 +349,10 @@ public class BankManager implements Listener {
         ItemStack note = new ItemStack(Material.PAPER);
         ItemMeta meta = note.getItemMeta();
         meta.setDisplayName(ChatColor.GREEN + "Bank Note");
+        NBTAccessor nbt = new NBTAccessor(note);
+        nbt.setInt("note_id", ThreadLocalRandom.current().nextInt(0, Integer.MAX_VALUE));
+
+        note = nbt.update();
         meta.setLore(Arrays.asList(ChatColor.WHITE.toString() + ChatColor.BOLD + "Value: " + ChatColor.WHITE + amount + " Gems", ChatColor.GRAY + "Exchange at any bank for GEM(s)"));
         note.setItemMeta(meta);
         return note;

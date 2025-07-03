@@ -3,6 +3,7 @@ package com.rednetty.server.mechanics.mobs;
 import com.rednetty.server.YakRealms;
 import com.rednetty.server.mechanics.combat.pvp.AlignmentMechanics;
 import com.rednetty.server.mechanics.mobs.core.CustomMob;
+import com.rednetty.server.mechanics.mobs.core.EliteMob;
 import com.rednetty.server.mechanics.mobs.core.MobType;
 import com.rednetty.server.mechanics.mobs.core.WorldBoss;
 import com.rednetty.server.mechanics.mobs.spawners.MobSpawner;
@@ -26,10 +27,10 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.logging.Logger;
 
 /**
- * FIXED: MobManager with comprehensive mob spawning fixes for modern Minecraft versions
- * - Fixed entity creation validation and error reporting
- * - Enhanced mob type validation with fallback mechanisms
- * - Improved spawning reliability with better error handling
+ * FIXED: MobManager with comprehensive elite mob support and enhanced spawning
+ * - Fixed entity creation validation with proper elite support
+ * - Enhanced mob type validation with elite-specific handling
+ * - Improved spawning reliability for all mob types including T5 elites
  * - Added comprehensive logging for debugging spawn failures
  * - CRITICAL: All entity operations now happen on MAIN THREAD ONLY
  * - Fixed chunk loading requirements and spawn location validation
@@ -61,10 +62,11 @@ public class MobManager implements Listener {
     private final Map<String, Long> respawnTimes = new ConcurrentHashMap<>();
     private final Map<String, Long> mobTypeLastDeath = new ConcurrentHashMap<>();
 
-    // ================ ENHANCED VALIDATION ================
+    // ================ ENHANCED VALIDATION WITH ELITE SUPPORT ================
     private final Map<String, EntityType> mobTypeMapping = new ConcurrentHashMap<>();
     private final Set<String> validMobTypes = new HashSet<>();
     private final Map<String, Integer> failureCounter = new ConcurrentHashMap<>();
+    private final Set<String> eliteOnlyTypes = new HashSet<>();
 
     // ================ COMPONENTS ================
     private final MobSpawner spawner;
@@ -108,10 +110,12 @@ public class MobManager implements Listener {
     }
 
     /**
-     * FIXED: Initialize mob type to EntityType mapping with proper validation
+     * FIXED: Initialize mob type to EntityType mapping with proper elite support
      */
     private void initializeMobTypeMapping() {
         try {
+            logger.info("§6[MobManager] §7Initializing comprehensive mob type mapping with elite support...");
+
             // Core mob types with proper mapping
             mobTypeMapping.put("skeleton", EntityType.SKELETON);
             mobTypeMapping.put("witherskeleton", EntityType.WITHER_SKELETON);
@@ -143,8 +147,12 @@ public class MobManager implements Listener {
             mobTypeMapping.put("golem", EntityType.IRON_GOLEM);
             mobTypeMapping.put("irongolem", EntityType.IRON_GOLEM);
 
-            // Special/Custom types (fallback to skeleton)
+            // Special/Custom types (fallback to appropriate entity types)
             mobTypeMapping.put("imp", EntityType.ZOMBIE);
+            mobTypeMapping.put("spectralguard", EntityType.ZOMBIFIED_PIGLIN);
+            mobTypeMapping.put("frozenboss", EntityType.WITHER_SKELETON);
+            mobTypeMapping.put("elderguardian", EntityType.ELDER_GUARDIAN);
+            mobTypeMapping.put("shulker", EntityType.SHULKER);
             mobTypeMapping.put("spectralguard", EntityType.SKELETON);
             mobTypeMapping.put("frozenboss", EntityType.WITHER_SKELETON);
             mobTypeMapping.put("frozenelite", EntityType.WITHER_SKELETON);
@@ -153,13 +161,79 @@ public class MobManager implements Listener {
             mobTypeMapping.put("chronos", EntityType.WITHER);
             mobTypeMapping.put("frostking", EntityType.WITHER_SKELETON);
             mobTypeMapping.put("weakSkeleton", EntityType.SKELETON);
+            mobTypeMapping.put("weakskeleton", EntityType.SKELETON);
             mobTypeMapping.put("bossSkeleton", EntityType.WITHER_SKELETON);
             mobTypeMapping.put("bossSkeletonDungeon", EntityType.WITHER_SKELETON);
+            mobTypeMapping.put("daemon", EntityType.ZOMBIFIED_PIGLIN);
+            mobTypeMapping.put("turkey", EntityType.CHICKEN);
+            mobTypeMapping.put("giant", EntityType.GIANT);
+            mobTypeMapping.put("prisoner", EntityType.ZOMBIE);
+            mobTypeMapping.put("skellyDSkeletonGuardian", EntityType.SKELETON);
+            mobTypeMapping.put("spectralKnight", EntityType.ZOMBIFIED_PIGLIN);
+
+            // CRITICAL: T5 Elite mappings with proper entity types
+            mobTypeMapping.put("meridian", EntityType.WARDEN);
+            mobTypeMapping.put("pyrion", EntityType.WITHER_SKELETON);
+            mobTypeMapping.put("rimeclaw", EntityType.STRAY);
+            mobTypeMapping.put("thalassa", EntityType.DROWNED);
+            mobTypeMapping.put("nethys", EntityType.WITHER_SKELETON);
+
+            // T1-T4 Elite mappings
+            mobTypeMapping.put("malachar", EntityType.WITHER_SKELETON);
+            mobTypeMapping.put("xerathen", EntityType.ZOMBIE);
+            mobTypeMapping.put("veridiana", EntityType.HUSK);
+            mobTypeMapping.put("thorgrim", EntityType.ZOMBIFIED_PIGLIN);
+            mobTypeMapping.put("lysander", EntityType.VINDICATOR);
+            mobTypeMapping.put("morgana", EntityType.WITHER_SKELETON);
+            mobTypeMapping.put("vex_elite", EntityType.ZOMBIE);
+            mobTypeMapping.put("cornelius", EntityType.ZOMBIE_VILLAGER);
+            mobTypeMapping.put("valdris", EntityType.WITHER_SKELETON);
+            mobTypeMapping.put("seraphina", EntityType.ZOMBIE);
+            mobTypeMapping.put("arachnia", EntityType.SPIDER);
+            mobTypeMapping.put("karnath", EntityType.ZOMBIE);
+            mobTypeMapping.put("zephyr", EntityType.WITHER_SKELETON);
+
+            // CRITICAL: Mark elite-only types
+            eliteOnlyTypes.add("meridian");
+            eliteOnlyTypes.add("pyrion");
+            eliteOnlyTypes.add("rimeclaw");
+            eliteOnlyTypes.add("thalassa");
+            eliteOnlyTypes.add("nethys");
+            eliteOnlyTypes.add("malachar");
+            eliteOnlyTypes.add("xerathen");
+            eliteOnlyTypes.add("veridiana");
+            eliteOnlyTypes.add("thorgrim");
+            eliteOnlyTypes.add("lysander");
+            eliteOnlyTypes.add("morgana");
+            eliteOnlyTypes.add("vex_elite");
+            eliteOnlyTypes.add("cornelius");
+            eliteOnlyTypes.add("valdris");
+            eliteOnlyTypes.add("seraphina");
+            eliteOnlyTypes.add("arachnia");
+            eliteOnlyTypes.add("karnath");
+            eliteOnlyTypes.add("zephyr");
+            eliteOnlyTypes.add("frozenboss");
+            eliteOnlyTypes.add("frozenelite");
+            eliteOnlyTypes.add("frozengolem");
+            eliteOnlyTypes.add("frostwing");
+            eliteOnlyTypes.add("chronos");
+            eliteOnlyTypes.add("frostking");
+            eliteOnlyTypes.add("bossSkeleton");
+            eliteOnlyTypes.add("bossSkeletonDungeon");
+            eliteOnlyTypes.add("weakskeleton");
+            eliteOnlyTypes.add("skellyDSkeletonGuardian");
+            eliteOnlyTypes.add("spectralguard");
+            eliteOnlyTypes.add("spectralKnight");
 
             // Populate valid types set
             validMobTypes.addAll(mobTypeMapping.keySet());
 
             logger.info("§a[MobManager] §7Initialized " + mobTypeMapping.size() + " mob type mappings");
+            logger.info("§a[MobManager] §7Registered " + eliteOnlyTypes.size() + " elite-only types");
+
+            if (debug) {
+                logger.info("§6[MobManager] §7Elite-only types: " + String.join(", ", eliteOnlyTypes));
+            }
 
         } catch (Exception e) {
             logger.severe("§c[MobManager] Failed to initialize mob type mapping: " + e.getMessage());
@@ -241,7 +315,7 @@ public class MobManager implements Listener {
     // ================ ENHANCED SPAWNER MOB SPAWNING ================
 
     /**
-     * FIXED: Enhanced spawner mob spawning with MAIN THREAD SAFETY and comprehensive validation
+     * FIXED: Enhanced spawner mob spawning with MAIN THREAD SAFETY and elite support
      * This method MUST always be called from the main thread
      */
     public LivingEntity spawnMobFromSpawner(Location location, String type, int tier, boolean elite) {
@@ -257,10 +331,10 @@ public class MobManager implements Listener {
         }
 
         // Enhanced validation with detailed error reporting
-        if (!isValidSpawnRequest(location, type, tier)) {
+        if (!isValidSpawnRequest(location, type, tier, elite)) {
             if (debug) {
                 logger.warning("§c[MobManager] Invalid spawn request: " + type + " T" + tier +
-                        " at " + formatLocation(location));
+                        (elite ? "+" : "") + " at " + formatLocation(location));
             }
             return null;
         }
@@ -364,7 +438,7 @@ public class MobManager implements Listener {
     }
 
     /**
-     * FIXED: Enhanced mob type normalization with comprehensive mapping
+     * FIXED: Enhanced mob type normalization with elite support
      */
     private String normalizeMobType(String type) {
         if (type == null || type.trim().isEmpty()) {
@@ -402,6 +476,11 @@ public class MobManager implements Listener {
             return normalized;
         }
 
+        // CRITICAL: Check MobType system for elite types
+        if (MobType.isValidType(normalized)) {
+            return normalized;
+        }
+
         // Try to find close matches
         for (String validType : validMobTypes) {
             if (validType.contains(normalized) || normalized.contains(validType)) {
@@ -418,7 +497,7 @@ public class MobManager implements Listener {
     }
 
     /**
-     * FIXED: Enhanced entity creation with MAIN THREAD SAFETY and proper validation
+     * FIXED: Enhanced entity creation with MAIN THREAD SAFETY and elite support
      * This method MUST always be called from the main thread
      */
     private LivingEntity createEntityWithValidation(Location location, String type, int tier, boolean elite) {
@@ -429,33 +508,31 @@ public class MobManager implements Listener {
         }
 
         try {
-            // Get EntityType from mapping
-            EntityType entityType = mobTypeMapping.get(type);
-            if (entityType == null) {
-                logger.warning("§c[MobManager] No EntityType mapping for: " + type);
-                return null;
-            }
-
-            // Validate EntityType is living entity
-            if (!isLivingEntityType(entityType)) {
-                logger.warning("§c[MobManager] EntityType " + entityType + " is not a living entity");
-                return null;
+            if (debug) {
+                logger.info("§6[MobManager] §7Creating entity: " + type + " T" + tier + (elite ? "+" : "") +
+                        " (Elite-only: " + eliteOnlyTypes.contains(type) + ")");
             }
 
             // Try multiple creation methods with fallbacks
             LivingEntity entity = null;
 
-            // Method 1: Try MobType system if available
+            // Method 1: Try MobType system if available (best for elites)
             if (isMobTypeSystemAvailable()) {
                 entity = createEntityUsingMobTypeSystem(location, type, tier, elite);
                 if (entity != null) {
+                    if (debug) {
+                        logger.info("§a[MobManager] §7Entity created via MobType system: " + type);
+                    }
                     return entity;
                 }
             }
 
             // Method 2: Direct world.spawnEntity with multiple attempts
-            entity = createEntityWithMultipleAttempts(location, entityType, type, tier, elite);
+            entity = createEntityWithMultipleAttempts(location, type, tier, elite);
             if (entity != null) {
+                if (debug) {
+                    logger.info("§a[MobManager] §7Entity created via direct spawning: " + type);
+                }
                 return entity;
             }
 
@@ -472,11 +549,24 @@ public class MobManager implements Listener {
     }
 
     /**
-     * FIXED: Create entity with multiple attempts to handle world.spawnEntity returning null
+     * FIXED: Create entity with multiple attempts with elite support
      */
-    private LivingEntity createEntityWithMultipleAttempts(Location location, EntityType entityType, String type, int tier, boolean elite) {
+    private LivingEntity createEntityWithMultipleAttempts(Location location, String type, int tier, boolean elite) {
         if (!Bukkit.isPrimaryThread()) {
             logger.severe("§c[MobManager] CRITICAL: createEntityWithMultipleAttempts called from async thread!");
+            return null;
+        }
+
+        // Get EntityType from mapping
+        EntityType entityType = mobTypeMapping.get(type);
+        if (entityType == null) {
+            logger.warning("§c[MobManager] No EntityType mapping for: " + type);
+            return null;
+        }
+
+        // Validate EntityType is living entity
+        if (!isLivingEntityType(entityType)) {
+            logger.warning("§c[MobManager] EntityType " + entityType + " is not a living entity");
             return null;
         }
 
@@ -571,7 +661,7 @@ public class MobManager implements Listener {
     }
 
     /**
-     * FIXED: Create entity using MobType system - MAIN THREAD ONLY
+     * FIXED: Create entity using MobType system with enhanced elite support
      */
     private LivingEntity createEntityUsingMobTypeSystem(Location location, String type, int tier, boolean elite) {
         // CRITICAL: Verify we're on the main thread
@@ -589,10 +679,28 @@ public class MobManager implements Listener {
                 return null;
             }
 
+            // CRITICAL: Enhanced elite validation
+            if (eliteOnlyTypes.contains(type) && !elite) {
+                logger.warning("§c[MobManager] " + type + " is an elite-only type but elite=false was specified");
+                return null;
+            }
+
             // Create proper CustomMob on MAIN THREAD
-            CustomMob customMob = elite ?
-                    new com.rednetty.server.mechanics.mobs.core.EliteMob(mobType, tier) :
-                    new CustomMob(mobType, tier, elite);
+            CustomMob customMob;
+
+            if (elite || mobType.isElite()) {
+                // Create elite mob
+                customMob = new EliteMob(mobType, tier);
+                if (debug) {
+                    logger.info("§d[MobManager] §7Creating EliteMob for " + type + " T" + tier);
+                }
+            } else {
+                // Create regular mob
+                customMob = new CustomMob(mobType, tier, false);
+                if (debug) {
+                    logger.info("§a[MobManager] §7Creating CustomMob for " + type + " T" + tier);
+                }
+            }
 
             // Spawn the mob on MAIN THREAD
             boolean spawnSuccess = customMob.spawn(location);
@@ -613,12 +721,13 @@ public class MobManager implements Listener {
 
         } catch (Exception e) {
             logger.warning("§c[MobManager] MobType system creation failed for " + type + ": " + e.getMessage());
+            if (debug) e.printStackTrace();
             return null;
         }
     }
 
     /**
-     * FIXED: Final fallback - create basic skeleton - MAIN THREAD ONLY
+     * FIXED: Final fallback with elite support
      */
     private LivingEntity createEntityFinalFallback(Location location, String type, int tier, boolean elite) {
         // CRITICAL: Verify we're on the main thread
@@ -634,15 +743,18 @@ public class MobManager implements Listener {
                 return null;
             }
 
-            // MAIN THREAD ENTITY CREATION - fallback to skeleton
-            Entity spawnedEntity = world.spawnEntity(location, EntityType.SKELETON);
+            // Get appropriate fallback entity type
+            EntityType fallbackType = getFallbackEntityType(type);
+
+            // MAIN THREAD ENTITY CREATION
+            Entity spawnedEntity = world.spawnEntity(location, fallbackType);
 
             if (spawnedEntity instanceof LivingEntity) {
                 LivingEntity entity = (LivingEntity) spawnedEntity;
                 configureBasicEntity(entity, type, tier, elite);
 
                 if (debug) {
-                    logger.info("§6[MobManager] §7Created entity using final fallback (skeleton) for: " + type);
+                    logger.info("§6[MobManager] §7Created entity using final fallback (" + fallbackType + ") for: " + type);
                 }
 
                 return entity;
@@ -652,6 +764,51 @@ public class MobManager implements Listener {
         }
 
         return null;
+    }
+
+    /**
+     * Get appropriate fallback entity type
+     */
+    private EntityType getFallbackEntityType(String type) {
+        // Try to get from mapping first
+        EntityType mapped = mobTypeMapping.get(type);
+        if (mapped != null) {
+            return mapped;
+        }
+
+        // Elite-specific fallbacks
+        if (eliteOnlyTypes.contains(type)) {
+            switch (type) {
+                case "meridian":
+                    return EntityType.WARDEN;
+                case "pyrion":
+                case "nethys":
+                case "valdris":
+                case "morgana":
+                case "zephyr":
+                    return EntityType.WITHER_SKELETON;
+                case "rimeclaw":
+                    return EntityType.STRAY;
+                case "thalassa":
+                    return EntityType.DROWNED;
+                case "xerathen":
+                case "karnath":
+                case "seraphina":
+                case "vex_elite":
+                    return EntityType.ZOMBIE;
+                case "veridiana":
+                    return EntityType.HUSK;
+                case "cornelius":
+                    return EntityType.ZOMBIE_VILLAGER;
+                case "arachnia":
+                    return EntityType.SPIDER;
+                default:
+                    return EntityType.SKELETON; // Safe fallback
+            }
+        }
+
+        // Default fallback
+        return EntityType.SKELETON;
     }
 
     /**
@@ -672,6 +829,12 @@ public class MobManager implements Listener {
             entity.setMetadata("customName", new FixedMetadataValue(plugin, type));
             entity.setMetadata("dropTier", new FixedMetadataValue(plugin, tier));
             entity.setMetadata("dropElite", new FixedMetadataValue(plugin, elite));
+
+            // Mark elite-only types properly
+            if (eliteOnlyTypes.contains(type)) {
+                entity.setMetadata("elite", new FixedMetadataValue(plugin, true));
+                entity.setMetadata("eliteOnly", new FixedMetadataValue(plugin, true));
+            }
 
         } catch (Exception e) {
             logger.warning("§c[MobManager] Failed to configure basic entity: " + e.getMessage());
@@ -704,22 +867,22 @@ public class MobManager implements Listener {
     }
 
     /**
-     * Generate proper mob display name
+     * Generate proper mob display name with elite support
      */
     private String generateMobDisplayName(String type, int tier, boolean elite) {
         try {
-            // Get base name
+            // Get base name with elite-specific handling
             String baseName = getDisplayNameForType(type);
 
             // Get tier color
             ChatColor tierColor = MobUtils.getTierColor(tier);
 
-            // Format name
-            String formattedName = elite ?
-                    tierColor.toString() + ChatColor.BOLD + baseName :
-                    tierColor + baseName;
-
-            return formattedName;
+            // Enhanced formatting for elites
+            if (elite || eliteOnlyTypes.contains(type)) {
+                return tierColor.toString() + ChatColor.BOLD + baseName;
+            } else {
+                return tierColor + baseName;
+            }
 
         } catch (Exception e) {
             return "§7Unknown Mob";
@@ -727,9 +890,20 @@ public class MobManager implements Listener {
     }
 
     /**
-     * Get display name for mob type
+     * Get display name for mob type with elite support
      */
     private String getDisplayNameForType(String type) {
+        // Check MobType system first
+        try {
+            MobType mobType = MobType.getById(type);
+            if (mobType != null) {
+                return mobType.getTierSpecificName(1); // Use tier 1 as base name
+            }
+        } catch (Exception e) {
+            // Fall through to manual mapping
+        }
+
+        // Manual mapping for common types
         switch (type.toLowerCase()) {
             case "witherskeleton": return "Wither Skeleton";
             case "cavespider": return "Cave Spider";
@@ -741,6 +915,28 @@ public class MobManager implements Listener {
             case "frozenelite": return "Frozen Elite";
             case "frozengolem": return "Frozen Golem";
             case "bossskeleton": return "Boss Skeleton";
+
+            // T5 Elite names
+            case "meridian": return "Meridian";
+            case "pyrion": return "Pyrion";
+            case "rimeclaw": return "Rimeclaw";
+            case "thalassa": return "Thalassa";
+            case "nethys": return "Nethys";
+
+            // Other elite names
+            case "malachar": return "Malachar";
+            case "xerathen": return "Xerathen";
+            case "veridiana": return "Veridiana";
+            case "thorgrim": return "Thorgrim";
+            case "lysander": return "Lysander";
+            case "morgana": return "Morgana";
+            case "cornelius": return "Cornelius";
+            case "valdris": return "Valdris";
+            case "seraphina": return "Seraphina";
+            case "arachnia": return "Arachnia";
+            case "karnath": return "Karnath";
+            case "zephyr": return "Zephyr";
+
             default:
                 return type.substring(0, 1).toUpperCase() + type.substring(1).toLowerCase();
         }
@@ -903,7 +1099,10 @@ public class MobManager implements Listener {
         }
     }
 
-    private boolean isValidSpawnRequest(Location location, String type, int tier) {
+    /**
+     * FIXED: Enhanced spawn request validation with elite support
+     */
+    private boolean isValidSpawnRequest(Location location, String type, int tier, boolean elite) {
         if (location == null || location.getWorld() == null) {
             return false;
         }
@@ -916,11 +1115,19 @@ public class MobManager implements Listener {
             return false;
         }
 
+        // CRITICAL: Elite-only type validation
+        if (eliteOnlyTypes.contains(type.toLowerCase()) && !elite) {
+            if (debug) {
+                logger.warning("§c[MobManager] " + type + " is an elite-only type but elite=false");
+            }
+            return false;
+        }
+
         return true;
     }
 
     /**
-     * Check if spawner can spawn a mob (for spawner validation)
+     * FIXED: Check if spawner can spawn a mob with elite validation
      */
     public boolean canSpawnerSpawnMob(String type, int tier, boolean elite) {
         try {
@@ -931,7 +1138,7 @@ public class MobManager implements Listener {
             }
 
             // Check if we have mapping for this type
-            if (!mobTypeMapping.containsKey(normalizedType)) {
+            if (!mobTypeMapping.containsKey(normalizedType) && !MobType.isValidType(normalizedType)) {
                 return false;
             }
 
@@ -942,6 +1149,11 @@ public class MobManager implements Listener {
 
             // Check T6 availability
             if (tier > 5 && !YakRealms.isT6Enabled()) {
+                return false;
+            }
+
+            // CRITICAL: Elite-only type validation
+            if (eliteOnlyTypes.contains(normalizedType) && !elite) {
                 return false;
             }
 
@@ -1747,6 +1959,7 @@ public class MobManager implements Listener {
         info.append("=== MobManager Diagnostic Info ===\n");
         info.append("Valid Mob Types: ").append(validMobTypes.size()).append("\n");
         info.append("Mob Type Mappings: ").append(mobTypeMapping.size()).append("\n");
+        info.append("Elite-Only Types: ").append(eliteOnlyTypes.size()).append("\n");
         info.append("Active Mobs: ").append(activeMobs.size()).append("\n");
         info.append("Failure Counters:\n");
 
@@ -1756,8 +1969,14 @@ public class MobManager implements Listener {
             }
         }
 
+        info.append("Elite-Only Types:\n");
+        for (String eliteType : eliteOnlyTypes) {
+            EntityType entityType = mobTypeMapping.get(eliteType);
+            info.append("  ").append(eliteType).append(" -> ").append(entityType).append("\n");
+        }
+
         info.append("Available EntityTypes for common mobs:\n");
-        String[] commonTypes = {"skeleton", "witherskeleton", "zombie", "spider"};
+        String[] commonTypes = {"skeleton", "witherskeleton", "zombie", "spider", "meridian", "pyrion"};
         for (String type : commonTypes) {
             EntityType entityType = mobTypeMapping.get(type);
             info.append("  ").append(type).append(" -> ").append(entityType).append("\n");
