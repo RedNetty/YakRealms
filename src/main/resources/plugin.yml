@@ -49,6 +49,13 @@ commands:
     aliases: [ crates, mysticalcrate, mcrate ]
     permission: yakrealms.crate.use
 
+  # Loot Chest System Commands
+  lootchest:
+    description: Loot chest system - create, manage, and interact with loot chests
+    usage: /lootchest [create|remove|info|list|stats|carepackage|special|reload|cleanup|help] [args...]
+    aliases: [ lchest, lootchests, treasurechest ]
+    permission: yakrealms.player.lootchest.info
+
   # Market Commands
   market:
     description: Access the global market system
@@ -256,6 +263,7 @@ permissions:
       yakrealms.staff.*: true
       yakrealms.admin.*: true
       yakrealms.crate.*: true
+      yakrealms.lootchest.*: true
 
   # Admin Permissions
   yakrealms.admin:
@@ -278,6 +286,7 @@ permissions:
       yakrealms.admin.invsee: true
       yakrealms.admin.alignment: true
       yakrealms.admin.item: true
+      yakrealms.admin.lootchest: true
       yakrealms.crate.admin: true
 
   yakrealms.admin.*:
@@ -300,6 +309,7 @@ permissions:
       yakrealms.admin.invsee: true
       yakrealms.admin.alignment: true
       yakrealms.admin.item: true
+      yakrealms.admin.lootchest: true
       yakrealms.crate.admin: true
 
   yakrealms.admin.economy:
@@ -324,6 +334,10 @@ permissions:
 
   yakrealms.admin.nodemap:
     description: Grants access to navigation system admin commands
+    default: op
+
+  yakrealms.admin.lootchest:
+    description: Grants access to loot chest admin commands
     default: op
 
   # Staff Permissions
@@ -401,6 +415,7 @@ permissions:
       yakrealms.player.chattag: true
       yakrealms.player.lootbuff: true
       yakrealms.player.mobinfo: true
+      yakrealms.player.lootchest.info: true
       yakrealms.crate.use: true
 
   yakrealms.player.*:
@@ -423,7 +438,61 @@ permissions:
       yakrealms.player.chattag: true
       yakrealms.player.lootbuff: true
       yakrealms.player.mobinfo: true
+      yakrealms.player.lootchest.info: true
       yakrealms.crate.use: true
+
+  # Loot Chest System Permissions
+  yakrealms.lootchest.*:
+    description: All loot chest system permissions
+    default: op
+    children:
+      yakrealms.lootchest.use: true
+      yakrealms.lootchest.admin: true
+      yakrealms.player.lootchest.info: true
+
+  yakrealms.lootchest.use:
+    description: Basic loot chest usage - interact with chests
+    default: true
+
+  yakrealms.lootchest.admin:
+    description: Full loot chest system administration
+    default: op
+    children:
+      yakrealms.admin.lootchest: true
+      yakrealms.lootchest.create: true
+      yakrealms.lootchest.remove: true
+      yakrealms.lootchest.carepackage: true
+      yakrealms.lootchest.special: true
+      yakrealms.lootchest.reload: true
+      yakrealms.lootchest.cleanup: true
+
+  yakrealms.lootchest.create:
+    description: Create loot chests
+    default: op
+
+  yakrealms.lootchest.remove:
+    description: Remove loot chests
+    default: op
+
+  yakrealms.lootchest.carepackage:
+    description: Spawn care packages
+    default: op
+
+  yakrealms.lootchest.special:
+    description: Create special loot chests
+    default: op
+
+  yakrealms.lootchest.reload:
+    description: Reload loot chest system configuration
+    default: op
+
+  yakrealms.lootchest.cleanup:
+    description: Clean up loot chest system
+    default: op
+
+  yakrealms.player.lootchest.info:
+    description: View loot chest information
+    default: true
 
   # Crate System Permissions
   yakrealms.crate.*:
@@ -533,6 +602,7 @@ permissions:
       yakrealms.economy.*: true
       yakrealms.market.*: true
       yakrealms.crate.*: true
+      yakrealms.lootchest.*: true
 
   yakrealms.premium:
     description: Premium player benefits
@@ -547,6 +617,7 @@ permissions:
     children:
       yakrealms.player.*: true
       yakrealms.admin.nodemap: true
+      yakrealms.admin.lootchest: true
 
   # Special Role Permissions
   yakrealms.moderator:
@@ -591,6 +662,7 @@ permissions:
       yakrealms.notify.admin: true
       yakrealms.notify.market: true
       yakrealms.notify.economy: true
+      yakrealms.notify.lootchest: true
 
   yakrealms.notify.admin:
     description: Receive admin notifications
@@ -602,4 +674,8 @@ permissions:
 
   yakrealms.notify.economy:
     description: Receive economy notifications
+    default: op
+
+  yakrealms.notify.lootchest:
+    description: Receive loot chest notifications
     default: op

@@ -5,10 +5,10 @@ import org.bukkit.entity.EntityType;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.stream.Collectors;
 
 /**
- * FIXED: MobType enum with guaranteed initialization and comprehensive mob definitions
+ * COMPLETE: MobType enum with guaranteed initialization and comprehensive mob definitions
+ * - Updated with new elite configuration from YAML
  * - All custom mobs and elites are properly defined
  * - Static initialization is bulletproof and always works
  * - Enhanced ID mapping with multiple fallback systems
@@ -106,96 +106,67 @@ public enum MobType {
 
     // ================ TIER 1 ELITES ================
 
-    PLAGUEBEARER("plaguebearer", EntityType.ZOMBIE, true, 1, 1, "Plaguebearer",
-            MobCategory.UNDEAD, MobDifficulty.ELITE, EnumSet.of(MobAbility.POISON_AURA, MobAbility.DISEASE_SPREAD)),
+    MALACHAR("malachar", EntityType.WITHER_SKELETON, true, 1, 1, "Malachar",
+            MobCategory.UNDEAD, MobDifficulty.ELITE, EnumSet.of(MobAbility.FIRE_MASTERY, MobAbility.LIFE_STEAL, MobAbility.EMBER_AURA)),
 
-    MITSUKI("mitsuki", EntityType.ZOMBIE, true, 1, 1, "Mitsuki The Dominator",
-            MobCategory.UNDEAD, MobDifficulty.ELITE, EnumSet.of(MobAbility.LEADERSHIP, MobAbility.COMBAT_MASTERY)),
+    XERATHEN("xerathen", EntityType.ZOMBIE, true, 1, 1, "Xerathen",
+            MobCategory.NATURE, MobDifficulty.ELITE, EnumSet.of(MobAbility.POISON_MASTERY, MobAbility.THORN_STRIKE, MobAbility.NATURE_CORRUPTION)),
+
+    VERIDIANA("veridiana", EntityType.HUSK, true, 1, 1, "Veridiana",
+            MobCategory.UNDEAD, MobDifficulty.ELITE, EnumSet.of(MobAbility.PLAGUE_MASTERY, MobAbility.DISEASE_SPREAD, MobAbility.TOXIC_AURA)),
 
     // ================ TIER 2 ELITES ================
 
-    BONEREAVER("bonereaver", EntityType.WITHER_SKELETON, true, 2, 2, "Bonereaver",
-            MobCategory.UNDEAD, MobDifficulty.ELITE, EnumSet.of(MobAbility.BONE_SHARDS, MobAbility.NECROMANCY)),
+    THORGRIM("thorgrim", EntityType.ZOMBIFIED_PIGLIN, true, 2, 2, "Thorgrim",
+            MobCategory.DWARF, MobDifficulty.ELITE, EnumSet.of(MobAbility.MOUNTAIN_STRENGTH, MobAbility.SIEGE_MASTERY, MobAbility.DWARVEN_FURY)),
 
-    COPJAK("copjak", EntityType.ZOMBIE, true, 2, 2, "Cop'jak",
-            MobCategory.UNDEAD, MobDifficulty.ELITE, EnumSet.of(MobAbility.AUTHORITY, MobAbility.CROWD_CONTROL)),
+    LYSANDER("lysander", EntityType.VINDICATOR, true, 2, 2, "Lysander",
+            MobCategory.HOLY, MobDifficulty.ELITE, EnumSet.of(MobAbility.DIVINE_POWER, MobAbility.ICE_MASTERY, MobAbility.CELESTIAL_EDGE)),
 
-    RISK_ELITE("risk_elite", EntityType.ZOMBIE, true, 2, 2, "Riskan The Rotten",
-            MobCategory.UNDEAD, MobDifficulty.ELITE, EnumSet.of(MobAbility.DECAY_AURA, MobAbility.CORRUPTION)),
-
-    ORC_KING("orcking", EntityType.ZOMBIE, true, 2, 2, "The Orc King",
-            MobCategory.HUMANOID, MobDifficulty.ELITE, EnumSet.of(MobAbility.ROYAL_COMMAND, MobAbility.TRIBAL_FURY)),
+    MORGANA("morgana", EntityType.WITHER_SKELETON, true, 2, 2, "Morgana",
+            MobCategory.UNDEAD, MobDifficulty.ELITE, EnumSet.of(MobAbility.SOUL_RIPPER, MobAbility.DEATH_MASTERY, MobAbility.MOURNING_AURA)),
 
     // ================ TIER 3 ELITES ================
 
-    SOULREAPER("soulreaper", EntityType.WITHER_SKELETON, true, 3, 3, "Soulreaper",
-            MobCategory.UNDEAD, MobDifficulty.ELITE, EnumSet.of(MobAbility.SOUL_DRAIN, MobAbility.DEATH_MAGIC)),
+    VEX_ELITE("vex_elite", EntityType.ZOMBIE, true, 3, 3, "Vex",
+            MobCategory.SPECTRAL, MobDifficulty.ELITE, EnumSet.of(MobAbility.NIGHTMARE_MASTERY, MobAbility.REALITY_SHIFT, MobAbility.DREAM_WEAVER)),
 
-    KING_OF_GREED("kingofgreed", EntityType.WITHER_SKELETON, true, 3, 3, "The King Of Greed",
-            MobCategory.UNDEAD, MobDifficulty.ELITE, EnumSet.of(MobAbility.WEALTH_DRAIN, MobAbility.GOLDEN_TOUCH)),
+    CORNELIUS("cornelius", EntityType.ZOMBIE_VILLAGER, true, 3, 3, "Cornelius",
+            MobCategory.HUMANOID, MobDifficulty.ELITE, EnumSet.of(MobAbility.AVARICE_MASTERY, MobAbility.GOLDEN_TOUCH, MobAbility.TREASURE_HOARD)),
 
-    SKELETON_KING("skeletonking", EntityType.WITHER_SKELETON, true, 3, 3, "The Skeleton King",
-            MobCategory.UNDEAD, MobDifficulty.ELITE, EnumSet.of(MobAbility.UNDEAD_COMMAND, MobAbility.BONE_ARMY)),
+    VALDRIS("valdris", EntityType.WITHER_SKELETON, true, 3, 3, "Valdris",
+            MobCategory.UNDEAD, MobDifficulty.ELITE, EnumSet.of(MobAbility.BONE_MASTERY, MobAbility.ETERNAL_BLADE, MobAbility.UNDEAD_COMMAND)),
 
-    SPIDER_QUEEN("spiderqueen", EntityType.SPIDER, true, 3, 3, "The Spider Queen",
-            MobCategory.ARTHROPOD, MobDifficulty.ELITE, EnumSet.of(MobAbility.WEB_MASTERY, MobAbility.SPIDER_SPAWN)),
+    SERAPHINA("seraphina", EntityType.ZOMBIE, true, 3, 3, "Seraphina",
+            MobCategory.HOLY, MobDifficulty.ELITE, EnumSet.of(MobAbility.MERCY_MASTERY, MobAbility.COMPASSION_AURA, MobAbility.DIVINE_HEALING)),
 
-    IMPA("impa", EntityType.WITHER_SKELETON, true, 3, 3, "Impa The Impaler",
-            MobCategory.UNDEAD, MobDifficulty.ELITE, EnumSet.of(MobAbility.IMPALING_STRIKES, MobAbility.BLOODLUST)),
+    ARACHNIA("arachnia", EntityType.SPIDER, true, 3, 3, "Arachnia",
+            MobCategory.ARTHROPOD, MobDifficulty.ELITE, EnumSet.of(MobAbility.WEB_MASTERY, MobAbility.SPIDER_SPAWN, MobAbility.SILK_SPINNER)),
 
     // ================ TIER 4 ELITES ================
 
-    DOOMHERALD("doomherald", EntityType.ZOMBIE, true, 4, 4, "Doomherald",
-            MobCategory.UNDEAD, MobDifficulty.ELITE, EnumSet.of(MobAbility.DOOM_PROPHECY, MobAbility.APOCALYPSE_AURA)),
+    KARNATH("karnath", EntityType.ZOMBIE, true, 4, 4, "Karnath",
+            MobCategory.UNDEAD, MobDifficulty.ELITE, EnumSet.of(MobAbility.CARNAGE_MASTERY, MobAbility.BLOOD_FRENZY, MobAbility.SLAUGHTER_AURA)),
 
-    BLOOD_BUTCHER("bloodbutcher", EntityType.ZOMBIE, true, 4, 4, "The Blood Butcher",
-            MobCategory.UNDEAD, MobDifficulty.ELITE, EnumSet.of(MobAbility.BLOOD_FRENZY, MobAbility.SAVAGE_STRIKES)),
+    ZEPHYR("zephyr", EntityType.WITHER_SKELETON, true, 4, 4, "Zephyr",
+            MobCategory.ELEMENTAL, MobDifficulty.ELITE, EnumSet.of(MobAbility.WIND_MASTERY, MobAbility.STORM_CALLER, MobAbility.TEMPEST_FURY)),
 
-    BLAYSHAN("blayshan", EntityType.ZOMBIE, true, 4, 4, "Blayshan The Naga",
-            MobCategory.SERPENT, MobDifficulty.ELITE, EnumSet.of(MobAbility.SERPENT_COILS, MobAbility.VENOM_SPIT)),
+    // ================ TIER 5 ELITES - THE ANCIENT LORDS ================
 
-    WATCHMASTER("watchmaster", EntityType.WITHER_SKELETON, true, 4, 4, "The Watchmaster",
-            MobCategory.UNDEAD, MobDifficulty.ELITE, EnumSet.of(MobAbility.ETERNAL_VIGIL, MobAbility.TIME_SIGHT)),
+    RIMECLAW("rimeclaw", EntityType.STRAY, true, 5, 5, "Rimeclaw",
+            MobCategory.ELEMENTAL, MobDifficulty.LEGENDARY, EnumSet.of(MobAbility.ETERNAL_WINTER, MobAbility.GLACIER_MASTERY, MobAbility.PERMAFROST_AURA)),
 
-    SPECTRAL_KNIGHT("spectralKnight", EntityType.ZOMBIFIED_PIGLIN, true, 4, 4, "The Evil Spectral Overlord",
-            MobCategory.SPECTRAL, MobDifficulty.ELITE, EnumSet.of(MobAbility.PHASE_SHIFT, MobAbility.SPECTRAL_ARMY)),
+    THALASSA("thalassa", EntityType.DROWNED, true, 5, 5, "Thalassa",
+            MobCategory.ELEMENTAL, MobDifficulty.LEGENDARY, EnumSet.of(MobAbility.OCEAN_MASTERY, MobAbility.TIDE_TURNER, MobAbility.ABYSSAL_POWER)),
 
-    DURANOR("duranor", EntityType.WITHER_SKELETON, true, 4, 4, "Duranor The Cruel",
-            MobCategory.UNDEAD, MobDifficulty.ELITE, EnumSet.of(MobAbility.CRUELTY_AURA, MobAbility.TORTURE_MASTERY)),
+    PYRION("pyrion", EntityType.WITHER_SKELETON, true, 5, 5, "Pyrion",
+            MobCategory.ELEMENTAL, MobDifficulty.LEGENDARY, EnumSet.of(MobAbility.INFERNO_MASTERY, MobAbility.PHOENIX_HEART, MobAbility.SOLAR_CROWN)),
 
-    // ================ TIER 5 ELITES ================
+    MERIDIAN("meridian", EntityType.ZOMBIE_VILLAGER, true, 5, 5, "Meridian",
+            MobCategory.COSMIC, MobDifficulty.LEGENDARY, EnumSet.of(MobAbility.REALITY_FRACTURE, MobAbility.QUANTUM_FLUX, MobAbility.COSMIC_EYE)),
 
-    NETHERMANCER("nethermancer", EntityType.WITHER_SKELETON, true, 5, 5, "Nethermancer",
-            MobCategory.UNDEAD, MobDifficulty.ELITE, EnumSet.of(MobAbility.NETHER_MAGIC, MobAbility.FIRE_MASTERY)),
-
-    JAYDEN("jayden", EntityType.WITHER_SKELETON, true, 5, 5, "King Jayden",
-            MobCategory.UNDEAD, MobDifficulty.ELITE, EnumSet.of(MobAbility.ROYAL_DECREE, MobAbility.KING_AURA)),
-
-    KILATAN("kilatan", EntityType.WITHER_SKELETON, true, 5, 5, "Daemon Lord Kilatan",
-            MobCategory.DEMON, MobDifficulty.ELITE, EnumSet.of(MobAbility.DEMONIC_POWER, MobAbility.HELL_FLAMES)),
-
-    FROST_KING("frostking", EntityType.WITHER_SKELETON, true, 5, 5, "Frost Walker",
-            MobCategory.ELEMENTAL, MobDifficulty.ELITE, EnumSet.of(MobAbility.ICE_MASTERY, MobAbility.FROST_AURA)),
-
-    WARDEN("warden", EntityType.WITHER_SKELETON, true, 5, 5, "The Warden",
-            MobCategory.GUARDIAN, MobDifficulty.ELITE, EnumSet.of(MobAbility.SONIC_BOOM, MobAbility.DARKNESS_SHROUD)),
-
-    WEAK_SKELETON("weakskeleton", EntityType.SKELETON, true, 5, 5, "Skeletal Keeper",
-            MobCategory.UNDEAD, MobDifficulty.ELITE, EnumSet.of(MobAbility.SOUL_KEEPING, MobAbility.SPIRIT_GUARD)),
-
-    BOSS_SKELETON("bossSkeletonDungeon", EntityType.WITHER_SKELETON, true, 5, 5, "The Restless Skeleton Deathlord",
-            MobCategory.UNDEAD, MobDifficulty.BOSS, EnumSet.of(MobAbility.DEATH_COMMAND, MobAbility.UNDEAD_LEGION)),
-
-    KRAMPUS("krampus", EntityType.WITHER_SKELETON, true, 5, 5, "Krampus The Warrior",
-            MobCategory.MYTHICAL, MobDifficulty.ELITE, EnumSet.of(MobAbility.HOLIDAY_TERROR, MobAbility.PUNISHMENT_CHAINS)),
-
-    GRAND_WIZARD("grandwizard", EntityType.ZOMBIE, true, 5, 5, "Grand Wizard of Psilocyland",
-            MobCategory.CASTER, MobDifficulty.ELITE, EnumSet.of(MobAbility.ARCANE_MASTERY, MobAbility.REALITY_WARP)),
-
-    // ================ TIER 6 ELITES ================
-
-    VOIDLORD("voidlord", EntityType.WITHER_SKELETON, true, 6, 6, "Voidlord",
-            MobCategory.VOID, MobDifficulty.LEGENDARY, EnumSet.of(MobAbility.VOID_MASTERY, MobAbility.REALITY_TEAR)),
+    NETHYS("nethys", EntityType.WITHER_SKELETON, true, 5, 5, "Nethys",
+            MobCategory.VOID, MobDifficulty.LEGENDARY, EnumSet.of(MobAbility.VOID_CALLING, MobAbility.SHADOW_FLAME, MobAbility.ABYSSAL_CROWN)),
 
     // ================ WORLD BOSSES ================
 
@@ -223,14 +194,23 @@ public enum MobType {
             MobCategory.UNDEAD, MobDifficulty.ELITE, EnumSet.of(MobAbility.GUARDIAN_DUTY, MobAbility.PROTECTIVE_AURA)),
 
     SPECTRAL_GUARD("spectralguard", EntityType.ZOMBIFIED_PIGLIN, true, 1, 1, "The Evil Spectral's Impish Guard",
-            MobCategory.SPECTRAL, MobDifficulty.ELITE, EnumSet.of(MobAbility.SPECTRAL_FORM, MobAbility.GUARD_DUTY));
+            MobCategory.SPECTRAL, MobDifficulty.ELITE, EnumSet.of(MobAbility.SPECTRAL_FORM, MobAbility.GUARD_DUTY)),
+
+    BOSS_SKELETON("bossSkeletonDungeon", EntityType.WITHER_SKELETON, true, 5, 5, "The Restless Skeleton Deathlord",
+            MobCategory.UNDEAD, MobDifficulty.BOSS, EnumSet.of(MobAbility.DEATH_COMMAND, MobAbility.UNDEAD_LEGION)),
+
+    WEAK_SKELETON("weakskeleton", EntityType.SKELETON, true, 5, 5, "Skeletal Keeper",
+            MobCategory.UNDEAD, MobDifficulty.ELITE, EnumSet.of(MobAbility.SOUL_KEEPING, MobAbility.SPIRIT_GUARD)),
+
+    SPECTRAL_KNIGHT("spectralKnight", EntityType.ZOMBIFIED_PIGLIN, true, 4, 4, "The Evil Spectral Overlord",
+            MobCategory.SPECTRAL, MobDifficulty.ELITE, EnumSet.of(MobAbility.PHASE_SHIFT, MobAbility.SPECTRAL_ARMY));
 
     // ================ ENUMS FOR CATEGORIZATION ================
 
     public enum MobCategory {
         UNDEAD, HUMANOID, ARTHROPOD, SLIME, NETHER, CONSTRUCT, ANIMAL,
         SERPENT, SPECTRAL, DEMON, ELEMENTAL, GUARDIAN, MYTHICAL, CASTER,
-        VOID, DRAGON, TEMPORAL
+        VOID, DRAGON, TEMPORAL, DWARF, HOLY, COSMIC, NATURE
     }
 
     public enum MobDifficulty {
@@ -257,7 +237,7 @@ public enum MobType {
     public enum MobAbility {
         // Combat Abilities
         MELEE_ATTACK, RANGED_ATTACK, AREA_DAMAGE, POISON_ATTACK, WITHER_EFFECT,
-        CRITICAL_STRIKES, IMPALING_STRIKES, SAVAGE_STRIKES, BLOODLUST,
+        CRITICAL_STRIKES, IMPALING_STRIKES, SAVAGE_STRIKES, BLOODLUST, LIFE_STEAL,
 
         // Movement Abilities
         FAST_MOVEMENT, CLIMBING, BOUNCING, FLIGHT, PHASE_SHIFT,
@@ -266,30 +246,62 @@ public enum MobType {
         FIRE_RESISTANCE, MAGIC_RESISTANCE, HEAVY_ARMOR, KNOCKBACK_RESISTANCE,
         ICE_ARMOR, SPECTRAL_FORM,
 
-        // Special Powers
-        SOUL_DRAIN, DEATH_MAGIC, NECROMANCY, BONE_SHARDS, BONE_ARMY,
-        ICE_MASTERY, FROST_AURA, FROZEN_REALM, ARCTIC_COMMAND, BLIZZARD_FURY,
-        NETHER_MAGIC, FIRE_MASTERY, HELL_FLAMES, DEMONIC_POWER,
-        ARCANE_MASTERY, REALITY_WARP, VOID_MASTERY, REALITY_TEAR,
-        TIME_MASTERY, TEMPORAL_SHIFT, ICE_BREATH,
+        // Mastery Abilities
+        FIRE_MASTERY, POISON_MASTERY, PLAGUE_MASTERY, ICE_MASTERY, WIND_MASTERY,
+        BONE_MASTERY, MERCY_MASTERY, AVARICE_MASTERY, NIGHTMARE_MASTERY, CARNAGE_MASTERY,
+        INFERNO_MASTERY, OCEAN_MASTERY, ETERNAL_WINTER, GLACIER_MASTERY,
 
         // Aura Effects
-        POISON_AURA, DECAY_AURA, CORRUPTION, DOOM_PROPHECY, APOCALYPSE_AURA,
-        CRUELTY_AURA, KING_AURA, PROTECTIVE_AURA, DARKNESS_SHROUD,
+        EMBER_AURA, TOXIC_AURA, MOURNING_AURA, COMPASSION_AURA, SLAUGHTER_AURA,
+        PERMAFROST_AURA, POISON_AURA, DECAY_AURA, CORRUPTION, DOOM_PROPHECY,
+        APOCALYPSE_AURA, CRUELTY_AURA, KING_AURA, PROTECTIVE_AURA, DARKNESS_SHROUD,
+
+        // Strike Abilities
+        THORN_STRIKE, CELESTIAL_EDGE, SOUL_RIPPER, ETERNAL_BLADE, GOLDEN_TOUCH,
+        TREASURE_HOARD, REALITY_SHIFT, DREAM_WEAVER, STORM_CALLER, TEMPEST_FURY,
+
+        // Nature & Corruption
+        NATURE_CORRUPTION, DISEASE_SPREAD,
+
+        // Divine & Holy
+        DIVINE_POWER, DIVINE_HEALING,
+
+        // Death & Undead
+        DEATH_MASTERY, UNDEAD_COMMAND, SOUL_DRAIN, DEATH_MAGIC, NECROMANCY,
+        BONE_SHARDS, BONE_ARMY, UNDEAD_LEGION, DEATH_COMMAND,
+
+        // Dwarven & Mountain
+        MOUNTAIN_STRENGTH, SIEGE_MASTERY, DWARVEN_FURY,
+
+        // Elemental Powers
+        TIDE_TURNER, ABYSSAL_POWER, PHOENIX_HEART, SOLAR_CROWN, BLIZZARD_FURY,
+        ARCTIC_COMMAND, FROZEN_REALM,
+
+        // Cosmic & Void
+        REALITY_FRACTURE, QUANTUM_FLUX, COSMIC_EYE, VOID_CALLING, SHADOW_FLAME,
+        ABYSSAL_CROWN, VOID_MASTERY, REALITY_TEAR,
+
+        // Spider Abilities
+        WEB_MASTERY, SPIDER_SPAWN, SILK_SPINNER,
+
+        // Blood & Violence
+        BLOOD_FRENZY,
+
+        // Special Powers
+        NETHER_MAGIC, HELL_FLAMES, DEMONIC_POWER, ARCANE_MASTERY, REALITY_WARP,
+        TIME_MASTERY, TEMPORAL_SHIFT, ICE_BREATH,
 
         // Leadership & Control
         LEADERSHIP, AUTHORITY, CROWD_CONTROL, ROYAL_COMMAND, ROYAL_DECREE,
-        TRIBAL_FURY, UNDEAD_COMMAND, DEATH_COMMAND, ETERNAL_VIGIL,
+        TRIBAL_FURY, ETERNAL_VIGIL,
 
         // Summoning & Spawning
-        SPIDER_SPAWN, SPECTRAL_ARMY, UNDEAD_LEGION,
+        SPECTRAL_ARMY,
 
         // Unique Abilities
-        NIGHT_VISION, DISEASE_SPREAD, COMBAT_MASTERY, WEALTH_DRAIN, GOLDEN_TOUCH,
-        WEB_MASTERY, SERPENT_COILS, VENOM_SPIT, TIME_SIGHT, TORTURE_MASTERY,
+        NIGHT_VISION, COMBAT_MASTERY, WEALTH_DRAIN, TIME_SIGHT, TORTURE_MASTERY,
         SONIC_BOOM, SOUL_KEEPING, SPIRIT_GUARD, HOLIDAY_TERROR, PUNISHMENT_CHAINS,
-        MASSIVE_HEALTH, DESPERATION, GUARDIAN_DUTY, GUARD_DUTY, CRYPT_POWER,
-        BLOOD_FRENZY
+        MASSIVE_HEALTH, DESPERATION, GUARDIAN_DUTY, GUARD_DUTY, CRYPT_POWER
     }
 
     // ================ INSTANCE FIELDS ================
@@ -464,16 +476,6 @@ public enum MobType {
                     addMapping("dungeon_boss", type);
                     break;
 
-                case "skeletonking":
-                    addMapping("skeleton_king", type);
-                    addMapping("sking", type);
-                    break;
-
-                case "spiderqueen":
-                    addMapping("spider_queen", type);
-                    addMapping("squeen", type);
-                    break;
-
                 case "frozenboss":
                     addMapping("frozen_boss", type);
                     addMapping("iceboss", type);
@@ -490,12 +492,6 @@ public enum MobType {
                     addMapping("frozen_golem", type);
                     addMapping("icegolem", type);
                     addMapping("ice_golem", type);
-                    break;
-
-                case "frostking":
-                    addMapping("frost_king", type);
-                    addMapping("iceking", type);
-                    addMapping("ice_king", type);
                     break;
 
                 case "spectralguard":
@@ -521,31 +517,80 @@ public enum MobType {
                     addMapping("skellyd", type);
                     break;
 
-                // Elite name variations
-                case "risk_elite":
-                    addMapping("risk", type);
-                    addMapping("riskan", type);
+                // New Elite name variations
+                case "malachar":
+                    addMapping("malachar_elite", type);
                     break;
 
-                case "orcking":
-                    addMapping("orc_king", type);
-                    addMapping("oking", type);
+                case "xerathen":
+                    addMapping("xerathen_elite", type);
                     break;
 
-                case "kingofgreed":
-                    addMapping("king_of_greed", type);
-                    addMapping("greed_king", type);
-                    addMapping("greedking", type);
+                case "veridiana":
+                    addMapping("veridiana_elite", type);
                     break;
 
-                case "bloodbutcher":
-                    addMapping("blood_butcher", type);
-                    addMapping("butcher", type);
+                case "thorgrim":
+                    addMapping("thorgrim_elite", type);
                     break;
 
-                case "grandwizard":
-                    addMapping("grand_wizard", type);
-                    addMapping("gwizard", type);
+                case "lysander":
+                    addMapping("lysander_elite", type);
+                    break;
+
+                case "morgana":
+                    addMapping("morgana_elite", type);
+                    break;
+
+                case "vex_elite":
+                    addMapping("vex", type);
+                    addMapping("vexelite", type);
+                    break;
+
+                case "cornelius":
+                    addMapping("cornelius_elite", type);
+                    break;
+
+                case "valdris":
+                    addMapping("valdris_elite", type);
+                    break;
+
+                case "seraphina":
+                    addMapping("seraphina_elite", type);
+                    break;
+
+                case "arachnia":
+                    addMapping("arachnia_elite", type);
+                    addMapping("spider_queen", type);
+                    addMapping("spiderqueen", type);
+                    break;
+
+                case "karnath":
+                    addMapping("karnath_elite", type);
+                    break;
+
+                case "zephyr":
+                    addMapping("zephyr_elite", type);
+                    break;
+
+                case "rimeclaw":
+                    addMapping("rimeclaw_elite", type);
+                    break;
+
+                case "thalassa":
+                    addMapping("thalassa_elite", type);
+                    break;
+
+                case "pyrion":
+                    addMapping("pyrion_elite", type);
+                    break;
+
+                case "meridian":
+                    addMapping("meridian_elite", type);
+                    break;
+
+                case "nethys":
+                    addMapping("nethys_elite", type);
                     break;
             }
         } catch (Exception e) {
@@ -817,7 +862,8 @@ public enum MobType {
                 id.equals("guardian") || id.equals("elderguardian") || id.equals("phantom") ||
                 id.equals("witch") || id.equals("vindicator") || id.equals("evoker") ||
                 id.equals("pillager") || id.equals("ravager") || id.equals("vex") ||
-                id.equals("shulker") || id.equals("slime");
+                id.equals("shulker") || id.equals("slime") || id.equals("turkey") ||
+                id.equals("giant") || id.equals("prisoner");
     }
 
     private String generateTierSpecificName(int tier) {

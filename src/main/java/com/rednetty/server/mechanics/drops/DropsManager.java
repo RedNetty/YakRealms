@@ -457,7 +457,7 @@ public class DropsManager {
             // Add damage to lore
             lore.add(ChatColor.RED + "DMG: " + minDmg + " - " + maxDmg);
 
-            // Add element damage if available
+            // Add element damage if available (FIXED: Only one elemental type)
             addElementalDamageFromConfig(lore, config, details, itemType);
 
             // Add weapon special stats
@@ -936,15 +936,18 @@ public class DropsManager {
     }
 
     /**
-     * Add elemental damage stats from config
+     * FIXED: Add elemental damage stats from config - only ONE elemental type per weapon
      */
     private void addElementalDamageFromConfig(List<String> lore, EliteDropConfig config, ItemDetails details, int itemType) {
+        // Collect all available elemental damage types
+        List<ElementalDamage> availableElements = new ArrayList<>();
+
         // Fire damage
         StatRange fireRange = getStatRange(config, details, "fireDamage", true, itemType);
         if (fireRange != null && fireRange.getMax() > 0) {
             int value = fireRange.getRandomValue();
             if (value > 0) {
-                lore.add(ChatColor.RED + "FIRE DMG: +" + value);
+                availableElements.add(new ElementalDamage("FIRE DMG", value));
             }
         }
 
@@ -953,7 +956,7 @@ public class DropsManager {
         if (iceRange != null && iceRange.getMax() > 0) {
             int value = iceRange.getRandomValue();
             if (value > 0) {
-                lore.add(ChatColor.RED + "ICE DMG: +" + value);
+                availableElements.add(new ElementalDamage("ICE DMG", value));
             }
         }
 
@@ -962,17 +965,39 @@ public class DropsManager {
         if (poisonRange != null && poisonRange.getMax() > 0) {
             int value = poisonRange.getRandomValue();
             if (value > 0) {
-                lore.add(ChatColor.RED + "POISON DMG: +" + value);
+                availableElements.add(new ElementalDamage("POISON DMG", value));
             }
         }
 
-        // Pure damage
+        // Pure damage (not an element, but handled similarly)
         StatRange pureRange = getStatRange(config, details, "pureDamage", true, itemType);
         if (pureRange != null && pureRange.getMax() > 0) {
             int value = pureRange.getRandomValue();
             if (value > 0) {
-                lore.add(ChatColor.RED + "PURE DMG: +" + value);
+                availableElements.add(new ElementalDamage("PURE DMG", value));
             }
+        }
+
+        // Only add ONE elemental damage type if any are available
+        if (!availableElements.isEmpty()) {
+            // Randomly select one elemental damage type
+            ElementalDamage selectedElement = availableElements.get(
+                    ThreadLocalRandom.current().nextInt(availableElements.size())
+            );
+            lore.add(ChatColor.RED + selectedElement.name + ": +" + selectedElement.value);
+        }
+    }
+
+    /**
+     * Helper class to store elemental damage information
+     */
+    private static class ElementalDamage {
+        final String name;
+        final int value;
+
+        ElementalDamage(String name, int value) {
+            this.name = name;
+            this.value = value;
         }
     }
 

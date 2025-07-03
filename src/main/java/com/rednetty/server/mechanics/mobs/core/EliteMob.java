@@ -126,7 +126,7 @@ public class EliteMob extends CustomMob {
             // Enhanced hit effects for elites
             if (type == MobType.FROZEN_BOSS || type == MobType.FROZEN_ELITE) {
                 player.getWorld().playSound(player.getLocation(), Sound.BLOCK_GLASS_BREAK, 0.4f, 1.2f);
-            } else if (type == MobType.WARDEN) {
+            } else if (type == MobType.MERIDIAN) {
                 player.getWorld().playSound(player.getLocation(), Sound.ENTITY_WARDEN_HURT, 0.3f, 1.5f);
             }
         } catch (Exception e) {
@@ -186,15 +186,14 @@ public class EliteMob extends CustomMob {
         return type == MobType.FROZEN_BOSS ||
                 type == MobType.FROZEN_ELITE ||
                 type == MobType.FROZEN_GOLEM ||
-                type == MobType.FROSTWING ||
-                type == MobType.FROST_KING;
+                type == MobType.FROSTWING;
     }
 
     /**
      * Check if this elite has special warden properties
      */
     public boolean isWardenType() {
-        return type == MobType.WARDEN;
+        return type == MobType.MERIDIAN;
     }
 
     /**
@@ -203,7 +202,7 @@ public class EliteMob extends CustomMob {
     public boolean isBossType() {
         return type.isWorldBoss() ||
                 type == MobType.BOSS_SKELETON ||
-                type == MobType.WARDEN;
+                type == MobType.MERIDIAN;
     }
 
     /**

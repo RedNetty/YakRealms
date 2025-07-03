@@ -33,6 +33,7 @@ import com.rednetty.server.mechanics.item.MenuItemManager;
 import com.rednetty.server.mechanics.item.MenuSystemInitializer;
 import com.rednetty.server.mechanics.item.orb.OrbManager;
 import com.rednetty.server.mechanics.item.scroll.ScrollManager;
+import com.rednetty.server.mechanics.lootchests.LootChestManager;
 import com.rednetty.server.mechanics.market.MarketManager;
 import com.rednetty.server.mechanics.mobs.MobManager;
 import com.rednetty.server.mechanics.mobs.tasks.SpawnerHologramUpdater;
@@ -111,6 +112,7 @@ public class YakRealms extends JavaPlugin {
     private ParticleSystem particleSystem;
     private PathManager pathManager;
     private CrateManager crateManager;
+    private LootChestManager lootChestManager;
 
     // Game settings
     private static boolean patchLockdown = false;
@@ -248,6 +250,7 @@ public class YakRealms extends JavaPlugin {
             allSuccess &= safeInitialize("Teleport Systems", this::initializeTeleportSystems);
             allSuccess &= safeInitialize("World Systems", this::initializeWorldSystems);
             allSuccess &= safeInitialize("Crate System", this::initializeCrateSystem);
+            allSuccess &= safeInitialize("Loot Chest System", this::initializeLootChestSystem);
 
             getLogger().info("Game systems initialization completed");
             return allSuccess;
@@ -524,6 +527,29 @@ public class YakRealms extends JavaPlugin {
     }
 
     /**
+     * Initialize the loot chest system
+     */
+    private boolean initializeLootChestSystem() {
+        try {
+            getLogger().info("Initializing Loot Chest System...");
+            lootChestManager = LootChestManager.getInstance();
+            lootChestManager.initialize();
+
+            // Log loot chest system status
+            var stats = lootChestManager.getStatistics();
+            getLogger().info("Loot Chest System loaded successfully!");
+            getLogger().info("- Total Chests: " + stats.get("totalChests"));
+            getLogger().info("- Opened Chests: " + stats.get("openedChests"));
+            getLogger().info("- Viewing Players: " + stats.get("viewingPlayers"));
+
+            return true;
+        } catch (Exception e) {
+            getLogger().log(Level.SEVERE, "Error initializing loot chest system", e);
+            return false;
+        }
+    }
+
+    /**
      * Load game settings from config
      */
     private void loadGameSettings() {
@@ -599,6 +625,25 @@ public class YakRealms extends JavaPlugin {
                 }
             } else {
                 getLogger().warning("Crate command not found in plugin.yml!");
+            }
+
+            // Loot Chest commands
+            if (getCommand("lootchest") != null) {
+                if (lootChestManager != null) {
+                    LootChestCommand lootChestCommand = new LootChestCommand();
+                    boolean lootChestRegistered = registerCommand("lootchest", lootChestCommand, lootChestCommand);
+                    success &= lootChestRegistered;
+
+                    if (lootChestRegistered) {
+                        getLogger().info("Loot chest command registered successfully!");
+                    } else {
+                        getLogger().warning("Failed to register loot chest command!");
+                    }
+                } else {
+                    getLogger().warning("Loot chest manager is null - command not registered!");
+                }
+            } else {
+                getLogger().warning("Loot chest command not found in plugin.yml!");
             }
 
             // Mob commands
@@ -723,6 +768,7 @@ public class YakRealms extends JavaPlugin {
         getLogger().info("Economy System: " + (economyManager != null ? "Active" : "Inactive"));
         getLogger().info("Menu Item System: " + (menuItemManager != null ? "Active" : "Inactive"));
         getLogger().info("Crate System: " + (crateManager != null ? "Active" : "Inactive"));
+        getLogger().info("Loot Chest System: " + (lootChestManager != null ? "Active" : "Inactive"));
         getLogger().info("Mob System: " + (mobManager != null ? "Active" : "Inactive"));
         getLogger().info("Market System: " + (marketManager != null ? "Active" : "Inactive"));
         getLogger().info("==============================");
@@ -767,6 +813,16 @@ public class YakRealms extends JavaPlugin {
 
     private void shutdownGameSystems() {
         // Shutdown systems in reverse order
+        if (lootChestManager != null) {
+            try {
+                getLogger().info("Shutting down loot chest system...");
+                lootChestManager.shutdown();
+                getLogger().info("Loot chest system shutdown completed");
+            } catch (Exception e) {
+                getLogger().log(Level.WARNING, "Error shutting down loot chest system", e);
+            }
+        }
+
         if (crateManager != null) {
             try {
                 getLogger().info("Shutting down crate system...");
@@ -853,6 +909,7 @@ public class YakRealms extends JavaPlugin {
     public ParticleSystem getParticleSystem() { return particleSystem; }
     public PathManager getPathManager() { return pathManager; }
     public CrateManager getCrateManager() { return crateManager; }
+    public LootChestManager getLootChestManager() { return lootChestManager; }
 
     // Utility methods
     public static void log(String message) {
@@ -919,5 +976,22 @@ public class YakRealms extends JavaPlugin {
      */
     public static boolean isMenuItemSystemAvailable() {
         return instance != null && instance.menuItemManager != null && MenuSystemInitializer.isInitialized();
+    }
+
+    /**
+     * Get loot chest manager safely
+     */
+    public static LootChestManager getLootChestManagerSafe() {
+        if (instance == null || instance.lootChestManager == null) {
+            throw new IllegalStateException("Loot chest manager not available");
+        }
+        return instance.lootChestManager;
+    }
+
+    /**
+     * Check if loot chest system is available
+     */
+    public static boolean isLootChestSystemAvailable() {
+        return instance != null && instance.lootChestManager != null;
     }
 }

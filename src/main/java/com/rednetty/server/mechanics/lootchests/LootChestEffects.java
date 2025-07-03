@@ -16,14 +16,14 @@ import java.util.Map;
  */
 public class LootChestEffects {
 
-    // Particle effects for each tier
+    // Particle effects for each tier - Updated to match tier colors
     private static final Map<ChestTier, Particle> TIER_PARTICLES = Map.of(
-            ChestTier.WOODEN, Particle.VILLAGER_HAPPY,
-            ChestTier.STONE, Particle.ENCHANTMENT_TABLE,
-            ChestTier.IRON, Particle.DRIP_WATER,
-            ChestTier.DIAMOND, Particle.PORTAL,
-            ChestTier.GOLDEN, Particle.FLAME,
-            ChestTier.LEGENDARY, Particle.SNOWBALL
+            ChestTier.WOODEN, Particle.WHITE_ASH,           // White
+            ChestTier.STONE, Particle.COMPOSTER,            // Light Green
+            ChestTier.IRON, Particle.BUBBLE_POP,            // Cyan
+            ChestTier.DIAMOND, Particle.PORTAL,             // Purple
+            ChestTier.GOLDEN, Particle.GLOW,                // Yellow
+            ChestTier.LEGENDARY, Particle.SOUL_FIRE_FLAME   // Dark Blue
     );
 
     // Sound effects for each tier
@@ -48,7 +48,7 @@ public class LootChestEffects {
         if (world == null) return;
 
         // Spawn particles
-        Particle particle = TIER_PARTICLES.getOrDefault(tier, Particle.VILLAGER_HAPPY);
+        Particle particle = TIER_PARTICLES.getOrDefault(tier, Particle.WHITE_ASH);
         world.spawnParticle(particle, location.add(0.5, 1, 0.5), 20, 0.5, 0.5, 0.5, 0.1);
 
         // Play sound
@@ -80,7 +80,7 @@ public class LootChestEffects {
         if (world == null) return;
 
         Location particleLocation = location.clone().add(0.5, 1.5, 0.5);
-        Particle particle = TIER_PARTICLES.getOrDefault(tier, Particle.VILLAGER_HAPPY);
+        Particle particle = TIER_PARTICLES.getOrDefault(tier, Particle.WHITE_ASH);
 
         world.spawnParticle(particle, particleLocation, 1, 0.1, 0.1, 0.1, 0.0005);
     }
@@ -109,7 +109,7 @@ public class LootChestEffects {
         world.playEffect(location, Effect.STEP_SOUND, Material.OAK_WOOD);
 
         // Spawn break particles
-        Particle particle = TIER_PARTICLES.getOrDefault(tier, Particle.VILLAGER_HAPPY);
+        Particle particle = TIER_PARTICLES.getOrDefault(tier, Particle.WHITE_ASH);
         world.spawnParticle(particle, location.add(0.5, 0.5, 0.5), 10, 0.3, 0.3, 0.3, 0.1);
     }
 
@@ -139,7 +139,7 @@ public class LootChestEffects {
         World world = location.getWorld();
         if (world == null) return;
 
-        Particle particle = TIER_PARTICLES.getOrDefault(tier, Particle.VILLAGER_HAPPY);
+        Particle particle = TIER_PARTICLES.getOrDefault(tier, Particle.WHITE_ASH);
         world.spawnParticle(particle, location.add(0.5, 1, 0.5), 15, 0.5, 0.5, 0.5, 0.1);
 
         Sound sound = TIER_SOUNDS.getOrDefault(tier, Sound.BLOCK_CHEST_OPEN);

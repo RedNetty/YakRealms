@@ -20,11 +20,10 @@ public class LootChestFactory {
     private final Logger logger;
     private final DropFactory dropFactory;
 
-    // Loot probabilities by chest tier
     private static final double[] GEM_CHANCES = {0.6, 0.65, 0.7, 0.75, 0.8, 0.85};
-    private static final double[] SCROLL_CHANCES = {0.05, 0.08, 0.12, 0.15, 0.18, 0.25};
-    private static final double[] CRATE_CHANCES = {0.02, 0.05, 0.08, 0.12, 0.15, 0.2};
-    private static final double[] ARTIFACT_CHANCES = {0.0, 0.01, 0.02, 0.05, 0.08, 0.15};
+    private static final double[] SCROLL_CHANCES = {0.15, 0.20, 0.25, 0.30, 0.35, 0.40};
+    private static final double[] CRATE_CHANCES = {0.08, 0.12, 0.18, 0.25, 0.30, 0.35};
+    private static final double[] ARTIFACT_CHANCES = {0.02, 0.05, 0.08, 0.12, 0.18, 0.25};
 
     public LootChestFactory() {
         this.logger = YakRealms.getInstance().getLogger();
@@ -68,20 +67,6 @@ public class LootChestFactory {
             ItemStack item = generateSpecialLootItem(tier);
             inventory.setItem(i, item);
         }
-
-  /*      // Add elemental artifacts with higher chance
-        if (slots > 5 && ThreadLocalRandom.current().nextDouble() < 0.3) {
-            ElementalArtifacts.ElementType randomElement =
-                    ElementalArtifacts.ElementType.values()[
-                            ThreadLocalRandom.current().nextInt(ElementalArtifacts.ElementType.values().length)
-                            ];
-            ItemStack artifact = ElementalArtifacts.createElementalArtifact(
-                    tier.getLevel(),
-                    ThreadLocalRandom.current().nextInt(4) + 1,
-                    randomElement
-            );
-            inventory.setItem(5, artifact);
-        }*/
 
         // Fill remaining slots with normal loot
         for (int i = 6; i < slots; i++) {
@@ -175,7 +160,7 @@ public class LootChestFactory {
      */
     private ItemStack generateGems(ChestTier tier) {
         try {
-            return dropFactory.createGemDrop(tier.getLevel());
+            return YakRealms.getInstance().getBankManager().createBankNote(tier.getLevel() * ThreadLocalRandom.current().nextInt(125, 185));
         } catch (Exception e) {
             logger.warning("Failed to create gem drop: " + e.getMessage());
             return createFallbackGems(tier);

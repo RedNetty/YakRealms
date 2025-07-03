@@ -7,7 +7,6 @@ import com.rednetty.server.mechanics.mobs.MobManager;
 import com.rednetty.server.mechanics.mobs.core.EliteMob;
 import com.rednetty.server.mechanics.mobs.core.MobType;
 import org.bukkit.*;
-import org.bukkit.entity.Entity;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
 import org.bukkit.metadata.FixedMetadataValue;

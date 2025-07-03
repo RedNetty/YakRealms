@@ -8,7 +8,6 @@ import com.rednetty.server.mechanics.dungeons.instance.InstanceManager;
 import com.rednetty.server.mechanics.dungeons.rewards.DungeonRewards;
 import com.rednetty.server.mechanics.party.PartyMechanics;
 import org.bukkit.Bukkit;
-import org.bukkit.ChatColor;
 import org.bukkit.Location;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;

@@ -26,7 +26,8 @@ public class VendorUtils {
     // Constants
     public static final String PRICE_PREFIX = "Price: ";
     public static final String PRICE_SUFFIX = "g";
-    public static final Pattern PRICE_PATTERN = Pattern.compile("Price:\\s*(\\d+)g?", Pattern.CASE_INSENSITIVE);
+    // Updated regex to handle commas in numbers
+    public static final Pattern PRICE_PATTERN = Pattern.compile("Price:\\s*([\\d,]+)g?", Pattern.CASE_INSENSITIVE);
 
     // Formatters (thread-safe)
     private static final DecimalFormat DECIMAL_FORMAT = new DecimalFormat("#,###.##");
@@ -48,7 +49,7 @@ public class VendorUtils {
     }
 
     /**
-     * Extract price from an item's lore with enhanced parsing
+     * Extract price from an item's lore with enhanced parsing that handles comma-formatted numbers
      */
     public static int extractPriceFromLore(ItemStack item) {
         if (item == null || !item.hasItemMeta() || !item.getItemMeta().hasLore()) {
@@ -63,7 +64,9 @@ public class VendorUtils {
             Matcher matcher = PRICE_PATTERN.matcher(cleanLine);
             if (matcher.find()) {
                 try {
-                    return Integer.parseInt(matcher.group(1));
+                    // Remove commas before parsing to handle formatted numbers like "1,500"
+                    String numberStr = matcher.group(1).replace(",", "");
+                    return Integer.parseInt(numberStr);
                 } catch (NumberFormatException e) {
                     // Continue searching other lines
                 }
@@ -74,7 +77,7 @@ public class VendorUtils {
     }
 
     /**
-     * Add or update price in item lore
+     * Add or update price in item lore with consistent formatting
      */
     public static ItemStack addPriceToItem(ItemStack item, int price) {
         if (item == null) return null;
@@ -91,7 +94,7 @@ public class VendorUtils {
             return PRICE_PATTERN.matcher(cleanLine).find();
         });
 
-        // Add new price line
+        // Add new price line with consistent formatting
         lore.add(ChatColor.GREEN + PRICE_PREFIX + ChatColor.WHITE + formatNumber(price) + PRICE_SUFFIX);
 
         meta.setLore(lore);
@@ -100,7 +103,7 @@ public class VendorUtils {
     }
 
     /**
-     * Remove price from item lore
+     * Remove price from item lore completely
      */
     public static ItemStack removePriceFromItem(ItemStack item) {
         if (item == null) return null;

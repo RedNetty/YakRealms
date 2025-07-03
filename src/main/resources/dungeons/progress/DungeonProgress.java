@@ -3,7 +3,6 @@ package com.rednetty.server.mechanics.dungeons.progress;
 import com.rednetty.server.YakRealms;
 import com.rednetty.server.mechanics.dungeons.config.DungeonTemplate;
 import com.rednetty.server.mechanics.dungeons.instance.DungeonInstance;
-import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.entity.Player;
 import org.bukkit.scheduler.BukkitRunnable;

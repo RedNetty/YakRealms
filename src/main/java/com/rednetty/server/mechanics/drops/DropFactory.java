@@ -3,6 +3,7 @@ package com.rednetty.server.mechanics.drops;
 import com.rednetty.server.YakRealms;
 import com.rednetty.server.mechanics.crates.types.CrateType;
 import com.rednetty.server.mechanics.economy.MoneyManager;
+import com.rednetty.server.mechanics.item.scroll.ItemAPI;
 import com.rednetty.server.mechanics.teleport.TeleportBookSystem;
 import com.rednetty.server.mechanics.teleport.TeleportDestination;
 import com.rednetty.server.mechanics.teleport.TeleportManager;
@@ -162,30 +163,9 @@ public class DropFactory {
         validateTier(tier);
 
         try {
-            String destinationId = selectOptimalDestination(tier);
-            TeleportDestination destination = teleportManager.getDestination(destinationId);
-
-            if (destination == null) {
-                destination = getFallbackDestination();
-                if (destination == null) {
-                    return createGenericScrollItem("Dead Peaks", tier);
-                }
-                logger.warning("Using fallback destination for scroll drop, tier " + tier);
-            }
-
-            ItemStack teleportBook = teleportBookSystem.createTeleportBook(destination.getId(), false);
-
-            if (teleportBook == null || teleportBook.getType() == Material.AIR) {
-                logger.warning("TeleportBookSystem returned invalid item for destination: " + destination.getId());
-                return createGenericScrollItem(destination.getDisplayName(), tier);
-            }
-
-            enhanceScrollVisuals(teleportBook, tier);
-            logDropCreation("scroll", tier, 0, 0);
-            return teleportBook;
+            return ItemAPI.getScrollGenerator().createEnhancementScroll(tier, ThreadLocalRandom.current().nextInt(0, 1));
 
         } catch (Exception e) {
-            logger.warning("Failed to create scroll drop for tier " + tier + ": " + e.getMessage());
             return createGenericScrollItem("Unknown Destination", tier);
         }
     }

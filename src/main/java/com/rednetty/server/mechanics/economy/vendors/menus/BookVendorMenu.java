@@ -2,6 +2,7 @@ package com.rednetty.server.mechanics.economy.vendors.menus;
 
 import com.rednetty.server.YakRealms;
 import com.rednetty.server.mechanics.economy.vendors.purchase.PurchaseManager;
+import com.rednetty.server.mechanics.economy.vendors.utils.VendorUtils;
 import com.rednetty.server.mechanics.teleport.TeleportBookSystem;
 import com.rednetty.server.mechanics.teleport.TeleportDestination;
 import com.rednetty.server.mechanics.teleport.TeleportManager;
@@ -22,9 +23,10 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
+import java.util.logging.Level;
 
 /**
- * Menu for Book Vendors selling teleport books
+ * Menu for Book Vendors selling teleport books with consistent price handling
  */
 public class BookVendorMenu implements Listener {
 
@@ -38,6 +40,7 @@ public class BookVendorMenu implements Listener {
     private final TeleportManager teleportManager;
     private final TeleportBookSystem bookSystem;
     private final PurchaseManager purchaseManager;
+    private final YakRealms plugin;
 
     /**
      * Creates a book vendor menu for a player
@@ -46,16 +49,22 @@ public class BookVendorMenu implements Listener {
      */
     public BookVendorMenu(Player player) {
         this.player = player;
+        this.plugin = YakRealms.getInstance();
         this.inventory = Bukkit.createInventory(null, INVENTORY_SIZE, INVENTORY_TITLE);
         this.teleportManager = TeleportManager.getInstance();
         this.bookSystem = TeleportBookSystem.getInstance();
         this.purchaseManager = PurchaseManager.getInstance();
 
         // Register events
-        Bukkit.getPluginManager().registerEvents(this, YakRealms.getInstance());
+        Bukkit.getPluginManager().registerEvents(this, plugin);
 
         // Initialize inventory
-        setupInventory();
+        try {
+            setupInventory();
+        } catch (Exception e) {
+            plugin.getLogger().log(Level.SEVERE, "Error setting up BookVendorMenu for player " + player.getName(), e);
+            setupFallbackInventory();
+        }
     }
 
     /**
@@ -76,17 +85,23 @@ public class BookVendorMenu implements Listener {
             // Skip if we run out of slots
             if (slot >= inventory.getSize() - 9) break;
 
-            // Calculate price based on distance
-            int price = calculatePrice(destination);
+            try {
+                // Calculate price based on distance
+                int price = calculatePrice(destination);
 
-            // Create a teleport book for this destination (with shop flag)
-            ItemStack bookItem = bookSystem.createTeleportBook(destination.getId(), true);
+                // Create a teleport book for this destination (with shop flag)
+                ItemStack bookItem = bookSystem.createTeleportBook(destination.getId(), true);
+                if (bookItem != null) {
+                    // Use VendorUtils for consistent price handling
+                    bookItem = VendorUtils.addPriceToItem(bookItem, price);
 
-            // Ensure the price is set correctly
-            bookItem = ensurePrice(bookItem, price);
-
-            // Add the book to the inventory
-            inventory.setItem(slot++, bookItem);
+                    // Add the book to the inventory
+                    inventory.setItem(slot++, bookItem);
+                }
+            } catch (Exception e) {
+                plugin.getLogger().log(Level.WARNING, "Error creating book item for destination " + destination.getId(), e);
+                // Continue with next destination
+            }
         }
 
         // Fill empty slots with decorative items
@@ -98,59 +113,65 @@ public class BookVendorMenu implements Listener {
     }
 
     /**
+     * Setup fallback inventory in case of errors
+     */
+    private void setupFallbackInventory() {
+        // Create basic error notice
+        ItemStack errorItem = new ItemStack(Material.BARRIER);
+        ItemMeta meta = errorItem.getItemMeta();
+        if (meta != null) {
+            meta.setDisplayName(ChatColor.RED + "Error Loading Books");
+            meta.setLore(Arrays.asList(
+                    ChatColor.GRAY + "Failed to load teleport books",
+                    ChatColor.GRAY + "Please contact an administrator"
+            ));
+            errorItem.setItemMeta(meta);
+        }
+
+        inventory.setItem(22, errorItem);
+        inventory.setItem(inventory.getSize() - 1, createCloseButton());
+
+        // Fill with gray glass
+        for (int i = 0; i < inventory.getSize(); i++) {
+            if (inventory.getItem(i) == null) {
+                inventory.setItem(i, createSeparator((byte) 7));
+            }
+        }
+    }
+
+    /**
      * Calculate the price of a teleport book based on distance
      *
      * @param destination The teleport destination
      * @return The calculated price
      */
     private int calculatePrice(TeleportDestination destination) {
-        // Start with the base price
-        int price = BASE_PRICE;
+        try {
+            // Start with the base price
+            int price = BASE_PRICE;
 
-        // Add distance-based component
-        // If vendor's location is unknown, use the base destination cost
-        if (player.getLocation().getWorld().equals(destination.getLocation().getWorld())) {
-            double distance = player.getLocation().distance(destination.getLocation());
-            double distanceFactor = 1.0 + (distance * DISTANCE_MULTIPLIER / 100);
-            price = (int) (price * distanceFactor);
+            // Add distance-based component
+            // If vendor's location is unknown, use the base destination cost
+            if (player.getLocation().getWorld().equals(destination.getLocation().getWorld())) {
+                double distance = player.getLocation().distance(destination.getLocation());
+                double distanceFactor = 1.0 + (distance * DISTANCE_MULTIPLIER / 100);
+                price = (int) (price * distanceFactor);
+            }
+
+            // Add premium tax if it's a premium destination
+            if (destination.isPremium()) {
+                price = (int) (price * 1.5); // 50% premium tax
+            }
+
+            // Consider the destination's own cost as minimum
+            price = Math.max(price, destination.getCost());
+
+            return Math.max(1, price); // Ensure price is at least 1
+
+        } catch (Exception e) {
+            plugin.getLogger().log(Level.WARNING, "Error calculating price for destination " + destination.getId(), e);
+            return BASE_PRICE; // Return base price as fallback
         }
-
-        // Add premium tax if it's a premium destination
-        if (destination.isPremium()) {
-            price = (int) (price * 1.5); // 50% premium tax
-        }
-
-        // Consider the destination's own cost as minimum
-        price = Math.max(price, destination.getCost());
-
-        return price;
-    }
-
-    /**
-     * Ensure an item has the correct price in its lore
-     *
-     * @param item  The item to modify
-     * @param price The price to set
-     * @return The modified item
-     */
-    private ItemStack ensurePrice(ItemStack item, int price) {
-        if (item == null) return null;
-
-        ItemMeta meta = item.getItemMeta();
-        if (meta == null) return item;
-
-        List<String> lore = meta.hasLore() ? new ArrayList<>(meta.getLore()) : new ArrayList<>();
-
-        // Remove any existing price lines
-        lore.removeIf(line -> ChatColor.stripColor(line).contains("Price:"));
-
-        // Add new price line (green text)
-        lore.add(ChatColor.GREEN + "Price: " + ChatColor.WHITE + price + "g");
-
-        meta.setLore(lore);
-        item.setItemMeta(meta);
-
-        return item;
     }
 
     /**
@@ -176,25 +197,50 @@ public class BookVendorMenu implements Listener {
 
         if (clickedItem == null || clickedItem.getType() == Material.AIR) return;
 
-        // Handle close button
-        if (clickedItem.getType() == Material.AIR) {
-            player.closeInventory();
-            return;
-        }
+        try {
+            // Handle close button
+            if (clickedItem.getType() == Material.BARRIER) {
+                player.closeInventory();
+                return;
+            }
 
-        // Ignore decorative items
-        if (clickedItem.getType() == Material.GRAY_STAINED_GLASS_PANE) return;
+            // Ignore decorative items
+            if (clickedItem.getType() == Material.GRAY_STAINED_GLASS_PANE) return;
 
-        // Handle book purchase
-        if (clickedItem.getType() == Material.BOOK) {
-            String destId = bookSystem.getDestinationFromBook(clickedItem);
-            if (destId != null) {
-                int price = PurchaseManager.getPriceFromLore(clickedItem);
-                if (price > 0) {
-                    purchaseManager.startPurchase(player, clickedItem, price);
-                    player.closeInventory();
+            // Handle book purchase
+            if (clickedItem.getType() == Material.BOOK) {
+                String destId = bookSystem.getDestinationFromBook(clickedItem);
+                if (destId != null) {
+                    // Use VendorUtils for consistent price extraction
+                    int price = VendorUtils.extractPriceFromLore(clickedItem);
+                    if (price > 0) {
+                        // Validate purchase state
+                        if (purchaseManager.isInPurchaseProcess(player.getUniqueId())) {
+                            player.sendMessage(ChatColor.RED + "You already have an active purchase. Complete it first or type 'cancel'.");
+                            return;
+                        }
+
+                        // Get item display name for feedback
+                        String itemName = clickedItem.hasItemMeta() && clickedItem.getItemMeta().hasDisplayName() ?
+                                clickedItem.getItemMeta().getDisplayName() :
+                                "Teleport Book";
+
+                        player.closeInventory();
+                        player.sendMessage(ChatColor.GREEN + "Initiating purchase for " + itemName + "...");
+
+                        purchaseManager.startPurchase(player, clickedItem, price);
+                        player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_PLING, 1.0f, 1.0f);
+                    } else {
+                        player.sendMessage(ChatColor.RED + "This item is not available for purchase.");
+                    }
+                } else {
+                    player.sendMessage(ChatColor.RED + "Invalid teleport book.");
                 }
             }
+
+        } catch (Exception e) {
+            plugin.getLogger().log(Level.WARNING, "Error handling click in BookVendorMenu for player " + player.getName(), e);
+            player.sendMessage(ChatColor.RED + "An error occurred. Please try again.");
         }
     }
 
@@ -208,12 +254,14 @@ public class BookVendorMenu implements Listener {
     private ItemStack createCategoryLabel(String name, Material icon) {
         ItemStack label = new ItemStack(icon);
         ItemMeta meta = label.getItemMeta();
-        meta.setDisplayName(ChatColor.GOLD + "" + ChatColor.BOLD + name);
-        meta.setLore(Arrays.asList(
-                ChatColor.GRAY + "Click on a book",
-                ChatColor.GRAY + "below to purchase it!"
-        ));
-        label.setItemMeta(meta);
+        if (meta != null) {
+            meta.setDisplayName(ChatColor.GOLD + "" + ChatColor.BOLD + name);
+            meta.setLore(Arrays.asList(
+                    ChatColor.GRAY + "Click on a book",
+                    ChatColor.GRAY + "below to purchase it!"
+            ));
+            label.setItemMeta(meta);
+        }
         return label;
     }
 
@@ -252,8 +300,10 @@ public class BookVendorMenu implements Listener {
     private ItemStack createSeparator(byte color) {
         ItemStack separator = new ItemStack(Material.GRAY_STAINED_GLASS_PANE, 1, color);
         ItemMeta meta = separator.getItemMeta();
-        meta.setDisplayName(" ");
-        separator.setItemMeta(meta);
+        if (meta != null) {
+            meta.setDisplayName(" ");
+            separator.setItemMeta(meta);
+        }
         return separator;
     }
 
@@ -265,15 +315,17 @@ public class BookVendorMenu implements Listener {
     private ItemStack createInfoButton() {
         ItemStack infoButton = new ItemStack(Material.PAPER);
         ItemMeta meta = infoButton.getItemMeta();
-        meta.setDisplayName(ChatColor.YELLOW + "" + ChatColor.BOLD + "Teleport Information");
-        meta.setLore(Arrays.asList(
-                ChatColor.GRAY + "Prices are based on distance",
-                ChatColor.GRAY + "and destination rarity.",
-                ChatColor.GRAY + "",
-                ChatColor.GRAY + "Use a teleport book by",
-                ChatColor.GRAY + "right-clicking it in your hand."
-        ));
-        infoButton.setItemMeta(meta);
+        if (meta != null) {
+            meta.setDisplayName(ChatColor.YELLOW + "" + ChatColor.BOLD + "Teleport Information");
+            meta.setLore(Arrays.asList(
+                    ChatColor.GRAY + "Prices are based on distance",
+                    ChatColor.GRAY + "and destination rarity.",
+                    ChatColor.GRAY + "",
+                    ChatColor.GRAY + "Use a teleport book by",
+                    ChatColor.GRAY + "right-clicking it in your hand."
+            ));
+            infoButton.setItemMeta(meta);
+        }
         return infoButton;
     }
 
@@ -283,14 +335,13 @@ public class BookVendorMenu implements Listener {
      * @return The created close button
      */
     private ItemStack createCloseButton() {
-        ItemStack closeButton = new ItemStack(Material.GRAY_DYE);
+        ItemStack closeButton = new ItemStack(Material.BARRIER);
         ItemMeta meta = closeButton.getItemMeta();
-        meta.setDisplayName(ChatColor.RED + "" + ChatColor.BOLD + "Close");
-        closeButton.setItemMeta(meta);
-
-        MenuItem menuItem = new MenuItem(closeButton)
-                .setClickHandler((p, s) -> p.closeInventory());
-
+        if (meta != null) {
+            meta.setDisplayName(ChatColor.RED + "" + ChatColor.BOLD + "Close");
+            meta.setLore(Arrays.asList(ChatColor.GRAY + "Close this vendor menu"));
+            closeButton.setItemMeta(meta);
+        }
         return closeButton;
     }
 }

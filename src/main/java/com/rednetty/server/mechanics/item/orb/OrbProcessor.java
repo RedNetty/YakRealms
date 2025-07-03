@@ -408,7 +408,7 @@ public class OrbProcessor {
     }
 
     /**
-     * Add weapon-specific stats to the lore
+     * Add weapon-specific stats to the lore - FIXED: Only one elemental type
      *
      * @param item    The weapon item
      * @param newLore The new lore list to modify
@@ -465,7 +465,7 @@ public class OrbProcessor {
                 newLore.add(ChatColor.RED + "CRITICAL HIT: " + stats.criticalHitAmount + "%");
             }
 
-            // Add Elemental Damage
+            // FIXED: Add ONLY ONE Elemental Damage type (if any)
             if (stats.elementType > 0) {
                 switch (stats.elementType) {
                     case OrbAPI.ELEM_FIRE:
@@ -478,6 +478,7 @@ public class OrbProcessor {
                         newLore.add(ChatColor.RED + "ICE DMG: +" + stats.elementAmount);
                         break;
                 }
+                // Note: Only one case will execute, ensuring only one elemental type is added
             }
         } catch (Exception e) {
             LOGGER.log(Level.WARNING, "Error adding weapon stats to lore", e);
