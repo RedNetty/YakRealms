@@ -4,8 +4,11 @@ import com.rednetty.server.YakRealms;
 import com.rednetty.server.mechanics.mobs.utils.MobUtils;
 import org.bukkit.*;
 import org.bukkit.enchantments.Enchantment;
+import org.bukkit.entity.EntityType;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.meta.ItemMeta;
+import org.bukkit.metadata.FixedMetadataValue;
 import org.bukkit.potion.PotionEffect;
 import org.bukkit.potion.PotionEffectType;
 
@@ -14,10 +17,10 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 /**
- * CLEANED: EliteMob class with crit system delegated to CritManager
- * - Removed all duplicate crit system code
- * - Simplified to focus on elite-specific behavior
- * - All crit functionality now handled by CritManager
+ * FIXED: EliteMob class with enhanced protection systems
+ * - Equipment never takes durability damage (unbreakable)
+ * - Never burns in sunlight (enhanced protection)
+ * - All crit functionality handled by CritManager
  * - Enhanced spawning and appearance systems
  */
 public class EliteMob extends CustomMob {
@@ -47,8 +50,31 @@ public class EliteMob extends CustomMob {
             applyEliteMovementEffects();
             enhanceEliteEquipment();
             applyEliteAppearance();
+            applyEliteSunlightProtection(); // Extra protection for elites
         } catch (Exception e) {
             LOGGER.warning(String.format("[EliteMob] Elite enhancements failed: %s", e.getMessage()));
+        }
+    }
+
+    /**
+     * ENHANCED: Apply additional sunlight protection for elite mobs
+     */
+    private void applyEliteSunlightProtection() {
+        if (!isValid()) return;
+
+        try {
+            // Elites get enhanced fire resistance
+            entity.addPotionEffect(new PotionEffect(PotionEffectType.FIRE_RESISTANCE, Integer.MAX_VALUE, 3));
+
+            // Additional metadata for elite protection
+            YakRealms plugin = YakRealms.getInstance();
+            entity.setMetadata("elite_sunlight_immune", new FixedMetadataValue(plugin, true));
+
+            if (YakRealms.getInstance().isDebugMode()) {
+                LOGGER.info("[EliteMob] Applied enhanced sunlight protection to elite " + type.getId());
+            }
+        } catch (Exception e) {
+            // Silent fail for protection
         }
     }
 
@@ -63,19 +89,70 @@ public class EliteMob extends CustomMob {
         }
     }
 
+    /**
+     * CRITICAL FIX: Enhanced elite equipment with unbreakable guarantee
+     */
     private void enhanceEliteEquipment() {
         try {
             if (entity.getEquipment() == null) return;
 
+            // Enhance weapon
             ItemStack weapon = entity.getEquipment().getItemInMainHand();
             if (weapon != null && weapon.getType() != Material.AIR) {
+                // Ensure weapon is unbreakable
+                makeItemUnbreakableIfNeeded(weapon);
+
+                // Add enchantments if not present
                 if (!weapon.hasItemMeta() || (weapon.hasItemMeta() && !weapon.getItemMeta().hasEnchants())) {
                     weapon.addUnsafeEnchantment(Enchantment.LOOT_BONUS_MOBS, 1);
                     entity.getEquipment().setItemInMainHand(weapon);
                 }
             }
+
+            // Enhance all armor pieces
+            ItemStack[] armorPieces = {
+                    entity.getEquipment().getHelmet(),
+                    entity.getEquipment().getChestplate(),
+                    entity.getEquipment().getLeggings(),
+                    entity.getEquipment().getBoots()
+            };
+
+            for (ItemStack armor : armorPieces) {
+                if (armor != null && armor.getType() != Material.AIR) {
+                    makeItemUnbreakableIfNeeded(armor);
+
+                    // Add elite enchantments if not present
+                    if (!armor.hasItemMeta() || (armor.hasItemMeta() && !armor.getItemMeta().hasEnchants())) {
+                        armor.addUnsafeEnchantment(Enchantment.PROTECTION_ENVIRONMENTAL, 1);
+                    }
+                }
+            }
+
+            if (YakRealms.getInstance().isDebugMode()) {
+                LOGGER.info("[EliteMob] Enhanced and secured equipment for elite " + type.getId());
+            }
+
         } catch (Exception e) {
-            // Silent fail
+            LOGGER.warning("[EliteMob] Elite equipment enhancement failed: " + e.getMessage());
+        }
+    }
+
+    /**
+     * CRITICAL FIX: Ensure item is unbreakable (for enhanced equipment)
+     */
+    private void makeItemUnbreakableIfNeeded(ItemStack item) {
+        if (item == null || item.getType() == Material.AIR) {
+            return;
+        }
+
+        try {
+            ItemMeta meta = item.getItemMeta();
+            if (meta != null && !meta.isUnbreakable()) {
+                meta.setUnbreakable(true);
+                item.setItemMeta(meta);
+            }
+        } catch (Exception e) {
+            LOGGER.warning("[EliteMob] Failed to make enhanced item unbreakable: " + e.getMessage());
         }
     }
 
@@ -97,20 +174,58 @@ public class EliteMob extends CustomMob {
         }
     }
 
-    // ================ ELITE BEHAVIOR ================
+    // ================ ENHANCED TICK SYSTEM ================
 
     @Override
     public void tick() {
-        super.tick(); // Call parent tick first
+        super.tick(); // Call parent tick first (includes sunlight protection)
 
         if (!isValid()) return;
 
         try {
-            // Elite-specific behavior can be added here
-            // For now, just enhanced hit detection
+            // Elite-specific behavior
+            performEliteTick();
         } catch (Exception e) {
             LOGGER.warning("[EliteMob] Elite tick error: " + e.getMessage());
         }
+    }
+
+    /**
+     * Elite-specific tick behavior
+     */
+    private void performEliteTick() {
+        try {
+            // Enhanced sunlight protection check
+            if (isUndeadElite() && entity.getFireTicks() > 0) {
+                // Elites should NEVER burn from sunlight
+                entity.setFireTicks(0);
+            }
+
+            // Elite visual effects (occasional)
+            if (RANDOM.nextInt(100) < 2) { // 2% chance per tick
+                applyEliteVisualEffects();
+            }
+
+        } catch (Exception e) {
+            // Silent fail for tick operations
+        }
+    }
+
+    /**
+     * Check if this elite is an undead type
+     */
+    private boolean isUndeadElite() {
+        if (entity == null) return false;
+
+        EntityType entityType = entity.getType();
+        return entityType == EntityType.SKELETON ||
+                entityType == EntityType.WITHER_SKELETON ||
+                entityType == EntityType.ZOMBIE ||
+                entityType == EntityType.ZOMBIE_VILLAGER ||
+                entityType == EntityType.HUSK ||
+                entityType == EntityType.DROWNED ||
+                entityType == EntityType.STRAY ||
+                entityType == EntityType.PHANTOM;
     }
 
     // ================ ENHANCED HIT HANDLING ================
@@ -374,6 +489,40 @@ public class EliteMob extends CustomMob {
         return info.toString();
     }
 
+    // ================ ENHANCED EQUIPMENT PROTECTION ================
+
+    /**
+     * Ensure all equipment remains unbreakable during gameplay
+     */
+    public void validateEquipmentIntegrity() {
+        if (!isValid() || entity.getEquipment() == null) return;
+
+        try {
+            // Check and fix weapon
+            ItemStack weapon = entity.getEquipment().getItemInMainHand();
+            if (weapon != null && weapon.getType() != Material.AIR) {
+                makeItemUnbreakableIfNeeded(weapon);
+            }
+
+            // Check and fix armor
+            ItemStack[] armorPieces = {
+                    entity.getEquipment().getHelmet(),
+                    entity.getEquipment().getChestplate(),
+                    entity.getEquipment().getLeggings(),
+                    entity.getEquipment().getBoots()
+            };
+
+            for (ItemStack armor : armorPieces) {
+                if (armor != null && armor.getType() != Material.AIR) {
+                    makeItemUnbreakableIfNeeded(armor);
+                }
+            }
+
+        } catch (Exception e) {
+            LOGGER.warning("[EliteMob] Equipment integrity validation failed: " + e.getMessage());
+        }
+    }
+
     // ================ ENHANCED REMOVAL ================
 
     @Override
@@ -415,5 +564,56 @@ public class EliteMob extends CustomMob {
         } catch (Exception e) {
             // Silent fail for death effects
         }
+    }
+
+    // ================ ELITE-SPECIFIC PROTECTION METHODS ================
+
+    /**
+     * Force remove any fire ticks (enhanced sunlight protection)
+     */
+    public void extinguishCompletely() {
+        if (!isValid()) return;
+
+        try {
+            entity.setFireTicks(0);
+
+            // Remove any burning-related effects
+            if (entity.hasPotionEffect(PotionEffectType.WITHER)) {
+                entity.removePotionEffect(PotionEffectType.WITHER);
+            }
+        } catch (Exception e) {
+            // Silent fail
+        }
+    }
+
+    /**
+     * Get elite protection status for debugging
+     */
+    public String getProtectionStatus() {
+        if (!isValid()) return "INVALID";
+
+        StringBuilder status = new StringBuilder();
+
+        try {
+            // Fire protection
+            status.append("Fire: ").append(entity.hasPotionEffect(PotionEffectType.FIRE_RESISTANCE) ? "PROTECTED" : "VULNERABLE");
+
+            // Equipment protection
+            boolean hasUnbreakableWeapon = false;
+            ItemStack weapon = entity.getEquipment().getItemInMainHand();
+            if (weapon != null && weapon.hasItemMeta()) {
+                hasUnbreakableWeapon = weapon.getItemMeta().isUnbreakable();
+            }
+            status.append(", Equipment: ").append(hasUnbreakableWeapon ? "PROTECTED" : "VULNERABLE");
+
+            // Sunlight protection
+            boolean hasSunlightProtection = entity.hasMetadata("elite_sunlight_immune");
+            status.append(", Sunlight: ").append(hasSunlightProtection ? "PROTECTED" : "VULNERABLE");
+
+        } catch (Exception e) {
+            status.append("ERROR: ").append(e.getMessage());
+        }
+
+        return status.toString();
     }
 }

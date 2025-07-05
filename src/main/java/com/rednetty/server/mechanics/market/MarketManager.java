@@ -987,7 +987,7 @@ public class MarketManager implements Listener {
     }
 
     private boolean canUseMarket(Player player) {
-        if (!player.hasPermission("yakserver.market.use")) {
+        if (!player.hasPermission("yakrealms.market.use")) {
             player.sendMessage(ChatColor.RED + "You don't have permission to use the market.");
             return false;
         }

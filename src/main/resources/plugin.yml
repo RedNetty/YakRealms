@@ -79,6 +79,7 @@ commands:
   togglespawners:
     description: Toggle mob spawners on/off
     usage: /togglespawners [on|off]
+    aliases: [ t, toggle, settings ]
     permission: yakrealms.admin.togglespawners
   boss:
     description: Spawn a boss

@@ -95,14 +95,14 @@ public class JoinLeaveListener extends BaseListener {
     private BukkitTask bossBarCleanupTask;
 
     /**
-     * Tutorial Choice Menu Class
+     * Tutorial Choice Menu Class - Fixed Color Formatting
      */
     private class TutorialChoiceMenu extends Menu {
         private final YakPlayer yakPlayer;
         private final PlayerSession session;
 
         public TutorialChoiceMenu(Player player, YakPlayer yakPlayer, PlayerSession session) {
-            super(player, "&6&l✦ Welcome to YakRealms! ✦", 27);
+            super(player, ChatColor.GOLD + "" + ChatColor.BOLD + "✦ Welcome to YakRealms! ✦", 27);
             this.yakPlayer = yakPlayer;
             this.session = session;
             setupMenu();
@@ -114,64 +114,64 @@ public class JoinLeaveListener extends BaseListener {
 
             // Welcome message item
             MenuItem welcomeItem = new MenuItem(Material.NETHER_STAR)
-                    .setDisplayName("&6&lWelcome to YakRealms!")
-                    .addLoreLine("&7Hello " + player.getName() + "!")
-                    .addLoreLine("&7")
-                    .addLoreLine("&7This is a survival RPG server with")
-                    .addLoreLine("&7custom features, quests, and adventures!")
-                    .addLoreLine("&7")
-                    .addLoreLine("&7Would you like to take a quick tutorial")
-                    .addLoreLine("&7to learn the basics?")
+                    .setDisplayName(ChatColor.GOLD + "" + ChatColor.BOLD + "Welcome to YakRealms!")
+                    .addLoreLine(ChatColor.GRAY + "Hello " + player.getName() + "!")
+                    .addLoreLine("")
+                    .addLoreLine(ChatColor.GRAY + "This is a survival RPG server with")
+                    .addLoreLine(ChatColor.GRAY + "custom features, quests, and adventures!")
+                    .addLoreLine("")
+                    .addLoreLine(ChatColor.GRAY + "Would you like to take a quick tutorial")
+                    .addLoreLine(ChatColor.GRAY + "to learn the basics?")
                     .setGlowing(true);
             setItem(13, welcomeItem);
 
             // Tutorial accept button
             MenuItem acceptItem = new MenuItem(Material.LIME_CONCRETE)
-                    .setDisplayName("&a&lYES - Start Tutorial")
-                    .addLoreLine("&7Click to begin the tutorial")
-                    .addLoreLine("&7")
-                    .addLoreLine("&7Learn about:")
-                    .addLoreLine("&7• Server commands")
-                    .addLoreLine("&7• Character system")
-                    .addLoreLine("&7• Special features")
-                    .addLoreLine("&7• Economy and gems")
-                    .addLoreLine("&7")
-                    .addLoreLine("&a&l➤ Click to start!")
+                    .setDisplayName(ChatColor.GREEN + "" + ChatColor.BOLD + "YES - Start Tutorial")
+                    .addLoreLine(ChatColor.GRAY + "Click to begin the tutorial")
+                    .addLoreLine("")
+                    .addLoreLine(ChatColor.GRAY + "Learn about:")
+                    .addLoreLine(ChatColor.GRAY + "• Server commands")
+                    .addLoreLine(ChatColor.GRAY + "• Character system")
+                    .addLoreLine(ChatColor.GRAY + "• Special features")
+                    .addLoreLine(ChatColor.GRAY + "• Economy and gems")
+                    .addLoreLine("")
+                    .addLoreLine(ChatColor.GREEN + "" + ChatColor.BOLD + "➤ Click to start!")
                     .setClickHandler((player, slot) -> acceptTutorial());
             setItem(10, acceptItem);
 
             // Tutorial decline button
             MenuItem declineItem = new MenuItem(Material.RED_CONCRETE)
-                    .setDisplayName("&c&lNO - Skip Tutorial")
-                    .addLoreLine("&7Click to skip the tutorial")
-                    .addLoreLine("&7")
-                    .addLoreLine("&7You can always:")
-                    .addLoreLine("&7• Use &f/help &7for commands")
-                    .addLoreLine("&7• Ask other players for help")
-                    .addLoreLine("&7• Explore on your own")
-                    .addLoreLine("&7")
-                    .addLoreLine("&c&l➤ Click to skip!")
+                    .setDisplayName(ChatColor.RED + "" + ChatColor.BOLD + "NO - Skip Tutorial")
+                    .addLoreLine(ChatColor.GRAY + "Click to skip the tutorial")
+                    .addLoreLine("")
+                    .addLoreLine(ChatColor.GRAY + "You can always:")
+                    .addLoreLine(ChatColor.GRAY + "• Use " + ChatColor.WHITE + "/help " + ChatColor.GRAY + "for commands")
+                    .addLoreLine(ChatColor.GRAY + "• Ask other players for help")
+                    .addLoreLine(ChatColor.GRAY + "• Explore on your own")
+                    .addLoreLine("")
+                    .addLoreLine(ChatColor.RED + "" + ChatColor.BOLD + "➤ Click to skip!")
                     .setClickHandler((player, slot) -> declineTutorial());
             setItem(16, declineItem);
 
             // Info items
             MenuItem infoItem1 = new MenuItem(Material.BOOK)
-                    .setDisplayName("&e&lServer Information")
-                    .addLoreLine("&7• Custom RPG mechanics")
-                    .addLoreLine("&7• Player guilds & parties")
-                    .addLoreLine("&7• Economy system")
-                    .addLoreLine("&7• PvP combat areas")
-                    .addLoreLine("&7• Custom items & enchants");
+                    .setDisplayName(ChatColor.YELLOW + "" + ChatColor.BOLD + "Server Information")
+                    .addLoreLine(ChatColor.GRAY + "• Custom RPG mechanics")
+                    .addLoreLine(ChatColor.GRAY + "• Player guilds & parties")
+                    .addLoreLine(ChatColor.GRAY + "• Economy system")
+                    .addLoreLine(ChatColor.GRAY + "• PvP combat areas")
+                    .addLoreLine(ChatColor.GRAY + "• Custom items & enchants");
             setItem(11, infoItem1);
 
             MenuItem infoItem2 = new MenuItem(Material.DIAMOND)
-                    .setDisplayName("&b&lStarter Kit")
-                    .addLoreLine("&7You will receive:")
-                    .addLoreLine("&7• Training sword")
-                    .addLoreLine("&7• Leather armor set")
-                    .addLoreLine("&7• 1,000 gems")
-                    .addLoreLine("&7")
-                    .addLoreLine("&7This kit is given automatically!")
+                    .setDisplayName(ChatColor.AQUA + "" + ChatColor.BOLD + "Starter Kit")
+                    .addLoreLine(ChatColor.GRAY + "You will receive:")
+                    .addLoreLine(ChatColor.GRAY + "• Training sword")
+                    .addLoreLine(ChatColor.GRAY + "• Leather armor set")
+                    .addLoreLine(ChatColor.GRAY + "• 1,000 gems")
+                    .addLoreLine("")
+                    .addLoreLine(ChatColor.GRAY + "This kit is given automatically!")
                     .setGlowing(true);
             setItem(15, infoItem2);
         }
@@ -181,7 +181,7 @@ public class JoinLeaveListener extends BaseListener {
             activeTutorialMenus.remove(player.getUniqueId());
 
             player.sendMessage("");
-            TextUtil.sendCenteredMessage(player, "&a✓ Tutorial starting...");
+            TextUtil.sendCenteredMessage(player, ChatColor.GREEN + "✓ Tutorial starting...");
             player.sendMessage("");
 
             // Start tutorial
@@ -193,10 +193,10 @@ public class JoinLeaveListener extends BaseListener {
             activeTutorialMenus.remove(player.getUniqueId());
 
             player.sendMessage("");
-            TextUtil.sendCenteredMessage(player, "&7Tutorial skipped. You can always ask for help in chat!");
-            TextUtil.sendCenteredMessage(player, "&7Use &f/help &7to see available commands.");
+            TextUtil.sendCenteredMessage(player, ChatColor.GRAY + "Tutorial skipped. You can always ask for help in chat!");
+            TextUtil.sendCenteredMessage(player, ChatColor.GRAY + "Use " + ChatColor.WHITE + "/help " + ChatColor.GRAY + "to see available commands.");
             player.sendMessage("");
-            TextUtil.sendCenteredMessage(player, "&a&lEnjoy your adventure on YakRealms!");
+            TextUtil.sendCenteredMessage(player, ChatColor.GREEN + "" + ChatColor.BOLD + "Enjoy your adventure on YakRealms!");
             player.sendMessage("");
         }
 

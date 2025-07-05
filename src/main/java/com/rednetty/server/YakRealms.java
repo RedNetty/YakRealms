@@ -1006,7 +1006,6 @@ public class YakRealms extends JavaPlugin {
 
     public static void debug(String message) {
         if (instance != null && instance.isDebugMode()) {
-            instance.getLogger().info("[DEBUG] " + message);
         }
     }
 

@@ -61,7 +61,7 @@ public class PKickCommand implements CommandExecutor, TabCompleter {
         showKickConfirmation(player, targetPlayer);
 
         // Attempt to kick player with enhanced feedback
-        boolean success = partyMechanics.kickPlayerFromParty(player, targetPlayer);
+        boolean success = partyMechanics.removePlayerFromParty(targetPlayer);
 
         if (success) {
             // Enhanced success feedback

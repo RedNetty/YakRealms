@@ -525,7 +525,7 @@ public class Buddies implements Listener {
         Player joiningPlayer = event.getPlayer();
 
         // Skip notifications for staff in vanish mode
-        if (joiningPlayer.isOp() || joiningPlayer.hasPermission("yakserver.staff")) return;
+        if (joiningPlayer.isOp() || joiningPlayer.hasPermission("yakrealms.staff")) return;
 
         String joiningPlayerName = joiningPlayer.getName();
 
@@ -565,7 +565,7 @@ public class Buddies implements Listener {
         Player leavingPlayer = event.getPlayer();
 
         // Skip notifications for staff
-        if (leavingPlayer.isOp() || leavingPlayer.hasPermission("yakserver.staff")) return;
+        if (leavingPlayer.isOp() || leavingPlayer.hasPermission("yakrealms.staff")) return;
 
         String leavingPlayerName = leavingPlayer.getName();
         UUID leavingUuid = leavingPlayer.getUniqueId();
@@ -619,7 +619,7 @@ public class Buddies implements Listener {
     }
 
     private int getMaxBuddies(Player player) {
-        if (player.hasPermission("yakserver.donator")) {
+        if (player.hasPermission("yakrealms.donator")) {
             return MAX_BUDDIES_DONATOR;
         }
         return MAX_BUDDIES_DEFAULT;

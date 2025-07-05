@@ -3,11 +3,13 @@ package com.rednetty.server.mechanics.player.settings;
 import com.rednetty.server.YakRealms;
 import com.rednetty.server.mechanics.moderation.ModerationMechanics;
 import com.rednetty.server.mechanics.moderation.Rank;
+import com.rednetty.server.mechanics.party.PartyMechanics;
 import com.rednetty.server.mechanics.player.YakPlayer;
 import com.rednetty.server.mechanics.player.YakPlayerManager;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.Material;
+import org.bukkit.Particle;
 import org.bukkit.Sound;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -26,7 +28,7 @@ import java.util.logging.Logger;
 import java.util.stream.Collectors;
 
 /**
- * FIXED: Enhanced toggle system with proper initialization, debugging, and validation.
+ * UPDATED: Enhanced toggle system with proper initialization, debugging, validation, and simplified PVP handling.
  */
 public class Toggles implements Listener {
     private static Toggles instance;
@@ -143,17 +145,17 @@ public class Toggles implements Listener {
             addToggleDefinition("Debug", "Display", "Shows detailed combat and system information",
                     null, false, false, Material.REDSTONE);
             addToggleDefinition("Trail Effects", "Display", "Displays special particle trail effects",
-                    "yakserver.donator", false, false, Material.FIREWORK_ROCKET);
+                    "yakrealms.donator", false, false, Material.FIREWORK_ROCKET);
             addToggleDefinition("Particles", "Display", "Shows various particle effects",
-                    "yakserver.donator", false, false, Material.BLAZE_POWDER);
+                    "yakrealms.donator", false, false, Material.BLAZE_POWDER);
 
             // System toggles
             addToggleDefinition("Drop Protection", "System", "Protects your dropped items for 5 seconds",
                     null, false, true, Material.CHEST);
             addToggleDefinition("Auto Bank", "System", "Automatically deposits gems into your bank",
-                    "yakserver.donator.tier2", false, false, Material.GOLD_INGOT);
+                    "yakrealms.donator.tier2", false, false, Material.GOLD_INGOT);
             addToggleDefinition("Energy System", "System", "Enables/disables the energy/stamina system",
-                    "yakserver.admin", true, true, Material.SUGAR);
+                    "yakrealms.admin", true, true, Material.SUGAR);
             addToggleDefinition("Disable Kit", "System", "Prevents receiving starter kits on respawn",
                     null, false, false, Material.LEATHER_CHESTPLATE);
 
@@ -860,12 +862,19 @@ public class Toggles implements Listener {
     }
 
     /**
-     * Enhanced PVP damage handler with better messaging
+     * UPDATED: Simplified PVP damage handler - main protection logic moved to CombatMechanics
+     * This now only handles toggle-specific feedback and logging
      */
-    @EventHandler(priority = EventPriority.LOWEST)
+    @EventHandler(priority = EventPriority.HIGH)
     public void onPvpDamage(EntityDamageByEntityEvent event) {
-        if (!(event.getEntity() instanceof Player) || !(event.getDamager() instanceof Player)) return;
-        if (event.getDamage() <= 0.0) return;
+        // Only handle player vs player damage
+        if (!(event.getEntity() instanceof Player) || !(event.getDamager() instanceof Player)) {
+            return;
+        }
+
+        if (event.getDamage() <= 0.0 || event.isCancelled()) {
+            return;
+        }
 
         Player damager = (Player) event.getDamager();
         Player victim = (Player) event.getEntity();
@@ -873,46 +882,126 @@ public class Toggles implements Listener {
         YakPlayer damagerData = playerManager.getPlayer(damager);
         YakPlayer victimData = playerManager.getPlayer(victim);
 
-        if (damagerData == null || victimData == null) return;
-
-        // Enhanced PVP prevention with better feedback
-        if (damagerData.isToggled("Anti PVP")) {
-            event.setCancelled(true);
-            damager.sendMessage("§c§l⚠ §cYou have PVP disabled! §7Use §f/toggle §7to enable it.");
-            damager.playSound(damager.getLocation(), Sound.BLOCK_NOTE_BLOCK_BASS, 1.0f, 0.5f);
+        if (damagerData == null || victimData == null) {
             return;
         }
 
-        if (victimData.isToggled("Anti PVP")) {
-            event.setCancelled(true);
-            damager.sendMessage("§c§l⚠ §f" + victim.getName() + " §chas PVP disabled!");
-            damager.playSound(damager.getLocation(), Sound.BLOCK_NOTE_BLOCK_BASS, 1.0f, 0.5f);
-            return;
+        // The main PVP protection logic is now handled in CombatMechanics.onEnhancedPvpProtection
+        // This handler only deals with toggle-specific effects and feedback
+
+        // Check if this is a successful PVP hit (not cancelled by protection)
+        if (!event.isCancelled()) {
+            // Handle successful PVP hit effects
+            handleSuccessfulPVPHit(damager, victim, damagerData, victimData);
+        }
+    }
+
+    /**
+     * Handle effects and feedback for successful PVP hits
+     */
+    private void handleSuccessfulPVPHit(Player damager, Player victim, YakPlayer damagerData, YakPlayer victimData) {
+        // Debug information for successful hits
+        if (Toggles.isToggled(damager, "Debug")) {
+            String relationship = getPlayerRelationship(damager, victim, damagerData, victimData);
         }
 
-        // Enhanced buddy protection
-        if (damagerData.isBuddy(victim.getName()) && !damagerData.isToggled("Friendly Fire")) {
-            event.setCancelled(true);
-            damager.sendMessage("§c§l⚠ §cYou cannot attack your buddy §f" + victim.getName() + "§c!");
-            damager.sendMessage("§7Enable §fFriendly Fire §7in §f/toggle §7to allow this.");
-            return;
+        // Special effects for friendly fire hits
+        if (isFriendlyFireHit(damager, victim, damagerData, victimData)) {
+            showFriendlyFireEffects(damager, victim);
+        }
+    }
+
+    /**
+     * Check if this is a friendly fire hit (attacking friend/party member with friendly fire enabled)
+     */
+    private boolean isFriendlyFireHit(Player damager, Player victim, YakPlayer damagerData, YakPlayer victimData) {
+        if (!damagerData.isToggled("Friendly Fire")) {
+            return false;
         }
 
-        // Enhanced guild protection
-        if (isInSameGuild(damager, victim) && !damagerData.isToggled("Friendly Fire")) {
-            event.setCancelled(true);
-            damager.sendMessage("§c§l⚠ §cYou cannot attack your guild member §f" + victim.getName() + "§c!");
-            damager.sendMessage("§7Enable §fFriendly Fire §7in §f/toggle §7to allow this.");
-            return;
+        // Check if they're buddies
+        if (damagerData.isBuddy(victim.getName()) || victimData.isBuddy(damager.getName())) {
+            return true;
         }
 
-        // Enhanced chaotic protection
-        if (damagerData.isToggled("Chaotic Protection") && isLawfulPlayer(victim)) {
-            event.setCancelled(true);
-            damager.sendMessage("§c§l⚠ §cChaotic Protection prevented you from attacking §f" + victim.getName() + "§c!");
-            damager.sendMessage("§7This player is lawful. Disable §fChaotic Protection §7to attack them.");
-            return;
+        // Check if they're party members
+        if (PartyMechanics.getInstance().arePartyMembers(damager, victim)) {
+            return true;
         }
+
+        // Check if they're guild members
+        if (isInSameGuild(damager, victim)) {
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * Get the relationship between two players for debug purposes
+     */
+    private String getPlayerRelationship(Player damager, Player victim, YakPlayer damagerData, YakPlayer victimData) {
+        List<String> relationships = new ArrayList<>();
+
+        if (damagerData.isBuddy(victim.getName())) {
+            relationships.add("buddy");
+        }
+
+        if (PartyMechanics.getInstance().arePartyMembers(damager, victim)) {
+            relationships.add("party");
+        }
+
+        if (isInSameGuild(damager, victim)) {
+            relationships.add("guild");
+        }
+
+        if (damagerData.isToggled("Friendly Fire")) {
+            relationships.add("friendly fire enabled");
+        }
+
+        return String.join(", ", relationships);
+    }
+
+    /**
+     * Show special effects for friendly fire hits
+     */
+    private void showFriendlyFireEffects(Player damager, Player victim) {
+        try {
+            // Visual warning for both players
+            damager.sendMessage(ChatColor.YELLOW + "⚠ Friendly fire hit on " + victim.getName() + "!");
+            victim.sendMessage(ChatColor.YELLOW + "⚠ Friendly fire from " + damager.getName() + "!");
+
+            // Special sound effect
+            damager.playSound(damager.getLocation(), Sound.BLOCK_NOTE_BLOCK_PLING, 0.7f, 0.8f);
+            victim.playSound(victim.getLocation(), Sound.BLOCK_NOTE_BLOCK_PLING, 0.7f, 0.8f);
+
+            // Particle effects
+            victim.getWorld().spawnParticle(Particle.VILLAGER_ANGRY,
+                    victim.getLocation().add(0, 2, 0),
+                    3, 0.5, 0.5, 0.5, 0.1);
+        } catch (Exception e) {
+            // Ignore visual effect errors
+        }
+    }
+
+    /**
+     * Check if two players are in the same guild (moved from main PVP handler)
+     */
+    private boolean isInSameGuild(Player player1, Player player2) {
+        if (player1 == null || player2 == null) return false;
+
+        YakPlayer yakPlayer1 = playerManager.getPlayer(player1);
+        YakPlayer yakPlayer2 = playerManager.getPlayer(player2);
+
+        if (yakPlayer1 == null || yakPlayer2 == null) return false;
+
+        String guild1 = yakPlayer1.getGuildName();
+        String guild2 = yakPlayer2.getGuildName();
+
+        // Both must be in a guild and the same guild
+        return guild1 != null && !guild1.trim().isEmpty() &&
+                guild2 != null && !guild2.trim().isEmpty() &&
+                guild1.equals(guild2);
     }
 
     /**
@@ -998,16 +1087,6 @@ public class Toggles implements Listener {
     private boolean isLawfulPlayer(Player player) {
         YakPlayer yakPlayer = playerManager.getPlayer(player);
         return yakPlayer != null && "LAWFUL".equals(yakPlayer.getAlignment());
-    }
-
-    private boolean isInSameGuild(Player player1, Player player2) {
-        YakPlayer yakPlayer1 = playerManager.getPlayer(player1);
-        YakPlayer yakPlayer2 = playerManager.getPlayer(player2);
-
-        if (yakPlayer1 == null || yakPlayer2 == null) return false;
-
-        // Guild system integration would go here
-        return false; // Placeholder
     }
 
     /**

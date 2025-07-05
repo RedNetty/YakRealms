@@ -23,11 +23,21 @@ import java.util.regex.Pattern;
  */
 public class VendorUtils {
 
-    // Constants
+    // Constants for price handling
     public static final String PRICE_PREFIX = "Price: ";
     public static final String PRICE_SUFFIX = "g";
-    // Updated regex to handle commas in numbers
+    // Enhanced regex patterns for comprehensive lore cleaning
     public static final Pattern PRICE_PATTERN = Pattern.compile("Price:\\s*([\\d,]+)g?", Pattern.CASE_INSENSITIVE);
+    public static final Pattern COST_PATTERN = Pattern.compile("Cost:\\s*([\\d,]+)g?", Pattern.CASE_INSENSITIVE);
+
+    // Vendor lore markers and separators
+    private static final String VENDOR_SEPARATOR = "▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬";
+    private static final List<String> VENDOR_KEYWORDS = Arrays.asList(
+            "click to purchase", "left-click", "right-click", "shift-click",
+            "quick buy", "shop info", "description:", "price:", "cost:",
+            "gems", "currency", "purchase", "buy", "vendor",
+            "click to purchase!", "shift-click for quick buy"
+    );
 
     // Formatters (thread-safe)
     private static final DecimalFormat DECIMAL_FORMAT = new DecimalFormat("#,###.##");
@@ -60,12 +70,20 @@ public class VendorUtils {
         for (String line : lore) {
             String cleanLine = ChatColor.stripColor(line).trim();
 
-            // Use regex for more flexible parsing
-            Matcher matcher = PRICE_PATTERN.matcher(cleanLine);
-            if (matcher.find()) {
+            // Check both price and cost patterns
+            Matcher priceMatcher = PRICE_PATTERN.matcher(cleanLine);
+            Matcher costMatcher = COST_PATTERN.matcher(cleanLine);
+
+            if (priceMatcher.find()) {
                 try {
-                    // Remove commas before parsing to handle formatted numbers like "1,500"
-                    String numberStr = matcher.group(1).replace(",", "");
+                    String numberStr = priceMatcher.group(1).replace(",", "");
+                    return Integer.parseInt(numberStr);
+                } catch (NumberFormatException e) {
+                    // Continue searching other lines
+                }
+            } else if (costMatcher.find()) {
+                try {
+                    String numberStr = costMatcher.group(1).replace(",", "");
                     return Integer.parseInt(numberStr);
                 } catch (NumberFormatException e) {
                     // Continue searching other lines
@@ -88,14 +106,16 @@ public class VendorUtils {
 
         List<String> lore = meta.hasLore() ? new ArrayList<>(meta.getLore()) : new ArrayList<>();
 
-        // Remove existing price lines
-        lore.removeIf(line -> {
-            String cleanLine = ChatColor.stripColor(line).trim();
-            return PRICE_PATTERN.matcher(cleanLine).find();
-        });
+        // Remove any existing vendor lore first to prevent duplicates
+        lore = cleanVendorLoreFromList(lore);
 
-        // Add new price line with consistent formatting
+        // Add vendor section with proper formatting
+        lore.add("");
+        lore.add(ChatColor.GRAY + VENDOR_SEPARATOR);
         lore.add(ChatColor.GREEN + PRICE_PREFIX + ChatColor.WHITE + formatNumber(price) + PRICE_SUFFIX);
+        lore.add(ChatColor.YELLOW + "⚡ Left-click to purchase");
+        lore.add(ChatColor.GRAY + "⚡ Shift-click for quick buy");
+        lore.add(ChatColor.GRAY + VENDOR_SEPARATOR);
 
         meta.setLore(lore);
         newItem.setItemMeta(meta);
@@ -103,24 +123,279 @@ public class VendorUtils {
     }
 
     /**
-     * Remove price from item lore completely
+     * Comprehensively remove all vendor-added lore from an item
+     * This is the main method that should be used when purchasing items
      */
     public static ItemStack removePriceFromItem(ItemStack item) {
         if (item == null) return null;
 
-        ItemStack newItem = item.clone();
-        ItemMeta meta = newItem.getItemMeta();
-        if (meta == null || !meta.hasLore()) return newItem;
+        ItemStack cleanItem = item.clone();
+        ItemMeta meta = cleanItem.getItemMeta();
 
-        List<String> lore = new ArrayList<>(meta.getLore());
-        lore.removeIf(line -> {
-            String cleanLine = ChatColor.stripColor(line).trim();
-            return PRICE_PATTERN.matcher(cleanLine).find();
-        });
+        if (meta == null || !meta.hasLore()) {
+            return cleanItem;
+        }
 
-        meta.setLore(lore);
-        newItem.setItemMeta(meta);
-        return newItem;
+        List<String> originalLore = meta.getLore();
+        List<String> cleanedLore = cleanVendorLoreFromList(originalLore);
+
+        // Update item meta with cleaned lore
+        if (cleanedLore.isEmpty()) {
+            meta.setLore(null);
+        } else {
+            meta.setLore(cleanedLore);
+        }
+
+        cleanItem.setItemMeta(meta);
+        return cleanItem;
+    }
+
+    /**
+     * Clean vendor lore from a lore list with comprehensive vendor content detection
+     */
+    private static List<String> cleanVendorLoreFromList(List<String> originalLore) {
+        if (originalLore == null || originalLore.isEmpty()) {
+            return new ArrayList<>();
+        }
+
+        List<String> cleanedLore = new ArrayList<>();
+        boolean inVendorSection = false;
+        boolean inDescriptionSection = false;
+        int vendorSectionStart = -1;
+
+        for (int i = 0; i < originalLore.size(); i++) {
+            String line = originalLore.get(i);
+            String strippedLine = ChatColor.stripColor(line).trim().toLowerCase();
+
+            // Check for vendor section markers (separators)
+            if (line.contains(VENDOR_SEPARATOR)) {
+                if (!inVendorSection) {
+                    // Start of vendor section found
+                    inVendorSection = true;
+                    vendorSectionStart = i;
+
+                    // Check if there's an empty line immediately before this separator
+                    // that was added by the vendor system
+                    if (vendorSectionStart > 0) {
+                        int previousLineIndex = vendorSectionStart - 1;
+                        String previousLine = originalLore.get(previousLineIndex);
+
+                        // If the previous line is empty and we haven't already added it to cleaned lore,
+                        // or if it's the last thing we added and it's empty, it's likely vendor-added
+                        if (isEmptyLine(previousLine)) {
+                            // Remove the empty line if it was the last thing added to cleanedLore
+                            if (!cleanedLore.isEmpty() &&
+                                    isEmptyLine(cleanedLore.get(cleanedLore.size() - 1))) {
+                                cleanedLore.remove(cleanedLore.size() - 1);
+                            }
+                        }
+                    }
+                } else {
+                    // End of vendor section
+                    inVendorSection = false;
+                    vendorSectionStart = -1;
+                }
+                continue; // Skip the separator line itself
+            }
+
+            // Check for ItemVendorMenu description section start
+            if (strippedLine.equals("description:") &&
+                    line.startsWith(ChatColor.YELLOW.toString())) {
+                inDescriptionSection = true;
+
+                // Remove empty line before description if it exists
+                if (!cleanedLore.isEmpty() && isEmptyLine(cleanedLore.get(cleanedLore.size() - 1))) {
+                    cleanedLore.remove(cleanedLore.size() - 1);
+                }
+                continue; // Skip the "Description:" line
+            }
+
+            // Skip content inside vendor separator sections
+            if (inVendorSection) {
+                continue;
+            }
+
+            // Handle description section content
+            if (inDescriptionSection) {
+                // Check if this line ends the description section
+                if (strippedLine.contains("click to purchase") ||
+                        strippedLine.contains("shift-click") ||
+                        strippedLine.contains("quick buy") ||
+                        isEmptyLine(line)) {
+
+                    // If it's an empty line, check what comes next
+                    if (isEmptyLine(line)) {
+                        // Look ahead to see if vendor content follows
+                        if (i + 1 < originalLore.size()) {
+                            String nextLine = ChatColor.stripColor(originalLore.get(i + 1)).trim().toLowerCase();
+                            if (nextLine.contains("click to purchase") ||
+                                    nextLine.contains("shift-click") ||
+                                    nextLine.contains("quick buy")) {
+                                // This empty line is part of vendor section, skip it
+                                continue;
+                            }
+                        }
+                        // If no vendor content follows, this might be original lore
+                        inDescriptionSection = false;
+                        cleanedLore.add(line);
+                        continue;
+                    }
+
+                    // This is a vendor action line, skip it but check if description section continues
+                    if (strippedLine.contains("click to purchase")) {
+                        // Look ahead for more vendor lines
+                        continue;
+                    } else if (strippedLine.contains("shift-click") || strippedLine.contains("quick buy")) {
+                        // End of description section
+                        inDescriptionSection = false;
+                        continue;
+                    }
+                } else {
+                    // This is the description text itself, skip it
+                    continue;
+                }
+            }
+
+            // Check for standalone vendor-related lines outside of separator sections
+            boolean isVendorLine = isVendorRelatedLine(strippedLine, line);
+
+            // If this is a vendor line outside of a separator section,
+            // also check if we should remove a preceding empty line
+            if (isVendorLine && !cleanedLore.isEmpty()) {
+                String lastAddedLine = cleanedLore.get(cleanedLore.size() - 1);
+                if (isEmptyLine(lastAddedLine)) {
+                    // Check if this empty line is likely vendor-added by looking ahead
+                    // If the next few lines are also vendor-related, the empty line was probably vendor-added
+                    if (isFollowedByVendorContent(originalLore, i)) {
+                        cleanedLore.remove(cleanedLore.size() - 1);
+                    }
+                }
+            }
+
+            // Keep non-vendor lines
+            if (!isVendorLine) {
+                cleanedLore.add(line);
+            }
+        }
+
+        // Final cleanup: remove trailing empty lines that might be vendor-added
+        // But be conservative - only remove if there are multiple trailing empty lines
+        cleanTrailingVendorEmptyLines(cleanedLore);
+
+        return cleanedLore;
+    }
+
+    /**
+     * Check if a line is empty (null, empty string, or only whitespace)
+     */
+    private static boolean isEmptyLine(String line) {
+        return line == null || line.trim().isEmpty() || line.equals("");
+    }
+
+    /**
+     * Check if a line is vendor-related (enhanced detection)
+     */
+    private static boolean isVendorRelatedLine(String strippedLine, String originalLine) {
+        // Check against patterns
+        if (PRICE_PATTERN.matcher(strippedLine).find() ||
+                COST_PATTERN.matcher(strippedLine).find()) {
+            return true;
+        }
+
+        // Check against vendor keywords
+        for (String keyword : VENDOR_KEYWORDS) {
+            if (strippedLine.contains(keyword)) {
+                return true;
+            }
+        }
+
+        // Check for common vendor lore patterns
+        if (strippedLine.startsWith("⚡") ||
+                strippedLine.contains("click") ||
+                strippedLine.contains("purchase") ||
+                strippedLine.matches(".*\\d+g.*") ||  // Lines containing number + g
+                originalLine.startsWith(ChatColor.YELLOW.toString()) && strippedLine.contains("click")) {
+            return true;
+        }
+
+        // Check for ItemVendorMenu specific patterns
+        if (strippedLine.equals("description:") && originalLine.startsWith(ChatColor.YELLOW.toString())) {
+            return true;
+        }
+
+        // Check for purchase action lines
+        if (strippedLine.contains("click to purchase") ||
+                strippedLine.contains("left-click to purchase") ||
+                strippedLine.contains("shift-click for quick buy") ||
+                strippedLine.contains("quick buy")) {
+            return true;
+        }
+
+        // Check for lines that start with action symbols
+        if (originalLine.startsWith(ChatColor.GREEN.toString()) && strippedLine.contains("click") ||
+                originalLine.startsWith(ChatColor.GRAY.toString()) && strippedLine.contains("shift-click")) {
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * Check if the current position is followed by vendor content (enhanced detection)
+     */
+    private static boolean isFollowedByVendorContent(List<String> lore, int currentIndex) {
+        int vendorLineCount = 0;
+        int totalLinesChecked = 0;
+        int maxLinesToCheck = Math.min(5, lore.size() - currentIndex);
+
+        for (int i = currentIndex; i < currentIndex + maxLinesToCheck && i < lore.size(); i++) {
+            String line = lore.get(i);
+            String strippedLine = ChatColor.stripColor(line).trim().toLowerCase();
+
+            if (isVendorRelatedLine(strippedLine, line) ||
+                    line.contains(VENDOR_SEPARATOR) ||
+                    strippedLine.equals("description:") ||
+                    strippedLine.contains("click to purchase") ||
+                    strippedLine.contains("shift-click")) {
+                vendorLineCount++;
+            }
+            totalLinesChecked++;
+        }
+
+        // If more than half of the following lines are vendor-related,
+        // the empty line was probably vendor-added
+        return totalLinesChecked > 0 && (vendorLineCount * 2) > totalLinesChecked;
+    }
+
+    /**
+     * Conservatively clean trailing empty lines that appear to be vendor-added
+     */
+    private static void cleanTrailingVendorEmptyLines(List<String> lore) {
+        if (lore.isEmpty()) return;
+
+        // Only remove trailing empty lines if there are multiple consecutive ones
+        // This helps preserve intentional single trailing empty lines
+        int trailingEmptyCount = 0;
+        int size = lore.size();
+
+        // Count trailing empty lines
+        for (int i = size - 1; i >= 0; i--) {
+            if (isEmptyLine(lore.get(i))) {
+                trailingEmptyCount++;
+            } else {
+                break;
+            }
+        }
+
+        // Only remove if there are 2+ trailing empty lines (likely vendor-added)
+        if (trailingEmptyCount >= 2) {
+            // Remove all but one trailing empty line
+            for (int i = 0; i < trailingEmptyCount - 1; i++) {
+                if (!lore.isEmpty()) {
+                    lore.remove(lore.size() - 1);
+                }
+            }
+        }
     }
 
     /**
@@ -538,5 +813,38 @@ public class VendorUtils {
      */
     public static String getOrDefault(String value, String defaultValue) {
         return isNullOrEmpty(value) ? defaultValue : value;
+    }
+
+    /**
+     * Check if an item currently has vendor lore attached
+     */
+    public static boolean hasVendorLore(ItemStack item) {
+        return extractPriceFromLore(item) > 0;
+    }
+
+    /**
+     * Create a display copy of an item for vendor menus (with price lore)
+     */
+    public static ItemStack createVendorDisplayItem(ItemStack originalItem, int price) {
+        if (originalItem == null) {
+            return null;
+        }
+
+        // First ensure the item is clean of any existing vendor lore
+        ItemStack cleanItem = removePriceFromItem(originalItem);
+
+        // Then add the price lore for display
+        return addPriceToItem(cleanItem, price);
+    }
+
+    /**
+     * Get a clean copy of an item suitable for giving to players
+     */
+    public static ItemStack createCleanItemCopy(ItemStack vendorItem) {
+        if (vendorItem == null) {
+            return null;
+        }
+
+        return removePriceFromItem(vendorItem);
     }
 }

@@ -25,12 +25,13 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
 
 /**
- * Enhanced ItemVendorMenu with clean, organized layout design.
- * Maintains all original functionality while providing a much better visual experience.
+ * Category-based ItemVendorMenu with compact, intuitive design.
+ * Features clickable categories that dynamically change displayed items.
  */
 public class ItemVendorMenu extends Menu {
 
     private static final String TITLE = "Item Vendor";
+    private static final int MENU_SIZE = 54; // 6 rows to accommodate all categories
 
     // Core managers
     private final ScrollManager scrollManager;
@@ -49,42 +50,48 @@ public class ItemVendorMenu extends Menu {
 
     // Enhanced pricing system
     private static final int NORMAL_ORB_BASE_PRICE = 1500;
-    private static final int LEGENDARY_ORB_BASE_PRICE = 5000;
+    private static final int LEGENDARY_ORB_BASE_PRICE = 20000;
     private static final int PROTECTION_SCROLL_BASE_PRICE = 1000;
-    private static final int WEAPON_SCROLL_BASE_PRICE = 250;
-    private static final int ARMOR_SCROLL_BASE_PRICE = 250;
-    private static final double TIER_MULTIPLIER = 2.5;
+    private static final int WEAPON_SCROLL_BASE_PRICE = 150;
+    private static final int ARMOR_SCROLL_BASE_PRICE = 150;
+    private static final double TIER_MULTIPLIER = 2.25;
     private static final double DYNAMIC_PRICE_VARIATION = 0.1;
 
-    // Clean layout sections
-    private static final int[] TOP_BORDER = {0, 1, 2, 3, 4, 5, 6, 7, 8};
-    private static final int[] BOTTOM_BORDER = {45, 46, 47, 48, 49, 50, 51, 52, 53};
+    // Categories
+    private enum Category {
+        ORBS("Mystical Orbs", Material.MAGMA_CREAM, ChatColor.DARK_PURPLE),
+        POUCHES("Gem Pouches", Material.BUNDLE, ChatColor.GREEN),
+        PROTECTION("Protection Scrolls", Material.SHIELD, ChatColor.BLUE),
+        WEAPON("Weapon Scrolls", Material.IRON_SWORD, ChatColor.RED),
+        ARMOR("Armor Scrolls", Material.IRON_CHESTPLATE, ChatColor.AQUA);
 
-    // Section 1: Orbs (Row 2, Left)
-    private static final int ORB_SECTION_START = 10;
-    private static final int[] ORB_SLOTS = {10, 11}; // Normal, Legendary
+        private final String name;
+        private final Material icon;
+        private final ChatColor color;
 
-    // Section 2: Gem Pouches (Row 2, Right)
-    private static final int POUCH_SECTION_START = 14;
-    private static final int[] POUCH_SLOTS = {14, 15, 16}; // Tiers 1, 2, 3
+        Category(String name, Material icon, ChatColor color) {
+            this.name = name;
+            this.icon = icon;
+            this.color = color;
+        }
+    }
 
-    // Section 3: Protection Scrolls (Row 3)
-    private static final int PROTECTION_SECTION_START = 19;
-    private static final int[] PROTECTION_SLOTS = {19, 20, 21, 22, 23, 24, 25}; // Tiers 0-6
+    private Category currentCategory = Category.ORBS;
 
-    // Section 4: Weapon Scrolls (Row 4)
-    private static final int WEAPON_SECTION_START = 28;
-    private static final int[] WEAPON_SLOTS = {28, 29, 30, 31, 32, 33, 34}; // Tiers 1-6
-
-    // Section 5: Armor Scrolls (Row 5)
-    private static final int ARMOR_SECTION_START = 37;
-    private static final int[] ARMOR_SLOTS = {37, 38, 39, 40, 41, 42, 43}; // Tiers 1-6
+    // Layout configuration
+    private static final int[] CATEGORY_SLOTS = {0, 9, 18, 27, 36, 45}; // Left column for all 6 categories
+    private static final int[] DISPLAY_SLOTS = {
+            11, 12, 13, 14, 15, 16,     // Row 1 of display area
+            20, 21, 22, 23, 24, 25,     // Row 2 of display area
+            29, 30, 31, 32, 33, 34      // Row 3 of display area
+    };
+    private static final int[] BOTTOM_NAV_SLOTS = {49, 50, 51, 52, 53}; // Bottom navigation
 
     /**
-     * Enhanced constructor with comprehensive initialization
+     * Constructor with category-based initialization
      */
     public ItemVendorMenu(Player player) {
-        super(player, TITLE, 54);
+        super(player, TITLE, MENU_SIZE);
 
         this.plugin = YakRealms.getInstance();
         this.scrollManager = ScrollManager.getInstance();
@@ -95,7 +102,7 @@ public class ItemVendorMenu extends Menu {
         this.menuConfig = loadMenuConfiguration();
 
         try {
-            initializeCleanMenu();
+            initializeCategoryMenu();
         } catch (Exception e) {
             plugin.getLogger().log(Level.SEVERE, "Error initializing ItemVendorMenu for player " + player.getName(), e);
             initializeBasicMenu();
@@ -116,217 +123,414 @@ public class ItemVendorMenu extends Menu {
     }
 
     /**
-     * Initialize the clean, organized menu layout
+     * Initialize the category-based menu
      */
-    private void initializeCleanMenu() {
+    private void initializeCategoryMenu() {
         try {
-            // Create clean borders
-            createCleanBorders();
+            // Clear menu
+            for (int i = 0; i < MENU_SIZE; i++) {
+                setItem(i, (MenuItem) null);
+            }
 
-            // Create section headers
-            createSectionHeaders();
+            // Create borders and separators
+            createCompactBorders();
 
-            // Populate all sections with original items
-            populateOrbsAndPouches();
-            populateProtectionScrolls();
-            populateWeaponEnchants();
-            populateArmorEnchants();
+            // Create category buttons
+            createCategoryButtons();
+
+            // Display items for current category
+            displayCategoryItems();
 
             // Add navigation elements
             addNavigationElements();
 
         } catch (Exception e) {
-            plugin.getLogger().log(Level.WARNING, "Error during clean menu initialization", e);
+            plugin.getLogger().log(Level.WARNING, "Error during category menu initialization", e);
             initializeBasicMenu();
         }
     }
 
     /**
-     * Create clean, professional borders
+     * Create clean borders for compact menu
      */
-    private void createCleanBorders() {
-        // Top border - Light blue glass
-        for (int i : TOP_BORDER) {
-            setItem(i, VendorUtils.createSeparator(Material.LIGHT_BLUE_STAINED_GLASS_PANE, ChatColor.AQUA + ""));
+    private void createCompactBorders() {
+        // Top border
+        for (int i = 1; i <= 8; i++) {
+            if (i != 4) { // Skip center for potential header
+                setItem(i, VendorUtils.createSeparator(Material.GRAY_STAINED_GLASS_PANE, " "));
+            }
         }
 
-        // Bottom border - Light blue glass
-        for (int i : BOTTOM_BORDER) {
-            setItem(i, VendorUtils.createSeparator(Material.LIGHT_BLUE_STAINED_GLASS_PANE, ChatColor.AQUA + ""));
-        }
+        // Vertical separator between categories and items
+        setItem(10, VendorUtils.createSeparator(Material.BLACK_STAINED_GLASS_PANE, " "));
+        setItem(19, VendorUtils.createSeparator(Material.BLACK_STAINED_GLASS_PANE, " "));
+        setItem(28, VendorUtils.createSeparator(Material.BLACK_STAINED_GLASS_PANE, " "));
+        setItem(37, VendorUtils.createSeparator(Material.BLACK_STAINED_GLASS_PANE, " "));
+        setItem(46, VendorUtils.createSeparator(Material.BLACK_STAINED_GLASS_PANE, " "));
 
-        // Side separators between sections (subtle gray)
-        setItem(9, VendorUtils.createSeparator(Material.GRAY_STAINED_GLASS_PANE, " "));
-        setItem(13, VendorUtils.createSeparator(Material.GRAY_STAINED_GLASS_PANE, " "));
+        // Right border
         setItem(17, VendorUtils.createSeparator(Material.GRAY_STAINED_GLASS_PANE, " "));
-        setItem(18, VendorUtils.createSeparator(Material.GRAY_STAINED_GLASS_PANE, " "));
         setItem(26, VendorUtils.createSeparator(Material.GRAY_STAINED_GLASS_PANE, " "));
-        setItem(27, VendorUtils.createSeparator(Material.GRAY_STAINED_GLASS_PANE, " "));
         setItem(35, VendorUtils.createSeparator(Material.GRAY_STAINED_GLASS_PANE, " "));
-        setItem(36, VendorUtils.createSeparator(Material.GRAY_STAINED_GLASS_PANE, " "));
         setItem(44, VendorUtils.createSeparator(Material.GRAY_STAINED_GLASS_PANE, " "));
+
+        // Bottom border around navigation
+        setItem(38, VendorUtils.createSeparator(Material.GRAY_STAINED_GLASS_PANE, " "));
+        setItem(39, VendorUtils.createSeparator(Material.GRAY_STAINED_GLASS_PANE, " "));
+        setItem(47, VendorUtils.createSeparator(Material.GRAY_STAINED_GLASS_PANE, " "));
+        setItem(48, VendorUtils.createSeparator(Material.GRAY_STAINED_GLASS_PANE, " "));
     }
 
     /**
-     * Create clear section headers
+     * Create category selection buttons
      */
-    private void createSectionHeaders() {
-        // Orbs section header
-        ItemStack orbHeader = new ItemStack(Material.ENDER_PEARL);
-        ItemMeta meta = orbHeader.getItemMeta();
-        if (meta != null) {
-            meta.setDisplayName(ChatColor.DARK_PURPLE + "" + ChatColor.BOLD + "Mystical Orbs");
-            meta.setLore(Arrays.asList(
-                    ChatColor.GRAY + "Reroll item statistics",
-                    ChatColor.GRAY + "Normal: Random results",
-                    ChatColor.GRAY + "Legendary: High-tier guaranteed"
-            ));
-            orbHeader.setItemMeta(meta);
-        }
-        setItem(1, orbHeader);
+    private void createCategoryButtons() {
+        int index = 0;
+        for (Category category : Category.values()) {
+            if (index >= CATEGORY_SLOTS.length) break;
 
-        // Pouches section header
-        ItemStack pouchHeader = new ItemStack(Material.BUNDLE);
-        meta = pouchHeader.getItemMeta();
-        if (meta != null) {
-            meta.setDisplayName(ChatColor.GREEN + "" + ChatColor.BOLD + "Gem Pouches");
-            meta.setLore(Arrays.asList(
-                    ChatColor.GRAY + "Portable gem storage",
-                    ChatColor.GRAY + "Higher tiers hold more gems",
-                    ChatColor.GRAY + "Keep your wealth safe"
-            ));
-            pouchHeader.setItemMeta(meta);
-        }
-        setItem(7, pouchHeader);
+            // Skip armor category if T6 is not enabled and we don't have T5 armor scrolls
+            if (category == Category.ARMOR && !t6Enabled && !hasArmorScrollsAvailable()) {
+                continue;
+            }
 
-        // Protection section header
-        ItemStack protectionHeader = new ItemStack(Material.SHIELD);
-        meta = protectionHeader.getItemMeta();
-        if (meta != null) {
-            meta.setDisplayName(ChatColor.BLUE + "" + ChatColor.BOLD + "Protection Scrolls");
-            meta.setLore(Arrays.asList(
-                    ChatColor.GRAY + "Prevent item destruction",
-                    ChatColor.GRAY + "Essential for safe enchanting",
-                    ChatColor.GRAY + "Use before risky upgrades"
-            ));
-            protectionHeader.setItemMeta(meta);
+            ItemStack categoryItem = new ItemStack(category.icon);
+            ItemMeta meta = categoryItem.getItemMeta();
+            if (meta != null) {
+                meta.setDisplayName(category.color + "" + ChatColor.BOLD + category.name);
+
+                List<String> lore = new ArrayList<>();
+                lore.add("");
+
+                // Add category-specific descriptions
+                switch (category) {
+                    case ORBS:
+                        lore.add(ChatColor.GRAY + "Magical orbs that reroll");
+                        lore.add(ChatColor.GRAY + "item statistics");
+                        break;
+                    case POUCHES:
+                        lore.add(ChatColor.GRAY + "Store your gems safely");
+                        lore.add(ChatColor.GRAY + "in portable pouches");
+                        break;
+                    case PROTECTION:
+                        lore.add(ChatColor.GRAY + "Protect items from");
+                        lore.add(ChatColor.GRAY + "enchantment failures");
+                        break;
+                    case WEAPON:
+                        lore.add(ChatColor.GRAY + "Enhance your weapons");
+                        lore.add(ChatColor.GRAY + "with powerful scrolls");
+                        break;
+                    case ARMOR:
+                        lore.add(ChatColor.GRAY + "Strengthen your armor");
+                        lore.add(ChatColor.GRAY + "with defensive scrolls");
+                        break;
+                }
+
+                lore.add("");
+                if (currentCategory == category) {
+                    lore.add(ChatColor.GREEN + "▶ Currently Selected");
+                    // Add enchantment glow effect for selected category
+                    meta.addEnchant(org.bukkit.enchantments.Enchantment.DURABILITY, 1, true);
+                    meta.addItemFlags(org.bukkit.inventory.ItemFlag.HIDE_ENCHANTS);
+                } else {
+                    lore.add(ChatColor.YELLOW + "Click to view items!");
+                }
+
+                meta.setLore(lore);
+                categoryItem.setItemMeta(meta);
+            }
+
+            final Category cat = category;
+            MenuItem categoryMenuItem = new MenuItem(categoryItem)
+                    .setClickHandler((p, s) -> {
+                        if (isClickCooldownExpired(s)) {
+                            updateClickCooldown(s);
+                            if (currentCategory != cat) {
+                                currentCategory = cat;
+                                p.playSound(p.getLocation(), Sound.UI_BUTTON_CLICK, 0.5f, 1.0f);
+                                initializeCategoryMenu();
+                            }
+                        }
+                    });
+
+            setItem(CATEGORY_SLOTS[index], categoryMenuItem);
+            index++;
         }
-        setItem(4, protectionHeader);
     }
 
     /**
-     * Populate orbs and pouches sections (original items, clean layout)
+     * Display items based on selected category
      */
-    private void populateOrbsAndPouches() {
+    private void displayCategoryItems() {
+        // Clear display area first
+        for (int slot : DISPLAY_SLOTS) {
+            setItem(slot, (MenuItem) null);
+        }
+
+        // Add header for current category
+        ItemStack header = new ItemStack(currentCategory.icon);
+        ItemMeta meta = header.getItemMeta();
+        if (meta != null) {
+            meta.setDisplayName(currentCategory.color + "" + ChatColor.BOLD + currentCategory.name);
+            meta.setLore(Arrays.asList(
+                    ChatColor.GRAY + "Browse available " + currentCategory.name.toLowerCase()
+            ));
+            header.setItemMeta(meta);
+        }
+        setItem(4, header);
+
+        // Display items based on category
+        switch (currentCategory) {
+            case ORBS:
+                displayOrbs();
+                break;
+            case POUCHES:
+                displayPouches();
+                break;
+            case PROTECTION:
+                displayProtectionScrolls();
+                break;
+            case WEAPON:
+                displayWeaponScrolls();
+                break;
+            case ARMOR:
+                displayArmorScrolls();
+                break;
+        }
+    }
+
+    /**
+     * Display orb items
+     */
+    private void displayOrbs() {
         try {
-            // Orbs (keeping original creation logic)
+            // Normal Orb
             ItemStack normalOrb = orbManager.createNormalOrb(true);
+            int normalOrbPrice = calculateDynamicPrice(NORMAL_ORB_BASE_PRICE, "normal_orb");
+            addShopItem(DISPLAY_SLOTS[0], normalOrb, normalOrbPrice, "A magical orb that randomizes item statistics");
+
+            // Legendary Orb
             ItemStack legendaryOrb = orbManager.createLegendaryOrb(true);
+            int legendaryOrbPrice = calculateDynamicPrice(LEGENDARY_ORB_BASE_PRICE, "legendary_orb");
+            addShopItem(DISPLAY_SLOTS[1], legendaryOrb, legendaryOrbPrice, "A legendary orb that guarantees high-tier results");
 
-            // Apply pricing
-            normalOrb = VendorUtils.addPriceToItem(normalOrb, calculateDynamicPrice(NORMAL_ORB_BASE_PRICE, "normal_orb"));
-            legendaryOrb = VendorUtils.addPriceToItem(legendaryOrb, calculateDynamicPrice(LEGENDARY_ORB_BASE_PRICE, "legendary_orb"));
+            // Add decorative elements or info
+            ItemStack orbInfo = new ItemStack(Material.BOOK);
+            ItemMeta meta = orbInfo.getItemMeta();
+            if (meta != null) {
+                meta.setDisplayName(ChatColor.LIGHT_PURPLE + "Orb Information");
+                meta.setLore(Arrays.asList(
+                        ChatColor.GRAY + "Orbs can be used on items to:",
+                        ChatColor.GRAY + "• Reroll all statistics",
+                        ChatColor.GRAY + "• Change item tier (Normal orb)",
+                        ChatColor.GRAY + "• Guarantee high tier (Legendary)",
+                        "",
+                        ChatColor.YELLOW + "Use wisely!"
+                ));
+                orbInfo.setItemMeta(meta);
+            }
+            setItem(DISPLAY_SLOTS[5], orbInfo);
 
-            addShopItem(ORB_SLOTS[0], normalOrb, "A magical orb that randomizes item statistics");
-            addShopItem(ORB_SLOTS[1], legendaryOrb, "A legendary orb that guarantees high-tier results");
+        } catch (Exception e) {
+            plugin.getLogger().log(Level.WARNING, "Error displaying orbs", e);
+        }
+    }
 
-            // Gem pouches (keeping original creation logic)
-            int maxTier = Math.min(3, (Integer) menuConfig.get("maxTierEnabled")); // Show only first 3 tiers for clean layout
-            for (int tier = 1; tier <= maxTier; tier++) {
+    /**
+     * Display gem pouches
+     */
+    private void displayPouches() {
+        try {
+            int displayIndex = 0;
+            for (int tier = 1; tier <= 3 && displayIndex < DISPLAY_SLOTS.length; tier++) {
                 ItemStack pouch = pouchManager.createGemPouch(tier, true);
                 if (pouch != null) {
-                    addShopItem(POUCH_SLOTS[tier - 1], pouch, "Tier " + tier + " gem pouch - stores up to " + (tier * 1000) + " gems safely");
+                    // Calculate price based on tier
+                    int price = tier * 500; // Base price scaling with tier
+                    addShopItem(DISPLAY_SLOTS[displayIndex], pouch, price,
+                            "Tier " + tier + " gem pouch - stores up to " + (tier * 1000) + " gems safely");
+                    displayIndex++;
                 }
             }
 
+            // Add pouch info
+            ItemStack pouchInfo = new ItemStack(Material.BOOK);
+            ItemMeta meta = pouchInfo.getItemMeta();
+            if (meta != null) {
+                meta.setDisplayName(ChatColor.GREEN + "Pouch Information");
+                meta.setLore(Arrays.asList(
+                        ChatColor.GRAY + "Gem pouches allow you to:",
+                        ChatColor.GRAY + "• Store gems safely",
+                        ChatColor.GRAY + "• Prevent gem loss on death",
+                        ChatColor.GRAY + "• Higher tiers = more capacity",
+                        "",
+                        ChatColor.YELLOW + "Essential for adventurers!"
+                ));
+                pouchInfo.setItemMeta(meta);
+            }
+            setItem(DISPLAY_SLOTS[5], pouchInfo);
+
         } catch (Exception e) {
-            plugin.getLogger().log(Level.WARNING, "Error populating orbs and pouches", e);
+            plugin.getLogger().log(Level.WARNING, "Error displaying pouches", e);
         }
     }
 
     /**
-     * Populate protection scrolls (original items, horizontal layout)
+     * Display divider items
      */
-    private void populateProtectionScrolls() {
+    private void displayDividers() {
+        try {
+            // Basic Divider
+            ItemStack basicDivider = new ItemStack(Material.PAPER);
+            ItemMeta meta = basicDivider.getItemMeta();
+            if (meta != null) {
+                meta.setDisplayName(ChatColor.GOLD + "Basic Divider");
+                meta.setLore(Arrays.asList(
+                        ChatColor.GRAY + "Organize your inventory",
+                        ChatColor.GRAY + "with visual separators"
+                ));
+                basicDivider.setItemMeta(meta);
+            }
+            addShopItem(DISPLAY_SLOTS[0], basicDivider, 50, "A simple divider to organize your inventory");
+
+            // Premium Divider
+            ItemStack premiumDivider = new ItemStack(Material.PAPER);
+            meta = premiumDivider.getItemMeta();
+            if (meta != null) {
+                meta.setDisplayName(ChatColor.GOLD + "" + ChatColor.BOLD + "Premium Divider");
+                meta.setLore(Arrays.asList(
+                        ChatColor.GRAY + "A fancier divider",
+                        ChatColor.GRAY + "for better organization"
+                ));
+                premiumDivider.setItemMeta(meta);
+            }
+            addShopItem(DISPLAY_SLOTS[1], premiumDivider, 150, "A premium divider with style");
+
+            // Divider info
+            ItemStack dividerInfo = new ItemStack(Material.BOOK);
+            meta = dividerInfo.getItemMeta();
+            if (meta != null) {
+                meta.setDisplayName(ChatColor.GOLD + "Divider Information");
+                meta.setLore(Arrays.asList(
+                        ChatColor.GRAY + "Dividers help you:",
+                        ChatColor.GRAY + "• Organize inventory sections",
+                        ChatColor.GRAY + "• Create visual boundaries",
+                        ChatColor.GRAY + "• Keep items separated",
+                        "",
+                        ChatColor.YELLOW + "Perfect for neat inventories!"
+                ));
+                dividerInfo.setItemMeta(meta);
+            }
+            setItem(DISPLAY_SLOTS[5], dividerInfo);
+
+        } catch (Exception e) {
+            plugin.getLogger().log(Level.WARNING, "Error displaying dividers", e);
+        }
+    }
+
+    /**
+     * Display protection scrolls
+     */
+    private void displayProtectionScrolls() {
         try {
             int maxTier = Math.min(6, (Integer) menuConfig.get("maxTierEnabled"));
+            int displayIndex = 0;
 
-            for (int tier = 0; tier <= maxTier && tier < PROTECTION_SLOTS.length; tier++) {
+            for (int tier = 0; tier <= maxTier && displayIndex < DISPLAY_SLOTS.length; tier++) {
                 ItemStack scroll = scrollManager.createProtectionScroll(tier);
                 if (scroll != null) {
                     int price = calculateProtectionScrollPrice(tier);
-                    scroll = VendorUtils.addPriceToItem(scroll, price);
 
                     String description = tier == 0 ?
                             "Basic protection against enchanting failures" :
                             "Tier " + tier + " protection - prevents item destruction";
 
-                    addShopItem(PROTECTION_SLOTS[tier], scroll, description);
+                    addShopItem(DISPLAY_SLOTS[displayIndex], scroll, price, description);
+                    displayIndex++;
                 }
             }
+
         } catch (Exception e) {
-            plugin.getLogger().log(Level.WARNING, "Error populating protection scrolls", e);
+            plugin.getLogger().log(Level.WARNING, "Error displaying protection scrolls", e);
         }
     }
 
     /**
-     * Populate weapon enchants (original items, horizontal layout)
+     * Display weapon enhancement scrolls
      */
-    private void populateWeaponEnchants() {
+    private void displayWeaponScrolls() {
         try {
             int maxTier = Math.min(6, (Integer) menuConfig.get("maxTierEnabled"));
+            int displayIndex = 0;
 
-            for (int tier = 1; tier <= maxTier && tier <= WEAPON_SLOTS.length; tier++) {
+            for (int tier = 1; tier <= maxTier && displayIndex < DISPLAY_SLOTS.length; tier++) {
                 ItemStack scroll = scrollManager.createWeaponEnhancementScroll(tier);
                 if (scroll != null) {
                     int price = calculateWeaponScrollPrice(tier);
-                    scroll = VendorUtils.addPriceToItem(scroll, price);
 
                     String description = "Tier " + tier + " weapon enhancement - increases damage by +" + tier;
 
-                    addShopItem(WEAPON_SLOTS[tier - 1], scroll, description);
+                    addShopItem(DISPLAY_SLOTS[displayIndex], scroll, price, description);
+                    displayIndex++;
                 }
             }
+
         } catch (Exception e) {
-            plugin.getLogger().log(Level.WARNING, "Error populating weapon enchants", e);
+            plugin.getLogger().log(Level.WARNING, "Error displaying weapon scrolls", e);
         }
     }
 
     /**
-     * Populate armor enchants (original items, horizontal layout)
+     * Display armor enhancement scrolls
      */
-    private void populateArmorEnchants() {
+    private void displayArmorScrolls() {
         try {
             int maxTier = Math.min(6, (Integer) menuConfig.get("maxTierEnabled"));
+            int displayIndex = 0;
 
-            for (int tier = 1; tier <= maxTier && tier <= ARMOR_SLOTS.length; tier++) {
+            for (int tier = 1; tier <= maxTier && displayIndex < DISPLAY_SLOTS.length; tier++) {
                 ItemStack scroll = scrollManager.createArmorEnhancementScroll(tier);
                 if (scroll != null) {
                     int price = calculateArmorScrollPrice(tier);
-                    scroll = VendorUtils.addPriceToItem(scroll, price);
 
                     String description = "Tier " + tier + " armor enhancement - increases protection by +" + tier;
 
-                    addShopItem(ARMOR_SLOTS[tier - 1], scroll, description);
+                    addShopItem(DISPLAY_SLOTS[displayIndex], scroll, price, description);
+                    displayIndex++;
                 }
             }
+
         } catch (Exception e) {
-            plugin.getLogger().log(Level.WARNING, "Error populating armor enchants", e);
+            plugin.getLogger().log(Level.WARNING, "Error displaying armor scrolls", e);
         }
     }
 
     /**
-     * Add navigation elements (keeping it simple)
+     * Add navigation elements at the bottom
      */
     private void addNavigationElements() {
-        // Refresh button
+        // Help button
+        ItemStack help = new ItemStack(Material.BOOK);
+        ItemMeta meta = help.getItemMeta();
+        if (meta != null) {
+            meta.setDisplayName(ChatColor.YELLOW + "" + ChatColor.BOLD + "Help");
+            meta.setLore(Arrays.asList(
+                    ChatColor.GRAY + "Click categories on the left",
+                    ChatColor.GRAY + "to browse different items.",
+                    ChatColor.GRAY + "Click items to purchase them!"
+            ));
+            help.setItemMeta(meta);
+        }
+        setItem(49, help);
+
+        // Refresh prices button
         ItemStack refresh = new ItemStack(Material.CLOCK);
-        ItemMeta meta = refresh.getItemMeta();
+        meta = refresh.getItemMeta();
         if (meta != null) {
             meta.setDisplayName(ChatColor.AQUA + "" + ChatColor.BOLD + "Refresh Prices");
             meta.setLore(Arrays.asList(
                     ChatColor.GRAY + "Click to refresh item prices",
-                    ChatColor.GRAY + "Prices update based on market conditions"
+                    ChatColor.GRAY + "Prices update based on market"
             ));
             refresh.setItemMeta(meta);
         }
@@ -335,19 +539,19 @@ public class ItemVendorMenu extends Menu {
                 .setClickHandler((p, s) -> {
                     if (isClickCooldownExpired(s)) {
                         updateClickCooldown(s);
-                        refreshMenu();
+                        initializeCategoryMenu();
                         p.sendMessage(ChatColor.GREEN + "Item prices refreshed!");
                         p.playSound(p.getLocation(), Sound.BLOCK_NOTE_BLOCK_BELL, 1.0f, 1.0f);
                     }
                 });
-        setItem(49, refreshItem);
+        setItem(51, refreshItem);
 
         // Close button
         ItemStack close = new ItemStack(Material.BARRIER);
         meta = close.getItemMeta();
         if (meta != null) {
             meta.setDisplayName(ChatColor.RED + "" + ChatColor.BOLD + "Close");
-            meta.setLore(Arrays.asList(ChatColor.GRAY + "Close this vendor menu"));
+            meta.setLore(Arrays.asList(ChatColor.GRAY + "Close vendor menu"));
             close.setItemMeta(meta);
         }
 
@@ -357,31 +561,62 @@ public class ItemVendorMenu extends Menu {
     }
 
     /**
-     * Enhanced shop item addition with detailed information (keeping original logic)
+     * Check if armor scrolls are available
      */
-    private void addShopItem(int slot, ItemStack itemStack, String description) {
+    private boolean hasArmorScrollsAvailable() {
+        // Check if any armor scrolls can be created
+        for (int tier = 1; tier <= 6; tier++) {
+            ItemStack scroll = scrollManager.createArmorEnhancementScroll(tier);
+            if (scroll != null) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Enhanced shop item addition with unified vendor lore management
+     */
+    private void addShopItem(int slot, ItemStack itemStack, int price, String description) {
         if (itemStack == null || slot < 0 || slot >= inventory.getSize()) {
             return;
         }
 
         try {
-            // Enhanced item meta with description (original logic preserved)
-            if ((Boolean) menuConfig.get("enableItemDescriptions") && description != null) {
-                ItemMeta meta = itemStack.getItemMeta();
-                if (meta != null) {
-                    List<String> lore = meta.hasLore() ? new ArrayList<>(meta.getLore()) : new ArrayList<>();
+            // Create a clean copy of the item first (removes any existing vendor lore)
+            ItemStack cleanItem = VendorUtils.createCleanItemCopy(itemStack);
+
+            // Create comprehensive vendor lore in one place
+            ItemMeta meta = cleanItem.getItemMeta();
+            if (meta != null) {
+                List<String> lore = meta.hasLore() ? new ArrayList<>(meta.getLore()) : new ArrayList<>();
+
+                // Add description section if enabled and description provided
+                if ((Boolean) menuConfig.get("enableItemDescriptions") && description != null) {
                     lore.add("");
                     lore.add(ChatColor.YELLOW + "Description:");
                     lore.add(ChatColor.GRAY + description);
-                    lore.add("");
-                    lore.add(ChatColor.GREEN + "Click to purchase!");
-                    meta.setLore(lore);
-                    itemStack.setItemMeta(meta);
                 }
+
+                // Add vendor section with proper formatting
+                lore.add("");
+                lore.add(ChatColor.GRAY + "▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬");
+                lore.add(ChatColor.GREEN + "Price: " + ChatColor.WHITE + VendorUtils.formatNumber(price) + "g");
+                lore.add(ChatColor.GREEN + "⚡ Click to purchase!");
+
+                // Add quick buy hint if enabled
+                if ((Boolean) menuConfig.get("enableQuickBuy")) {
+                    lore.add(ChatColor.GRAY + "⚡ Shift-click for quick buy");
+                }
+
+                lore.add(ChatColor.GRAY + "▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬");
+
+                meta.setLore(lore);
+                cleanItem.setItemMeta(meta);
             }
 
-            MenuItem menuItem = new MenuItem(itemStack)
-                    .setClickHandler((p, s) -> handleItemPurchase(p, s, itemStack));
+            MenuItem menuItem = new MenuItem(cleanItem)
+                    .setClickHandler((p, s) -> handleItemPurchase(p, s, cleanItem));
 
             setItem(slot, menuItem);
 
@@ -391,7 +626,7 @@ public class ItemVendorMenu extends Menu {
     }
 
     /**
-     * Enhanced item purchase handling (keeping original logic)
+     * Enhanced item purchase handling
      */
     private void handleItemPurchase(Player player, int slot, ItemStack item) {
         try {
@@ -405,7 +640,7 @@ public class ItemVendorMenu extends Menu {
                 return;
             }
 
-            int price = PurchaseManager.getPriceFromLore(item);
+            int price = VendorUtils.extractPriceFromLore(item);
             if (price <= 0) {
                 player.sendMessage(ChatColor.RED + "This item is not available for purchase.");
                 return;
@@ -418,7 +653,10 @@ public class ItemVendorMenu extends Menu {
                     VendorUtils.formatVendorTypeName(item.getType().name());
 
             player.sendMessage(ChatColor.GREEN + "Initiating purchase for " + itemName + "...");
-            purchaseManager.startPurchase(player, item, price);
+
+            // Create a clean item copy for the purchase manager
+            ItemStack cleanItemForPurchase = VendorUtils.createCleanItemCopy(item);
+            purchaseManager.startPurchase(player, cleanItemForPurchase, price);
             player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_PLING, 1.0f, 1.0f);
 
         } catch (Exception e) {
@@ -476,12 +714,11 @@ public class ItemVendorMenu extends Menu {
     }
 
     /**
-     * Fallback basic menu initialization (keeping original)
+     * Fallback basic menu initialization
      */
     private void initializeBasicMenu() {
-        setItem(4, createErrorNotice());
-        setItem(22, VendorUtils.createSeparator(Material.BARRIER, ChatColor.RED + "Menu Error - Basic Mode"));
-        setItem(53, createCloseButton());
+        setItem(22, createErrorNotice());
+        setItem(49, createCloseButton());
     }
 
     private ItemStack createErrorNotice() {
@@ -508,26 +745,5 @@ public class ItemVendorMenu extends Menu {
             item.setItemMeta(meta);
         }
         return item;
-    }
-
-    /**
-     * Refresh menu with updated prices (keeping original logic)
-     */
-    private void refreshMenu() {
-        new BukkitRunnable() {
-            @Override
-            public void run() {
-                try {
-                    for (int i = 0; i < inventory.getSize(); i++) {
-                        if (getItem(i) != null) {
-                            setItem(i, (MenuItem) null);
-                        }
-                    }
-                    initializeCleanMenu();
-                } catch (Exception e) {
-                    plugin.getLogger().log(Level.WARNING, "Error refreshing vendor menu", e);
-                }
-            }
-        }.runTask(plugin);
     }
 }

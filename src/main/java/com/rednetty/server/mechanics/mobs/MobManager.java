@@ -14,26 +14,28 @@ import org.bukkit.entity.*;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
-import org.bukkit.event.entity.CreatureSpawnEvent;
-import org.bukkit.event.entity.EntityDamageByEntityEvent;
-import org.bukkit.event.entity.EntityDeathEvent;
+import org.bukkit.event.entity.*;
 import org.bukkit.metadata.FixedMetadataValue;
+import org.bukkit.potion.PotionEffect;
+import org.bukkit.potion.PotionEffectType;
 import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.scheduler.BukkitTask;
+import org.bukkit.util.Vector;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.logging.Logger;
 
 /**
- * FIXED: MobManager with comprehensive elite mob support and enhanced spawning
- * - Fixed entity creation validation with proper elite support
- * - Enhanced mob type validation with elite-specific handling
- * - Improved spawning reliability for all mob types including T5 elites
- * - Added comprehensive logging for debugging spawn failures
- * - CRITICAL: All entity operations now happen on MAIN THREAD ONLY
- * - Fixed chunk loading requirements and spawn location validation
+ * FIXED: MobManager with comprehensive cleanup system for proper shutdown/startup handling
+ * - Enhanced entity cleanup on shutdown - removes ALL custom mobs from worlds
+ * - Startup cleanup - removes orphaned entities before starting
+ * - Better coordination with CritManager for cleanup
+ * - Systematic world scanning for custom entities
+ * - Robust entity removal that ensures entities are deleted from world
+ * - All original functionality preserved
  */
 public class MobManager implements Listener {
 
@@ -43,6 +45,13 @@ public class MobManager implements Listener {
     private static final double MAX_WANDERING_DISTANCE = 25.0;
     private static final long POSITION_CHECK_INTERVAL = 100L; // 5 seconds
     private static final long NAME_VISIBILITY_TIMEOUT = 6500L; // 6.5 seconds
+
+    // ================ CLEANUP CONSTANTS ================
+    private static final String[] CUSTOM_MOB_METADATA_KEYS = {
+            "type", "tier", "customTier", "elite", "customName", "dropTier", "dropElite",
+            "worldboss", "spawner", "spawnerGroup", "LightningMultiplier", "LightningMob",
+            "criticalState", "eliteOnly"
+    };
 
     // ================ SINGLETON ================
     private static volatile MobManager instance;
@@ -80,6 +89,10 @@ public class MobManager implements Listener {
     private volatile int maxMobsPerSpawner = 10;
     private volatile double playerDetectionRange = 40.0;
     private volatile double mobRespawnDistanceCheck = 25.0;
+
+    // ================ CLEANUP STATE ================
+    private volatile boolean isShuttingDown = false;
+    private volatile boolean cleanupCompleted = false;
 
     // ================ TASKS ================
     private BukkitTask mainTask;
@@ -252,8 +265,18 @@ public class MobManager implements Listener {
         mobRespawnDistanceCheck = Math.max(5.0, Math.min(50.0, mobRespawnDistanceCheck));
     }
 
+    // ================ ENHANCED INITIALIZATION WITH CLEANUP ================
+
+    /**
+     * FIXED: Enhanced initialization with startup cleanup to remove orphaned entities
+     */
     public void initialize() {
         try {
+            logger.info("§6[MobManager] §7Starting initialization with cleanup...");
+
+            // CRITICAL: Clean up any orphaned custom mobs from previous sessions
+            performStartupCleanup();
+
             // Initialize CritManager first
             CritManager.initialize(plugin);
 
@@ -273,6 +296,410 @@ public class MobManager implements Listener {
         }
     }
 
+    // ================ STARTUP CLEANUP SYSTEM ================
+
+    /**
+     * FIXED: Comprehensive startup cleanup to remove orphaned custom mobs
+     */
+    private void performStartupCleanup() {
+        try {
+            logger.info("§6[MobManager] §7Performing startup cleanup of orphaned custom mobs...");
+
+            int totalFound = 0;
+            int totalRemoved = 0;
+
+            // Clean up all loaded worlds
+            for (World world : Bukkit.getWorlds()) {
+                try {
+                    CleanupResult result = cleanupWorldCustomMobs(world, true);
+                    totalFound += result.entitiesFound;
+                    totalRemoved += result.entitiesRemoved;
+
+                    if (result.entitiesFound > 0) {
+                        logger.info("§6[MobManager] §7World " + world.getName() + ": found " +
+                                result.entitiesFound + ", removed " + result.entitiesRemoved);
+                    }
+                } catch (Exception e) {
+                    logger.warning("§c[MobManager] Error cleaning world " + world.getName() + ": " + e.getMessage());
+                }
+            }
+
+            if (totalFound > 0) {
+                logger.info("§a[MobManager] §7Startup cleanup complete: removed " + totalRemoved +
+                        "/" + totalFound + " orphaned custom mobs");
+            } else {
+                logger.info("§a[MobManager] §7Startup cleanup complete: no orphaned mobs found");
+            }
+
+            // Give server a moment to process removals
+            try {
+                Thread.sleep(100);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+
+        } catch (Exception e) {
+            logger.severe("§c[MobManager] Startup cleanup failed: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+
+    // ================ COMPREHENSIVE CLEANUP SYSTEM ================
+
+    /**
+     * Result of a cleanup operation
+     */
+    private static class CleanupResult {
+        final int entitiesFound;
+        final int entitiesRemoved;
+
+        CleanupResult(int found, int removed) {
+            this.entitiesFound = found;
+            this.entitiesRemoved = removed;
+        }
+    }
+
+    /**
+     * FIXED: Clean up custom mobs in a specific world
+     */
+    private CleanupResult cleanupWorldCustomMobs(World world, boolean isStartupCleanup) {
+        if (world == null) {
+            return new CleanupResult(0, 0);
+        }
+
+        try {
+            int found = 0;
+            int removed = 0;
+
+            // Get all living entities in the world
+            Collection<LivingEntity> entities = world.getLivingEntities();
+
+            for (LivingEntity entity : entities) {
+                try {
+                    if (entity instanceof Player) {
+                        continue; // Never remove players
+                    }
+
+                    if (isCustomMobEntity(entity)) {
+                        found++;
+
+                        // During startup cleanup, remove all custom mobs
+                        // During shutdown cleanup, remove tracked mobs
+                        if (isStartupCleanup || isTrackedCustomMob(entity)) {
+                            if (removeEntitySafely(entity, isStartupCleanup ? "startup-cleanup" : "shutdown-cleanup")) {
+                                removed++;
+                            }
+                        }
+                    }
+                } catch (Exception e) {
+                    logger.warning("§c[MobManager] Error processing entity " + entity.getUniqueId() + ": " + e.getMessage());
+                }
+            }
+
+            return new CleanupResult(found, removed);
+
+        } catch (Exception e) {
+            logger.warning("§c[MobManager] Error cleaning world " + world.getName() + ": " + e.getMessage());
+            return new CleanupResult(0, 0);
+        }
+    }
+
+    /**
+     * FIXED: Check if an entity is a custom mob by examining metadata
+     */
+    private boolean isCustomMobEntity(LivingEntity entity) {
+        if (entity == null) return false;
+
+        try {
+            // Check for any custom mob metadata
+            for (String key : CUSTOM_MOB_METADATA_KEYS) {
+                if (entity.hasMetadata(key)) {
+                    return true;
+                }
+            }
+
+            // Check for custom names that indicate custom mobs
+            if (entity.getCustomName() != null) {
+                String name = entity.getCustomName();
+                if (name.contains("§") || // Has color codes
+                        name.contains("T1") || name.contains("T2") || name.contains("T3") ||
+                        name.contains("T4") || name.contains("T5") || name.contains("T6") ||
+                        name.contains("Elite") || name.contains("Boss")) {
+                    return true;
+                }
+            }
+
+            // Check for equipment that indicates custom mobs
+            if (entity.getEquipment() != null) {
+                if (entity.getEquipment().getItemInMainHand() != null &&
+                        entity.getEquipment().getItemInMainHand().getType() != Material.AIR &&
+                        entity.getEquipment().getItemInMainHandDropChance() == 0) {
+                    return true; // Custom equipment with no drop chance
+                }
+            }
+
+            return false;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /**
+     * Check if entity is tracked by our system
+     */
+    private boolean isTrackedCustomMob(LivingEntity entity) {
+        if (entity == null) return false;
+
+        // Check if it's in our active mobs list
+        return activeMobs.containsKey(entity.getUniqueId());
+    }
+
+    /**
+     * FIXED: Safely remove an entity with comprehensive cleanup
+     */
+    private boolean removeEntitySafely(LivingEntity entity, String reason) {
+        if (entity == null) return false;
+
+        try {
+            UUID entityId = entity.getUniqueId();
+
+            if (debug) {
+                logger.info("§6[MobManager] §7Removing entity " + entityId.toString().substring(0, 8) +
+                        " (" + entity.getType() + ") - " + reason);
+            }
+
+            // 1. Remove from CritManager first
+            if (CritManager.getInstance() != null) {
+                CritManager.getInstance().removeCrit(entityId);
+            }
+
+            // 2. Remove from our tracking systems
+            removeFromAllTrackingSystems(entityId);
+
+            // 3. Clear all custom metadata
+            clearEntityMetadata(entity);
+
+            // 4. Remove effects and reset entity state
+            clearEntityEffects(entity);
+
+            // 5. Actually remove the entity from the world
+            entity.remove();
+
+            // 6. Verify removal (delayed check)
+            if (!isShuttingDown) {
+                Bukkit.getScheduler().runTaskLater(plugin, () -> {
+                    try {
+                        if (entity.isValid() && !entity.isDead()) {
+                            if (debug) {
+                                logger.warning("§c[MobManager] Entity " + entityId.toString().substring(0, 8) +
+                                        " survived removal, force removing...");
+                            }
+                            entity.setHealth(0);
+                            entity.remove();
+                        }
+                    } catch (Exception e) {
+                        // Silent fail for verification
+                    }
+                }, 5L);
+            }
+
+            return true;
+
+        } catch (Exception e) {
+            logger.warning("§c[MobManager] Error removing entity: " + e.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Remove entity from all tracking systems
+     */
+    private void removeFromAllTrackingSystems(UUID entityId) {
+        try {
+            // Remove from active mobs
+            mobLock.writeLock().lock();
+            try {
+                activeMobs.remove(entityId);
+            } finally {
+                mobLock.writeLock().unlock();
+            }
+
+            // Remove from damage tracking
+            damageContributions.remove(entityId);
+
+            // Remove from spawner location tracking
+            mobSpawnerLocations.remove(entityId);
+            entityToSpawner.remove(entityId.toString());
+
+            // Remove from processed entities
+            processedEntities.remove(entityId);
+
+        } catch (Exception e) {
+            logger.warning("§c[MobManager] Error removing from tracking systems: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Clear all custom metadata from entity
+     */
+    private void clearEntityMetadata(LivingEntity entity) {
+        try {
+            for (String key : CUSTOM_MOB_METADATA_KEYS) {
+                if (entity.hasMetadata(key)) {
+                    entity.removeMetadata(key, plugin);
+                }
+            }
+        } catch (Exception e) {
+            // Silent fail for metadata cleanup
+        }
+    }
+
+    /**
+     * Clear all effects from entity
+     */
+    private void clearEntityEffects(LivingEntity entity) {
+        try {
+            // Remove all potion effects
+            for (PotionEffect effect : entity.getActivePotionEffects()) {
+                entity.removePotionEffect(effect.getType());
+            }
+
+            // Reset glowing
+            entity.setGlowing(false);
+
+            // Clear equipment drop chances
+            if (entity.getEquipment() != null) {
+                entity.getEquipment().setItemInMainHandDropChance(0.85f);
+                entity.getEquipment().setHelmetDropChance(0.85f);
+                entity.getEquipment().setChestplateDropChance(0.85f);
+                entity.getEquipment().setLeggingsDropChance(0.85f);
+                entity.getEquipment().setBootsDropChance(0.85f);
+            }
+
+        } catch (Exception e) {
+            // Silent fail for effect cleanup
+        }
+    }
+
+    // ================ ENHANCED SHUTDOWN SYSTEM ================
+
+    /**
+     * FIXED: Enhanced shutdown with comprehensive cleanup
+     */
+    public void shutdown() {
+        try {
+            logger.info("§6[MobManager] §7Starting enhanced shutdown with comprehensive cleanup...");
+            isShuttingDown = true;
+
+            // 1. Cancel all tasks first
+            if (mainTask != null) mainTask.cancel();
+            if (cleanupTask != null) cleanupTask.cancel();
+
+            // 2. Comprehensive entity cleanup
+            performShutdownCleanup();
+
+            // 3. Save spawner data
+            try {
+                spawner.saveSpawners();
+            } catch (Exception e) {
+                logger.warning("§c[MobManager] Error saving spawners during shutdown: " + e.getMessage());
+            }
+
+            // 4. Shutdown spawner system
+            try {
+                spawner.shutdown();
+            } catch (Exception e) {
+                logger.warning("§c[MobManager] Error shutting down spawner: " + e.getMessage());
+            }
+
+            // 5. Clean up CritManager
+            try {
+                if (CritManager.getInstance() != null) {
+                    CritManager.getInstance().cleanup();
+                }
+            } catch (Exception e) {
+                logger.warning("§c[MobManager] Error cleaning up CritManager: " + e.getMessage());
+            }
+
+            // 6. Clear all collections
+            clearAllCollections();
+
+            // 7. Reset state
+            activeWorldBoss = null;
+            cleanupCompleted = true;
+
+            logger.info("§a[MobManager] §7Enhanced shutdown completed successfully");
+
+        } catch (Exception e) {
+            logger.severe("§c[MobManager] Enhanced shutdown error: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+
+    /**
+     * FIXED: Comprehensive shutdown cleanup
+     */
+    private void performShutdownCleanup() {
+        try {
+            logger.info("§6[MobManager] §7Performing comprehensive shutdown cleanup...");
+
+            int totalFound = 0;
+            int totalRemoved = 0;
+
+            // First, try to gracefully remove all tracked mobs
+            mobLock.writeLock().lock();
+            try {
+                List<CustomMob> mobsToRemove = new ArrayList<>(activeMobs.values());
+                for (CustomMob mob : mobsToRemove) {
+                    try {
+                        if (mob != null && mob.isValid()) {
+                            mob.remove();
+                            totalRemoved++;
+                        }
+                    } catch (Exception e) {
+                        logger.warning("§c[MobManager] Error removing tracked mob: " + e.getMessage());
+                    }
+                }
+                totalFound += mobsToRemove.size();
+            } finally {
+                mobLock.writeLock().unlock();
+            }
+
+            // Give a moment for graceful removal
+            try {
+                Thread.sleep(100);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+
+            // Then do comprehensive world cleanup for any remaining custom mobs
+            for (World world : Bukkit.getWorlds()) {
+                try {
+                    CleanupResult result = cleanupWorldCustomMobs(world, false);
+                    totalFound += result.entitiesFound;
+                    totalRemoved += result.entitiesRemoved;
+
+                    if (result.entitiesFound > 0) {
+                        logger.info("§6[MobManager] §7World " + world.getName() +
+                                ": found " + result.entitiesFound + " additional entities, removed " + result.entitiesRemoved);
+                    }
+                } catch (Exception e) {
+                    logger.warning("§c[MobManager] Error cleaning world " + world.getName() +
+                            " during shutdown: " + e.getMessage());
+                }
+            }
+
+            logger.info("§a[MobManager] §7Shutdown cleanup complete: removed " + totalRemoved +
+                    "/" + totalFound + " custom mobs");
+
+        } catch (Exception e) {
+            logger.severe("§c[MobManager] Shutdown cleanup failed: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+
+    // ================ ENHANCED TASKS ================
+
     /**
      * FIXED: Start essential tasks with proper thread safety
      * ALL entity operations must happen on the main thread
@@ -286,12 +713,16 @@ public class MobManager implements Listener {
             public void run() {
                 // This ALWAYS runs on the main thread
                 try {
-                    updateActiveMobs();
-                    checkMobPositions();
-                    validateEntityTracking();
+                    if (!isShuttingDown) {
+                        updateActiveMobs();
+                        checkMobPositions();
+                        validateEntityTracking();
+                    }
                 } catch (Exception e) {
-                    logger.warning("§c[MobManager] Main task error: " + e.getMessage());
-                    if (debug) e.printStackTrace();
+                    if (!isShuttingDown) {
+                        logger.warning("§c[MobManager] Main task error: " + e.getMessage());
+                        if (debug) e.printStackTrace();
+                    }
                 }
             }
         }.runTaskTimer(plugin, 20L, 20L); // Every second - SYNC task
@@ -302,9 +733,13 @@ public class MobManager implements Listener {
             public void run() {
                 // This ALWAYS runs on the main thread
                 try {
-                    performCleanup();
+                    if (!isShuttingDown) {
+                        performCleanup();
+                    }
                 } catch (Exception e) {
-                    logger.warning("§c[MobManager] Cleanup task error: " + e.getMessage());
+                    if (!isShuttingDown) {
+                        logger.warning("§c[MobManager] Cleanup task error: " + e.getMessage());
+                    }
                 }
             }
         }.runTaskTimer(plugin, 1200L, 1200L); // Every minute - SYNC task
@@ -327,6 +762,11 @@ public class MobManager implements Listener {
             Bukkit.getScheduler().runTask(plugin, () -> {
                 spawnMobFromSpawner(location, type, tier, elite);
             });
+            return null;
+        }
+
+        // Don't spawn during shutdown
+        if (isShuttingDown) {
             return null;
         }
 
@@ -905,37 +1345,64 @@ public class MobManager implements Listener {
 
         // Manual mapping for common types
         switch (type.toLowerCase()) {
-            case "witherskeleton": return "Wither Skeleton";
-            case "cavespider": return "Cave Spider";
-            case "magmacube": return "Magma Cube";
-            case "zombifiedpiglin": return "Zombified Piglin";
-            case "elderguardian": return "Elder Guardian";
-            case "irongolem": return "Iron Golem";
-            case "frozenboss": return "Frozen Boss";
-            case "frozenelite": return "Frozen Elite";
-            case "frozengolem": return "Frozen Golem";
-            case "bossskeleton": return "Boss Skeleton";
+            case "witherskeleton":
+                return "Wither Skeleton";
+            case "cavespider":
+                return "Cave Spider";
+            case "magmacube":
+                return "Magma Cube";
+            case "zombifiedpiglin":
+                return "Zombified Piglin";
+            case "elderguardian":
+                return "Elder Guardian";
+            case "irongolem":
+                return "Iron Golem";
+            case "frozenboss":
+                return "Frozen Boss";
+            case "frozenelite":
+                return "Frozen Elite";
+            case "frozengolem":
+                return "Frozen Golem";
+            case "bossskeleton":
+                return "Boss Skeleton";
 
             // T5 Elite names
-            case "meridian": return "Meridian";
-            case "pyrion": return "Pyrion";
-            case "rimeclaw": return "Rimeclaw";
-            case "thalassa": return "Thalassa";
-            case "nethys": return "Nethys";
+            case "meridian":
+                return "Meridian";
+            case "pyrion":
+                return "Pyrion";
+            case "rimeclaw":
+                return "Rimeclaw";
+            case "thalassa":
+                return "Thalassa";
+            case "nethys":
+                return "Nethys";
 
             // Other elite names
-            case "malachar": return "Malachar";
-            case "xerathen": return "Xerathen";
-            case "veridiana": return "Veridiana";
-            case "thorgrim": return "Thorgrim";
-            case "lysander": return "Lysander";
-            case "morgana": return "Morgana";
-            case "cornelius": return "Cornelius";
-            case "valdris": return "Valdris";
-            case "seraphina": return "Seraphina";
-            case "arachnia": return "Arachnia";
-            case "karnath": return "Karnath";
-            case "zephyr": return "Zephyr";
+            case "malachar":
+                return "Malachar";
+            case "xerathen":
+                return "Xerathen";
+            case "veridiana":
+                return "Veridiana";
+            case "thorgrim":
+                return "Thorgrim";
+            case "lysander":
+                return "Lysander";
+            case "morgana":
+                return "Morgana";
+            case "cornelius":
+                return "Cornelius";
+            case "valdris":
+                return "Valdris";
+            case "seraphina":
+                return "Seraphina";
+            case "arachnia":
+                return "Arachnia";
+            case "karnath":
+                return "Karnath";
+            case "zephyr":
+                return "Zephyr";
 
             default:
                 return type.substring(0, 1).toUpperCase() + type.substring(1).toLowerCase();
@@ -952,13 +1419,26 @@ public class MobManager implements Listener {
             // Create basic weapon based on tier
             Material weaponMaterial;
             switch (tier) {
-                case 1: weaponMaterial = Material.WOODEN_SWORD; break;
-                case 2: weaponMaterial = Material.STONE_SWORD; break;
-                case 3: weaponMaterial = Material.IRON_SWORD; break;
-                case 4: weaponMaterial = Material.DIAMOND_SWORD; break;
-                case 5: weaponMaterial = Material.GOLDEN_SWORD; break;
-                case 6: weaponMaterial = Material.DIAMOND_SWORD; break;
-                default: weaponMaterial = Material.WOODEN_SWORD;
+                case 1:
+                    weaponMaterial = Material.WOODEN_SWORD;
+                    break;
+                case 2:
+                    weaponMaterial = Material.STONE_SWORD;
+                    break;
+                case 3:
+                    weaponMaterial = Material.IRON_SWORD;
+                    break;
+                case 4:
+                    weaponMaterial = Material.DIAMOND_SWORD;
+                    break;
+                case 5:
+                    weaponMaterial = Material.GOLDEN_SWORD;
+                    break;
+                case 6:
+                    weaponMaterial = Material.DIAMOND_SWORD;
+                    break;
+                default:
+                    weaponMaterial = Material.WOODEN_SWORD;
             }
 
             entity.getEquipment().setItemInMainHand(new org.bukkit.inventory.ItemStack(weaponMaterial));
@@ -1935,19 +2415,35 @@ public class MobManager implements Listener {
 
     // ================ CONFIGURATION GETTERS ================
 
-    public boolean isDebugMode() { return debug; }
+    public boolean isDebugMode() {
+        return debug;
+    }
+
     public void setDebugMode(boolean debug) {
         this.debug = debug;
         spawner.setDebugMode(debug);
     }
-    public int getMaxMobsPerSpawner() { return maxMobsPerSpawner; }
-    public double getPlayerDetectionRange() { return playerDetectionRange; }
-    public double getMobRespawnDistanceCheck() { return mobRespawnDistanceCheck; }
+
+    public int getMaxMobsPerSpawner() {
+        return maxMobsPerSpawner;
+    }
+
+    public double getPlayerDetectionRange() {
+        return playerDetectionRange;
+    }
+
+    public double getMobRespawnDistanceCheck() {
+        return mobRespawnDistanceCheck;
+    }
+
     public void setSpawnersEnabled(boolean enabled) {
         spawnersEnabled = enabled;
         spawner.setSpawnersEnabled(enabled);
     }
-    public boolean areSpawnersEnabled() { return spawnersEnabled; }
+
+    public boolean areSpawnersEnabled() {
+        return spawnersEnabled;
+    }
 
     // ================ DIAGNOSTIC METHODS ================
 
@@ -1985,34 +2481,429 @@ public class MobManager implements Listener {
         return info.toString();
     }
 
-    // ================ SHUTDOWN ================
+    /**
+     * Get cleanup status for debugging
+     */
+    public String getCleanupStatus() {
+        return String.format("Cleanup Status: shutting_down=%s, cleanup_completed=%s, active_mobs=%d",
+                isShuttingDown, cleanupCompleted, activeMobs.size());
+    }
 
-    public void shutdown() {
+    // ================ ENHANCED PROTECTION EVENT HANDLERS ================
+
+    /**
+     * CRITICAL FIX: Prevent custom mobs from burning in sunlight
+     */
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onEntityCombust(EntityCombustEvent event) {
         try {
-            spawner.saveSpawners();
+            if (!(event.getEntity() instanceof LivingEntity entity)) {
+                return;
+            }
 
-            if (mainTask != null) mainTask.cancel();
-            if (cleanupTask != null) cleanupTask.cancel();
+            // Check if this is a custom mob
+            if (entity.hasMetadata("type") || isCustomMobEntity(entity)) {
+                // Cancel all combustion for custom mobs
+                event.setCancelled(true);
 
-            spawner.shutdown();
+                // Also extinguish them if they're already burning
+                entity.setFireTicks(0);
 
+                if (debug) {
+                    logger.info("§6[MobManager] §7Prevented custom mob " +
+                            entity.getType() + " from burning (sunlight protection)");
+                }
+            }
+        } catch (Exception e) {
+            logger.warning("§c[MobManager] Error in sunlight protection: " + e.getMessage());
+        }
+    }
+
+    /**
+     * CRITICAL FIX: Prevent custom mobs from taking fire damage (additional protection)
+     */
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    public void onCustomMobFireDamage(EntityDamageEvent event) {
+        try {
+            if (!(event.getEntity() instanceof LivingEntity entity)) {
+                return;
+            }
+
+            // Only handle fire-related damage
+            if (event.getCause() != EntityDamageEvent.DamageCause.FIRE &&
+                    event.getCause() != EntityDamageEvent.DamageCause.FIRE_TICK &&
+                    event.getCause() != EntityDamageEvent.DamageCause.LAVA) {
+                return;
+            }
+
+            // Check if this is a custom mob
+            if (entity.hasMetadata("type") || isCustomMobEntity(entity)) {
+                // Cancel fire damage for custom mobs
+                event.setCancelled(true);
+
+                // Ensure they're not on fire
+                entity.setFireTicks(0);
+
+                if (debug) {
+                    logger.info("§6[MobManager] §7Prevented fire damage to custom mob " +
+                            entity.getType() + " (damage cause: " + event.getCause() + ")");
+                }
+            }
+        } catch (Exception e) {
+            logger.warning("§c[MobManager] Error in fire damage protection: " + e.getMessage());
+        }
+    }
+
+    /**
+     * CRITICAL FIX: Ensure custom mob equipment integrity during combat
+     */
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onCustomMobEquipmentCheck(EntityDamageByEntityEvent event) {
+        try {
+            if (!(event.getEntity() instanceof LivingEntity entity) || event.getEntity() instanceof Player) {
+                return;
+            }
+
+            // Check if this is a custom mob
+            if (entity.hasMetadata("type") || isCustomMobEntity(entity)) {
+                // Schedule equipment validation for next tick to ensure integrity
+                Bukkit.getScheduler().runTask(plugin, () -> {
+                    try {
+                        validateMobEquipmentIntegrity(entity);
+                    } catch (Exception e) {
+                        // Silent fail for equipment validation
+                    }
+                });
+            }
+        } catch (Exception e) {
+            // Silent fail for equipment monitoring
+        }
+    }
+
+    /**
+     * Validate and fix mob equipment integrity
+     */
+    private void validateMobEquipmentIntegrity(LivingEntity entity) {
+        if (entity == null || !entity.isValid() || entity.getEquipment() == null) {
+            return;
+        }
+
+        try {
+            // Check weapon
+            org.bukkit.inventory.ItemStack weapon = entity.getEquipment().getItemInMainHand();
+            if (weapon != null && weapon.getType() != Material.AIR) {
+                ensureItemUnbreakable(weapon);
+            }
+
+            // Check armor pieces
+            org.bukkit.inventory.ItemStack[] armor = {
+                    entity.getEquipment().getHelmet(),
+                    entity.getEquipment().getChestplate(),
+                    entity.getEquipment().getLeggings(),
+                    entity.getEquipment().getBoots()
+            };
+
+            for (org.bukkit.inventory.ItemStack piece : armor) {
+                if (piece != null && piece.getType() != Material.AIR) {
+                    ensureItemUnbreakable(piece);
+                }
+            }
+
+        } catch (Exception e) {
+            if (debug) {
+                logger.warning("§c[MobManager] Equipment validation error: " + e.getMessage());
+            }
+        }
+    }
+
+    /**
+     * Ensure an item is unbreakable
+     */
+    private void ensureItemUnbreakable(org.bukkit.inventory.ItemStack item) {
+        if (item == null || item.getType() == Material.AIR) {
+            return;
+        }
+
+        try {
+            org.bukkit.inventory.meta.ItemMeta meta = item.getItemMeta();
+            if (meta != null && !meta.isUnbreakable()) {
+                meta.setUnbreakable(true);
+                item.setItemMeta(meta);
+            }
+        } catch (Exception e) {
+            // Silent fail
+        }
+    }
+
+    /**
+     * ENHANCED: Enhanced custom mob validation during cleanup
+     */
+    private boolean isCustomMobEntityEnhanced(LivingEntity entity) {
+        if (entity == null) return false;
+
+        try {
+            // Check for any custom mob metadata
+            for (String key : CUSTOM_MOB_METADATA_KEYS) {
+                if (entity.hasMetadata(key)) {
+                    return true;
+                }
+            }
+
+            // Check for custom names that indicate custom mobs
+            if (entity.getCustomName() != null) {
+                String name = entity.getCustomName();
+                if (name.contains("§") || // Has color codes
+                        name.contains("T1") || name.contains("T2") || name.contains("T3") ||
+                        name.contains("T4") || name.contains("T5") || name.contains("T6") ||
+                        name.contains("Elite") || name.contains("Boss")) {
+                    return true;
+                }
+            }
+
+            // Check for equipment with no drop chance (indicates custom mob)
+            if (entity.getEquipment() != null) {
+                org.bukkit.inventory.ItemStack weapon = entity.getEquipment().getItemInMainHand();
+                if (weapon != null && weapon.getType() != Material.AIR) {
+                    if (entity.getEquipment().getItemInMainHandDropChance() == 0) {
+                        return true; // Custom equipment with no drop chance
+                    }
+
+                    // Check if weapon is unbreakable (indicates custom mob)
+                    if (weapon.hasItemMeta() && weapon.getItemMeta().isUnbreakable()) {
+                        return true;
+                    }
+                }
+            }
+
+            // Check for fire resistance (all custom mobs have this)
+            if (entity.hasPotionEffect(PotionEffectType.FIRE_RESISTANCE)) {
+                return true;
+            }
+
+            return false;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /**
+     * ENHANCED: Periodic protection maintenance task
+     */
+    private void startProtectionMaintenanceTask() {
+        try {
+            // Run protection maintenance every 30 seconds
+            new BukkitRunnable() {
+                @Override
+                public void run() {
+                    if (isShuttingDown) {
+                        this.cancel();
+                        return;
+                    }
+
+                    try {
+                        performProtectionMaintenance();
+                    } catch (Exception e) {
+                        if (debug) {
+                            logger.warning("§c[MobManager] Protection maintenance error: " + e.getMessage());
+                        }
+                    }
+                }
+            }.runTaskTimer(plugin, 600L, 600L); // Every 30 seconds
+
+        } catch (Exception e) {
+            logger.warning("§c[MobManager] Failed to start protection maintenance task: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Perform periodic protection maintenance
+     */
+    private void performProtectionMaintenance() {
+        try {
+            int protectedCount = 0;
+            int extinguishedCount = 0;
+
+            // Check all active custom mobs
             mobLock.readLock().lock();
+            List<CustomMob> mobsToCheck;
             try {
-                activeMobs.values().forEach(CustomMob::remove);
+                mobsToCheck = new ArrayList<>(activeMobs.values());
             } finally {
                 mobLock.readLock().unlock();
             }
 
-            // Clean up CritManager
-            CritManager.getInstance().cleanup();
+            for (CustomMob mob : mobsToCheck) {
+                if (mob != null && mob.isValid()) {
+                    LivingEntity entity = mob.getEntity();
 
-            clearAllCollections();
-            activeWorldBoss = null;
+                    // Ensure fire protection
+                    if (entity.getFireTicks() > 0) {
+                        entity.setFireTicks(0);
+                        extinguishedCount++;
+                    }
 
-            logger.info("§a[MobManager] §7Shutdown completed successfully");
+                    // Validate equipment integrity
+                    validateMobEquipmentIntegrity(entity);
+                    protectedCount++;
+                }
+            }
+
+            if (debug && (protectedCount > 0 || extinguishedCount > 0)) {
+                logger.info(String.format("§a[MobManager] §7Protection maintenance: %d mobs protected, %d extinguished",
+                        protectedCount, extinguishedCount));
+            }
+
         } catch (Exception e) {
-            logger.severe("§c[MobManager] Shutdown error: " + e.getMessage());
+            logger.warning("§c[MobManager] Protection maintenance failed: " + e.getMessage());
         }
+    }
+
+    // ================ ENHANCED INITIALIZATION (ADD TO EXISTING INITIALIZE METHOD) ================
+
+    /**
+     * Add this to the existing initialize() method after the existing code:
+     */
+    public void initializeProtectionSystems() {
+        try {
+            // Start protection maintenance task
+            startProtectionMaintenanceTask();
+
+            logger.info("§a[MobManager] §7Enhanced protection systems initialized:");
+            logger.info("§a[MobManager] §7- Sunlight burning prevention: ACTIVE");
+            logger.info("§a[MobManager] §7- Equipment durability protection: ACTIVE");
+            logger.info("§a[MobManager] §7- Fire damage immunity: ACTIVE");
+            logger.info("§a[MobManager] §7- Periodic maintenance: ACTIVE");
+
+        } catch (Exception e) {
+            logger.severe("§c[MobManager] Failed to initialize protection systems: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+
+    // ================ PROTECTION STATUS METHODS ================
+
+    /**
+     * Get protection status for a specific mob
+     */
+    public String getMobProtectionStatus(LivingEntity entity) {
+        if (entity == null || !entity.isValid()) {
+            return "INVALID";
+        }
+
+        StringBuilder status = new StringBuilder();
+
+        try {
+            // Fire protection
+            boolean fireProtected = entity.hasPotionEffect(PotionEffectType.FIRE_RESISTANCE);
+            status.append("Fire: ").append(fireProtected ? "PROTECTED" : "VULNERABLE");
+
+            // Equipment protection
+            boolean equipmentProtected = false;
+            if (entity.getEquipment() != null) {
+                org.bukkit.inventory.ItemStack weapon = entity.getEquipment().getItemInMainHand();
+                if (weapon != null && weapon.hasItemMeta()) {
+                    equipmentProtected = weapon.getItemMeta().isUnbreakable();
+                }
+            }
+            status.append(", Equipment: ").append(equipmentProtected ? "PROTECTED" : "VULNERABLE");
+
+            // Sunlight protection
+            boolean sunlightProtected = entity.hasMetadata("sunlight_immune") ||
+                    entity.hasMetadata("elite_sunlight_immune");
+            status.append(", Sunlight: ").append(sunlightProtected ? "PROTECTED" : "VULNERABLE");
+
+            // Fire ticks
+            status.append(", Fire Ticks: ").append(entity.getFireTicks());
+
+        } catch (Exception e) {
+            status.append("ERROR: ").append(e.getMessage());
+        }
+
+        return status.toString();
+    }
+
+    /**
+     * Get overall protection system status
+     */
+    public String getProtectionSystemStatus() {
+        try {
+            int totalMobs = activeMobs.size();
+            int protectedMobs = 0;
+            int burningMobs = 0;
+
+            mobLock.readLock().lock();
+            try {
+                for (CustomMob mob : activeMobs.values()) {
+                    if (mob != null && mob.isValid()) {
+                        LivingEntity entity = mob.getEntity();
+
+                        if (entity.hasPotionEffect(PotionEffectType.FIRE_RESISTANCE)) {
+                            protectedMobs++;
+                        }
+
+                        if (entity.getFireTicks() > 0) {
+                            burningMobs++;
+                        }
+                    }
+                }
+            } finally {
+                mobLock.readLock().unlock();
+            }
+
+            return String.format("Protection Status: %d/%d mobs protected, %d burning (should be 0)",
+                    protectedMobs, totalMobs, burningMobs);
+
+        } catch (Exception e) {
+            return "Protection Status: ERROR - " + e.getMessage();
+        }
+    }
+
+    /**
+     * Force protection refresh for all active mobs
+     */
+    public void refreshAllProtections() {
+        try {
+            logger.info("§6[MobManager] §7Refreshing protections for all active mobs...");
+
+            int refreshed = 0;
+
+            mobLock.readLock().lock();
+            List<CustomMob> mobsToRefresh;
+            try {
+                mobsToRefresh = new ArrayList<>(activeMobs.values());
+            } finally {
+                mobLock.readLock().unlock();
+            }
+
+            for (CustomMob mob : mobsToRefresh) {
+                if (mob != null && mob.isValid()) {
+                    LivingEntity entity = mob.getEntity();
+
+                    // Refresh fire protection
+                    entity.addPotionEffect(new PotionEffect(PotionEffectType.FIRE_RESISTANCE, Integer.MAX_VALUE, 2));
+
+                    // Extinguish any fire
+                    entity.setFireTicks(0);
+
+                    // Refresh equipment protection
+                    validateMobEquipmentIntegrity(entity);
+
+                    refreshed++;
+                }
+            }
+
+            logger.info("§a[MobManager] §7Protection refresh complete: " + refreshed + " mobs updated");
+
+        } catch (Exception e) {
+            logger.severe("§c[MobManager] Protection refresh failed: " + e.getMessage());
+        }
+    }
+    /**
+     * Force cleanup (for admin commands)
+     */
+    public void forceCleanup() {
+        logger.info("§6[MobManager] §7Force cleanup requested by admin");
+        performStartupCleanup();
     }
 
     private void clearAllCollections() {

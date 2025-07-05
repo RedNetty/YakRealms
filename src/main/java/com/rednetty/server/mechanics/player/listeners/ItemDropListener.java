@@ -17,6 +17,7 @@ import org.bukkit.event.player.PlayerDropItemEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.scheduler.BukkitRunnable;
 
+import java.util.HashMap;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -29,6 +30,7 @@ public class ItemDropListener extends BaseListener {
 
     // Track protected items with their owner and expiry time
     private final ConcurrentHashMap<UUID, ProtectedItem> protectedItems = new ConcurrentHashMap<>();
+    private final HashMap<UUID, Long> lastMessageTime = new HashMap<>();
 
     /**
      * Class to track protected item data
@@ -239,10 +241,11 @@ public class ItemDropListener extends BaseListener {
      * Send protection message to player (with rate limiting)
      */
     private void notifyProtectionMessage(Player player) {
-        // Use a rate limiter to prevent spam
-        // This could store last notification times in a ConcurrentHashMap
+        if(lastMessageTime.containsKey(player.getUniqueId()) && lastMessageTime.get(player.getUniqueId()) + 2000L  > System.currentTimeMillis()) return;
+
 
         // For now, just send the message
+        lastMessageTime.put(player.getUniqueId(), System.currentTimeMillis());
         player.sendMessage(ChatColor.RED + "This item is protected by its owner.");
     }
 

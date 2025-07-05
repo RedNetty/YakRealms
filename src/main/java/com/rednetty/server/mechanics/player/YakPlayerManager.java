@@ -399,7 +399,7 @@ public class YakPlayerManager implements Listener {
             player.sendMessage(ChatColor.RED + "⚠ Failed to load your character data.");
             player.sendMessage(ChatColor.GRAY + "Please reconnect. If this persists, contact an administrator.");
 
-            if (player.hasPermission("yakserver.admin")) {
+            if (player.hasPermission("yakrealms.admin")) {
                 player.sendMessage(ChatColor.GRAY + "Error: " + error.getMessage());
             }
         }
@@ -760,7 +760,7 @@ public class YakPlayerManager implements Listener {
             message.append(ChatColor.GRAY).append("This ban does not expire.");
         }
 
-        message.append("\n\n").append(ChatColor.GRAY).append("Appeal at: ").append(ChatColor.BLUE).append("discord.gg/yakserver");
+        message.append("\n\n").append(ChatColor.GRAY).append("Appeal at: ").append(ChatColor.BLUE).append("discord.gg/yakrealms");
         return message.toString();
     }
 

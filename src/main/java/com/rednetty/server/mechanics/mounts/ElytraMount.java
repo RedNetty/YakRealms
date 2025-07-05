@@ -25,12 +25,15 @@ public class ElytraMount implements Mount {
     private final Map<UUID, BukkitTask> landingDetectionTasks = new HashMap<>();
     private final Map<UUID, ChestplateState> originalChestplates = new HashMap<>();
     private final Map<UUID, Long> lastDamageTime = new HashMap<>();
+    private final Map<UUID, Long> launchTimes = new HashMap<>();
 
-    // Configuration constants
+    // Configuration constants - Updated with better thresholds
     private static final long DAMAGE_COOLDOWN_MS = 120000; // 2 minutes
     private static final int LANDING_CHECK_INTERVAL = 5; // ticks
-    private static final double LANDING_VELOCITY_THRESHOLD = 0.1;
-    private static final int GROUND_CHECK_DISTANCE = 3;
+    private static final double LANDING_VELOCITY_THRESHOLD = 0.3; // Increased from 0.1
+    private static final double LANDING_SPEED_THRESHOLD = 0.5; // Increased from 0.2
+    private static final int GROUND_CHECK_DISTANCE = 2; // Reduced from 3
+    private static final int LAUNCH_GRACE_PERIOD = 60; // 3 seconds grace period after launch
 
     /**
      * Inner class to store complete chestplate state
@@ -217,6 +220,9 @@ public class ElytraMount implements Mount {
             landingTask.cancel();
         }
 
+        // Clean up launch time tracking
+        launchTimes.remove(playerUUID);
+
         // Restore original chestplate with enhanced handling
         restoreOriginalChestplate(player);
 
@@ -346,12 +352,11 @@ public class ElytraMount implements Mount {
      * @return True if the player is above the height limit
      */
     public boolean isAboveHeightLimit(Player player) {
-
         return player.getLocation().getY() >= 185;
     }
 
     /**
-     * Enhanced landing detection
+     * Enhanced landing detection with grace period and better thresholds
      *
      * @param player The player
      * @return True if the player has landed
@@ -361,18 +366,64 @@ public class ElytraMount implements Mount {
             return true;
         }
 
-        // Check if player is on ground
-        if (isPlayerOnGround(player)) {
+        // Grace period - don't detect landing for first 3 seconds after launch
+        Long launchTime = launchTimes.get(player.getUniqueId());
+        if (launchTime != null) {
+            long timeSinceLaunch = (System.currentTimeMillis() - launchTime) / 50; // Convert to ticks
+            if (timeSinceLaunch < LAUNCH_GRACE_PERIOD) {
+                return false; // Still in grace period
+            }
+        }
+
+        // Check if player is actually on ground (more strict)
+        if (isPlayerOnGroundStrict(player)) {
             return true;
         }
 
-        // Check velocity threshold
+        // Check velocity threshold (more lenient)
         Vector velocity = player.getVelocity();
         if (Math.abs(velocity.getY()) < LANDING_VELOCITY_THRESHOLD &&
-                velocity.length() < LANDING_VELOCITY_THRESHOLD * 2) {
-            return true;
+                velocity.length() < LANDING_SPEED_THRESHOLD) {
+
+            // Additional check: make sure we're close to ground when velocity is low
+            return isPlayerNearGround(player, 1);
         }
 
+        return false;
+    }
+
+    /**
+     * Stricter ground detection
+     *
+     * @param player The player
+     * @return True if player is on ground
+     */
+    private boolean isPlayerOnGroundStrict(Player player) {
+        // Only trust Bukkit's isOnGround if player is actually touching solid ground
+        if (player.isOnGround()) {
+            Location loc = player.getLocation();
+            Block blockBelow = loc.clone().subtract(0, 0.1, 0).getBlock();
+            return blockBelow.getType().isSolid();
+        }
+        return false;
+    }
+
+    /**
+     * Checks if player is near ground within specified distance
+     *
+     * @param player The player
+     * @param maxDistance Maximum distance to check
+     * @return True if player is near ground
+     */
+    private boolean isPlayerNearGround(Player player, int maxDistance) {
+        Location loc = player.getLocation();
+
+        for (int i = 0; i <= maxDistance; i++) {
+            Block block = loc.clone().subtract(0, i, 0).getBlock();
+            if (block.getType().isSolid()) {
+                return true;
+            }
+        }
         return false;
     }
 
@@ -385,16 +436,19 @@ public class ElytraMount implements Mount {
     private boolean isPlayerOnGround(Player player) {
         Location loc = player.getLocation();
 
-        // Check if player is on ground according to Bukkit
+        // Check if player is on ground according to Bukkit AND verify with block check
         if (player.isOnGround()) {
-            return true;
+            Block blockBelow = loc.clone().subtract(0, 0.1, 0).getBlock();
+            if (blockBelow.getType().isSolid()) {
+                return true;
+            }
         }
 
-        // Additional checks for near-ground detection
+        // Additional checks for near-ground detection (more conservative)
         for (int i = 0; i <= GROUND_CHECK_DISTANCE; i++) {
             Block block = loc.clone().subtract(0, i, 0).getBlock();
             if (block.getType().isSolid()) {
-                return i <= 1; // Within 1 block of solid ground
+                return i == 0; // Only true if directly on solid ground
             }
         }
 
@@ -439,11 +493,15 @@ public class ElytraMount implements Mount {
         // Launch the player upward
         player.setVelocity(new Vector(0, 2, 0));
 
+        // Record launch time for grace period
+        launchTimes.put(playerUUID, System.currentTimeMillis());
+
         // Schedule equipping the elytra after a short delay
         new BukkitRunnable() {
             @Override
             public void run() {
                 if (!player.isOnline()) {
+                    launchTimes.remove(playerUUID); // Clean up
                     return;
                 }
 
@@ -461,8 +519,8 @@ public class ElytraMount implements Mount {
                 // Play sound
                 player.playSound(player.getLocation(), Sound.ITEM_ELYTRA_FLYING, 1.0f, 1.0f);
 
-                // Start landing detection
-                startLandingDetection(player);
+                // Start landing detection with delay to allow proper launch
+                startLandingDetectionDelayed(player);
 
                 // Schedule elytra duration
                 int duration = manager.getConfig().getElytraDuration();
@@ -614,6 +672,23 @@ public class ElytraMount implements Mount {
     }
 
     /**
+     * Starts landing detection with additional delay
+     *
+     * @param player The player
+     */
+    private void startLandingDetectionDelayed(Player player) {
+        // Add extra delay before starting landing detection
+        new BukkitRunnable() {
+            @Override
+            public void run() {
+                if (player.isOnline() && isUsingElytra(player)) {
+                    startLandingDetection(player);
+                }
+            }
+        }.runTaskLater(manager.getPlugin(), 40L); // 2 second delay
+    }
+
+    /**
      * Starts landing detection for a player
      *
      * @param player The player
@@ -759,6 +834,7 @@ public class ElytraMount implements Mount {
         // Clean up stored data
         summonLocations.remove(playerUUID);
         originalChestplates.remove(playerUUID);
+        launchTimes.remove(playerUUID); // Clean up launch times
 
         // Restore chestplate if needed
         if (player.isOnline()) {

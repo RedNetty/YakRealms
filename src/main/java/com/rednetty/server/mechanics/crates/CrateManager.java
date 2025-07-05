@@ -25,22 +25,19 @@ import java.io.File;
 import java.io.IOException;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ThreadLocalRandom;
 import java.util.logging.Logger;
-import java.util.stream.Collectors;
 
 /**
- * Enhanced central manager for the crate system using modern 1.20.4 features
- * Coordinates all crate-related functionality with improved performance and features
+ * Enhanced central manager for the crate system with  animation integration
  */
 public class CrateManager {
     private static CrateManager instance;
     private final YakRealms plugin;
     private final Logger logger;
 
-    // Core components
+    // Core components - Updated to use  animation manager
     private CrateFactory crateFactory;
-    private CrateAnimationManager animationManager;
+    private CrateAnimationManager animationManager; // Updated
     private CrateRewardsManager rewardsManager;
     private CrateHandler crateHandler;
     private EconomyManager economyManager;
@@ -101,7 +98,7 @@ public class CrateManager {
     }
 
     /**
-     * Enhanced initialization with configuration loading and validation
+     * Enhanced initialization with  animation manager
      */
     public void initialize() {
         try {
@@ -110,7 +107,7 @@ public class CrateManager {
             // Load configuration first
             loadConfiguration();
 
-            // Initialize core components
+            // Initialize core components - Updated to use  animation manager
             initializeComponents();
 
             // Load crate configurations
@@ -193,12 +190,11 @@ public class CrateManager {
             defaultConfig.set("rewards.base-orb-chance", 25);
             defaultConfig.set("rewards.tier-scaling-bonus", 5);
 
-            // Animation settings
-            defaultConfig.set("animations.preparation-duration", 20);
-            defaultConfig.set("animations.spinning-duration", 120);
-            defaultConfig.set("animations.slowing-duration", 80);
-            defaultConfig.set("animations.revealing-duration", 60);
-            defaultConfig.set("animations.celebration-duration", 40);
+            // Animation settings - Updated for  system
+            defaultConfig.set("animations.spin-duration", 200);
+            defaultConfig.set("animations.initial-speed", 0.8);
+            defaultConfig.set("animations.deceleration", 0.985);
+            defaultConfig.set("animations.min-speed", 0.01);
 
             defaultConfig.save(configFile);
             logger.info("Created default crate configuration");
@@ -209,21 +205,24 @@ public class CrateManager {
     }
 
     /**
-     * Initializes core components
+     * Initializes core components with  animation manager
      */
     private void initializeComponents() {
         this.crateFactory = new CrateFactory();
-        this.animationManager = new CrateAnimationManager();
+        this.animationManager = new CrateAnimationManager(); // Updated
         this.rewardsManager = new CrateRewardsManager();
         this.crateHandler = new CrateHandler();
         this.economyManager = EconomyManager.getInstance();
         this.playerManager = YakPlayerManager.getInstance();
 
-        logger.fine("Initialized crate system components");
+        logger.fine("Initialized crate system components with  animation manager");
     }
 
+    // In CrateManager.java - Update the openCrate method to ensure single reward generation
+// In CrateManager.java - Update the openCrate method to ensure single reward generation
+
     /**
-     * Enhanced crate opening with modern features and validation
+     * FIXED: Enhanced crate opening with single reward generation
      */
     public boolean openCrate(Player player, ItemStack crateItem) {
         UUID playerId = player.getUniqueId();
@@ -277,15 +276,39 @@ public class CrateManager {
             // Send opening message with modern formatting
             sendCrateOpeningMessage(player, crateType);
 
-            // Start enhanced animation
+            // FIXED: Generate rewards ONCE and use them consistently
+            List<ItemStack> rewards = rewardsManager.generateRewards(crateType, configuration);
+
+            if (rewards.isEmpty()) {
+                logger.warning("No rewards generated for crate opening: " + crateType);
+                rewards.add(createFallbackReward(crateType));
+            }
+
+            // Enhanced logging for debugging
+            logger.info("=== CRATE OPENING DEBUG INFO ===");
+            logger.info("Player: " + player.getName());
+            logger.info("Crate Type: " + crateType);
+            logger.info("Generated " + rewards.size() + " rewards:");
+            for (int i = 0; i < rewards.size(); i++) {
+                ItemStack reward = rewards.get(i);
+                String rewardName = reward.hasItemMeta() && reward.getItemMeta().hasDisplayName() ?
+                        reward.getItemMeta().getDisplayName() :
+                        reward.getType().name().replace("_", " ");
+                logger.info("  Reward " + (i + 1) + ": " + rewardName + " x" + reward.getAmount());
+            }
+            logger.info("=== END DEBUG INFO ===");
+
+            // Start animation with the SAME rewards
             if (enableAnimations) {
-                animationManager.startCrateOpening(opening);
+                // Pass the exact same rewards to the animation
+                animationManager.startCrateOpeningWithRewards(opening, rewards);
             } else {
-                // Immediate completion if animations disabled
+                // Immediate completion with the same rewards
                 new BukkitRunnable() {
                     @Override
                     public void run() {
-                        completeCrateOpening(opening);
+                        // Complete with the pre-generated rewards
+                        completeCrateOpeningWithRewards(opening, rewards);
                     }
                 }.runTaskLater(plugin, 20L); // 1 second delay
             }
@@ -293,8 +316,7 @@ public class CrateManager {
             // Update statistics
             updateOpeningStatistics(crateType, playerId);
 
-            logger.fine("Started enhanced crate opening for player " + player.getName() +
-                    " with crate type " + crateType);
+            logger.info("Started crate opening for " + player.getName() + " with " + rewards.size() + " rewards");
             return true;
 
         } catch (Exception e) {
@@ -394,34 +416,29 @@ public class CrateManager {
         // Main message
         player.sendMessage("");
         player.sendMessage(TextUtil.getCenteredMessage(
-                ChatColor.AQUA + "✦ " + ChatColor.BOLD + "MYSTICAL CRATE OPENING" + ChatColor.AQUA + " ✦"
+                ChatColor.AQUA + "✦ " + ChatColor.BOLD + "OPENING CRATE" + ChatColor.AQUA + " ✦"
         ));
 
         String crateName = (crateType.isHalloween() ? "Halloween " : "") + crateType.getDisplayName();
         player.sendMessage(TextUtil.getCenteredMessage(
                 ChatColor.GRAY + "Unsealing " + ChatColor.YELLOW + crateName + ChatColor.GRAY + " Crate"
         ));
-
-        player.sendMessage(TextUtil.getCenteredMessage(
-                ChatColor.GRAY + "Tier " + ChatColor.WHITE + crateType.getTier() +
-                        ChatColor.GRAY + " • Session " + ChatColor.WHITE + YakRealms.getSessionID()
-        ));
         player.sendMessage("");
 
         // Action bar message if enabled
         if (enableActionBar) {
             player.spigot().sendMessage(ChatMessageType.ACTION_BAR,
-                    new TextComponent(ChatColor.GOLD + "✨ Preparing mystical energies... ✨"));
+                    new TextComponent(ChatColor.GOLD + "✨ Opening crate... ✨"));
         }
 
         // Play opening sound
         if (enableSounds) {
-            player.playSound(player.getLocation(), Sound.BLOCK_BEACON_ACTIVATE, 0.8f, 1.2f);
+            player.playSound(player.getLocation(), Sound.BLOCK_CHEST_OPEN, 0.8f, 1.2f);
         }
     }
 
     /**
-     * Enhanced completion method with modern features
+     * Original completion method (for non-animated openings)
      */
     public void completeCrateOpening(CrateOpening opening) {
         if (opening == null || opening.getPlayer() == null) {
@@ -436,7 +453,7 @@ public class CrateManager {
             // Mark as completed
             opening.advanceToPhase(CrateOpening.OpeningPhase.COMPLETED);
 
-            // Generate enhanced rewards
+            // Generate rewards
             List<ItemStack> rewards = rewardsManager.generateRewards(
                     opening.getCrateType(), opening.getConfiguration());
 
@@ -445,14 +462,14 @@ public class CrateManager {
                 rewards.add(createFallbackReward(opening.getCrateType()));
             }
 
-            // Give rewards to player with enhanced handling
-            giveEnhancedRewards(player, rewards, opening.getCrateType());
+            // Give rewards to player
+            giveRewardsToPlayer(player, rewards, opening.getCrateType());
 
-            // Send enhanced completion message
-            sendEnhancedCompletionMessage(player, opening, rewards);
+            // Send completion message
+            sendCompletionMessage(player, opening, rewards);
 
             // Play completion effects
-            playEnhancedCompletionEffects(player, opening);
+            playCompletionEffects(player, opening);
 
             // Update player statistics
             updatePlayerStatistics(player, opening, rewards);
@@ -462,16 +479,13 @@ public class CrateManager {
                 saveStatistics();
             }
 
-            logger.fine("Completed enhanced crate opening for player " + player.getName() +
+            logger.fine("Completed crate opening for player " + player.getName() +
                     " with " + rewards.size() + " rewards");
 
         } catch (Exception e) {
             logger.severe("Error completing crate opening for player " + player.getName() + ": " + e.getMessage());
             e.printStackTrace();
-
-            // Enhanced fallback handling
             handleCompletionError(player, opening);
-
         } finally {
             // Always clean up
             processingPlayers.remove(playerId);
@@ -481,9 +495,61 @@ public class CrateManager {
     }
 
     /**
-     * Enhanced reward giving with inventory management
+     * NEW: Completes crate opening with pre-generated rewards (for  animation system)
+     * NOTE: This method assumes rewards have already been given to the player by the animation
      */
-    private void giveEnhancedRewards(Player player, List<ItemStack> rewards, CrateType crateType) {
+    public void completeCrateOpeningWithRewards(CrateOpening opening, List<ItemStack> rewards) {
+        if (opening == null || opening.getPlayer() == null) {
+            logger.warning("Invalid opening provided to completeCrateOpeningWithRewards");
+            return;
+        }
+
+        Player player = opening.getPlayer();
+        UUID playerId = player.getUniqueId();
+
+        try {
+            // Mark as completed
+            opening.advanceToPhase(CrateOpening.OpeningPhase.COMPLETED);
+
+            // Validate rewards
+            if (rewards == null || rewards.isEmpty()) {
+                logger.warning("No rewards provided for crate opening completion");
+                rewards = Arrays.asList(createFallbackReward(opening.getCrateType()));
+            }
+
+            // DO NOT give rewards again - they were already given by the animation
+            logger.info("Completing crate opening for " + player.getName() + " with " + rewards.size() + " pre-given rewards");
+
+            // Send minimal completion message (detailed message already sent by animation)
+            sendMinimalCompletionMessage(player, opening, rewards);
+
+            // Play minimal completion effects
+            playMinimalCompletionEffects(player, opening);
+
+            // Update statistics
+            updatePlayerStatistics(player, opening, rewards);
+
+            // Save statistics if enabled
+            if (enableStatistics && enableAutoSave) {
+                saveStatistics();
+            }
+
+            logger.fine("Completed crate opening with pre-generated rewards for player " + player.getName());
+
+        } catch (Exception e) {
+            logger.severe("Error completing crate opening with rewards: " + e.getMessage());
+            e.printStackTrace();
+        } finally {
+            // Clean up
+            processingPlayers.remove(playerId);
+            activeOpenings.remove(playerId);
+        }
+    }
+
+    /**
+     * Gives rewards to player with enhanced handling
+     */
+    private void giveRewardsToPlayer(Player player, List<ItemStack> rewards, CrateType crateType) {
         List<ItemStack> overflow = new ArrayList<>();
 
         for (ItemStack reward : rewards) {
@@ -512,16 +578,14 @@ public class CrateManager {
             player.getWorld().dropItemNaturally(dropLocation, item);
         }
 
-        // Notify player with enhanced message
-        player.sendMessage("");
-        player.sendMessage(ChatColor.YELLOW + "⚠ " + ChatColor.BOLD + "INVENTORY OVERFLOW" + ChatColor.YELLOW + " ⚠");
-        player.sendMessage(ChatColor.GRAY + "Some rewards were dropped nearby due to full inventory!");
+        // Notify player
+        player.sendMessage(ChatColor.YELLOW + "⚠ Some rewards were dropped nearby due to full inventory!");
         player.sendMessage(ChatColor.GRAY + "Items dropped: " + ChatColor.WHITE + overflow.size());
 
         // Action bar notification
         if (enableActionBar) {
             player.spigot().sendMessage(ChatMessageType.ACTION_BAR,
-                    new TextComponent(ChatColor.YELLOW + "⚠ Some rewards dropped nearby - Inventory full! ⚠"));
+                    new TextComponent(ChatColor.YELLOW + "⚠ Some rewards dropped nearby! ⚠"));
         }
 
         // Sound notification
@@ -531,202 +595,71 @@ public class CrateManager {
     }
 
     /**
-     * Sends enhanced completion message with interactive elements
+     * Sends completion message
      */
-    private void sendEnhancedCompletionMessage(Player player, CrateOpening opening, List<ItemStack> rewards) {
-        // Header with enhanced formatting
-        player.sendMessage("");
-        player.sendMessage(TextUtil.getCenteredMessage(
-                ChatColor.GOLD + "✧ " + ChatColor.BOLD + "MYSTICAL CRATE UNSEALED" + ChatColor.GOLD + " ✧"
-        ));
-
+    private void sendCompletionMessage(Player player, CrateOpening opening, List<ItemStack> rewards) {
         String crateName = (opening.getCrateType().isHalloween() ? "Halloween " : "") +
                 opening.getCrateType().getDisplayName();
-        player.sendMessage(TextUtil.getCenteredMessage(
-                ChatColor.GRAY + crateName + " Crate • Tier " + opening.getCrateType().getTier()
-        ));
 
-        // Rewards summary with enhanced formatting
         player.sendMessage("");
-        player.sendMessage(ChatColor.YELLOW + "✦ " + ChatColor.BOLD + "REWARDS RECEIVED:");
+        player.sendMessage(ChatColor.GOLD + "✦ " + crateName + " Crate Opened! ✦");
+        player.sendMessage(ChatColor.GRAY + "You received " + ChatColor.WHITE + rewards.size() +
+                ChatColor.GRAY + " items from this crate.");
 
-        int itemCount = 0;
-        for (ItemStack reward : rewards) {
-            if (reward != null) {
-                itemCount++;
-                String displayName = getItemDisplayName(reward);
-                int amount = reward.getAmount();
-
-                String line = ChatColor.WHITE + "  ◆ " + displayName;
-                if (amount > 1) {
-                    line += ChatColor.GRAY + " (×" + amount + ")";
-                }
-                player.sendMessage(line);
-
-                // Limit display to prevent spam
-                if (itemCount >= 8) {
-                    int remaining = rewards.size() - itemCount;
-                    if (remaining > 0) {
-                        player.sendMessage(ChatColor.GRAY + "  ... and " + remaining + " more items!");
-                    }
-                    break;
-                }
+        // Show first few rewards
+        for (int i = 0; i < Math.min(3, rewards.size()); i++) {
+            ItemStack reward = rewards.get(i);
+            if (reward != null && reward.hasItemMeta() && reward.getItemMeta().hasDisplayName()) {
+                player.sendMessage(ChatColor.WHITE + "  • " + reward.getItemMeta().getDisplayName());
             }
         }
 
-        // Enhanced footer with statistics
-        player.sendMessage("");
-        player.sendMessage(ChatColor.GRAY + "Total rewards: " + ChatColor.WHITE + rewards.size() +
-                ChatColor.GRAY + " • Opening time: " + ChatColor.WHITE +
-                String.format("%.1f", opening.getTotalElapsedTime() / 1000.0) + "s");
-
-        // Interactive element - clickable message for crate preview
-        if (opening.getCrateType().getTier() >= 3) {
-            TextComponent previewMessage = new TextComponent(ChatColor.AQUA + "» Click here to preview other crate types! «");
-            previewMessage.setClickEvent(new ClickEvent(ClickEvent.Action.RUN_COMMAND, "/crate preview"));
-            previewMessage.setHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT,
-                    new ComponentBuilder(ChatColor.YELLOW + "Click to open crate preview GUI!").create()));
-
-            player.sendMessage(TextUtil.getCenteredMessage(""));
-            player.spigot().sendMessage(previewMessage);
+        if (rewards.size() > 3) {
+            player.sendMessage(ChatColor.GRAY + "  ... and " + (rewards.size() - 3) + " more items!");
         }
 
         player.sendMessage("");
     }
 
     /**
-     * Gets display name for an item
+     * Plays completion effects
      */
-    private String getItemDisplayName(ItemStack item) {
-        if (item.hasItemMeta() && item.getItemMeta().hasDisplayName()) {
-            return item.getItemMeta().getDisplayName();
-        }
-
-        // Format material name
-        String materialName = item.getType().name().toLowerCase().replace('_', ' ');
-        return ChatColor.WHITE + capitalizeWords(materialName);
-    }
-
-    /**
-     * Capitalizes words in a string
-     */
-    private String capitalizeWords(String str) {
-        String[] words = str.split(" ");
-        StringBuilder result = new StringBuilder();
-
-        for (String word : words) {
-            if (!word.isEmpty()) {
-                result.append(Character.toUpperCase(word.charAt(0)))
-                        .append(word.substring(1))
-                        .append(" ");
-            }
-        }
-
-        return result.toString().trim();
-    }
-
-    /**
-     * Plays enhanced completion effects
-     */
-    private void playEnhancedCompletionEffects(Player player, CrateOpening opening) {
-        Location location = player.getLocation();
-        World world = location.getWorld();
-        if (world == null) return;
-
-        CrateType crateType = opening.getCrateType();
-
-        // Enhanced sound effects
+    private void playCompletionEffects(Player player, CrateOpening opening) {
         if (enableSounds) {
-            Sound completionSound = switch (crateType.getTier()) {
-                case 1, 2 -> Sound.ENTITY_EXPERIENCE_ORB_PICKUP;
-                case 3, 4 -> Sound.ENTITY_PLAYER_LEVELUP;
-                case 5, 6 -> Sound.UI_TOAST_CHALLENGE_COMPLETE;
-                default -> Sound.ENTITY_EXPERIENCE_ORB_PICKUP;
-            };
-
-            player.playSound(location, completionSound, 1.0f, 1.0f);
-
-            // Additional layered sounds for higher tiers
-            if (crateType.getTier() >= 5) {
-                new BukkitRunnable() {
-                    @Override
-                    public void run() {
-                        player.playSound(location, Sound.ENTITY_FIREWORK_ROCKET_BLAST, 0.8f, 1.5f);
-                    }
-                }.runTaskLater(plugin, 10L);
-            }
+            player.playSound(player.getLocation(), Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 1.0f, 1.0f);
         }
 
-        // Enhanced particle effects
         if (enableParticles) {
-            createTieredParticleEffects(world, location, crateType);
-        }
-
-        // Final action bar message
-        if (enableActionBar) {
-            new BukkitRunnable() {
-                @Override
-                public void run() {
-                    player.spigot().sendMessage(ChatMessageType.ACTION_BAR,
-                            new TextComponent(ChatColor.GOLD + "✧ Mystical crate successfully unsealed! ✧"));
-                }
-            }.runTaskLater(plugin, 20L);
+            Location location = player.getLocation().add(0, 1, 0);
+            World world = location.getWorld();
+            if (world != null) {
+                world.spawnParticle(Particle.VILLAGER_HAPPY, location, 10, 0.5, 0.5, 0.5, 0.1);
+            }
         }
     }
 
     /**
-     * Creates tiered particle effects for completion
+     * Sends a minimal completion message (since detailed message was already sent by animation)
      */
-    private void createTieredParticleEffects(World world, Location center, CrateType crateType) {
-        // Base celebration particles
-        world.spawnParticle(Particle.VILLAGER_HAPPY, center.clone().add(0, 2, 0),
-                20, 1.5, 1.5, 1.5, 0.1);
+    private void sendMinimalCompletionMessage(Player player, CrateOpening opening, List<ItemStack> rewards) {
+        // Just log the completion - detailed message already sent by animation
+        logger.fine("Crate opening completed for " + player.getName() + " - " + rewards.size() + " rewards given");
 
-        // Tier-specific effects
-        Particle tierParticle = switch (crateType.getTier()) {
-            case 1, 2 -> Particle.ENCHANTMENT_TABLE;
-            case 3, 4 -> Particle.PORTAL;
-            case 5, 6 -> Particle.TOTEM;
-            default -> Particle.VILLAGER_HAPPY;
-        };
-
-        world.spawnParticle(tierParticle, center.clone().add(0, 2, 0),
-                15 + crateType.getTier() * 5, 1, 1, 1, 0.1);
-
-        // Halloween special effects
-        if (crateType.isHalloween()) {
-            world.spawnParticle(Particle.FLAME, center.clone().add(0, 2, 0),
-                    15, 1, 1, 1, 0.1);
-            world.spawnParticle(Particle.SOUL_FIRE_FLAME, center.clone().add(0, 2.5, 0),
-                    10, 0.8, 0.8, 0.8, 0.05);
+        // Optional: Send action bar confirmation
+        if (enableActionBar) {
+            player.spigot().sendMessage(ChatMessageType.ACTION_BAR,
+                    new TextComponent(ChatColor.GREEN + "✓ Crate opening completed successfully!"));
         }
+    }
 
-        // Epic effects for highest tiers
-        if (crateType.getTier() >= 6) {
-            // Create ascending spiral
-            new BukkitRunnable() {
-                double y = 0;
-                int ticks = 0;
-
-                @Override
-                public void run() {
-                    if (ticks > 40) {
-                        cancel();
-                        return;
-                    }
-
-                    double angle = ticks * 0.3;
-                    double radius = 1.0 + (ticks * 0.05);
-                    double x = Math.cos(angle) * radius;
-                    double z = Math.sin(angle) * radius;
-
-                    Location spiralLoc = center.clone().add(x, y, z);
-                    world.spawnParticle(Particle.END_ROD, spiralLoc, 1, 0, 0, 0, 0);
-
-                    y += 0.1;
-                    ticks++;
-                }
-            }.runTaskTimer(plugin, 0L, 1L);
+    /**
+     * Plays minimal completion effects (since main effects were already played by animation)
+     */
+    private void playMinimalCompletionEffects(Player player, CrateOpening opening) {
+        // Minimal effects only - main effects already played by animation
+        if (enableSounds) {
+            // Just a subtle confirmation sound
+            player.playSound(player.getLocation(), Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 0.5f, 1.5f);
         }
     }
 
@@ -770,18 +703,10 @@ public class CrateManager {
      */
     private void sendInventoryFullMessage(Player player) {
         player.sendMessage("");
-        player.sendMessage(ChatColor.RED + "⚠ " + ChatColor.BOLD + "INVENTORY OVERFLOW PROTECTION" + ChatColor.RED + " ⚠");
-        player.sendMessage(ChatColor.GRAY + "Your inventory is too full to safely receive crate rewards!");
+        player.sendMessage(ChatColor.RED + "⚠ " + ChatColor.BOLD + "INVENTORY FULL" + ChatColor.RED + " ⚠");
+        player.sendMessage(ChatColor.GRAY + "Your inventory is too full to receive crate rewards!");
         player.sendMessage(ChatColor.YELLOW + "Please make at least 3 empty slots and try again.");
         player.sendMessage("");
-
-        // Helpful suggestions
-        TextComponent bankTip = new TextComponent(ChatColor.AQUA + "» Tip: Use /bank to store items! «");
-        bankTip.setClickEvent(new ClickEvent(ClickEvent.Action.RUN_COMMAND, "/bank"));
-        bankTip.setHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT,
-                new ComponentBuilder(ChatColor.YELLOW + "Click to open your bank!").create()));
-
-        player.spigot().sendMessage(bankTip);
 
         playEnhancedErrorSound(player);
     }
@@ -842,8 +767,6 @@ public class CrateManager {
             YakPlayer yakPlayer = playerManager.getPlayer(player.getUniqueId());
             if (yakPlayer != null) {
                 // Update player's crate statistics
-                // This would integrate with your player data system
-                // For now, just track in memory
                 sessionStats.put("player_" + player.getUniqueId() + "_crates_opened",
                         playerOpenCounts.get(player.getUniqueId()));
                 sessionStats.put("player_" + player.getUniqueId() + "_last_crate", opening.getCrateType().name());
@@ -909,14 +832,11 @@ public class CrateManager {
             default -> Sound.ENTITY_EXPERIENCE_ORB_PICKUP;
         };
 
-        long animationDuration = config.getLong("animations.preparation-duration", 20) +
-                config.getLong("animations.spinning-duration", 120) +
-                config.getLong("animations.slowing-duration", 80) +
-                config.getLong("animations.revealing-duration", 60) +
-                config.getLong("animations.celebration-duration", 40);
+        // Updated animation duration for  system
+        long animationDuration = 10000; // 10 seconds
 
         return new CrateConfiguration(crateType, displayName, crateType.getTier(),
-                contents, completionSound, animationDuration * 50); // Convert ticks to milliseconds
+                contents, completionSound, animationDuration);
     }
 
     /**
@@ -942,7 +862,7 @@ public class CrateManager {
      * Background task management
      */
     private void startBackgroundTasks() {
-        // Cleanup task - Enhanced
+        // Cleanup task
         cleanupTask = new BukkitRunnable() {
             @Override
             public void run() {
@@ -982,7 +902,8 @@ public class CrateManager {
                 UUID playerId = entry.getKey();
 
                 // Check if opening is timed out or player is offline
-                if (opening.isTimedOut() || !plugin.getServer().getPlayer(playerId).isOnline()) {
+                Player player = plugin.getServer().getPlayer(playerId);
+                if (opening.isTimedOut() || player == null || !player.isOnline()) {
                     // Force completion on main thread
                     new BukkitRunnable() {
                         @Override
@@ -1041,7 +962,7 @@ public class CrateManager {
         // Check for total crates opened milestones
         long total = totalCratesOpened;
         if (total > 0 && total % 100 == 0) {
-            broadcastMilestone("✦ " + total + " mystical crates have been opened server-wide! ✦");
+            broadcastMilestone("✦ " + total + " crates have been opened server-wide! ✦");
         }
 
         // Check for concurrent openings record
@@ -1139,8 +1060,6 @@ public class CrateManager {
         }
     }
 
-    // Enhanced shutdown method
-
     /**
      * Enhanced shutdown with proper cleanup and data saving
      */
@@ -1193,7 +1112,7 @@ public class CrateManager {
     // Getters and accessors
 
     public CrateFactory getCrateFactory() { return crateFactory; }
-    public CrateAnimationManager getAnimationManager() { return animationManager; }
+    public CrateAnimationManager getAnimationManager() { return animationManager; } // Updated
     public CrateRewardsManager getRewardsManager() { return rewardsManager; }
     public Set<UUID> getProcessingPlayers() { return new HashSet<>(processingPlayers); }
     public Map<UUID, CrateOpening> getActiveOpenings() { return new HashMap<>(activeOpenings); }
@@ -1313,14 +1232,12 @@ public class CrateManager {
         return stats;
     }
 
-    // Additional utility methods would go here...
-    // (saveStatistics, loadStatistics, saveConfiguration, etc.)
-    // These methods handle file I/O and are implementation-specific
+    // Data persistence methods (simplified implementations)
 
     private void saveStatistics() {
-        // Implementation for saving statistics to file
         if (enableAutoSave) {
-            // Save to YAML file
+            // Implementation for saving statistics to file
+            // This would save to a YAML file
         }
     }
 

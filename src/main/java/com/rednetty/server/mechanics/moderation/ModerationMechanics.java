@@ -587,6 +587,7 @@ public class ModerationMechanics implements Listener {
         attachment.setPermission("yakrealms.player.lootbuff", true);
         attachment.setPermission("yakrealms.player.mobinfo", true);
         attachment.setPermission("yakrealms.player.lootchest.info", true);
+        attachment.setPermission("yakrealms.player.lootchest.info", true);
 
 
         // Market permissions

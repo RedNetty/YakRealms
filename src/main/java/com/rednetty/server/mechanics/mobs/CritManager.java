@@ -33,6 +33,7 @@ import java.util.stream.Collectors;
  * - Frozen Boss special 3-step restart behavior
  * - Normal mobs consume crit state on attack
  * - Accurate timing and effect management
+ * - FIXED: Elite mob explosions now properly damage players
  */
 public class CritManager {
 
@@ -398,15 +399,12 @@ public class CritManager {
     }
 
     /**
-     * Execute massive whirlwind explosion for elite mobs - legacy matching
+     * FIXED: Execute massive whirlwind explosion for elite mobs - legacy matching with proper damage application
      */
     private void executeWhirlwindExplosion(CustomMob mob, CritState state) {
         LivingEntity entity = mob.getEntity();
 
         try {
-            // Clear damage tracking (legacy behavior)
-            //MobManager.getInstance().damageContributions.remove(entity.getUniqueId());
-
             // Calculate damage
             double whirlwindDamage = calculateWhirlwindDamage(mob);
 
@@ -528,12 +526,13 @@ public class CritManager {
     }
 
     /**
-     * Apply whirlwind damage and knockback to a player - legacy matching
+     * FIXED: Apply whirlwind damage and knockback to a player - legacy matching with proper damage application
      */
     private boolean applyWhirlwindDamageAndKnockback(Player player, LivingEntity mob, double damage) {
         try {
-            // Apply damage
-            player.damage(damage, mob);
+            // FIXED: Apply raw damage to bypass CombatMechanics interference
+            // This ensures the explosion damage actually hits the player
+            applyRawDamageToPlayer(player, damage, mob);
 
             // Calculate knockback direction
             Vector direction = player.getLocation().toVector()
@@ -573,6 +572,41 @@ public class CritManager {
             logger.warning(String.format("[CritManager] Failed to apply whirlwind to %s: %s",
                     player.getName(), e.getMessage()));
             return false;
+        }
+    }
+
+    /**
+     * FIXED: Apply raw damage directly to player to bypass CombatMechanics interference
+     */
+    private void applyRawDamageToPlayer(Player player, double damage, LivingEntity source) {
+        try {
+            // Mark the player as being damaged by a whirlwind explosion to bypass certain protections
+            player.setMetadata("whirlwindExplosionDamage", new org.bukkit.metadata.FixedMetadataValue(plugin, damage));
+            player.setMetadata("whirlwindExplosionSource", new org.bukkit.metadata.FixedMetadataValue(plugin, source.getUniqueId().toString()));
+
+            // Schedule damage application on next tick to ensure metadata is set
+            Bukkit.getScheduler().runTask(plugin, () -> {
+                try {
+                    // Apply the damage directly
+                    double newHealth = Math.max(0, player.getHealth() - damage);
+                    player.setHealth(newHealth);
+
+                    // Remove metadata after damage is applied
+                    player.removeMetadata("whirlwindExplosionDamage", plugin);
+                    player.removeMetadata("whirlwindExplosionSource", plugin);
+
+                    // Play hurt effects
+                    player.playEffect(org.bukkit.EntityEffect.HURT);
+
+                } catch (Exception e) {
+                    logger.warning("[CritManager] Error applying raw damage: " + e.getMessage());
+                }
+            });
+
+        } catch (Exception e) {
+            logger.warning("[CritManager] Error setting up raw damage: " + e.getMessage());
+            // Fallback to normal damage
+            player.damage(damage, source);
         }
     }
 

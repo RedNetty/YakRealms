@@ -139,7 +139,8 @@ public class VendorHologramManager {
      * Enhanced hologram creation with comprehensive validation and vendor type checking
      */
     public boolean createHologram(Vendor vendor) {
-        if (vendor == null || !vendor.isValid()) {
+        return true;
+      /*  if (vendor == null || !vendor.isValid()) {
             plugin.getLogger().warning("Cannot create hologram for invalid vendor");
             return false;
         }
@@ -215,7 +216,7 @@ public class VendorHologramManager {
             plugin.getLogger().log(Level.WARNING, "Unexpected error creating hologram for vendor " + vendorId, e);
             handleHologramError(vendorId, "unexpected error", e);
             return false;
-        }
+        }*/
     }
 
     /**

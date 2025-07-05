@@ -31,6 +31,7 @@ public class PlayerListenerManager {
     private ItemDropListener itemDropListener;
     private VisualEffectsListener visualEffectsListener;
     private WorldListener worldListener;
+    private MenuItemListener menuItemListener;
 
     /**
      * Private constructor for singleton pattern
@@ -69,8 +70,10 @@ public class PlayerListenerManager {
         itemDropListener = new ItemDropListener();
         visualEffectsListener = new VisualEffectsListener();
         worldListener = new WorldListener();
+        menuItemListener = new MenuItemListener(YakRealms.getInstance());
 
         // Add to list for management
+        listeners.add(menuItemListener);
         listeners.add(combatListener);
         listeners.add(healthListener);
         listeners.add(equipmentListener);

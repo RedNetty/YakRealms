@@ -34,7 +34,7 @@ public class MarketCommand implements CommandExecutor, TabCompleter {
         Player player = (Player) sender;
 
         // Check basic permission
-        if (!player.hasPermission("yakserver.market.use")) {
+        if (!player.hasPermission("yakrealms.market.use")) {
             player.sendMessage(ChatColor.RED + "You don't have permission to use the market.");
             return true;
         }
@@ -55,7 +55,7 @@ public class MarketCommand implements CommandExecutor, TabCompleter {
 
             case "list":
             case "sell":
-                if (!player.hasPermission("yakserver.market.sell")) {
+                if (!player.hasPermission("yakrealms.market.sell")) {
                     player.sendMessage(ChatColor.RED + "You don't have permission to sell items.");
                     return true;
                 }
@@ -87,7 +87,7 @@ public class MarketCommand implements CommandExecutor, TabCompleter {
                 break;
 
             case "admin":
-                if (!player.hasPermission("yakserver.market.admin")) {
+                if (!player.hasPermission("yakrealms.market.admin")) {
                     player.sendMessage(ChatColor.RED + "You don't have permission to use market admin commands.");
                     return true;
                 }
@@ -95,7 +95,7 @@ public class MarketCommand implements CommandExecutor, TabCompleter {
                 break;
 
             case "reload":
-                if (!player.hasPermission("yakserver.market.admin")) {
+                if (!player.hasPermission("yakrealms.market.admin")) {
                     player.sendMessage(ChatColor.RED + "You don't have permission to reload the market.");
                     return true;
                 }
@@ -343,7 +343,7 @@ public class MarketCommand implements CommandExecutor, TabCompleter {
         if (args.length == 1) {
             List<String> subCommands = Arrays.asList("browse", "list", "mylistings", "search", "stats", "help");
 
-            if (sender.hasPermission("yakserver.market.admin")) {
+            if (sender.hasPermission("yakrealms.market.admin")) {
                 subCommands = new ArrayList<>(subCommands);
                 subCommands.addAll(Arrays.asList("admin", "reload"));
             }
@@ -354,7 +354,7 @@ public class MarketCommand implements CommandExecutor, TabCompleter {
                     .collect(Collectors.toList()));
 
         } else if (args.length == 2) {
-            if (args[0].equalsIgnoreCase("admin") && sender.hasPermission("yakserver.market.admin")) {
+            if (args[0].equalsIgnoreCase("admin") && sender.hasPermission("yakrealms.market.admin")) {
                 List<String> adminSubCommands = Arrays.asList("stats", "cleanup", "reload", "test");
                 String partial = args[1].toLowerCase();
                 completions.addAll(adminSubCommands.stream()

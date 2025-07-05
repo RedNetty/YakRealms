@@ -17,8 +17,11 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
- * UPDATED: Creates purely decorative death remnants that display visual skeleton only
- * Items always drop separately on the ground - remnants are visual only
+ * FIXED: Creates purely decorative death remnants with robust entity management
+ * - All remnants are visual-only decorative skeletons
+ * - No item storage or display - items always drop separately on ground
+ * - Enhanced entity tracking and cleanup integration
+ * - Improved location validation and placement
  */
 public class DeathRemnant {
     private static final Logger LOGGER = Logger.getLogger(DeathRemnant.class.getName());
@@ -27,12 +30,13 @@ public class DeathRemnant {
     private static final class Config {
         static final double GROUND_OFFSET = 0.5;
         static final int MAX_RIBS = 2;
-        static final boolean DEBUG_MODE = true;
-        static final int GROUND_SEARCH_RANGE = 15;
+        static final boolean DEBUG_MODE = false; // Disabled for production
+        static final int GROUND_SEARCH_RANGE = 10;
+        static final double MIN_ENTITY_SPACING = 0.3;
     }
 
     static {
-        // Base bone types mapped to items
+        // Initialize bone parts with consistent items
         BONE_PARTS.put(BonePart.SPINE, new ItemStack(Material.BONE));
         BONE_PARTS.put(BonePart.RIB, new ItemStack(Material.BONE));
         BONE_PARTS.put(BonePart.ARM, new ItemStack(Material.BONE));
@@ -44,12 +48,15 @@ public class DeathRemnant {
     private final Map<BonePart, ArmorStand> boneStands;
     private final float rotation;
     private final NamespacedKey remnantKey;
+    private final String playerName;
+    private final UUID playerUuid;
     private boolean isValid = false;
+    private final long creationTime;
 
     /**
-     * UPDATED: Creates a purely decorative death remnant - items parameter is ignored
+     * FIXED: Creates a purely decorative death remnant with enhanced validation
      * @param location The location to create the remnant
-     * @param items The items list (ignored - for compatibility only)
+     * @param items The items list (ignored - always decorative only)
      * @param playerUuid The UUID of the deceased player
      * @param playerName The name of the deceased player
      * @param key The namespaced key for tracking remnant entities
@@ -59,65 +66,124 @@ public class DeathRemnant {
         this.id = UUID.randomUUID();
         this.boneStands = new EnumMap<>(BonePart.class);
         this.remnantKey = key;
+        this.playerName = playerName != null ? playerName : "Unknown";
+        this.playerUuid = playerUuid != null ? playerUuid : UUID.randomUUID();
         this.rotation = (float) (Math.random() * 360);
+        this.creationTime = System.currentTimeMillis();
 
+        // Note: items parameter is completely ignored - remnants are always decorative only
+
+        // FIXED: Enhanced location validation
         Location validatedLocation = findValidLocation(location.clone());
         if (validatedLocation == null) {
             this.location = location.clone();
-            logError("Failed to validate location at %s", formatLocation(location));
+            logError("Failed to validate location at %s for player %s", formatLocation(location), this.playerName);
             return;
         }
         this.location = validatedLocation;
 
         try {
-            if (!constructSkeleton(playerUuid, playerName) || !validateStructure()) {
-                logError("Failed skeleton construction at %s", formatLocation(this.location));
+            // FIXED: Construct skeleton with enhanced error handling
+            if (!constructSkeleton() || !validateStructure()) {
+                logError("Failed skeleton construction at %s for player %s", formatLocation(this.location), this.playerName);
                 cleanup();
                 return;
             }
 
-            // Note: Items are ignored - remnants are purely decorative
-            logDebug("Created decorative death remnant for %s at %s",
-                    playerName, formatLocation(this.location));
-
+            // Play creation effects
             playSpawnEffects();
             isValid = true;
+
+            logDebug("Created decorative death remnant for %s at %s (ID: %s)",
+                    this.playerName, formatLocation(this.location), this.id.toString().substring(0, 8));
+
         } catch (Exception e) {
-            logError("Construction failure: %s", e.getMessage());
+            logError("Construction failure for player %s: %s", this.playerName, e.getMessage());
             cleanup();
         }
     }
 
-    // Location validation and ground checking methods
+    /**
+     * FIXED: Enhanced location validation with better ground detection
+     */
     private Location findValidLocation(Location initialLoc) {
-        Block currentBlock = initialLoc.getBlock().getRelative(BlockFace.DOWN);
-        if (isValidGround(currentBlock)) {
-            return currentBlock.getLocation().add(0.5, Config.GROUND_OFFSET, 0.5);
+        if (initialLoc == null || initialLoc.getWorld() == null) {
+            return null;
         }
 
+        // Try the initial location first
+        Block initialBlock = initialLoc.getBlock().getRelative(BlockFace.DOWN);
+        if (isValidGround(initialBlock) && hasEnoughClearance(initialLoc)) {
+            return adjustLocationForGround(initialBlock.getLocation().add(0.5, Config.GROUND_OFFSET, 0.5));
+        }
+
+        // Search downward for valid ground
         Location downwardSearch = initialLoc.clone();
         for (int i = 0; i < Config.GROUND_SEARCH_RANGE; i++) {
             downwardSearch.subtract(0, 1, 0);
             Block check = downwardSearch.getBlock().getRelative(BlockFace.DOWN);
-            if (isValidGround(check)) {
-                return check.getLocation().add(0.5, Config.GROUND_OFFSET, 0.5);
+            if (isValidGround(check) && hasEnoughClearance(downwardSearch)) {
+                return adjustLocationForGround(check.getLocation().add(0.5, Config.GROUND_OFFSET, 0.5));
             }
         }
 
+        // Search upward as fallback
         Location upwardSearch = initialLoc.clone();
         for (int i = 0; i < Config.GROUND_SEARCH_RANGE; i++) {
             upwardSearch.add(0, 1, 0);
             Block check = upwardSearch.getBlock().getRelative(BlockFace.DOWN);
-            if (isValidGround(check)) {
-                return check.getLocation().add(0.5, Config.GROUND_OFFSET, 0.5);
+            if (isValidGround(check) && hasEnoughClearance(upwardSearch)) {
+                return adjustLocationForGround(check.getLocation().add(0.5, Config.GROUND_OFFSET, 0.5));
             }
         }
 
-        return null;
+        return null; // No valid location found
     }
 
+    /**
+     * Check if there's enough clearance above the location
+     */
+    private boolean hasEnoughClearance(Location loc) {
+        if (loc == null || loc.getWorld() == null) return false;
+
+        // Check 2 blocks high for clearance
+        for (int y = 0; y < 2; y++) {
+            Block check = loc.clone().add(0, y, 0).getBlock();
+            if (!check.getType().isAir() && check.getType() != Material.WATER) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * Adjust location based on ground block type
+     */
+    private Location adjustLocationForGround(Location baseLoc) {
+        Block groundBlock = baseLoc.getBlock().getRelative(BlockFace.DOWN);
+        BlockData data = groundBlock.getBlockData();
+
+        if (data instanceof Stairs) {
+            Stairs stairs = (Stairs) data;
+            if (stairs.getHalf() == Stairs.Half.TOP) {
+                baseLoc.add(0, 0.5, 0);
+            }
+        } else if (data instanceof Slab) {
+            Slab slab = (Slab) data;
+            if (slab.getType() == Slab.Type.TOP) {
+                baseLoc.add(0, 0.5, 0);
+            }
+        }
+
+        return baseLoc;
+    }
+
+    /**
+     * Enhanced ground validation
+     */
     private boolean isValidGround(Block block) {
-        if (block.getType().isAir()) return false;
+        if (block == null || block.getType().isAir()) return false;
+
         BlockData data = block.getBlockData();
         if (data instanceof Stairs) {
             return ((Stairs) data).getHalf() == Stairs.Half.BOTTOM;
@@ -125,15 +191,41 @@ public class DeathRemnant {
         if (data instanceof Slab) {
             return ((Slab) data).getType() != Slab.Type.TOP;
         }
+
         return block.getType().isSolid();
     }
 
-    // Skeleton construction methods
-    private boolean constructSkeleton(UUID playerUuid, String playerName) {
-        return createSpine() &&
-                createSkull(playerUuid, playerName) &&
-                createRibCage() &&
-                createLimbs();
+    /**
+     * FIXED: Enhanced skeleton construction with better error handling
+     */
+    private boolean constructSkeleton() {
+        try {
+            // Create components in order with validation
+            if (!createSpine()) {
+                logError("Failed to create spine for remnant %s", id.toString().substring(0, 8));
+                return false;
+            }
+
+            if (!createSkull()) {
+                logError("Failed to create skull for remnant %s", id.toString().substring(0, 8));
+                return false;
+            }
+
+            if (!createRibCage()) {
+                logError("Failed to create rib cage for remnant %s", id.toString().substring(0, 8));
+                return false;
+            }
+
+            if (!createLimbs()) {
+                logError("Failed to create limbs for remnant %s", id.toString().substring(0, 8));
+                return false;
+            }
+
+            return true;
+        } catch (Exception e) {
+            logError("Exception during skeleton construction: %s", e.getMessage());
+            return false;
+        }
     }
 
     private boolean createSpine() {
@@ -143,28 +235,44 @@ public class DeathRemnant {
         return registerBone(BonePart.SPINE, spine);
     }
 
-    private boolean createSkull(UUID playerUuid, String playerName) {
+    private boolean createSkull() {
         Location skullLoc = DeathRemnantStructure.getSkullPosition(getSpineLocation(), rotation);
         skullLoc.subtract(0, .25, 0);
         ArmorStand skullStand = createBoneStand(skullLoc, BonePart.SKULL,
                 new EulerAngle(Math.toRadians(0), Math.toRadians(rotation), 0));
 
+        if (skullStand != null) {
+            ItemStack skullItem = createPlayerSkull();
+            skullStand.setHelmet(skullItem);
+        }
+
+        return registerBone(BonePart.SKULL, skullStand);
+    }
+
+    /**
+     * Create a player skull item
+     */
+    private ItemStack createPlayerSkull() {
         ItemStack skullItem = new ItemStack(Material.PLAYER_HEAD);
         SkullMeta meta = (SkullMeta) skullItem.getItemMeta();
         if (meta != null) {
-            meta.setOwningPlayer(Bukkit.getOfflinePlayer(playerUuid));
-            meta.setDisplayName(playerName + "'s Remains");
-            skullItem.setItemMeta(meta);
+            try {
+                meta.setOwningPlayer(Bukkit.getOfflinePlayer(playerUuid));
+                meta.setDisplayName(ChatColor.GRAY + playerName + "'s Remains");
+                skullItem.setItemMeta(meta);
+            } catch (Exception e) {
+                logError("Error setting skull meta: %s", e.getMessage());
+            }
         }
-
-        if (skullStand != null) skullStand.setHelmet(skullItem);
-        return registerBone(BonePart.SKULL, skullStand);
+        return skullItem;
     }
 
     private boolean createRibCage() {
         for (int i = 0; i < Config.MAX_RIBS; i++) {
             Location[] ribLocs = DeathRemnantStructure.getRibPositions(getSpineLocation(), rotation, i);
-            if (!createRibPair(ribLocs, i)) return false;
+            if (!createRibPair(ribLocs, i)) {
+                return false;
+            }
         }
         return true;
     }
@@ -213,111 +321,180 @@ public class DeathRemnant {
         return registerBone(BonePart.LEG_RIGHT, rightLeg) && registerBone(BonePart.LEG_LEFT, leftLeg);
     }
 
-    // Bone stand creation
+    /**
+     * FIXED: Enhanced bone stand creation with better error handling
+     */
     private ArmorStand createBoneStand(Location loc, BonePart part, EulerAngle angle) {
-        if (loc == null || loc.getWorld() == null) return null;
+        if (loc == null || loc.getWorld() == null) {
+            logError("Invalid location for bone stand creation: %s", part);
+            return null;
+        }
 
-        return loc.getWorld().spawn(loc, ArmorStand.class, stand -> {
-            stand.setVisible(false);
-            stand.setSmall(true);
-            stand.setMarker(true);
-            stand.setGravity(false);
-            stand.setBasePlate(false);
-            stand.setHeadPose(angle);
-            stand.getPersistentDataContainer().set(remnantKey, PersistentDataType.BOOLEAN, true);
+        try {
+            return loc.getWorld().spawn(loc, ArmorStand.class, stand -> {
+                // Configure armor stand properties
+                stand.setVisible(false);
+                stand.setSmall(true);
+                stand.setMarker(true);
+                stand.setGravity(false);
+                stand.setBasePlate(false);
+                stand.setArms(false);
+                stand.setInvulnerable(true);
+                stand.setHeadPose(angle);
 
-            if (part != BonePart.SKULL) {
-                ItemStack bone = BONE_PARTS.get(part.getBasePart());
-                if (bone != null) stand.setHelmet(bone.clone());
-            }
-        });
+                // FIXED: Enhanced persistent data tagging
+                stand.getPersistentDataContainer().set(remnantKey, PersistentDataType.STRING, id.toString());
+
+                // Set helmet item if not skull
+                if (part != BonePart.SKULL) {
+                    ItemStack bone = BONE_PARTS.get(part.getBasePart());
+                    if (bone != null) {
+                        stand.setHelmet(bone.clone());
+                    }
+                }
+            });
+        } catch (Exception e) {
+            logError("Error creating armor stand for part %s: %s", part, e.getMessage());
+            return null;
+        }
     }
 
-    // Effects and cleanup
+    /**
+     * Play spawn effects
+     */
     private void playSpawnEffects() {
         World world = location.getWorld();
         if (world == null) return;
 
-        world.spawnParticle(Particle.SMOKE_NORMAL, location, 30, 0.5, 0.2, 0.5, 0.05);
-        world.playSound(location, Sound.ENTITY_SKELETON_DEATH, 0.5f, 0.8f);
+        try {
+            // Main spawn effects
+            world.spawnParticle(Particle.SMOKE_NORMAL, location, 30, 0.5, 0.2, 0.5, 0.05);
+            world.playSound(location, Sound.ENTITY_SKELETON_DEATH, 0.5f, 0.8f);
 
-        boneStands.values().forEach(stand ->
-                world.spawnParticle(Particle.WHITE_ASH, stand.getLocation(), 5, 0.1, 0.1, 0.1, 0.02)
-        );
+            // Individual bone effects
+            boneStands.values().forEach(stand -> {
+                if (stand != null && !stand.isDead()) {
+                    world.spawnParticle(Particle.WHITE_ASH, stand.getLocation(), 5, 0.1, 0.1, 0.1, 0.02);
+                }
+            });
+        } catch (Exception e) {
+            logError("Error playing spawn effects: %s", e.getMessage());
+        }
     }
 
+    /**
+     * FIXED: Enhanced removal with comprehensive cleanup
+     */
     public void remove() {
         if (!isValid) return;
-        cleanup();
-        playRemovalEffects();
-        isValid = false;
+
+        try {
+            cleanup();
+            playRemovalEffects();
+        } catch (Exception e) {
+            logError("Error during remnant removal: %s", e.getMessage());
+        } finally {
+            isValid = false;
+        }
     }
 
+    /**
+     * FIXED: Comprehensive cleanup of all entities
+     */
     private void cleanup() {
-        boneStands.values().forEach(stand -> {
-            if (!stand.isDead()) stand.remove();
-        });
+        List<ArmorStand> toRemove = new ArrayList<>();
+
+        // Collect all valid entities
+        for (ArmorStand stand : boneStands.values()) {
+            if (stand != null && !stand.isDead()) {
+                toRemove.add(stand);
+            }
+        }
+
+        // Remove entities safely
+        for (ArmorStand stand : toRemove) {
+            try {
+                stand.remove();
+            } catch (Exception e) {
+                logError("Error removing armor stand: %s", e.getMessage());
+            }
+        }
+
         boneStands.clear();
     }
 
+    /**
+     * Play removal effects
+     */
     private void playRemovalEffects() {
         World world = location.getWorld();
         if (world == null) return;
 
-        world.spawnParticle(Particle.SMOKE_LARGE, location, 20, 0.5, 0.2, 0.5, 0.05);
-        world.playSound(location, Sound.ENTITY_ITEM_BREAK, 0.7f, 0.9f);
+        try {
+            world.spawnParticle(Particle.SMOKE_LARGE, location, 20, 0.5, 0.2, 0.5, 0.05);
+            world.playSound(location, Sound.ENTITY_ITEM_BREAK, 0.7f, 0.9f);
+        } catch (Exception e) {
+            logError("Error playing removal effects: %s", e.getMessage());
+        }
     }
 
-    // Validation and utility methods
+    /**
+     * FIXED: Enhanced structure validation
+     */
     private boolean validateStructure() {
-        boolean hasRibs = true;
+        // Check essential parts
+        if (!boneStands.containsKey(BonePart.SPINE) ||
+                !boneStands.containsKey(BonePart.SKULL) ||
+                !boneStands.containsKey(BonePart.ARM_RIGHT) ||
+                !boneStands.containsKey(BonePart.ARM_LEFT) ||
+                !boneStands.containsKey(BonePart.LEG_RIGHT) ||
+                !boneStands.containsKey(BonePart.LEG_LEFT)) {
+            return false;
+        }
+
+        // Check ribs
         for (int i = 0; i < Config.MAX_RIBS; i++) {
             BonePart right = (i == 0) ? BonePart.RIB_RIGHT_0 : BonePart.RIB_RIGHT_1;
             BonePart left = (i == 0) ? BonePart.RIB_LEFT_0 : BonePart.RIB_LEFT_1;
             if (!boneStands.containsKey(right) || !boneStands.containsKey(left)) {
-                hasRibs = false;
-                break;
+                return false;
             }
         }
-        return boneStands.containsKey(BonePart.SPINE) &&
-                boneStands.containsKey(BonePart.SKULL) &&
-                boneStands.containsKey(BonePart.ARM_RIGHT) &&
-                boneStands.containsKey(BonePart.ARM_LEFT) &&
-                boneStands.containsKey(BonePart.LEG_RIGHT) &&
-                boneStands.containsKey(BonePart.LEG_LEFT) &&
-                hasRibs;
+
+        // Validate all entities are alive
+        for (ArmorStand stand : boneStands.values()) {
+            if (stand == null || stand.isDead()) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private boolean registerBone(BonePart part, ArmorStand stand) {
-        if (stand == null || stand.isDead()) return false;
+        if (stand == null || stand.isDead()) {
+            logError("Failed to register bone part: %s (null or dead entity)", part);
+            return false;
+        }
         boneStands.put(part, stand);
         return true;
     }
 
     private Location getSpineLocation() {
-        return boneStands.containsKey(BonePart.SPINE) ?
-                boneStands.get(BonePart.SPINE).getLocation() :
-                location.clone();
+        ArmorStand spine = boneStands.get(BonePart.SPINE);
+        return spine != null ? spine.getLocation() : location.clone();
     }
 
-    // BonePart enum with proper base part resolution
+    /**
+     * BonePart enum with proper base part resolution
+     */
     public enum BonePart {
         // Base types
-        SPINE,
-        RIB,
-        ARM,
-        LEG,
-        SKULL,
+        SPINE, RIB, ARM, LEG, SKULL,
 
         // Specific placements
-        RIB_RIGHT_0,
-        RIB_LEFT_0,
-        RIB_RIGHT_1,
-        RIB_LEFT_1,
-        ARM_RIGHT,
-        ARM_LEFT,
-        LEG_RIGHT,
-        LEG_LEFT;
+        RIB_RIGHT_0, RIB_LEFT_0, RIB_RIGHT_1, RIB_LEFT_1,
+        ARM_RIGHT, ARM_LEFT, LEG_RIGHT, LEG_LEFT;
 
         public BonePart getBasePart() {
             return switch (this) {
@@ -329,7 +506,7 @@ public class DeathRemnant {
         }
     }
 
-    // Logging and helper methods
+    // Logging methods
     private void logDebug(String format, Object... args) {
         if (Config.DEBUG_MODE) {
             LOGGER.log(Level.INFO, "[DeathRemnant] " + String.format(format, args));
@@ -337,20 +514,15 @@ public class DeathRemnant {
     }
 
     private void logError(String format, Object... args) {
-        LOGGER.log(Level.SEVERE, "[DeathRemnant] " + String.format(format, args));
-    }
-
-    public Collection<ArmorStand> getEntityCollection() {
-        return Collections.unmodifiableCollection(boneStands.values());
+        LOGGER.log(Level.WARNING, "[DeathRemnant] " + String.format(format, args));
     }
 
     private String formatLocation(Location loc) {
+        if (loc == null || loc.getWorld() == null) {
+            return "Unknown location";
+        }
         return String.format("World: %s, X: %.2f, Y: %.2f, Z: %.2f",
-                loc.getWorld().getName(),
-                loc.getX(),
-                loc.getY(),
-                loc.getZ()
-        );
+                loc.getWorld().getName(), loc.getX(), loc.getY(), loc.getZ());
     }
 
     // Getters
@@ -363,26 +535,57 @@ public class DeathRemnant {
     }
 
     public boolean isValid() {
-        return isValid;
+        return isValid && validateStructure();
     }
 
     public float getRotation() {
         return rotation;
     }
 
+    public String getPlayerName() {
+        return playerName;
+    }
+
+    public UUID getPlayerUuid() {
+        return playerUuid;
+    }
+
+    public long getCreationTime() {
+        return creationTime;
+    }
+
     /**
-     * UPDATED: Always returns 0 since remnants are purely decorative
-     * @return Always 0 (no items are displayed in remnants)
+     * Get all entities belonging to this remnant
+     */
+    public Collection<ArmorStand> getEntityCollection() {
+        return Collections.unmodifiableCollection(boneStands.values());
+    }
+
+    /**
+     * FIXED: Always returns 0 since remnants are purely decorative
      */
     public int getItemCount() {
         return 0;
     }
 
     /**
-     * UPDATED: Always returns true since remnants are purely decorative
-     * @return Always true (remnants never contain items)
+     * FIXED: Always returns true since remnants are purely decorative
      */
     public boolean isDecorativeOnly() {
         return true;
+    }
+
+    /**
+     * Get the number of entities in this remnant
+     */
+    public int getEntityCount() {
+        return boneStands.size();
+    }
+
+    /**
+     * Check if the remnant has aged beyond a certain time
+     */
+    public boolean isAged(long maxAgeMillis) {
+        return System.currentTimeMillis() - creationTime > maxAgeMillis;
     }
 }

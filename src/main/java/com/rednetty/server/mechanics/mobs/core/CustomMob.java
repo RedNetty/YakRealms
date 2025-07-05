@@ -13,6 +13,7 @@ import org.bukkit.enchantments.Enchantment;
 import org.bukkit.entity.*;
 import org.bukkit.inventory.EntityEquipment;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.metadata.FixedMetadataValue;
 import org.bukkit.potion.PotionEffect;
 import org.bukkit.potion.PotionEffectType;
@@ -23,9 +24,8 @@ import java.util.logging.Logger;
 
 /**
  * FIXED: CustomMob class with simplified, reliable spawning
- * - Removed overly strict validation that was causing failures
- * - Streamlined spawn process for better success rates
- * - Guaranteed entity creation with bulletproof fallbacks
+ * - Equipment never takes durability damage (unbreakable)
+ * - Mobs never burn in sunlight
  * - All entity operations properly validated for main thread
  * - Fixed entity creation issues that caused "naked mob" fallbacks
  */
@@ -85,6 +85,7 @@ public class CustomMob {
 
         try {
             updateNameVisibility();
+            preventSunlightBurning(); // Ensure mobs don't burn in sunlight
             // Subclasses can override to add specific behavior
         } catch (Exception e) {
             LOGGER.warning("[CustomMob] Tick error for " + type.getId() + ": " + e.getMessage());
@@ -414,7 +415,10 @@ public class CustomMob {
             // Step 1: Basic properties
             applyBasicProperties();
 
-            // Step 2: Equipment (don't fail if this doesn't work)
+            // Step 2: Sunlight protection - CRITICAL FIX
+            applySunlightProtection();
+
+            // Step 3: Equipment (don't fail if this doesn't work)
             try {
                 applyEquipment();
             } catch (Exception e) {
@@ -423,10 +427,10 @@ public class CustomMob {
                 }
             }
 
-            // Step 3: Health
+            // Step 4: Health
             calculateAndSetHealth();
 
-            // Step 4: Type-specific properties (don't fail if this doesn't work)
+            // Step 5: Type-specific properties (don't fail if this doesn't work)
             try {
                 applyTypeProperties();
             } catch (Exception e) {
@@ -435,7 +439,7 @@ public class CustomMob {
                 }
             }
 
-            // Step 5: Name
+            // Step 6: Name
             captureOriginalName();
             lastDamageTime = 0;
 
@@ -444,6 +448,89 @@ public class CustomMob {
         } catch (Exception e) {
             LOGGER.warning("[CustomMob] Initialization failed: " + e.getMessage());
             return false;
+        }
+    }
+
+    /**
+     * CRITICAL FIX: Apply sunlight protection to prevent burning
+     */
+    private void applySunlightProtection() {
+        if (entity == null) return;
+
+        try {
+            // For undead mobs that normally burn in sunlight
+            if (isUndeadMob()) {
+                // Method 1: Give them a helmet (even if invisible) to prevent burning
+                if (entity.getEquipment() != null && entity.getEquipment().getHelmet() == null) {
+                    // Create an invisible helmet that prevents sunlight burning
+                    ItemStack protectionHelmet = new ItemStack(Material.LEATHER_HELMET);
+                    ItemMeta meta = protectionHelmet.getItemMeta();
+                    if (meta != null) {
+                        meta.setDisplayName("§fSunlight Protection");
+                        meta.setUnbreakable(true);
+                        protectionHelmet.setItemMeta(meta);
+                    }
+
+                    // Set it with no drop chance and make it invisible in some cases
+                    entity.getEquipment().setHelmet(protectionHelmet);
+                    entity.getEquipment().setHelmetDropChance(0.0f);
+                }
+
+                // Method 2: Additional protection through metadata
+                YakRealms plugin = YakRealms.getInstance();
+                entity.setMetadata("sunlight_immune", new FixedMetadataValue(plugin, true));
+
+                if (YakRealms.getInstance().isDebugMode()) {
+                    LOGGER.info("[CustomMob] Applied sunlight protection to " + type.getId());
+                }
+            }
+        } catch (Exception e) {
+            LOGGER.warning("[CustomMob] Failed to apply sunlight protection: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Check if this mob is an undead type that would normally burn in sunlight
+     */
+    private boolean isUndeadMob() {
+        if (entity == null) return false;
+
+        EntityType entityType = entity.getType();
+        return entityType == EntityType.SKELETON ||
+                entityType == EntityType.WITHER_SKELETON ||
+                entityType == EntityType.ZOMBIE ||
+                entityType == EntityType.ZOMBIE_VILLAGER ||
+                entityType == EntityType.HUSK ||
+                entityType == EntityType.DROWNED ||
+                entityType == EntityType.STRAY ||
+                entityType == EntityType.PHANTOM;
+    }
+
+    /**
+     * Prevent sunlight burning during tick updates
+     */
+    private void preventSunlightBurning() {
+        if (!isValid() || !isUndeadMob()) return;
+
+        try {
+            // If the mob is on fire and it's daytime, extinguish them
+            if (entity.getFireTicks() > 0) {
+                World world = entity.getWorld();
+                if (world != null && world.getTime() >= 0 && world.getTime() < 12300) {
+                    // It's daytime, check if they're burning from sunlight
+                    Location loc = entity.getLocation();
+                    if (loc.getBlockY() < world.getHighestBlockYAt(loc) - 1) {
+                        // They're not under direct sunlight, but might be burning anyway
+                        // Extinguish them to be safe
+                        entity.setFireTicks(0);
+                    } else if (entity.getEquipment() != null && entity.getEquipment().getHelmet() != null) {
+                        // They have a helmet, shouldn't burn
+                        entity.setFireTicks(0);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            // Silent fail for sunlight prevention
         }
     }
 
@@ -480,8 +567,8 @@ public class CustomMob {
             entity.setCustomNameVisible(true);
             currentDisplayName = formattedName;
 
-            // Basic effects
-            entity.addPotionEffect(new PotionEffect(PotionEffectType.FIRE_RESISTANCE, Integer.MAX_VALUE, 1));
+            // Basic effects - including enhanced fire resistance
+            entity.addPotionEffect(new PotionEffect(PotionEffectType.FIRE_RESISTANCE, Integer.MAX_VALUE, 2));
 
             // Type-specific behavior (basic)
             configureBasicBehavior();
@@ -543,7 +630,7 @@ public class CustomMob {
     }
 
     /**
-     * SIMPLIFIED: Apply equipment (don't fail spawn if this doesn't work)
+     * CRITICAL FIX: Apply equipment with unbreakable items to prevent durability damage
      */
     protected void applyEquipment() {
         if (entity == null) return;
@@ -561,23 +648,61 @@ public class CustomMob {
             ItemStack[] armor = createArmorSet(gearPieces);
 
             if (weapon != null) {
+                // Make weapon unbreakable
+                makeItemUnbreakable(weapon);
                 equipment.setItemInMainHand(weapon);
             }
 
-            if (armor[0] != null) equipment.setHelmet(armor[0]);
-            if (armor[1] != null) equipment.setChestplate(armor[1]);
-            if (armor[2] != null) equipment.setLeggings(armor[2]);
-            if (armor[3] != null) equipment.setBoots(armor[3]);
+            // Apply armor pieces and make them unbreakable
+            if (armor[0] != null) {
+                makeItemUnbreakable(armor[0]);
+                equipment.setHelmet(armor[0]);
+            }
+            if (armor[1] != null) {
+                makeItemUnbreakable(armor[1]);
+                equipment.setChestplate(armor[1]);
+            }
+            if (armor[2] != null) {
+                makeItemUnbreakable(armor[2]);
+                equipment.setLeggings(armor[2]);
+            }
+            if (armor[3] != null) {
+                makeItemUnbreakable(armor[3]);
+                equipment.setBoots(armor[3]);
+            }
 
-            // Set drop chances
-            equipment.setItemInMainHandDropChance(0);
-            equipment.setHelmetDropChance(0);
-            equipment.setChestplateDropChance(0);
-            equipment.setLeggingsDropChance(0);
-            equipment.setBootsDropChance(0);
+            // Set drop chances to 0 - items never drop
+            equipment.setItemInMainHandDropChance(0.0f);
+            equipment.setHelmetDropChance(0.0f);
+            equipment.setChestplateDropChance(0.0f);
+            equipment.setLeggingsDropChance(0.0f);
+            equipment.setBootsDropChance(0.0f);
+
+            if (YakRealms.getInstance().isDebugMode()) {
+                LOGGER.info("[CustomMob] Applied unbreakable equipment to " + type.getId());
+            }
 
         } catch (Exception e) {
             LOGGER.warning("[CustomMob] Equipment application failed: " + e.getMessage());
+        }
+    }
+
+    /**
+     * CRITICAL FIX: Make an item unbreakable so it never takes durability damage
+     */
+    private void makeItemUnbreakable(ItemStack item) {
+        if (item == null || item.getType() == Material.AIR) {
+            return;
+        }
+
+        try {
+            ItemMeta meta = item.getItemMeta();
+            if (meta != null) {
+                meta.setUnbreakable(true);
+                item.setItemMeta(meta);
+            }
+        } catch (Exception e) {
+            LOGGER.warning("[CustomMob] Failed to make item unbreakable: " + e.getMessage());
         }
     }
 

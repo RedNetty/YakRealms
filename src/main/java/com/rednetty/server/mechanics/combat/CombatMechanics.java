@@ -2,13 +2,16 @@ package com.rednetty.server.mechanics.combat;
 
 import com.rednetty.server.YakRealms;
 import com.rednetty.server.mechanics.combat.pvp.AlignmentMechanics;
+import com.rednetty.server.mechanics.mobs.CritManager;
 import com.rednetty.server.mechanics.mobs.MobManager;
 import com.rednetty.server.mechanics.mobs.core.CustomMob;
 import com.rednetty.server.mechanics.mobs.utils.MobUtils;
+import com.rednetty.server.mechanics.party.PartyMechanics;
 import com.rednetty.server.mechanics.player.YakPlayer;
 import com.rednetty.server.mechanics.player.YakPlayerManager;
 import com.rednetty.server.mechanics.player.settings.Toggles;
 import com.rednetty.server.mechanics.player.stamina.Energy;
+import com.rednetty.server.mechanics.world.holograms.HologramManager;
 import org.bukkit.*;
 import org.bukkit.block.Block;
 import org.bukkit.boss.BarColor;
@@ -39,14 +42,18 @@ import org.bukkit.util.Vector;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * Handles all combat and damage mechanics including:
+ * FIXED: Handles all combat and damage mechanics including:
  * - Damage calculation and application with authentic legacy calculations
  * - Armor, block, and dodge mechanics
  * - Critical hits and combat effects
  * - Combat visualization (holograms, health bar)
  * - Weapon-specific mechanics
+ * - Enhanced PVP protection system
+ * - FIXED: Proper mob-to-player damage calculations
+ * - FIXED: Elite mob explosion damage bypass system
  */
 public class CombatMechanics implements Listener {
     // Constants
@@ -73,10 +80,12 @@ public class CombatMechanics implements Listener {
     private final Map<UUID, Long> playerSlowEffects = new ConcurrentHashMap<>();
     private final Map<UUID, Long> knockbackCooldowns = new ConcurrentHashMap<>();
     private final Set<UUID> polearmSwingProcessed = new HashSet<>();
-    private final Map<UUID, BossBar> healthBars = new ConcurrentHashMap<>();
 
     // Entity damage visualization tracking
     private final Map<UUID, Long> entityDamageEffects = new ConcurrentHashMap<>();
+
+    // Hologram tracking for unique IDs
+    private final AtomicInteger hologramIdCounter = new AtomicInteger(0);
 
     // Dependencies
     private final YakPlayerManager playerManager;
@@ -87,18 +96,414 @@ public class CombatMechanics implements Listener {
 
     public void onEnable() {
         Bukkit.getPluginManager().registerEvents(this, YakRealms.getInstance());
-        startHealthBarUpdateTask();
         startMovementSpeedRestoreTask();
         startEntityDamageEffectCleanupTask();
         YakRealms.log("Combat Mechanics have been enabled");
     }
 
     public void onDisable() {
-        for (BossBar bar : healthBars.values()) {
-            bar.removeAll();
-        }
-        healthBars.clear();
         YakRealms.log("Combat Mechanics have been disabled");
+    }
+
+    // ============= HOLOGRAM DAMAGE DISPLAY SYSTEM =============
+
+    /**
+     * Shows a combat-related hologram above the target entity
+     * @param attacker The attacking entity (for positioning reference)
+     * @param target The target entity to show hologram above
+     * @param type The type of hologram (dmg, block, dodge, crit, lifesteal, thorns)
+     * @param value The numeric value to display (damage amount, heal amount, etc.)
+     */
+    private void showCombatHologram(Entity attacker, LivingEntity target, String type, int value) {
+        if (target == null || target.isDead()) {
+            return;
+        }
+
+        // Generate unique hologram ID
+        String hologramId = "combat_" + target.getUniqueId() + "_" + hologramIdCounter.incrementAndGet();
+
+        // Calculate hologram position (above target's head)
+        Location hologramLocation = target.getLocation().clone();
+        hologramLocation.add(0, target.getHeight() + 0.5, 0);
+
+        // Add some randomness to prevent overlapping holograms
+        double offsetX = (Math.random() - 0.3) * 0.8;
+        double offsetZ = (Math.random() - 0.3) * 0.8;
+        hologramLocation.add(offsetX, 0, offsetZ);
+
+        // Create hologram text based on type
+        List<String> hologramLines = new ArrayList<>();
+        String hologramText = createHologramText(type, value);
+        hologramLines.add(hologramText);
+
+        // Create the hologram
+        HologramManager.createOrUpdateHologram(hologramId, hologramLocation, hologramLines, 0.25);
+
+        // Schedule hologram removal
+        Bukkit.getScheduler().runTaskLater(YakRealms.getInstance(), () -> {
+            HologramManager.removeHologram(hologramId);
+        }, HOLOGRAM_DURATION);
+    }
+
+    /**
+     * Creates formatted hologram text based on the type and value
+     */
+    private String createHologramText(String type, int value) {
+        switch (type.toLowerCase()) {
+            case "dmg":
+            case "damage":
+                return ChatColor.RED + "" + ChatColor.BOLD + "-" + value;
+
+            case "crit":
+            case "critical":
+                return ChatColor.GOLD + "" + ChatColor.BOLD + "CRIT " + ChatColor.RED + ChatColor.BOLD + "-" + value;
+
+            case "block":
+                return ChatColor.BLUE + "" + ChatColor.BOLD + "BLOCKED";
+
+            case "dodge":
+                return ChatColor.GREEN + "" + ChatColor.BOLD + "DODGED";
+
+            case "lifesteal":
+            case "heal":
+                return ChatColor.GREEN + "" + ChatColor.BOLD + "+" + value + " HP";
+
+            case "thorns":
+                return ChatColor.DARK_PURPLE + "" + ChatColor.BOLD + "♦ " + value;
+
+            case "miss":
+                return ChatColor.GRAY + "" + ChatColor.BOLD + "MISS";
+
+            case "immune":
+                return ChatColor.YELLOW + "" + ChatColor.BOLD + "IMMUNE";
+
+            default:
+                return ChatColor.WHITE + "" + value;
+        }
+    }
+
+    /**
+     * Shows a multi-line hologram for complex combat effects
+     */
+    private void showMultiLineHologram(Entity attacker, LivingEntity target, List<String> lines) {
+        if (target == null || target.isDead() || lines.isEmpty()) {
+            return;
+        }
+
+        String hologramId = "combat_multi_" + target.getUniqueId() + "_" + hologramIdCounter.incrementAndGet();
+
+        Location hologramLocation = target.getLocation().clone();
+        hologramLocation.add(0, target.getHeight() + 0.5, 0);
+
+        double offsetX = (Math.random() - 0.5) * 0.8;
+        double offsetZ = (Math.random() - 0.5) * 0.8;
+        hologramLocation.add(offsetX, 0, offsetZ);
+
+        HologramManager.createOrUpdateHologram(hologramId, hologramLocation, lines, 0.3);
+
+        Bukkit.getScheduler().runTaskLater(YakRealms.getInstance(), () -> {
+            HologramManager.removeHologram(hologramId);
+        }, HOLOGRAM_DURATION + 10); // Slightly longer for multi-line
+    }
+
+
+    /**
+     * Creates elemental-specific hologram text
+     */
+    private String createElementalHologramText(String element, int damage) {
+        switch (element.toLowerCase()) {
+            case "ice":
+                return ChatColor.AQUA + "" + ChatColor.BOLD + "❄ " + damage + " ICE";
+            case "fire":
+                return ChatColor.GOLD + "" + ChatColor.BOLD + "🔥 " + damage + " FIRE";
+            case "poison":
+                return ChatColor.DARK_GREEN + "" + ChatColor.BOLD + "☠ " + damage + " POISON";
+            case "pure":
+                return ChatColor.WHITE + "" + ChatColor.BOLD + "✦ " + damage + " PURE";
+            default:
+                return ChatColor.GRAY + "" + ChatColor.BOLD + damage + " " + element.toUpperCase();
+        }
+    }
+
+    // ============= ENHANCED PVP PROTECTION SYSTEM =============
+
+    /**
+     * Comprehensive PVP protection check that handles friends, party members, and settings
+     * @param attacker The attacking player
+     * @param victim The victim player
+     * @return PVPResult indicating if PVP should be allowed and why
+     */
+    public PVPResult checkPVPProtection(Player attacker, Player victim) {
+        if (attacker == null || victim == null) {
+            return new PVPResult(false, "Invalid players");
+        }
+
+        // Don't allow self-damage
+        if (attacker.equals(victim)) {
+            return new PVPResult(false, "Cannot attack yourself");
+        }
+
+        YakPlayer attackerData = playerManager.getPlayer(attacker);
+        YakPlayer victimData = playerManager.getPlayer(victim);
+
+        if (attackerData == null || victimData == null) {
+            return new PVPResult(false, "Player data not loaded");
+        }
+
+        // Check if attacker has Anti PVP enabled
+        if (attackerData.isToggled("Anti PVP")) {
+            return new PVPResult(false, "You have PVP disabled! Use /toggle to enable it.",
+                    PVPResult.ResultType.ATTACKER_PVP_DISABLED);
+        }
+
+        // Check if victim has Anti PVP enabled
+        if (victimData.isToggled("Anti PVP")) {
+            return new PVPResult(false, victim.getName() + " has PVP disabled!",
+                    PVPResult.ResultType.VICTIM_PVP_DISABLED);
+        }
+
+        // Check buddy protection (requires friendly fire to be enabled by ATTACKER)
+        if (attackerData.isBuddy(victim.getName())) {
+            if (!attackerData.isToggled("Friendly Fire")) {
+                return new PVPResult(false, "You cannot attack your buddy " + victim.getName() + "! Enable Friendly Fire in /toggle to allow this.",
+                        PVPResult.ResultType.BUDDY_PROTECTION);
+            }
+        }
+
+        // Check if victim considers attacker a buddy (mutual protection)
+        if (victimData.isBuddy(attacker.getName())) {
+            if (!victimData.isToggled("Friendly Fire")) {
+                return new PVPResult(false, victim.getName() + " has you as a buddy and friendly fire disabled!",
+                        PVPResult.ResultType.MUTUAL_BUDDY_PROTECTION);
+            }
+        }
+
+        // Check party member protection
+        if (PartyMechanics.getInstance().arePartyMembers(attacker, victim)) {
+            // Check attacker's friendly fire setting
+            if (!attackerData.isToggled("Friendly Fire")) {
+                return new PVPResult(false, "You cannot attack your party member " + victim.getName() + "! Enable Friendly Fire in /toggle to allow this.",
+                        PVPResult.ResultType.PARTY_PROTECTION);
+            }
+
+            // Check victim's friendly fire setting for mutual protection
+            if (!victimData.isToggled("Friendly Fire")) {
+                return new PVPResult(false, victim.getName() + " is your party member and has friendly fire disabled!",
+                        PVPResult.ResultType.MUTUAL_PARTY_PROTECTION);
+            }
+        }
+
+        // Check guild protection (if guild system is implemented)
+        if (isInSameGuild(attacker, victim)) {
+            if (!attackerData.isToggled("Friendly Fire")) {
+                return new PVPResult(false, "You cannot attack your guild member " + victim.getName() + "! Enable Friendly Fire in /toggle to allow this.",
+                        PVPResult.ResultType.GUILD_PROTECTION);
+            }
+        }
+
+        // Check chaotic protection
+        if (attackerData.isToggled("Chaotic Protection") && isLawfulPlayer(victim)) {
+            return new PVPResult(false, "Chaotic Protection prevented you from attacking " + victim.getName() + "! This player is lawful. Disable Chaotic Protection to attack them.",
+                    PVPResult.ResultType.CHAOTIC_PROTECTION);
+        }
+
+        // Check safe zone protection
+        if (isSafeZone(attacker.getLocation()) || isSafeZone(victim.getLocation())) {
+            return new PVPResult(false, "PVP is not allowed in safe zones!",
+                    PVPResult.ResultType.SAFE_ZONE);
+        }
+
+        // All checks passed - PVP is allowed
+        return new PVPResult(true, "PVP allowed");
+    }
+
+    /**
+     * Result class for PVP protection checks
+     */
+    public static class PVPResult {
+        public enum ResultType {
+            ALLOWED,
+            ATTACKER_PVP_DISABLED,
+            VICTIM_PVP_DISABLED,
+            BUDDY_PROTECTION,
+            MUTUAL_BUDDY_PROTECTION,
+            PARTY_PROTECTION,
+            MUTUAL_PARTY_PROTECTION,
+            GUILD_PROTECTION,
+            CHAOTIC_PROTECTION,
+            SAFE_ZONE,
+            OTHER
+        }
+
+        private final boolean allowed;
+        private final String message;
+        private final ResultType resultType;
+
+        public PVPResult(boolean allowed, String message) {
+            this(allowed, message, allowed ? ResultType.ALLOWED : ResultType.OTHER);
+        }
+
+        public PVPResult(boolean allowed, String message, ResultType resultType) {
+            this.allowed = allowed;
+            this.message = message;
+            this.resultType = resultType;
+        }
+
+        public boolean isAllowed() { return allowed; }
+        public String getMessage() { return message; }
+        public ResultType getResultType() { return resultType; }
+    }
+
+    /**
+     * Enhanced PVP damage handler with comprehensive protection
+     */
+    @EventHandler(priority = EventPriority.LOWEST)
+    public void onEnhancedPvpProtection(EntityDamageByEntityEvent event) {
+        // Only handle player vs player damage
+        if (!(event.getEntity() instanceof Player) || !(event.getDamager() instanceof Player)) {
+            return;
+        }
+
+        if (event.getDamage() <= 0.0 || event.isCancelled()) {
+            return;
+        }
+
+        Player attacker = (Player) event.getDamager();
+        Player victim = (Player) event.getEntity();
+
+        // Check all PVP protections
+        PVPResult result = checkPVPProtection(attacker, victim);
+
+        if (!result.isAllowed()) {
+            event.setCancelled(true);
+            event.setDamage(0.0);
+
+            // Show immunity hologram
+            showCombatHologram(attacker, victim, "immune", 0);
+
+            // Send appropriate message to attacker
+            attacker.sendMessage(ChatColor.RED + "§l⚠ §c" + result.getMessage());
+
+            // Play appropriate sound based on protection type
+            Sound sound = getProtectionSound(result.getResultType());
+            attacker.playSound(attacker.getLocation(), sound, 1.0f, 0.5f);
+
+            // Send additional help message for certain protection types
+            sendAdditionalHelpMessage(attacker, result.getResultType());
+
+            // Log the blocked PVP attempt if needed
+            logBlockedPVPAttempt(attacker, victim, result.getResultType());
+
+            return;
+        }
+
+        // PVP is allowed - let the event continue to other handlers
+        // The existing damage calculation logic in other handlers will take over
+    }
+
+    /**
+     * Get appropriate sound for different protection types
+     */
+    private Sound getProtectionSound(PVPResult.ResultType resultType) {
+        switch (resultType) {
+            case BUDDY_PROTECTION:
+            case MUTUAL_BUDDY_PROTECTION:
+                return Sound.ENTITY_VILLAGER_NO;
+            case PARTY_PROTECTION:
+            case MUTUAL_PARTY_PROTECTION:
+                return Sound.BLOCK_NOTE_BLOCK_BASS;
+            case GUILD_PROTECTION:
+                return Sound.ENTITY_HORSE_ANGRY;
+            case SAFE_ZONE:
+                return Sound.BLOCK_ANVIL_LAND;
+            default:
+                return Sound.BLOCK_NOTE_BLOCK_BASS;
+        }
+    }
+
+    /**
+     * Send additional help messages for certain protection types
+     */
+    private void sendAdditionalHelpMessage(Player attacker, PVPResult.ResultType resultType) {
+        switch (resultType) {
+            case BUDDY_PROTECTION:
+            case PARTY_PROTECTION:
+            case GUILD_PROTECTION:
+                Bukkit.getScheduler().runTaskLater(YakRealms.getInstance(), () -> {
+                    if (attacker.isOnline()) {
+                        attacker.sendMessage(ChatColor.GRAY + "Enable " + ChatColor.WHITE + "Friendly Fire" +
+                                ChatColor.GRAY + " in " + ChatColor.WHITE + "/toggle" +
+                                ChatColor.GRAY + " to allow this.");
+                    }
+                }, 5L);
+                break;
+            case CHAOTIC_PROTECTION:
+                Bukkit.getScheduler().runTaskLater(YakRealms.getInstance(), () -> {
+                    if (attacker.isOnline()) {
+                        attacker.sendMessage(ChatColor.GRAY + "Disable " + ChatColor.WHITE + "Chaotic Protection" +
+                                ChatColor.GRAY + " in " + ChatColor.WHITE + "/toggle" +
+                                ChatColor.GRAY + " to attack lawful players.");
+                    }
+                }, 5L);
+                break;
+        }
+    }
+
+    /**
+     * Log blocked PVP attempts for monitoring and admin purposes
+     */
+    private void logBlockedPVPAttempt(Player attacker, Player victim, PVPResult.ResultType resultType) {
+        if (Toggles.isToggled(attacker, "Debug")) {
+        }
+
+        // Log to console for admins if needed
+        YakRealms.getInstance().getLogger().fine("PVP blocked: " + attacker.getName() +
+                " -> " + victim.getName() +
+                " (Reason: " + resultType.name() + ")");
+    }
+
+    /**
+     * Check if two players are in the same guild
+     */
+    private boolean isInSameGuild(Player player1, Player player2) {
+        if (player1 == null || player2 == null) return false;
+
+        YakPlayer yakPlayer1 = playerManager.getPlayer(player1);
+        YakPlayer yakPlayer2 = playerManager.getPlayer(player2);
+
+        if (yakPlayer1 == null || yakPlayer2 == null) return false;
+
+        String guild1 = yakPlayer1.getGuildName();
+        String guild2 = yakPlayer2.getGuildName();
+
+        // Both must be in a guild and the same guild
+        return guild1 != null && !guild1.trim().isEmpty() &&
+                guild2 != null && !guild2.trim().isEmpty() &&
+                guild1.equals(guild2);
+    }
+
+    /**
+     * Check if a player is lawful (for chaotic protection)
+     */
+    private boolean isLawfulPlayer(Player player) {
+        if (player == null) return false;
+
+        YakPlayer yakPlayer = playerManager.getPlayer(player);
+        return yakPlayer != null && "LAWFUL".equals(yakPlayer.getAlignment());
+    }
+
+    /**
+     * Public API method for other plugins to check if PVP is allowed
+     */
+    public boolean isPVPAllowed(Player attacker, Player victim) {
+        return checkPVPProtection(attacker, victim).isAllowed();
+    }
+
+    /**
+     * Public API method to get detailed PVP check result
+     */
+    public PVPResult getPVPCheckResult(Player attacker, Player victim) {
+        return checkPVPProtection(attacker, victim);
     }
 
     // ============= AUTHENTIC LEGACY STAT CALCULATION METHODS =============
@@ -289,18 +694,135 @@ public class CombatMechanics implements Listener {
         return new double[]{dps, vit, str};
     }
 
-    // ============= EXISTING TASK METHODS =============
+    // ============= FIXED: MOB-TO-PLAYER DAMAGE CALCULATION SYSTEM =============
 
-    private void startHealthBarUpdateTask() {
-        new BukkitRunnable() {
-            @Override
-            public void run() {
-                for (Player player : Bukkit.getOnlinePlayers()) {
-                    updateHealthBar(player);
+    /**
+     * FIXED: Calculate proper mob damage based on mob's weapon and stats
+     */
+    private double calculateMobDamage(LivingEntity mobAttacker, Player victim) {
+        try {
+            // Get mob's weapon
+            ItemStack weapon = null;
+            if (mobAttacker.getEquipment() != null) {
+                weapon = mobAttacker.getEquipment().getItemInMainHand();
+            }
+
+            // If no weapon, use tier-based fallback
+            if (weapon == null || weapon.getType() == Material.AIR) {
+                return calculateTierBasedDamage(mobAttacker);
+            }
+
+            // Calculate damage from weapon stats
+            List<Integer> damageRange = getDamageRange(weapon);
+            int minDamage = damageRange.get(0);
+            int maxDamage = damageRange.get(1);
+
+            // Random damage within range
+            int baseDamage = ThreadLocalRandom.current().nextInt(minDamage, maxDamage + 1);
+
+            // Add elemental damage
+            baseDamage += calculateMobElementalDamage(weapon);
+
+            // Apply tier-based multipliers
+            int tier = MobUtils.getMobTier(mobAttacker);
+            boolean isElite = MobUtils.isElite(mobAttacker);
+
+            double tierMultiplier = 1.0;
+            switch (tier) {
+                case 1: tierMultiplier = 0.8; break;
+                case 2: tierMultiplier = 1.0; break;
+                case 3: tierMultiplier = 1.2; break;
+                case 4: tierMultiplier = 1.5; break;
+                case 5: tierMultiplier = 2.0; break;
+                case 6: tierMultiplier = 2.5; break;
+            }
+
+            if (isElite) {
+                tierMultiplier *= 1.5; // Elite multiplier
+            }
+
+            baseDamage = (int) (baseDamage * tierMultiplier);
+
+            // Apply VS PLAYERS bonus if present
+            if (hasBonus(weapon, "VS PLAYERS")) {
+                double bonus = getPercent(weapon, "VS PLAYERS") / 100.0;
+                baseDamage = (int) (baseDamage * (1 + bonus));
+            }
+
+            // Check for critical hit via CritManager
+            CustomMob customMob = MobManager.getInstance().getCustomMob(mobAttacker);
+            if (customMob != null) {
+                double critDamage = CritManager.getInstance().handleCritAttack(customMob, victim, baseDamage);
+                if (critDamage > baseDamage) {
+                    // Show critical hit hologram
+                    showCombatHologram(mobAttacker, victim, "crit", (int) critDamage);
+                    return critDamage;
                 }
             }
-        }.runTaskTimerAsynchronously(YakRealms.getInstance(), 0, 1);
+
+            return Math.max(1, baseDamage);
+
+        } catch (Exception e) {
+            YakRealms.getInstance().getLogger().warning("Error calculating mob damage: " + e.getMessage());
+            return calculateTierBasedDamage(mobAttacker);
+        }
     }
+
+    /**
+     * Calculate tier-based damage for mobs without proper weapons
+     */
+    private double calculateTierBasedDamage(LivingEntity mobAttacker) {
+        int tier = MobUtils.getMobTier(mobAttacker);
+        boolean isElite = MobUtils.isElite(mobAttacker);
+
+        int baseDamage;
+        switch (tier) {
+            case 1: baseDamage = ThreadLocalRandom.current().nextInt(8, 15); break;
+            case 2: baseDamage = ThreadLocalRandom.current().nextInt(15, 25); break;
+            case 3: baseDamage = ThreadLocalRandom.current().nextInt(25, 40); break;
+            case 4: baseDamage = ThreadLocalRandom.current().nextInt(40, 65); break;
+            case 5: baseDamage = ThreadLocalRandom.current().nextInt(65, 100); break;
+            case 6: baseDamage = ThreadLocalRandom.current().nextInt(100, 150); break;
+            default: baseDamage = ThreadLocalRandom.current().nextInt(8, 15); break;
+        }
+
+        if (isElite) {
+            baseDamage = (int) (baseDamage * 1.5);
+        }
+
+        return baseDamage;
+    }
+
+    /**
+     * Calculate elemental damage from mob weapon
+     */
+    private int calculateMobElementalDamage(ItemStack weapon) {
+        if (weapon == null || !weapon.hasItemMeta() || !weapon.getItemMeta().hasLore()) {
+            return 0;
+        }
+
+        int elementalDamage = 0;
+        List<String> lore = weapon.getItemMeta().getLore();
+
+        for (String line : lore) {
+            if (line.contains("ICE DMG")) {
+                elementalDamage += getElem(weapon, "ICE DMG");
+            }
+            if (line.contains("POISON DMG")) {
+                elementalDamage += getElem(weapon, "POISON DMG");
+            }
+            if (line.contains("FIRE DMG")) {
+                elementalDamage += getElem(weapon, "FIRE DMG");
+            }
+            if (line.contains("PURE DMG")) {
+                elementalDamage += getElem(weapon, "PURE DMG");
+            }
+        }
+
+        return elementalDamage;
+    }
+
+    // ============= EXISTING TASK METHODS =============
 
     private void startMovementSpeedRestoreTask() {
         new BukkitRunnable() {
@@ -339,30 +861,6 @@ public class CombatMechanics implements Listener {
                 }
             }
         }.runTaskTimerAsynchronously(YakRealms.getInstance(), 10, 10);
-    }
-
-    private void updateHealthBar(Player player) {
-        double maxHealth = player.getMaxHealth();
-        double currentHealth = player.getHealth();
-        double healthPercentage = Math.min(1.0, currentHealth / maxHealth);
-
-        BarColor barColor = getHealthBarColor(player);
-        ChatColor titleColor = getHealthTextColor(player);
-
-        String safeZoneText = isSafeZone(player.getLocation()) ? ChatColor.GRAY + " - " + ChatColor.GREEN + ChatColor.BOLD + "SAFE-ZONE" : "";
-
-        String title = titleColor + "" + ChatColor.BOLD + "HP " + titleColor + (int) currentHealth + titleColor + ChatColor.BOLD + " / " + titleColor + (int) maxHealth + safeZoneText;
-
-        BossBar bossBar = healthBars.get(player.getUniqueId());
-        if (bossBar == null) {
-            bossBar = Bukkit.createBossBar(title, barColor, BarStyle.SOLID);
-            bossBar.addPlayer(player);
-            healthBars.put(player.getUniqueId(), bossBar);
-        }
-
-        bossBar.setColor(barColor);
-        bossBar.setTitle(title);
-        bossBar.setProgress((float) healthPercentage);
     }
 
     private BarColor getHealthBarColor(Player player) {
@@ -518,7 +1016,7 @@ public class CombatMechanics implements Listener {
         return value / (1.0 + Math.pow(value / scale, power));
     }
 
-    private double calculateArmorReduction(Player defender, Player attacker) {
+    private double calculateArmorReduction(Player defender, LivingEntity attacker) {
         double armorRating = 0.0;
 
         for (ItemStack armor : defender.getInventory().getArmorContents()) {
@@ -532,18 +1030,21 @@ public class CombatMechanics implements Listener {
         // Apply diminishing returns using legacy formula (scale=400, n=1.8)
         double effectiveArmor = armorRating / (1.0 + Math.pow(armorRating / 400, 1.8));
 
-        // Calculate armor penetration
+        // Calculate armor penetration (if attacker is player)
         double armorPenetration = 0.0;
-        ItemStack weapon = attacker.getInventory().getItemInMainHand();
-        armorPenetration = getElem(weapon, "ARMOR PEN") / 100.0;
+        if (attacker instanceof Player) {
+            Player playerAttacker = (Player) attacker;
+            ItemStack weapon = playerAttacker.getInventory().getItemInMainHand();
+            armorPenetration = getElem(weapon, "ARMOR PEN") / 100.0;
 
-        int totalDex = 0;
-        for (ItemStack armor : attacker.getInventory().getArmorContents()) {
-            if (armor != null && armor.getType() != Material.AIR && armor.hasItemMeta() && armor.getItemMeta().hasLore()) {
-                totalDex += getElem(armor, "DEX");
+            int totalDex = 0;
+            for (ItemStack armor : playerAttacker.getInventory().getArmorContents()) {
+                if (armor != null && armor.getType() != Material.AIR && armor.hasItemMeta() && armor.getItemMeta().hasLore()) {
+                    totalDex += getElem(armor, "DEX");
+                }
             }
+            armorPenetration += totalDex * 0.00035; // 0.035% per dexterity point
         }
-        armorPenetration += totalDex * 0.00035; // 0.035% per dexterity point
 
         armorPenetration = Math.max(0, Math.min(1, armorPenetration));
 
@@ -576,6 +1077,7 @@ public class CombatMechanics implements Listener {
 
                 int duration = 40 + (tier * 5);
                 target.addPotionEffect(new PotionEffect(PotionEffectType.SLOW, duration, 0));
+
             }
 
             if (line.contains("POISON DMG")) {
@@ -588,6 +1090,7 @@ public class CombatMechanics implements Listener {
                 int duration = 15 + (tier * 5);
                 int amplifier = tier >= 3 ? 1 : 0;
                 target.addPotionEffect(new PotionEffect(PotionEffectType.POISON, duration, amplifier));
+
             }
 
             if (line.contains("FIRE DMG")) {
@@ -600,12 +1103,14 @@ public class CombatMechanics implements Listener {
 
                 int fireDuration = 15 + (tier * 5);
                 target.setFireTicks(fireDuration);
+
             }
 
             if (line.contains("PURE DMG")) {
                 int pureDamage = getElem(weapon, "PURE DMG");
                 int pureDamageBonus = Math.round(pureDamage * (1 + Math.round(dexterity / 3000f)));
                 elementalDamage += pureDamageBonus;
+
             }
         }
 
@@ -773,8 +1278,78 @@ public class CombatMechanics implements Listener {
                 Player damager = (Player) event.getDamager();
                 LivingEntity entity = (LivingEntity) event.getEntity();
                 int damage = (int) event.getDamage();
-                //showCombatHologram(damager, entity, "dmg", damage);
+
+                // Show basic damage hologram for non-player entities
+                if (!(entity instanceof Player)) {
+                    showCombatHologram(damager, entity, "dmg", damage);
+                }
             }
+        }
+    }
+
+    // ============= FIXED: MOB-TO-PLAYER DAMAGE HANDLING =============
+
+    /**
+     * FIXED: Handle mob-to-player damage with proper weapon-based calculations
+     */
+    @EventHandler(priority = EventPriority.LOW)
+    public void onMobToPlayerDamage(EntityDamageByEntityEvent event) {
+        if (event.isCancelled() || event.getDamage() <= 0) {
+            return;
+        }
+
+        // Only handle mob-to-player damage
+        if (!(event.getEntity() instanceof Player victim) || !(event.getDamager() instanceof LivingEntity mobAttacker)) {
+            return;
+        }
+
+        // Skip if attacker is also a player (handled by PVP system)
+        if (mobAttacker instanceof Player) {
+            return;
+        }
+
+        // FIXED: Check for whirlwind explosion damage (should bypass normal calculations)
+        if (victim.hasMetadata("whirlwindExplosionDamage")) {
+            // This is whirlwind explosion damage - let it pass through unchanged
+            double explosionDamage = victim.getMetadata("whirlwindExplosionDamage").get(0).asDouble();
+            event.setDamage(explosionDamage);
+
+            // Show explosion damage hologram
+            showCombatHologram(mobAttacker, victim, "dmg", (int) explosionDamage);
+
+            if (Toggles.isToggled(victim, "Debug")) {
+                String mobName = getEnhancedMobName(mobAttacker);
+                victim.sendMessage(ChatColor.RED + "            -" + (int) explosionDamage + ChatColor.RED + ChatColor.BOLD + "HP " +
+                        ChatColor.RED + "-> " + ChatColor.RESET + mobName + " " + ChatColor.GRAY + "[EXPLOSION]");
+            }
+            return;
+        }
+
+        // Calculate proper mob damage
+        double calculatedDamage = calculateMobDamage(mobAttacker, victim);
+
+        // Apply armor reduction
+        double armorReduction = calculateArmorReduction(victim, mobAttacker);
+        double finalDamage = calculatedDamage * (1 - armorReduction);
+        finalDamage = Math.max(1, Math.round(finalDamage));
+
+        // Set the calculated damage
+        event.setDamage(finalDamage);
+
+        // Show damage hologram
+        showCombatHologram(mobAttacker, victim, "dmg", (int) finalDamage);
+
+        // Debug display
+        if (Toggles.isToggled(victim, "Debug")) {
+            String mobName = getEnhancedMobName(mobAttacker);
+            int expectedHealth = Math.max(0, (int) (victim.getHealth() - finalDamage));
+            double effectiveReduction = ((calculatedDamage - finalDamage) / calculatedDamage) * 100;
+
+            victim.sendMessage(ChatColor.RED + "            -" + (int) finalDamage + ChatColor.RED + ChatColor.BOLD + "HP " +
+                    ChatColor.GRAY + "[" + String.format("%.1f", effectiveReduction) + "%A -> -" +
+                    (int) (calculatedDamage - finalDamage) + ChatColor.BOLD + "DMG" + ChatColor.GRAY + "] " +
+                    ChatColor.GREEN + "[" + expectedHealth + ChatColor.BOLD + "HP" + ChatColor.GREEN + "] " +
+                    ChatColor.RED + "-> " + ChatColor.RESET + mobName);
         }
     }
 
@@ -832,7 +1407,7 @@ public class CombatMechanics implements Listener {
 
             if (event.getDamager() instanceof Player attacker) {
                 attacker.playSound(attacker.getLocation(), Sound.ENTITY_ZOMBIE_ATTACK_IRON_DOOR, 1.0f, 1.0f);
-                //showCombatHologram(attacker, defender, "block", 0);
+                showCombatHologram(attacker, defender, "block", 0);
 
                 if (Toggles.isToggled(attacker, "Debug")) {
                     attacker.sendMessage(ChatColor.RED + ChatColor.BOLD.toString() + "*OPPONENT BLOCKED* (" + defender.getName() + ")");
@@ -840,6 +1415,14 @@ public class CombatMechanics implements Listener {
 
                 if (Toggles.isToggled(defender, "Debug")) {
                     defender.sendMessage(ChatColor.DARK_GREEN + ChatColor.BOLD.toString() + "*BLOCK* (" + attacker.getName() + ")");
+                }
+            } else {
+                // Mob attack blocked
+                showCombatHologram(event.getDamager(), defender, "block", 0);
+
+                if (Toggles.isToggled(defender, "Debug")) {
+                    String mobName = getEnhancedMobName((LivingEntity) event.getDamager());
+                    defender.sendMessage(ChatColor.DARK_GREEN + ChatColor.BOLD.toString() + "*BLOCK* (" + mobName + ")");
                 }
             }
             return;
@@ -855,7 +1438,7 @@ public class CombatMechanics implements Listener {
 
             if (event.getDamager() instanceof Player attacker) {
                 attacker.playSound(attacker.getLocation(), Sound.ENTITY_ZOMBIE_INFECT, 1.0f, 1.0f);
-                //showCombatHologram(attacker, defender, "dodge", 0);
+                showCombatHologram(attacker, defender, "dodge", 0);
 
                 if (Toggles.isToggled(attacker, "Debug")) {
                     attacker.sendMessage(ChatColor.RED + ChatColor.BOLD.toString() + "*OPPONENT DODGED* (" + defender.getName() + ")");
@@ -863,6 +1446,14 @@ public class CombatMechanics implements Listener {
 
                 if (Toggles.isToggled(defender, "Debug")) {
                     defender.sendMessage(ChatColor.GREEN + ChatColor.BOLD.toString() + "*DODGE* (" + attacker.getName() + ")");
+                }
+            } else {
+                // Mob attack dodged
+                showCombatHologram(event.getDamager(), defender, "dodge", 0);
+
+                if (Toggles.isToggled(defender, "Debug")) {
+                    String mobName = getEnhancedMobName((LivingEntity) event.getDamager());
+                    defender.sendMessage(ChatColor.GREEN + ChatColor.BOLD.toString() + "*DODGE* (" + mobName + ")");
                 }
             }
             return;
@@ -873,7 +1464,7 @@ public class CombatMechanics implements Listener {
             event.setDamage(event.getDamage() / 2);
 
             if (event.getDamager() instanceof Player attacker) {
-                //showCombatHologram(attacker, defender, "block", 0);
+                showCombatHologram(attacker, defender, "block", 0);
                 defender.playSound(defender.getLocation(), Sound.ENTITY_ZOMBIE_ATTACK_IRON_DOOR, 1.0f, 1.0f);
 
                 if (Toggles.isToggled(attacker, "Debug")) {
@@ -882,6 +1473,15 @@ public class CombatMechanics implements Listener {
 
                 if (Toggles.isToggled(defender, "Debug")) {
                     defender.sendMessage(ChatColor.DARK_GREEN + ChatColor.BOLD.toString() + "*BLOCK* (" + attacker.getName() + ")");
+                }
+            } else {
+                // Mob attack partially blocked
+                showCombatHologram(event.getDamager(), defender, "block", 0);
+                defender.playSound(defender.getLocation(), Sound.ENTITY_ZOMBIE_ATTACK_IRON_DOOR, 1.0f, 1.0f);
+
+                if (Toggles.isToggled(defender, "Debug")) {
+                    String mobName = getEnhancedMobName((LivingEntity) event.getDamager());
+                    defender.sendMessage(ChatColor.DARK_GREEN + ChatColor.BOLD.toString() + "*PARTIAL BLOCK* (" + mobName + ")");
                 }
             }
         }
@@ -972,6 +1572,12 @@ public class CombatMechanics implements Listener {
             damage *= 2;
             attacker.playSound(attacker.getLocation(), Sound.BLOCK_WOODEN_BUTTON_CLICK_ON, 1.5f, 0.5f);
             target.getWorld().spawnParticle(Particle.CRIT_MAGIC, target.getLocation(), 50, 0.5, 0.5, 0.5, 0.1);
+
+            // Show critical hit hologram
+            showCombatHologram(attacker, target, "crit", damage);
+        } else {
+            // Show normal damage hologram
+            showCombatHologram(attacker, target, "dmg", damage);
         }
 
         // Apply life steal using legacy calculation
@@ -995,6 +1601,9 @@ public class CombatMechanics implements Listener {
                             + (int) attacker.getMaxHealth() + "/" + (int) attacker.getMaxHealth() + "HP]");
                 }
             }
+
+            // Show life steal hologram above attacker
+            showCombatHologram(target, attacker, "lifesteal", lifeStolen);
         }
 
         // Apply thorns effect if target has thorns (legacy calculation)
@@ -1006,6 +1615,9 @@ public class CombatMechanics implements Listener {
 
                 defender.getWorld().spawnParticle(Particle.BLOCK_CRACK, defender.getLocation().add(0, 1, 0), 10, 0.5, 0.5, 0.5, 0.01, new MaterialData(Material.OAK_LEAVES));
                 attacker.setHealth(attacker.getHealth() - thornsDamage);
+
+                // Show thorns damage hologram above attacker
+                showCombatHologram(defender, attacker, "thorns", thornsDamage);
             }
         }
 
@@ -1125,6 +1737,9 @@ public class CombatMechanics implements Listener {
                     secondaryTarget.setNoDamageTicks(0);
                     Energy.getInstance().removeEnergy(attacker, 2);
                     secondaryTarget.damage(1.0, attacker);
+
+                    // Show AOE damage hologram
+                    showCombatHologram(attacker, secondaryTarget, "dmg", 1);
                 }
             }
         } finally {
@@ -1257,6 +1872,16 @@ public class CombatMechanics implements Listener {
 
         event.setCancelled(true);
         player.sendMessage(ChatColor.RED + "            " + damage + ChatColor.RED + ChatColor.BOLD + " DMG " + ChatColor.RED + "-> " + ChatColor.RESET + "DPS DUMMY" + " [" + 99999999 + "HP]");
+
+        // Show dummy damage hologram at block location
+        Location dummyLocation = block.getLocation().add(0.5, 1.5, 0.5);
+        String hologramId = "dummy_" + player.getUniqueId() + "_" + hologramIdCounter.incrementAndGet();
+        List<String> hologramLines = Arrays.asList(ChatColor.RED + "" + ChatColor.BOLD + "-" + damage);
+        HologramManager.createOrUpdateHologram(hologramId, dummyLocation, hologramLines, 0.25);
+
+        Bukkit.getScheduler().runTaskLater(YakRealms.getInstance(), () -> {
+            HologramManager.removeHologram(hologramId);
+        }, HOLOGRAM_DURATION);
     }
 
     @EventHandler(priority = EventPriority.HIGH)
@@ -1309,11 +1934,6 @@ public class CombatMechanics implements Listener {
         playerSlowEffects.remove(playerId);
         knockbackCooldowns.remove(playerId);
         polearmSwingProcessed.remove(playerId);
-
-        BossBar bar = healthBars.remove(playerId);
-        if (bar != null) {
-            bar.removeAll();
-        }
 
         entityDamageEffects.remove(playerId);
     }

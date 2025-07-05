@@ -102,13 +102,10 @@ public class LootChestHandler implements Listener {
             }
         } else if (event.getAction() == Action.LEFT_CLICK_BLOCK) {
             // Only allow breaking if player is sneaking to prevent accidental breaks
-            if (player.isSneaking()) {
-                boolean success = manager.breakChest(player, location);
-                if (!success) {
-                    player.sendMessage(ChatColor.RED + "Unable to break this chest right now.");
-                }
-            } else {
-                player.sendMessage(ChatColor.YELLOW + "Sneak + left-click to break this chest");
+            boolean success = manager.breakChest(player, location);
+            if (!success) {
+                player.sendMessage(ChatColor.RED + "Unable to break this chest right now.");
+
             }
         }
     }

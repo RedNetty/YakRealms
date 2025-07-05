@@ -277,13 +277,6 @@ public class AlignmentMechanics implements Listener {
 
         UUID playerId = player.getUniqueId();
 
-        // Check if player has health bar toggled on
-        if (!Toggles.isToggled(player, "Level HP")) {
-            // FIXED: Remove existing boss bar if toggle is off
-            removeBossBar(playerId);
-            return;
-        }
-
         try {
             // Calculate health percentage
             double healthPercentage = player.getHealth() / player.getMaxHealth();
@@ -500,7 +493,7 @@ public class AlignmentMechanics implements Listener {
     }
 
     /**
-     * FIXED: Update player display name based on alignment with scoreboard integration
+     * FIXED: Update player display name based on alignment with enhanced scoreboard integration
      */
     public static void updatePlayerAlignment(Player player) {
         try {
@@ -525,6 +518,17 @@ public class AlignmentMechanics implements Listener {
 
             // Update player display name
             player.setDisplayName(cc + player.getName());
+
+            // FIXED: Ensure ALL players see the color change above the player's head
+            // This is crucial for proper team color display
+            Bukkit.getScheduler().runTaskLater(YakRealms.getInstance(), () -> {
+                try {
+                    // Update team assignments for all players to see the correct color
+                    PartyScoreboards.handleAlignmentChange(player);
+                } catch (Exception e) {
+                    YakRealms.warn("Error updating scoreboards after alignment change for " + player.getName() + ": " + e.getMessage());
+                }
+            }, 1L); // Small delay to ensure display name is set first
 
             // Play sound effect
             Bukkit.getScheduler().runTask(YakRealms.getInstance(), () -> {
