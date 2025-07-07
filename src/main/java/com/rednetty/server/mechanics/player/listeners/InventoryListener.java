@@ -182,7 +182,7 @@ public class InventoryListener extends BaseListener {
         if (isArmorChange) {
             logger.fine("Detected armor change for " + player.getName() + " (type: " + changeType + ")");
 
-            // FIXED: Trigger health recalculation with proper delay and coordination
+            
             new BukkitRunnable() {
                 @Override
                 public void run() {

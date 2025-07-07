@@ -1,6 +1,7 @@
 package com.rednetty.server.mechanics.combat;
 
 import com.rednetty.server.YakRealms;
+import com.rednetty.server.mechanics.combat.holograms.CombatHologramHandler;
 import com.rednetty.server.mechanics.combat.pvp.AlignmentMechanics;
 import com.rednetty.server.mechanics.world.mobs.CritManager;
 import com.rednetty.server.mechanics.world.mobs.MobManager;
@@ -11,7 +12,6 @@ import com.rednetty.server.mechanics.player.YakPlayer;
 import com.rednetty.server.mechanics.player.YakPlayerManager;
 import com.rednetty.server.mechanics.player.settings.Toggles;
 import com.rednetty.server.mechanics.player.stamina.Energy;
-import com.rednetty.server.mechanics.world.holograms.HologramManager;
 import org.bukkit.*;
 import org.bukkit.block.Block;
 import org.bukkit.boss.BarColor;
@@ -40,22 +40,19 @@ import org.bukkit.util.Vector;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
-import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * FIXED: Handles all combat and damage mechanics including:
+ * UPDATED: Enhanced combat mechanics with improved hologram system
  * - Damage calculation and application with authentic legacy calculations
  * - Armor, block, and dodge mechanics
  * - Critical hits and combat effects
- * - Combat visualization (holograms, health bar)
- * - Weapon-specific mechanics
+ * - Advanced animated hologram system with arcing trajectories
  * - Enhanced PVP protection system
  * - FIXED: Proper mob-to-player damage calculations
  * - FIXED: Elite mob explosion damage bypass system
  */
 public class CombatMechanics implements Listener {
     // Constants
-    private static final int HOLOGRAM_DURATION = 20; // Ticks
     private static final int MAX_BLOCK_CHANCE = 60;
     private static final int MAX_DODGE_CHANCE = 60;
     private static final int COMBAT_DURATION = 5000; // Milliseconds
@@ -82,145 +79,26 @@ public class CombatMechanics implements Listener {
     // Entity damage visualization tracking
     private final Map<UUID, Long> entityDamageEffects = new ConcurrentHashMap<>();
 
-    // Hologram tracking for unique IDs
-    private final AtomicInteger hologramIdCounter = new AtomicInteger(0);
-
     // Dependencies
     private final YakPlayerManager playerManager;
+    private final CombatHologramHandler hologramHandler;
 
     public CombatMechanics() {
         this.playerManager = YakPlayerManager.getInstance();
+        this.hologramHandler = CombatHologramHandler.getInstance();
     }
 
     public void onEnable() {
         Bukkit.getPluginManager().registerEvents(this, YakRealms.getInstance());
+        hologramHandler.onEnable();
         startMovementSpeedRestoreTask();
         startEntityDamageEffectCleanupTask();
-        YakRealms.log("Combat Mechanics have been enabled");
+        YakRealms.log("Combat Mechanics have been enabled with advanced hologram system");
     }
 
     public void onDisable() {
+        hologramHandler.onDisable();
         YakRealms.log("Combat Mechanics have been disabled");
-    }
-
-    // ============= HOLOGRAM DAMAGE DISPLAY SYSTEM =============
-
-    /**
-     * Shows a combat-related hologram above the target entity
-     * @param attacker The attacking entity (for positioning reference)
-     * @param target The target entity to show hologram above
-     * @param type The type of hologram (dmg, block, dodge, crit, lifesteal, thorns)
-     * @param value The numeric value to display (damage amount, heal amount, etc.)
-     */
-    private void showCombatHologram(Entity attacker, LivingEntity target, String type, int value) {
-        if (target == null || target.isDead()) {
-            return;
-        }
-
-        // Generate unique hologram ID
-        String hologramId = "combat_" + target.getUniqueId() + "_" + hologramIdCounter.incrementAndGet();
-
-        // Calculate hologram position (above target's head)
-        Location hologramLocation = target.getLocation().clone();
-        hologramLocation.add(0, target.getHeight() + 0.5, 0);
-
-        // Add some randomness to prevent overlapping holograms
-        double offsetX = (Math.random() - 0.3) * 0.8;
-        double offsetZ = (Math.random() - 0.3) * 0.8;
-        hologramLocation.add(offsetX, 0, offsetZ);
-
-        // Create hologram text based on type
-        List<String> hologramLines = new ArrayList<>();
-        String hologramText = createHologramText(type, value);
-        hologramLines.add(hologramText);
-
-        // Create the hologram
-        HologramManager.createOrUpdateHologram(hologramId, hologramLocation, hologramLines, 0.25);
-
-        // Schedule hologram removal
-        Bukkit.getScheduler().runTaskLater(YakRealms.getInstance(), () -> {
-            HologramManager.removeHologram(hologramId);
-        }, HOLOGRAM_DURATION);
-    }
-
-    /**
-     * Creates formatted hologram text based on the type and value
-     */
-    private String createHologramText(String type, int value) {
-        switch (type.toLowerCase()) {
-            case "dmg":
-            case "damage":
-                return ChatColor.RED + "" + ChatColor.BOLD + "-" + value;
-
-            case "crit":
-            case "critical":
-                return ChatColor.GOLD + "" + ChatColor.BOLD + "CRIT " + ChatColor.RED + ChatColor.BOLD + "-" + value;
-
-            case "block":
-                return ChatColor.BLUE + "" + ChatColor.BOLD + "BLOCKED";
-
-            case "dodge":
-                return ChatColor.GREEN + "" + ChatColor.BOLD + "DODGED";
-
-            case "lifesteal":
-            case "heal":
-                return ChatColor.GREEN + "" + ChatColor.BOLD + "+" + value + " HP";
-
-            case "thorns":
-                return ChatColor.DARK_PURPLE + "" + ChatColor.BOLD + "♦ " + value;
-
-            case "miss":
-                return ChatColor.GRAY + "" + ChatColor.BOLD + "MISS";
-
-            case "immune":
-                return ChatColor.YELLOW + "" + ChatColor.BOLD + "IMMUNE";
-
-            default:
-                return ChatColor.WHITE + "" + value;
-        }
-    }
-
-    /**
-     * Shows a multi-line hologram for complex combat effects
-     */
-    private void showMultiLineHologram(Entity attacker, LivingEntity target, List<String> lines) {
-        if (target == null || target.isDead() || lines.isEmpty()) {
-            return;
-        }
-
-        String hologramId = "combat_multi_" + target.getUniqueId() + "_" + hologramIdCounter.incrementAndGet();
-
-        Location hologramLocation = target.getLocation().clone();
-        hologramLocation.add(0, target.getHeight() + 0.5, 0);
-
-        double offsetX = (Math.random() - 0.5) * 0.8;
-        double offsetZ = (Math.random() - 0.5) * 0.8;
-        hologramLocation.add(offsetX, 0, offsetZ);
-
-        HologramManager.createOrUpdateHologram(hologramId, hologramLocation, lines, 0.3);
-
-        Bukkit.getScheduler().runTaskLater(YakRealms.getInstance(), () -> {
-            HologramManager.removeHologram(hologramId);
-        }, HOLOGRAM_DURATION + 10); // Slightly longer for multi-line
-    }
-
-
-    /**
-     * Creates elemental-specific hologram text
-     */
-    private String createElementalHologramText(String element, int damage) {
-        switch (element.toLowerCase()) {
-            case "ice":
-                return ChatColor.AQUA + "" + ChatColor.BOLD + "❄ " + damage + " ICE";
-            case "fire":
-                return ChatColor.GOLD + "" + ChatColor.BOLD + "🔥 " + damage + " FIRE";
-            case "poison":
-                return ChatColor.DARK_GREEN + "" + ChatColor.BOLD + "☠ " + damage + " POISON";
-            case "pure":
-                return ChatColor.WHITE + "" + ChatColor.BOLD + "✦ " + damage + " PURE";
-            default:
-                return ChatColor.GRAY + "" + ChatColor.BOLD + damage + " " + element.toUpperCase();
-        }
     }
 
     // ============= ENHANCED PVP PROTECTION SYSTEM =============
@@ -377,7 +255,7 @@ public class CombatMechanics implements Listener {
             event.setDamage(0.0);
 
             // Show immunity hologram
-            showCombatHologram(attacker, victim, "immune", 0);
+            hologramHandler.showCombatHologram(attacker, victim, CombatHologramHandler.HologramType.IMMUNE, 0);
 
             // Send appropriate message to attacker
             attacker.sendMessage(ChatColor.RED + "§l⚠ §c" + result.getMessage());
@@ -753,7 +631,7 @@ public class CombatMechanics implements Listener {
                 double critDamage = CritManager.getInstance().handleCritAttack(customMob, victim, baseDamage);
                 if (critDamage > baseDamage) {
                     // Show critical hit hologram
-                    showCombatHologram(mobAttacker, victim, "crit", (int) critDamage);
+                    hologramHandler.showCombatHologram(mobAttacker, victim, CombatHologramHandler.HologramType.CRITICAL_DAMAGE, (int) critDamage);
                     return critDamage;
                 }
             }
@@ -1076,6 +954,8 @@ public class CombatMechanics implements Listener {
                 int duration = 40 + (tier * 5);
                 target.addPotionEffect(new PotionEffect(PotionEffectType.SLOW, duration, 0));
 
+                // Show elemental damage hologram
+                hologramHandler.showCombatHologram(attacker, target, CombatHologramHandler.HologramType.ELEMENTAL_ICE, iceDamageBonus);
             }
 
             if (line.contains("POISON DMG")) {
@@ -1089,6 +969,8 @@ public class CombatMechanics implements Listener {
                 int amplifier = tier >= 3 ? 1 : 0;
                 target.addPotionEffect(new PotionEffect(PotionEffectType.POISON, duration, amplifier));
 
+                // Show elemental damage hologram
+                hologramHandler.showCombatHologram(attacker, target, CombatHologramHandler.HologramType.ELEMENTAL_POISON, poisonDamageBonus);
             }
 
             if (line.contains("FIRE DMG")) {
@@ -1102,6 +984,8 @@ public class CombatMechanics implements Listener {
                 int fireDuration = 15 + (tier * 5);
                 target.setFireTicks(fireDuration);
 
+                // Show elemental damage hologram
+                hologramHandler.showCombatHologram(attacker, target, CombatHologramHandler.HologramType.ELEMENTAL_FIRE, fireDamageBonus);
             }
 
             if (line.contains("PURE DMG")) {
@@ -1109,6 +993,8 @@ public class CombatMechanics implements Listener {
                 int pureDamageBonus = Math.round(pureDamage * (1 + Math.round(dexterity / 3000f)));
                 elementalDamage += pureDamageBonus;
 
+                // Show elemental damage hologram
+                hologramHandler.showCombatHologram(attacker, target, CombatHologramHandler.HologramType.ELEMENTAL_PURE, pureDamageBonus);
             }
         }
 
@@ -1279,7 +1165,7 @@ public class CombatMechanics implements Listener {
 
                 // Show basic damage hologram for non-player entities
                 if (!(entity instanceof Player)) {
-                    showCombatHologram(damager, entity, "dmg", damage);
+                    hologramHandler.showCombatHologram(damager, entity, CombatHologramHandler.HologramType.DAMAGE, damage);
                 }
             }
         }
@@ -1313,7 +1199,7 @@ public class CombatMechanics implements Listener {
             event.setDamage(explosionDamage);
 
             // Show explosion damage hologram
-            showCombatHologram(mobAttacker, victim, "dmg", (int) explosionDamage);
+            hologramHandler.showCombatHologram(mobAttacker, victim, CombatHologramHandler.HologramType.DAMAGE, (int) explosionDamage);
 
             if (Toggles.isToggled(victim, "Debug")) {
                 String mobName = getEnhancedMobName(mobAttacker);
@@ -1335,7 +1221,7 @@ public class CombatMechanics implements Listener {
         event.setDamage(finalDamage);
 
         // Show damage hologram
-        showCombatHologram(mobAttacker, victim, "dmg", (int) finalDamage);
+        hologramHandler.showCombatHologram(mobAttacker, victim, CombatHologramHandler.HologramType.DAMAGE, (int) finalDamage);
 
         // Debug display
         if (Toggles.isToggled(victim, "Debug")) {
@@ -1405,7 +1291,7 @@ public class CombatMechanics implements Listener {
 
             if (event.getDamager() instanceof Player attacker) {
                 attacker.playSound(attacker.getLocation(), Sound.ENTITY_ZOMBIE_ATTACK_IRON_DOOR, 1.0f, 1.0f);
-                showCombatHologram(attacker, defender, "block", 0);
+                hologramHandler.showCombatHologram(attacker, defender, CombatHologramHandler.HologramType.BLOCK, 0);
 
                 if (Toggles.isToggled(attacker, "Debug")) {
                     attacker.sendMessage(ChatColor.RED + ChatColor.BOLD.toString() + "*OPPONENT BLOCKED* (" + defender.getName() + ")");
@@ -1416,7 +1302,7 @@ public class CombatMechanics implements Listener {
                 }
             } else {
                 // Mob attack blocked
-                showCombatHologram(event.getDamager(), defender, "block", 0);
+                hologramHandler.showCombatHologram(event.getDamager(), defender, CombatHologramHandler.HologramType.BLOCK, 0);
 
                 if (Toggles.isToggled(defender, "Debug")) {
                     String mobName = getEnhancedMobName((LivingEntity) event.getDamager());
@@ -1436,7 +1322,7 @@ public class CombatMechanics implements Listener {
 
             if (event.getDamager() instanceof Player attacker) {
                 attacker.playSound(attacker.getLocation(), Sound.ENTITY_ZOMBIE_INFECT, 1.0f, 1.0f);
-                showCombatHologram(attacker, defender, "dodge", 0);
+                hologramHandler.showCombatHologram(attacker, defender, CombatHologramHandler.HologramType.DODGE, 0);
 
                 if (Toggles.isToggled(attacker, "Debug")) {
                     attacker.sendMessage(ChatColor.RED + ChatColor.BOLD.toString() + "*OPPONENT DODGED* (" + defender.getName() + ")");
@@ -1447,7 +1333,7 @@ public class CombatMechanics implements Listener {
                 }
             } else {
                 // Mob attack dodged
-                showCombatHologram(event.getDamager(), defender, "dodge", 0);
+                hologramHandler.showCombatHologram(event.getDamager(), defender, CombatHologramHandler.HologramType.DODGE, 0);
 
                 if (Toggles.isToggled(defender, "Debug")) {
                     String mobName = getEnhancedMobName((LivingEntity) event.getDamager());
@@ -1462,7 +1348,7 @@ public class CombatMechanics implements Listener {
             event.setDamage(event.getDamage() / 2);
 
             if (event.getDamager() instanceof Player attacker) {
-                showCombatHologram(attacker, defender, "block", 0);
+                hologramHandler.showCombatHologram(attacker, defender, CombatHologramHandler.HologramType.BLOCK, 0);
                 defender.playSound(defender.getLocation(), Sound.ENTITY_ZOMBIE_ATTACK_IRON_DOOR, 1.0f, 1.0f);
 
                 if (Toggles.isToggled(attacker, "Debug")) {
@@ -1474,7 +1360,7 @@ public class CombatMechanics implements Listener {
                 }
             } else {
                 // Mob attack partially blocked
-                showCombatHologram(event.getDamager(), defender, "block", 0);
+                hologramHandler.showCombatHologram(event.getDamager(), defender, CombatHologramHandler.HologramType.BLOCK, 0);
                 defender.playSound(defender.getLocation(), Sound.ENTITY_ZOMBIE_ATTACK_IRON_DOOR, 1.0f, 1.0f);
 
                 if (Toggles.isToggled(defender, "Debug")) {
@@ -1572,10 +1458,10 @@ public class CombatMechanics implements Listener {
             target.getWorld().spawnParticle(Particle.CRIT_MAGIC, target.getLocation(), 50, 0.5, 0.5, 0.5, 0.1);
 
             // Show critical hit hologram
-            showCombatHologram(attacker, target, "crit", damage);
+            hologramHandler.showCombatHologram(attacker, target, CombatHologramHandler.HologramType.CRITICAL_DAMAGE, damage);
         } else {
             // Show normal damage hologram
-            showCombatHologram(attacker, target, "dmg", damage);
+            hologramHandler.showCombatHologram(attacker, target, CombatHologramHandler.HologramType.DAMAGE, damage);
         }
 
         // Apply life steal using legacy calculation
@@ -1601,7 +1487,7 @@ public class CombatMechanics implements Listener {
             }
 
             // Show life steal hologram above attacker
-            showCombatHologram(target, attacker, "lifesteal", lifeStolen);
+            hologramHandler.showCombatHologram(target, attacker, CombatHologramHandler.HologramType.LIFESTEAL, lifeStolen);
         }
 
         // Apply thorns effect if target has thorns (legacy calculation)
@@ -1615,7 +1501,7 @@ public class CombatMechanics implements Listener {
                 attacker.setHealth(attacker.getHealth() - thornsDamage);
 
                 // Show thorns damage hologram above attacker
-                showCombatHologram(defender, attacker, "thorns", thornsDamage);
+                hologramHandler.showCombatHologram(defender, attacker, CombatHologramHandler.HologramType.THORNS, thornsDamage);
             }
         }
 
@@ -1737,7 +1623,7 @@ public class CombatMechanics implements Listener {
                     secondaryTarget.damage(1.0, attacker);
 
                     // Show AOE damage hologram
-                    showCombatHologram(attacker, secondaryTarget, "dmg", 1);
+                    hologramHandler.showCombatHologram(attacker, secondaryTarget, CombatHologramHandler.HologramType.DAMAGE, 1);
                 }
             }
         } finally {
@@ -1871,15 +1757,9 @@ public class CombatMechanics implements Listener {
         event.setCancelled(true);
         player.sendMessage(ChatColor.RED + "            " + damage + ChatColor.RED + ChatColor.BOLD + " DMG " + ChatColor.RED + "-> " + ChatColor.RESET + "DPS DUMMY" + " [" + 99999999 + "HP]");
 
-        // Show dummy damage hologram at block location
+        // Show dummy damage hologram with animation at block location
         Location dummyLocation = block.getLocation().add(0.5, 1.5, 0.5);
-        String hologramId = "dummy_" + player.getUniqueId() + "_" + hologramIdCounter.incrementAndGet();
-        List<String> hologramLines = Arrays.asList(ChatColor.RED + "" + ChatColor.BOLD + "-" + damage);
-        HologramManager.createOrUpdateHologram(hologramId, dummyLocation, hologramLines, 0.25);
-
-        Bukkit.getScheduler().runTaskLater(YakRealms.getInstance(), () -> {
-            HologramManager.removeHologram(hologramId);
-        }, HOLOGRAM_DURATION);
+        hologramHandler.showCustomHologram(player, null, ChatColor.RED + "" + ChatColor.BOLD + "-" + damage, CombatHologramHandler.HologramType.DAMAGE);
     }
 
     @EventHandler(priority = EventPriority.HIGH)

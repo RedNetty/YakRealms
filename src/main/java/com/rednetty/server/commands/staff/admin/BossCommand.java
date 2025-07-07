@@ -1,4 +1,4 @@
-package com.rednetty.server.commands.admin;
+package com.rednetty.server.commands.staff.admin;
 
 import com.rednetty.server.mechanics.world.mobs.MobManager;
 import org.bukkit.ChatColor;

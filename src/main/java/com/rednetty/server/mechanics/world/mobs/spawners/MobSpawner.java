@@ -471,7 +471,7 @@ public class MobSpawner implements Listener {
             spawners.put(spawnerId, spawner);
             locationToId.put(location, spawnerId);
 
-            // FIXED: Set block state properly with validation
+            
             setSpawnerBlockSafe(location.getBlock(), visible);
 
             return true;

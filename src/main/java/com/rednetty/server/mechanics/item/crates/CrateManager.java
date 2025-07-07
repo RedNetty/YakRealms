@@ -273,7 +273,7 @@ public class CrateManager {
             // Send opening message with modern formatting
             sendCrateOpeningMessage(player, crateType);
 
-            // FIXED: Generate rewards ONCE and use them consistently
+            
             List<ItemStack> rewards = rewardsManager.generateRewards(crateType, configuration);
 
             if (rewards.isEmpty()) {

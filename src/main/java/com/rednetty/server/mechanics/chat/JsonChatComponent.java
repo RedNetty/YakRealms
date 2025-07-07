@@ -10,11 +10,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.logging.Level;
 
-/**
- * A utility class for creating and sending JSON chat messages
- * with hover and click events
- * FIXED: Simplified to use modern Spigot/BungeeCord chat API
- */
+
 public class JsonChatComponent {
 
     private final List<BaseComponent> components;
@@ -82,9 +78,6 @@ public class JsonChatComponent {
     }
 
     /**
-     * Add text with a hover event
-     * FIXED: Use modern API
-     *
      * @param text      The text to show
      * @param hoverText The text to show on hover
      * @return This component for chaining

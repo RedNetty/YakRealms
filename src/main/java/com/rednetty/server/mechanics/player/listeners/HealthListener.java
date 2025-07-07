@@ -31,7 +31,7 @@ public class HealthListener extends BaseListener {
     private final YakPlayerManager playerManager;
     private final AlignmentMechanics alignmentMechanics;
 
-    // FIXED: Track pending health recalculations to prevent spam
+    
     private final Map<String, Long> pendingRecalculations = new ConcurrentHashMap<>();
     private static final long RECALCULATION_COOLDOWN = 1000L; // 1 second cooldown
 
@@ -57,7 +57,7 @@ public class HealthListener extends BaseListener {
             return;
         }
 
-        // FIXED: Check cooldown to prevent spam
+        
         String playerName = player.getName();
         long currentTime = System.currentTimeMillis();
         Long lastRecalculation = pendingRecalculations.get(playerName);
@@ -106,12 +106,12 @@ public class HealthListener extends BaseListener {
             // Ensure minimum health
             baseHealth = Math.max(baseHealth, 20.0);
 
-            // FIXED: Only update if the values are significantly different to prevent flickering
+            
             double currentMaxHealth = player.getMaxHealth();
             if (Math.abs(currentMaxHealth - baseHealth) > 0.5) {
                 player.setMaxHealth(baseHealth);
 
-                // FIXED: Ensure health doesn't exceed new max health after recalculation
+                
                 if (player.getHealth() > baseHealth) {
                     player.setHealth(baseHealth);
                 }
@@ -120,11 +120,11 @@ public class HealthListener extends BaseListener {
                         currentMaxHealth + " -> " + baseHealth);
             }
 
-            // FIXED: Always ensure health scaling is properly set
+            
             player.setHealthScale(20.0);
             player.setHealthScaled(true);
 
-            // FIXED: Trigger health bar update in AlignmentMechanics after a short delay
+            
             new BukkitRunnable() {
                 @Override
                 public void run() {
@@ -184,7 +184,7 @@ public class HealthListener extends BaseListener {
 
         Player player = (Player) event.getWhoClicked();
 
-        // FIXED: Only recalculate if it's an armor slot or equipment change
+        
         boolean isArmorChange = false;
         if (event.getSlot() >= 36 && event.getSlot() <= 39) { // Armor slots
             isArmorChange = true;
@@ -195,7 +195,7 @@ public class HealthListener extends BaseListener {
         }
 
         if (isArmorChange) {
-            // FIXED: Longer delay to ensure inventory is fully updated
+            
             new BukkitRunnable() {
                 @Override
                 public void run() {
@@ -271,7 +271,7 @@ public class HealthListener extends BaseListener {
             player.setHealth(newHealth);
         }
 
-        // FIXED: Update health bar after healing
+        
         new BukkitRunnable() {
             @Override
             public void run() {
@@ -339,7 +339,7 @@ public class HealthListener extends BaseListener {
     public void onPlayerJoin(PlayerJoinEvent event) {
         Player player = event.getPlayer();
 
-        // FIXED: Much longer delay to ensure all systems are initialized
+        
         new BukkitRunnable() {
             @Override
             public void run() {

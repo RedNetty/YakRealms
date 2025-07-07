@@ -36,7 +36,7 @@ public class DeathRemnantManager {
     private final NamespacedKey remnantTypeKey;
     private final NamespacedKey remnantOwnerKey;
 
-    // FIXED: Robust tracking system with multiple data structures
+    
     private final Map<UUID, DeathRemnant> activeRemnants;
     private final Map<UUID, Set<UUID>> remnantEntityIds; // Remnant ID -> Set of Entity UUIDs
     private final Map<UUID, UUID> entityToRemnant; // Entity UUID -> Remnant ID
@@ -92,7 +92,7 @@ public class DeathRemnantManager {
                 return null;
             }
 
-            // FIXED: Register remnant with comprehensive tracking
+            
             UUID remnantId = remnant.getId();
             activeRemnants.put(remnantId, remnant);
 
@@ -103,7 +103,7 @@ public class DeathRemnantManager {
                 entityIds.add(entityId);
                 entityToRemnant.put(entityId, remnantId);
 
-                // FIXED: Tag entity with comprehensive persistent data
+                
                 tagRemnantEntity(entity, remnantId, player.getName());
             }
             remnantEntityIds.put(remnantId, entityIds);
@@ -144,7 +144,7 @@ public class DeathRemnantManager {
             // Remove the actual remnant
             remnant.remove();
 
-            // FIXED: Clean up all tracking data
+            
             Set<UUID> entityIds = remnantEntityIds.remove(remnantId);
             if (entityIds != null) {
                 for (UUID entityId : entityIds) {

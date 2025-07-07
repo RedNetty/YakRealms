@@ -38,14 +38,14 @@ public class Toggles implements Listener {
     // Enhanced confirmation system
     private final Map<UUID, PendingConfirmation> confirmationMap = new ConcurrentHashMap<>();
 
-    // FIXED: Better configuration with proper bounds checking
+    
     private final long CONFIRMATION_EXPIRY = 15000; // 15 seconds
     private final int MENU_SIZE = 54; // 6 rows
     private final int USABLE_SLOTS = 45; // Reserve bottom row (slots 0-44)
     private final int INFO_SLOT = 53; // Bottom right corner
     private final int MAX_TOGGLES_PER_ROW = 7; // Limit toggles per row
 
-    // FIXED: Toggle definitions with proper initialization
+    
     private final Map<String, ToggleDefinition> toggleDefinitions = new LinkedHashMap<>();
     private boolean definitionsInitialized = false;
 
@@ -117,7 +117,7 @@ public class Toggles implements Listener {
         this.playerManager = YakPlayerManager.getInstance();
         this.logger = YakRealms.getInstance().getLogger();
 
-        // FIXED: Initialize definitions immediately
+        
         initializeToggleDefinitions();
     }
 
@@ -178,7 +178,7 @@ public class Toggles implements Listener {
             definitionsInitialized = true;
             logger.info("Successfully initialized " + toggleDefinitions.size() + " toggle definitions");
 
-            // FIXED: Debug output for verification
+            
             logToggleDefinitions();
 
         } catch (Exception e) {
@@ -324,7 +324,7 @@ public class Toggles implements Listener {
     public Inventory getToggleMenu(Player player) {
         Inventory inventory = Bukkit.createInventory(null, MENU_SIZE, "§6§l✦ §e§lTOGGLE SETTINGS §6§l✦");
 
-        // FIXED: Better validation and debugging
+        
         if (!definitionsInitialized) {
             logger.severe("Toggle definitions not initialized when creating menu for " + player.getName());
             addErrorItem(inventory, "System not initialized");
@@ -353,7 +353,7 @@ public class Toggles implements Listener {
 
         logger.info("Categories found: " + categories.keySet());
 
-        // FIXED: Improved slot management with better bounds checking
+        
         int currentSlot = 0;
         int itemsAdded = 0;
 

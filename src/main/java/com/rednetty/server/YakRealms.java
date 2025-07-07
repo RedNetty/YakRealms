@@ -1,6 +1,6 @@
 package com.rednetty.server;
 
-import com.rednetty.server.commands.admin.*;
+import com.rednetty.server.commands.staff.admin.*;
 import com.rednetty.server.commands.economy.*;
 import com.rednetty.server.commands.party.*;
 import com.rednetty.server.commands.player.*;
@@ -20,7 +20,7 @@ import com.rednetty.server.mechanics.combat.death.remnant.DeathRemnantManager;
 import com.rednetty.server.mechanics.combat.pvp.AlignmentMechanics;
 import com.rednetty.server.mechanics.economy.merchant.MerchantSystem;
 import com.rednetty.server.mechanics.item.crates.CrateManager;
-import com.rednetty.server.commands.admin.CrateCommand;
+import com.rednetty.server.commands.staff.admin.CrateCommand;
 import com.rednetty.server.mechanics.item.drops.DropsHandler;
 import com.rednetty.server.mechanics.item.drops.DropsManager;
 import com.rednetty.server.mechanics.item.drops.buff.LootBuffManager;
@@ -60,7 +60,7 @@ import com.rednetty.server.mechanics.world.trail.pathing.PathManager;
 import com.rednetty.server.mechanics.world.trail.pathing.nodes.AdvancedNodeMapGenerator;
 import com.rednetty.server.mechanics.world.trail.pathing.nodes.NavNode;
 import com.rednetty.server.utils.ui.ActionBarUtil;
-import com.rednetty.server.commands.admin.MenuCommand;
+import com.rednetty.server.commands.staff.admin.MenuCommand;
 import org.bukkit.Bukkit;
 import org.bukkit.World;
 import org.bukkit.configuration.file.FileConfiguration;

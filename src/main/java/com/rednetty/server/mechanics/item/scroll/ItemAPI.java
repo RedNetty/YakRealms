@@ -293,8 +293,8 @@ public class ItemAPI {
     }
 
     /**
-     * Gets the correct tier of an item for orb processing
-     * This fixes the bug where tiers were detected incorrectly
+     * Gets the correct tier of an item for scroll processing
+     * Updated for Tier 6 Netherite integration
      *
      * @param item The item to check
      * @return The correct tier (1-6) or 0 if not a valid tier item
@@ -308,62 +308,70 @@ public class ItemAPI {
         if (item.getItemMeta().hasDisplayName()) {
             String displayName = item.getItemMeta().getDisplayName();
 
-            if (displayName.contains(ChatColor.BLUE.toString())) {
-                return 6; // Frozen/T6
+            // Tier 6 - Netherite (Dark Purple)
+            if (displayName.contains(ChatColor.DARK_PURPLE.toString()) ||
+                    displayName.toLowerCase().contains("netherite")) {
+                return 6;
             }
 
-            if (displayName.contains(ChatColor.YELLOW.toString())) {
-                return 5; // Gold/Yellow/Legendary/T5
+            // Tier 5 - Legendary (Yellow)
+            if (displayName.contains(ChatColor.YELLOW.toString()) ||
+                    displayName.toLowerCase().contains("legendary")) {
+                return 5;
             }
 
-            if (displayName.contains(ChatColor.LIGHT_PURPLE.toString())) {
-                return 4; // Diamond/Purple/T4
+            // Tier 4 - Ancient (Light Purple)
+            if (displayName.contains(ChatColor.LIGHT_PURPLE.toString()) ||
+                    displayName.toLowerCase().contains("ancient")) {
+                return 4;
             }
 
+            // Tier 3 - Magic (Aqua)
             if (displayName.contains(ChatColor.AQUA.toString())) {
-                return 3; // Iron/Aqua/T3
+                return 3;
             }
 
+            // Tier 2 - Chainmail/Stone (Green)
             if (displayName.contains(ChatColor.GREEN.toString())) {
-                return 2; // Stone/Chainmail/Green/T2
+                return 2;
             }
 
+            // Tier 1 - Leather/Wood (White)
             if (displayName.contains(ChatColor.WHITE.toString())) {
-                return 1; // Wooden/Leather/White/T1
+                return 1;
             }
         }
 
         // Fallback to material-based detection
         String material = item.getType().name();
 
-        // Check for blue leather or diamond (T6 - Frozen)
-        if ((material.contains("LEATHER_") && isBlueLeather(item))) {
+        // Tier 6 - Netherite
+        if (material.contains("NETHERITE_")) {
             return 6;
         }
 
-        // Check for gold (T5)
+        // Tier 5 - Gold
         if (material.contains("GOLD_") || material.contains("GOLDEN_")) {
             return 5;
         }
 
-        // Check for regular diamond (T4)
+        // Tier 4 - Diamond
         if (material.contains("DIAMOND_")) {
             return 4;
         }
 
-        // Check for iron (T3)
+        // Tier 3 - Iron
         if (material.contains("IRON_")) {
             return 3;
         }
 
-        // Check for chainmail/stone (T2)
+        // Tier 2 - Chainmail/Stone
         if (material.contains("CHAINMAIL_") || material.contains("STONE_")) {
             return 2;
         }
 
-        // Check for leather/wooden (T1)
-        if ((material.contains("LEATHER_") && !isBlueLeather(item)) ||
-                material.contains("WOOD_") || material.contains("WOODEN_")) {
+        // Tier 1 - Leather/Wood
+        if (material.contains("LEATHER_") || material.contains("WOOD_") || material.contains("WOODEN_")) {
             return 1;
         }
 
@@ -371,23 +379,18 @@ public class ItemAPI {
     }
 
     /**
-     * Check if an item is blue leather armor (frozen tier)
+     * Check if an item is blue leather armor (backwards compatibility)
+     * Note: This method is deprecated as Tier 6 is now Netherite
      *
      * @param item The item to check
-     * @return true if the item is blue leather armor
+     * @return false - no longer used for Tier 6
+     * @deprecated Tier 6 is now Netherite, not blue leather
      */
+    @Deprecated
     public static boolean isBlueLeather(ItemStack item) {
-        if (item == null) {
-            return false;
-        }
-
-        String material = item.getType().name();
-        if (!material.contains("LEATHER_") && !material.contains("WOOD_")) {
-            return false;
-        }
-
-        return item.hasItemMeta() && item.getItemMeta().hasDisplayName() &&
-                item.getItemMeta().getDisplayName().contains(ChatColor.BLUE.toString());
+        // This method is kept for backwards compatibility but always returns false
+        // since Tier 6 is now Netherite, not blue leather
+        return false;
     }
 
     /**
@@ -407,7 +410,7 @@ public class ItemAPI {
             if (!scrollNBT.hasKey(PROTECTION_TIER_KEY)) return false;
 
             int scrollTier = scrollNBT.getInt(PROTECTION_TIER_KEY);
-            return itemTier == scrollTier;
+            return itemTier == scrollTier + 1; // Protection tier is 0-based, item tier is 1-based
         }
 
         // For armor enhancement scrolls
@@ -445,15 +448,14 @@ public class ItemAPI {
         boolean isIron = armorType.startsWith("IRON_");
         boolean isDiamond = armorType.startsWith("DIAMOND_");
         boolean isGolden = armorType.startsWith("GOLDEN_") || armorType.startsWith("GOLD_");
-        boolean isFrozen = isBlueLeather(armor) ||
-                (isDiamond && armor.getItemMeta().getDisplayName().contains(ChatColor.BLUE.toString()));
+        boolean isNetherite = armorType.startsWith("NETHERITE_"); // Updated for Tier 6
 
-        if (isLeather && !isFrozen && scrollName.contains("Leather")) return true;
+        if (isLeather && scrollName.contains("Leather")) return true;
         if (isChainmail && scrollName.contains("Chainmail")) return true;
         if (isIron && scrollName.contains("Iron")) return true;
-        if (isDiamond && !isFrozen && scrollName.contains("Diamond")) return true;
+        if (isDiamond && scrollName.contains("Diamond")) return true;
         if (isGolden && scrollName.contains("Gold")) return true;
-        if (isFrozen && scrollName.contains("Frozen")) return true;
+        if (isNetherite && scrollName.contains("Netherite")) return true; // Updated for Tier 6
 
         return false;
     }
@@ -468,7 +470,6 @@ public class ItemAPI {
 
         String weaponType = weapon.getType().name();
         String scrollName = scroll.getItemMeta().getDisplayName();
-        String itemName = weapon.getItemMeta().getDisplayName();
 
         // Check if it's a weapon
         if (!isWeaponItem(weapon)) {
@@ -481,14 +482,14 @@ public class ItemAPI {
         boolean isIron = weaponType.startsWith("IRON_");
         boolean isDiamond = weaponType.startsWith("DIAMOND_");
         boolean isGolden = weaponType.startsWith("GOLDEN_") || weaponType.startsWith("GOLD_");
-        boolean isFrozen = isDiamond && itemName.contains(ChatColor.BLUE.toString());
+        boolean isNetherite = weaponType.startsWith("NETHERITE_"); // Updated for Tier 6
 
         if (isWooden && scrollName.contains("Wooden")) return true;
         if (isStone && scrollName.contains("Stone")) return true;
         if (isIron && scrollName.contains("Iron")) return true;
-        if (isDiamond && !isFrozen && scrollName.contains("Diamond")) return true;
+        if (isDiamond && scrollName.contains("Diamond")) return true;
         if (isGolden && scrollName.contains("Gold")) return true;
-        if (isFrozen && scrollName.contains("Frozen")) return true;
+        if (isNetherite && scrollName.contains("Netherite")) return true; // Updated for Tier 6
 
         return false;
     }

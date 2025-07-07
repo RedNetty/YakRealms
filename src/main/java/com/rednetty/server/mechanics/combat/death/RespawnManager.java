@@ -147,7 +147,7 @@ public class RespawnManager implements Listener {
 
         YakRealms.log("Total items to process: " + allPlayerItems.size());
 
-        // FIXED: Pre-calculate neutral alignment decisions (once per death, not per item)
+        
         boolean neutralShouldDropArmor = false;
         boolean neutralShouldDropWeapon = false;
         if ("NEUTRAL".equals(alignment)) {
@@ -449,7 +449,7 @@ public class RespawnManager implements Listener {
         return typeName.endsWith("_SWORD") ||
                 typeName.endsWith("_AXE") ||
                 typeName.endsWith("_SPADE") ||    // Old naming convention
-                typeName.endsWith("_SHOVEL") ||   // FIXED: Modern naming convention
+                typeName.endsWith("_SHOVEL") ||   
                 typeName.endsWith("_HOE") ||
                 typeName.endsWith("_HELMET") ||
                 typeName.endsWith("_CHESTPLATE") ||

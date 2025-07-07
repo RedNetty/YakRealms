@@ -67,6 +67,16 @@ public class LootNotifier {
             "boss", "👑"
     );
 
+    // Tier colors updated for Tier 6 Netherite
+    private static final Map<Integer, ChatColor> TIER_COLORS = Map.of(
+            1, ChatColor.WHITE,
+            2, ChatColor.GREEN,
+            3, ChatColor.AQUA,
+            4, ChatColor.LIGHT_PURPLE,
+            5, ChatColor.YELLOW,
+            6, ChatColor.DARK_PURPLE  // Updated for Netherite
+    );
+
     /**
      * Private constructor for singleton pattern
      */
@@ -216,7 +226,7 @@ public class LootNotifier {
             if (COMMON_PATTERN.matcher(cleanLine).find()) return "common";
         }
 
-        // Check item name colors
+        // Check item name colors with Tier 6 support
         if (meta.hasDisplayName()) {
             String displayName = meta.getDisplayName();
             if (displayName.contains(ChatColor.YELLOW.toString()) ||
@@ -225,6 +235,9 @@ public class LootNotifier {
                     displayName.contains(ChatColor.DARK_AQUA.toString())) return "rare";
             if (displayName.contains(ChatColor.GREEN.toString()) ||
                     displayName.contains(ChatColor.DARK_GREEN.toString())) return "uncommon";
+            // Check for Tier 6 Netherite
+            if (displayName.contains(ChatColor.DARK_PURPLE.toString()) ||
+                    displayName.toLowerCase().contains("netherite")) return "legendary";
         }
 
         return "common";
@@ -237,7 +250,8 @@ public class LootNotifier {
         String materialName = item.getType().name().toLowerCase();
 
         if (materialName.contains("sword") || materialName.contains("axe") ||
-                materialName.contains("pickaxe") || materialName.contains("shovel")) {
+                materialName.contains("pickaxe") || materialName.contains("shovel") ||
+                materialName.contains("hoe")) {
             return "weapon";
         }
 
@@ -250,7 +264,7 @@ public class LootNotifier {
             return "gem";
         }
 
-        if (materialName.contains("paper") || materialName.contains("book")) {
+        if (materialName.contains("paper") || materialName.contains("book") || materialName.contains("map")) {
             return "scroll";
         }
 
@@ -520,6 +534,7 @@ public class LootNotifier {
         stats.put("soundMappings", RARITY_SOUNDS.size());
         stats.put("dropTypes", DROP_TYPE_SYMBOLS.size());
         stats.put("symbolMappings", RARITY_SYMBOLS.size());
+        stats.put("tierColors", TIER_COLORS.size());
         return stats;
     }
 }

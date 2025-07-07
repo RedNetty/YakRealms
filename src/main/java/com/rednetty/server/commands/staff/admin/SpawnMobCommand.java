@@ -1,4 +1,4 @@
-package com.rednetty.server.commands.admin;
+package com.rednetty.server.commands.staff.admin;
 
 import com.rednetty.server.YakRealms;
 import com.rednetty.server.mechanics.world.mobs.MobManager;
@@ -20,13 +20,7 @@ import java.util.List;
 import java.util.logging.Logger;
 import java.util.stream.Collectors;
 
-/**
- * FIXED: Enhanced SpawnMobCommand with proper elite support and validation
- * - Fixed validation logic for elite-only types
- * - Enhanced entity creation with better error handling
- * - Improved spawning success rates for all mob types including elites
- * - Better integration with the MobManager system
- */
+
 public class SpawnMobCommand implements CommandExecutor, TabCompleter {
     private final MobManager mobManager;
     private final Logger logger;
@@ -231,9 +225,6 @@ public class SpawnMobCommand implements CommandExecutor, TabCompleter {
         }
     }
 
-    /**
-     * FIXED: Enhanced single mob spawning with proper elite support
-     */
     private LivingEntity spawnSingleMob(Location location, String mobType, int tier, boolean elite) {
         try {
             MobType type = MobType.getById(mobType);
@@ -242,7 +233,7 @@ public class SpawnMobCommand implements CommandExecutor, TabCompleter {
                 return null;
             }
 
-            // FIXED: Use MobManager for reliable spawning
+            
             LivingEntity entity = mobManager.spawnMobFromSpawner(location, mobType, tier, elite);
 
             if (entity != null) {
@@ -348,7 +339,7 @@ public class SpawnMobCommand implements CommandExecutor, TabCompleter {
             return ValidationResult.invalid("Tier 6 mobs are not enabled on this server.");
         }
 
-        // FIXED: Enhanced elite validation logic
+        
         if (type.isElite()) {
             // This is an elite-only type (like T5 elites)
             if (!request.elite) {
@@ -435,9 +426,6 @@ public class SpawnMobCommand implements CommandExecutor, TabCompleter {
         return dp[str1.length()][str2.length()];
     }
 
-    /**
-     * FIXED: Get list of elite-only mob types
-     */
     private String getEliteOnlyMobTypesList() {
         return Arrays.stream(MobType.values())
                 .filter(MobType::isElite)

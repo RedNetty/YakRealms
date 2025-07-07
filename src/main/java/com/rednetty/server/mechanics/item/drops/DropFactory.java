@@ -37,14 +37,14 @@ public class DropFactory {
     private static final int GEM_BASE_MULTIPLIER = 3;
     private static final int MAX_GEM_STACK = 64;
 
-    // Enhanced crate visual effects
+    // Enhanced crate visual effects with Tier 6 Netherite integration
     private static final Map<Integer, ChatColor> TIER_COLORS = Map.of(
             1, ChatColor.WHITE,
             2, ChatColor.GREEN,
             3, ChatColor.AQUA,
             4, ChatColor.LIGHT_PURPLE,
             5, ChatColor.YELLOW,
-            6, ChatColor.BLUE
+            6, ChatColor.DARK_PURPLE  // Updated for Netherite
     );
 
     /**
@@ -392,7 +392,7 @@ public class DropFactory {
             case 3 -> "Mystical container radiating magical energy";
             case 4 -> "Ancient chest blessed by powerful forces";
             case 5 -> "Legendary container of immense power";
-            case 6 -> "Frozen chest from the realm of ice and snow";
+            case 6 -> "Netherite chest forged in the depths of the Nether";
             default -> "";
         };
     }

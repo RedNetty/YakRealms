@@ -949,7 +949,7 @@ public class PartyMechanics implements Listener {
                 }
             });
 
-            // FIXED: Update scoreboards and teams for all party members safely
+            
             Bukkit.getScheduler().runTask(YakRealms.getInstance(), () -> {
                 try {
                     updateAllPartyMemberVisuals(party);

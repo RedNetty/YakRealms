@@ -1,4 +1,4 @@
-package com.rednetty.server.commands.admin;
+package com.rednetty.server.commands.staff.admin;
 import com.rednetty.server.YakRealms;
 import com.rednetty.server.mechanics.item.crates.CrateManager;
 import com.rednetty.server.mechanics.item.crates.menu.CratePreviewGUI;

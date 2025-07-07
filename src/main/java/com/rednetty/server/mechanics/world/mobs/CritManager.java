@@ -529,7 +529,7 @@ public class CritManager {
      */
     private boolean applyWhirlwindDamageAndKnockback(Player player, LivingEntity mob, double damage) {
         try {
-            // FIXED: Apply raw damage to bypass CombatMechanics interference
+            
             // This ensures the explosion damage actually hits the player
             applyRawDamageToPlayer(player, damage, mob);
 

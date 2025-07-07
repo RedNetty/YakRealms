@@ -321,7 +321,7 @@ public class MobUtils {
                 return false;
             }
 
-            // FIXED: Enhanced line of sight check for 1.20.2
+            
             if (!hasLineOfSight(mob, player)) {
                 return true;
             }
@@ -352,7 +352,7 @@ public class MobUtils {
     }
 
     /**
-     * FIXED: Enhanced line of sight check for 1.20.2
+     * line of sight check for 1.20.2
      */
     private static boolean hasLineOfSight(LivingEntity mob, Player player) {
         try {
@@ -511,7 +511,7 @@ public class MobUtils {
     }
 
     /**
-     * FIXED: Generate a health bar string with enhanced 1.20.2 compatibility
+     * Generate a health bar string with enhanced 1.20.2 compatibility
      */
     public static String generateHealthBar(LivingEntity entity, double health, double maxHealth, int tier, boolean inCriticalState) {
         if (entity == null) return "";
@@ -520,7 +520,7 @@ public class MobUtils {
         try {
             boolean boss = isElite(entity);
 
-            // FIXED: Set color based on tier properly
+            
             tierColor = getTierColor(tier);
             String str = tierColor.toString();
 
@@ -555,8 +555,6 @@ public class MobUtils {
     }
 
     /**
-     * FIXED: Helper method to get tier color consistently
-     *
      * @param tier The tier level (1-6)
      * @return The appropriate ChatColor for the tier
      */
@@ -573,8 +571,6 @@ public class MobUtils {
     }
 
     /**
-     * FIXED: Generate a properly formatted mob name with tier colors
-     *
      * @param baseName The base name of the mob
      * @param tier The tier level
      * @param elite Whether this is an elite mob
@@ -608,8 +604,6 @@ public class MobUtils {
     }
 
     /**
-     * FIXED: Enhanced entity validation for 1.20.2
-     *
      * @param entity The entity to validate
      * @return true if entity is valid and tracked properly
      */

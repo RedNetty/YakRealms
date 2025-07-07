@@ -695,7 +695,7 @@ public class PartyScoreboards {
                 return;
             }
 
-            // FIXED: Clear all team assignments safely - avoid immutable collection error
+            
             for (Team team : scoreboard.getTeams()) {
                 try {
                     // Create a copy of entries to avoid concurrent modification
@@ -1081,7 +1081,7 @@ public class PartyScoreboards {
             updatePlayerTeamAssignments(player);
             updatePlayerScoreboard(player);
 
-            // FIXED: Update team assignments for ALL online players so they see the correct color
+            
             // This is crucial because name colors above heads are controlled by team assignments
             for (Player onlinePlayer : Bukkit.getOnlinePlayers()) {
                 if (onlinePlayer != null && onlinePlayer.isOnline() && !onlinePlayer.equals(player)) {
@@ -1111,7 +1111,7 @@ public class PartyScoreboards {
                 }
             }
 
-            // FIXED: Also trigger a global color update to ensure consistency
+            
             Bukkit.getScheduler().runTaskLater(YakRealms.getInstance(), () -> {
                 try {
                     updateAllPlayerColors();

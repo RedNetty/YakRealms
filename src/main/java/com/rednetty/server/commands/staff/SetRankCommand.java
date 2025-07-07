@@ -73,7 +73,7 @@ public class SetRankCommand implements CommandExecutor, TabCompleter {
             sender.sendMessage(ChatColor.GREEN + "Set " + targetPlayer.getName() + "'s rank to " + rank.name());
             targetPlayer.sendMessage(ChatColor.GREEN + "Your rank has been set to " + rank.name());
         } else {
-            // Set rank for offline player - FIXED: use getOfflinePlayer and withPlayer
+            
             try {
                 // Just send a "processing" message immediately
                 sender.sendMessage(ChatColor.YELLOW + "Setting " + targetName + "'s rank to " + rank.name() + "...");

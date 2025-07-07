@@ -13,6 +13,10 @@ import org.bukkit.inventory.ItemFlag;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.inventory.meta.LeatherArmorMeta;
+import org.bukkit.inventory.meta.ArmorMeta;
+import org.bukkit.inventory.meta.trim.ArmorTrim;
+import org.bukkit.inventory.meta.trim.TrimMaterial;
+import org.bukkit.inventory.meta.trim.TrimPattern;
 import org.bukkit.persistence.PersistentDataContainer;
 import org.bukkit.persistence.PersistentDataType;
 
@@ -318,9 +322,9 @@ public class DropsManager {
 
         item.setItemMeta(meta);
 
-        // Special handling for leather armor with tier 6
-        if (tier == 6 && material.toString().contains("LEATHER")) {
-            item = applyLeatherDye(item, 0, 0, 255); // Blue for tier 6
+        // Special handling for tier 6 netherite armor - add gold trim
+        if (tier == 6 && !itemTypeConfig.isWeapon() && material.toString().contains("NETHERITE")) {
+            item = applyNetheriteGoldTrim(item);
         }
 
         return item;
@@ -435,7 +439,7 @@ public class DropsManager {
                 tierColor = ChatColor.YELLOW;
                 break;
             case 6:
-                tierColor = ChatColor.BLUE;
+                tierColor = ChatColor.DARK_PURPLE; // Netherite color
                 break;
             default:
                 tierColor = ChatColor.WHITE;
@@ -581,9 +585,9 @@ public class DropsManager {
 
         item.setItemMeta(meta);
 
-        // Handle leather dye for tier 6
-        if (config.getTier() == 6 && item.getType().toString().contains("LEATHER")) {
-            item = applyLeatherDye(item, 0, 0, 255); // Blue for tier 6
+        // Apply tier-specific effects for Tier 6 Netherite armor
+        if (config.getTier() == 6 && itemType > 4 && material.toString().contains("NETHERITE")) {
+            item = applyNetheriteGoldTrim(item);
         }
 
         // Add glow for certain elites
@@ -763,7 +767,7 @@ public class DropsManager {
             case 5:
                 return generateNamePrefix(item, "Legendary", ChatColor.YELLOW);
             case 6:
-                return generateNamePrefix(item, "Frozen", ChatColor.BLUE);
+                return generateNamePrefix(item, "Netherite", ChatColor.DARK_PURPLE);
         }
         return "Error, talk to owner";
     }
@@ -787,13 +791,13 @@ public class DropsManager {
             case 4:
                 return color + name + " Axe";
             case 5:
-                return color + name + " Platemail Helmet";
+                return color + name + " Helmet";
             case 6:
-                return color + name + " Platemail";
+                return color + name + " Chestplate";
             case 7:
-                return color + name + " Platemail Leggings";
+                return color + name + " Leggings";
             case 8:
-                return color + name + " Platemail Boots";
+                return color + name + " Boots";
         }
         return "error in generate name";
     }
@@ -1214,7 +1218,35 @@ public class DropsManager {
     }
 
     /**
-     * Applies leather dye to an armor piece
+     * Applies gold trim to netherite armor
+     *
+     * @param item The netherite armor item
+     * @return The item with gold trim applied
+     */
+    private ItemStack applyNetheriteGoldTrim(ItemStack item) {
+        if (item.getItemMeta() instanceof ArmorMeta) {
+            try {
+                ArmorMeta armorMeta = (ArmorMeta) item.getItemMeta();
+
+                // Apply gold trim with eye pattern for a luxurious look
+                ArmorTrim goldTrim = new ArmorTrim(
+                        TrimMaterial.GOLD,
+                        TrimPattern.EYE
+                );
+
+                armorMeta.setTrim(goldTrim);
+                item.setItemMeta(armorMeta);
+
+                logger.fine("Applied gold trim to netherite armor: " + item.getType());
+            } catch (Exception e) {
+                logger.warning("Failed to apply gold trim to netherite armor: " + e.getMessage());
+            }
+        }
+        return item;
+    }
+
+    /**
+     * Applies leather dye to an armor piece (backwards compatibility)
      *
      * @param item  The item to dye
      * @param red   Red component (0-255)

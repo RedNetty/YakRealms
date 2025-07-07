@@ -455,7 +455,7 @@ public class YakPlayerManager implements Listener {
             player.setExp(1.0f);
             player.setLevel(100);
 
-            // Initialize moderation rank - FIXED: Use fromString instead of valueOf
+            
             try {
                 String rankString = yakPlayer.getRank();
                 if (rankString == null || rankString.trim().isEmpty()) {
@@ -488,7 +488,7 @@ public class YakPlayerManager implements Listener {
                 });
             }
 
-            // Initialize chat tag - FIXED: Better error handling
+            
             try {
                 String chatTagString = yakPlayer.getChatTag();
                 if (chatTagString == null || chatTagString.trim().isEmpty()) {

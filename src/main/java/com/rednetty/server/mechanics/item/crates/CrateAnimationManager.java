@@ -182,7 +182,7 @@ public class CrateAnimationManager {
             this.playerId = player.getUniqueId();
             this.actualRewards = new ArrayList<>(actualRewards);
 
-            // FIXED: Find the best reward to display in the animation
+            
             this.displayReward = findBestRewardForDisplay(actualRewards);
             this.featuredRewardName = displayReward.hasItemMeta() && displayReward.getItemMeta().hasDisplayName() ?
                     displayReward.getItemMeta().getDisplayName() :
@@ -222,7 +222,7 @@ public class CrateAnimationManager {
                     currentSpeed *= DECELERATION;
                 }
 
-                // FIXED: Use pre-calculated final position
+                
                 if (currentSpeed < MIN_SPEED || tick > SPIN_DURATION) {
                     currentPosition = finalPosition;
 
@@ -475,7 +475,7 @@ public class CrateAnimationManager {
 
             isCompleted = true;
 
-            // FIXED: Ensure exact positioning on the winning item
+            
             currentPosition = finalPosition;
 
             // Update display one final time with exact positioning

@@ -1,7 +1,7 @@
 package com.rednetty.server.mechanics.item.orb;
 
 import com.rednetty.server.mechanics.item.enchants.Enchants;
-import com.rednetty.server.mechanics.item.scroll.ItemAPI;
+import com.rednetty.server.mechanics.player.stats.PlayerStatsCalculator;
 import com.rednetty.server.utils.nbt.NBTAccessor;
 import org.bukkit.ChatColor;
 import org.bukkit.Material;
@@ -14,8 +14,6 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-
-import static com.rednetty.server.mechanics.item.scroll.ItemAPI.isBlueLeather;
 
 /**
  * Utility methods for orb interactions with items
@@ -220,7 +218,7 @@ public class OrbAPI {
 
     /**
      * Gets the correct tier of an item for orb processing
-     * This fixes the bug where tiers were detected incorrectly
+     * Updated for Tier 6 Netherite integration
      *
      * @param item The item to check
      * @return The correct tier (1-6) or 0 if not a valid tier item
@@ -234,73 +232,81 @@ public class OrbAPI {
         if (item.getItemMeta().hasDisplayName()) {
             String displayName = item.getItemMeta().getDisplayName();
 
-            if (displayName.contains(ChatColor.BLUE.toString())) {
-                LOGGER.info("Detected Tier 6 (Blue) item: " + displayName);
-                return 6; // Frozen/T6
+            // Tier 6 - Netherite (Dark Purple)
+            if (displayName.contains(ChatColor.DARK_PURPLE.toString()) ||
+                    displayName.toLowerCase().contains("netherite")) {
+                LOGGER.info("Detected Tier 6 (Netherite/Dark Purple) item: " + displayName);
+                return 6;
             }
 
-            if (displayName.contains(ChatColor.YELLOW.toString())) {
-                LOGGER.info("Detected Tier 5 (Yellow) item: " + displayName);
-                return 5; // Gold/Yellow/Legendary/T5
+            // Tier 5 - Legendary (Yellow/Gold)
+            if (displayName.contains(ChatColor.YELLOW.toString()) ||
+                    displayName.toLowerCase().contains("legendary")) {
+                LOGGER.info("Detected Tier 5 (Yellow/Legendary) item: " + displayName);
+                return 5;
             }
 
-            if (displayName.contains(ChatColor.LIGHT_PURPLE.toString())) {
-                LOGGER.info("Detected Tier 4 (Purple) item: " + displayName);
-                return 4; // Diamond/Purple/T4
+            // Tier 4 - Ancient (Light Purple)
+            if (displayName.contains(ChatColor.LIGHT_PURPLE.toString()) ||
+                    displayName.toLowerCase().contains("ancient")) {
+                LOGGER.info("Detected Tier 4 (Light Purple/Ancient) item: " + displayName);
+                return 4;
             }
 
+            // Tier 3 - Magic (Aqua)
             if (displayName.contains(ChatColor.AQUA.toString())) {
                 LOGGER.info("Detected Tier 3 (Aqua) item: " + displayName);
-                return 3; // Iron/Aqua/T3
+                return 3;
             }
 
+            // Tier 2 - Chainmail/Stone (Green)
             if (displayName.contains(ChatColor.GREEN.toString())) {
                 LOGGER.info("Detected Tier 2 (Green) item: " + displayName);
-                return 2; // Stone/Chainmail/Green/T2
+                return 2;
             }
 
+            // Tier 1 - Leather/Wood (White)
             if (displayName.contains(ChatColor.WHITE.toString())) {
                 LOGGER.info("Detected Tier 1 (White) item: " + displayName);
-                return 1; // Wooden/Leather/White/T1
+                return 1;
             }
         }
 
         // Fallback to material-based detection
         String material = item.getType().name();
 
-        // Check for blue leather or diamond (T6 - Frozen)
-        if ((material.contains("LEATHER_") && isBlueLeather(item))) {
-            LOGGER.info("Detected Tier 6 from material+color: " + material);
+        // Tier 6 - Netherite
+        if (material.contains("NETHERITE_")) {
+            LOGGER.info("Detected Tier 6 from material: " + material);
             return 6;
         }
 
-        // Check for gold (T5)
+        // Tier 5 - Gold
         if (material.contains("GOLD_") || material.contains("GOLDEN_")) {
             LOGGER.info("Detected Tier 5 from material: " + material);
             return 5;
         }
 
-        // Check for regular diamond (T4)
+        // Tier 4 - Diamond
         if (material.contains("DIAMOND_")) {
             LOGGER.info("Detected Tier 4 from material: " + material);
             return 4;
         }
 
-        // Check for iron (T3)
+        // Tier 3 - Iron
         if (material.contains("IRON_")) {
             LOGGER.info("Detected Tier 3 from material: " + material);
             return 3;
         }
 
-        // Check for chainmail/stone (T2)
+        // Tier 2 - Chainmail/Stone
         if (material.contains("CHAINMAIL_") || material.contains("STONE_")) {
             LOGGER.info("Detected Tier 2 from material: " + material);
             return 2;
         }
 
-        // Check for leather/wooden (T1)
-        if ((material.contains("LEATHER_") && !isBlueLeather(item)) ||
-                material.contains("WOOD_") || material.contains("WOODEN_")) {
+        // Tier 1 - Leather/Wood
+        if (material.contains("LEATHER_") || material.contains("WOOD_") || material.contains("WOODEN_")) {
             LOGGER.info("Detected Tier 1 from material: " + material);
             return 1;
         }
@@ -348,7 +354,7 @@ public class OrbAPI {
             int extraLines = 0;
 
             // Check for protected items
-            if (ItemAPI.isProtected(item)) {
+            if (isProtected(item)) {
                 extraLines = 2;
             }
             // Check for items with special descriptive lore
@@ -512,13 +518,13 @@ public class OrbAPI {
             case TYPE_AXE:
                 return "Ancient Axe";
             case TYPE_HELMET:
-                return "Ancient Full Helmet";
+                return "Ancient Helmet";
             case TYPE_CHESTPLATE:
-                return "Magic Platemail";
+                return "Ancient Chestplate";
             case TYPE_LEGGINGS:
-                return "Magic Platemail Leggings";
+                return "Ancient Leggings";
             case TYPE_BOOTS:
-                return "Magic Platemail Boots";
+                return "Ancient Boots";
             default:
                 return "T4 Item";
         }
@@ -535,13 +541,13 @@ public class OrbAPI {
             case TYPE_AXE:
                 return "Legendary Axe";
             case TYPE_HELMET:
-                return "Legendary Full Helmet";
+                return "Legendary Helmet";
             case TYPE_CHESTPLATE:
-                return "Legendary Platemail";
+                return "Legendary Chestplate";
             case TYPE_LEGGINGS:
-                return "Legendary Platemail Leggings";
+                return "Legendary Leggings";
             case TYPE_BOOTS:
-                return "Legendary Platemail Boots";
+                return "Legendary Boots";
             default:
                 return "T5 Item";
         }
@@ -550,21 +556,21 @@ public class OrbAPI {
     private static String getBaseTier6Name(int type) {
         switch (type) {
             case TYPE_STAFF:
-                return "Frozen Staff";
+                return "Netherite Staff";
             case TYPE_SPEAR:
-                return "Frozen Polearm";
+                return "Netherite Polearm";
             case TYPE_SWORD:
-                return "Frozen Sword";
+                return "Netherite Sword";
             case TYPE_AXE:
-                return "Frozen Axe";
+                return "Netherite Axe";
             case TYPE_HELMET:
-                return "Frozen Full Helmet";
+                return "Netherite Helmet";
             case TYPE_CHESTPLATE:
-                return "Frozen Platemail";
+                return "Netherite Chestplate";
             case TYPE_LEGGINGS:
-                return "Frozen Platemail Leggings";
+                return "Netherite Leggings";
             case TYPE_BOOTS:
-                return "Frozen Platemail Boots";
+                return "Netherite Boots";
             default:
                 return "T6 Item";
         }
@@ -590,7 +596,7 @@ public class OrbAPI {
             case 5:
                 return ChatColor.YELLOW + name;
             case 6:
-                return ChatColor.BLUE + name;
+                return ChatColor.DARK_PURPLE + name; // Netherite color
             default:
                 return name;
         }
@@ -749,6 +755,32 @@ public class OrbAPI {
     }
 
     /**
+     * Check if an item is protected (from ItemAPI compatibility)
+     */
+    public static boolean isProtected(ItemStack item) {
+        if (item == null || !item.hasItemMeta()) {
+            return false;
+        }
+
+        // Check NBT data first
+        NBTAccessor nbt = new NBTAccessor(item);
+        if (nbt.hasKey("protected") && nbt.getBoolean("protected")) {
+            return true;
+        }
+
+        // Check lore if NBT doesn't have it
+        if (item.getItemMeta().hasLore()) {
+            for (String line : item.getItemMeta().getLore()) {
+                if (line.contains(ChatColor.GREEN + "Protected")) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * Gets a stat value from an item's lore by searching for a specific pattern
      *
      * @param item         The item to check
@@ -867,7 +899,7 @@ public class OrbAPI {
             }
 
             // Add protection status
-            if (ItemAPI.isProtected(item)) {
+            if (isProtected(item)) {
                 stats.add(ChatColor.GREEN + "Protected: Yes");
             }
         } catch (Exception e) {
@@ -933,7 +965,7 @@ public class OrbAPI {
                 description.append("\nPossible armor stats: HP, regen, dodge, block, thorns, attributes (STR, DEX, INT, VIT).");
             }
 
-            if (ItemAPI.isProtected(item)) {
+            if (isProtected(item)) {
                 description.append("\n").append(ChatColor.GREEN).append("Item is protected and won't be destroyed on failed enhancement.");
             }
         } catch (Exception e) {

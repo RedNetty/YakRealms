@@ -1,4 +1,4 @@
-package com.rednetty.server.commands.admin;
+package com.rednetty.server.commands.staff.admin;
 
 import com.rednetty.server.YakRealms;
 import com.rednetty.server.mechanics.world.mobs.MobManager;
@@ -29,9 +29,7 @@ import org.bukkit.persistence.PersistentDataType;
 import java.util.*;
 import java.util.stream.Collectors;
 
-/**
- * COMPLETE FIXED: Enhanced SpawnerCommand with all debug features and fixes
- */
+
 public class SpawnerCommand implements CommandExecutor, TabCompleter, Listener {
     private final MobManager mobManager;
     private final MobSpawner spawner;
@@ -148,9 +146,7 @@ public class SpawnerCommand implements CommandExecutor, TabCompleter, Listener {
         }
     }
 
-    /**
-     * FIXED: Handle the create subcommand with better validation and integration
-     */
+
     private boolean handleCreateCommand(Player player, String[] args) {
         if (args.length < 2) {
             player.sendMessage(ChatColor.RED + "Usage: /spawner create <data> or /spawner create template:<name>");
@@ -561,9 +557,7 @@ public class SpawnerCommand implements CommandExecutor, TabCompleter, Listener {
         return true;
     }
 
-    /**
-     * FIXED: Handle the visibility subcommand with enhanced logic
-     */
+
     private boolean handleVisibilityCommand(Player player, String[] args) {
         boolean show;
         int radius = DEFAULT_VISIBILITY_RADIUS;
@@ -639,9 +633,7 @@ public class SpawnerCommand implements CommandExecutor, TabCompleter, Listener {
         return true;
     }
 
-    /**
-     * FIXED: Toggle spawners in radius - now actually implemented
-     */
+
     private boolean toggleSpawnersInRadius(Player player, boolean show, int radius) {
         int count = toggleSpawnerVisibilityInRadius(player.getLocation(), radius, show);
 
@@ -1218,9 +1210,7 @@ public class SpawnerCommand implements CommandExecutor, TabCompleter, Listener {
         return true;
     }
 
-    /**
-     * FIXED: Handle debug-specific commands for troubleshooting
-     */
+
     private boolean handleDebugDetailCommand(Player player, String[] args) {
         if (args.length < 2) {
             player.sendMessage(ChatColor.RED + "Usage: /spawner debugdetail <status|cleanup|force|count>");

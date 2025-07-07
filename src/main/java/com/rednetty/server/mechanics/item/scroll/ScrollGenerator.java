@@ -49,7 +49,7 @@ public class ScrollGenerator {
                 displayName = displayName + ChatColor.YELLOW + "Protect Gold Equipment";
                 break;
             case 5:
-                displayName = displayName + ChatColor.BLUE + "Protect Frozen Equipment";
+                displayName = displayName + ChatColor.DARK_PURPLE + "Protect Netherite Equipment";
                 break;
         }
 
@@ -83,7 +83,7 @@ public class ScrollGenerator {
     }
 
     /**
-     * Creates an armor enhancement scroll of the specified tier
+     * Creates an enhancement scroll of the specified tier
      *
      * @param tier The tier of the scroll (1-6)
      * @param type The type of scroll (0 for weapon, 1 for armor)
@@ -117,7 +117,7 @@ public class ScrollGenerator {
                 name = ChatColor.YELLOW + " Enchant Gold";
                 break;
             case 6:
-                name = ChatColor.BLUE + " Enchant Frozen";
+                name = ChatColor.DARK_PURPLE + " Enchant Netherite";
                 break;
         }
 
@@ -209,7 +209,7 @@ public class ScrollGenerator {
             case 4:
                 return 10000;
             case 5:
-                return -1; // Not for sale
+                return 25000; // Netherite protection scrolls are expensive
             default:
                 return 250;
         }
@@ -242,7 +242,7 @@ public class ScrollGenerator {
                 price = 500;
                 break;
             case 6:
-                price = 1000;
+                price = 1500; // Netherite enhancement scrolls are more expensive
                 break;
             default:
                 price = 50;

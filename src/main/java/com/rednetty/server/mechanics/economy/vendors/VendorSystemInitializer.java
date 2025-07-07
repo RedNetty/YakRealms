@@ -1,7 +1,7 @@
 package com.rednetty.server.mechanics.economy.vendors;
 
 import com.rednetty.server.YakRealms;
-import com.rednetty.server.commands.admin.VendorCommand;
+import com.rednetty.server.commands.staff.admin.VendorCommand;
 import com.rednetty.server.mechanics.economy.vendors.admin.VendorConfigGUI;
 import com.rednetty.server.mechanics.economy.vendors.visuals.VendorAuraManager;
 import com.rednetty.server.mechanics.economy.vendors.config.VendorConfiguration;

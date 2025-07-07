@@ -117,7 +117,97 @@ public class DropsHandler implements Listener {
         public boolean isNamedElite() { return isNamedElite; }
         public String getMobType() { return mobType; }
     }
+    /**
+     * Enhanced tier detection with multiple fallback methods
+     */
+    private int detectMobTier(LivingEntity entity) {
+        // Method 1: Check equipment (most reliable)
+        int equipmentTier = detectTierFromEquipment(entity);
+        if (equipmentTier > 0) {
+            return equipmentTier;
+        }
 
+        // Method 2: Check metadata
+        int metadataTier = detectTierFromMetadata(entity);
+        if (metadataTier > 0) {
+            return metadataTier;
+        }
+
+        // Method 3: Default based on entity type
+        return getDefaultTierForEntityType(entity);
+    }
+
+    /**
+     * Detect tier from equipment with enhanced logic for Tier 6 Netherite
+     */
+    private int detectTierFromEquipment(LivingEntity entity) {
+        if (entity.getEquipment() == null) {
+            return 0;
+        }
+
+        ItemStack mainHand = entity.getEquipment().getItemInMainHand();
+        if (mainHand != null && mainHand.getType() != org.bukkit.Material.AIR) {
+            String material = mainHand.getType().name();
+
+            // Enhanced material-based tier detection with Netherite support
+            if (material.contains("NETHERITE")) {
+                return 6; // Tier 6 - Netherite
+            } else if (material.contains("DIAMOND")) {
+                // Check for special dark purple display name for enhanced Netherite items
+                if (mainHand.hasItemMeta() && mainHand.getItemMeta().hasDisplayName() &&
+                        mainHand.getItemMeta().getDisplayName().contains(ChatColor.DARK_PURPLE.toString())) {
+                    return 6; // Enhanced Netherite
+                }
+                return 4; // Regular Diamond
+            } else if (material.contains("GOLDEN") || material.contains("GOLD")) {
+                return 5; // Tier 5 - Gold
+            } else if (material.contains("IRON")) {
+                return 3; // Tier 3 - Iron
+            } else if (material.contains("STONE")) {
+                return 2; // Tier 2 - Stone
+            } else if (material.contains("WOODEN") || material.contains("WOOD")) {
+                return 1; // Tier 1 - Wood
+            }
+        }
+        return 0;
+    }
+
+    /**
+     * Detect tier from metadata with multiple key checking
+     */
+    private int detectTierFromMetadata(LivingEntity entity) {
+        String[] tierKeys = {"equipTier", "dropTier", "customTier", "tier"};
+
+        for (String key : tierKeys) {
+            if (entity.hasMetadata(key)) {
+                try {
+                    if (entity.getMetadata(key).get(0).value() instanceof Integer) {
+                        return entity.getMetadata(key).get(0).asInt();
+                    } else {
+                        return Integer.parseInt(entity.getMetadata(key).get(0).asString());
+                    }
+                } catch (NumberFormatException | IndexOutOfBoundsException ignored) {
+                    // Try next key
+                }
+            }
+        }
+        return 0;
+    }
+
+    /**
+     * Get default tier based on entity type with enhanced mappings
+     */
+    private int getDefaultTierForEntityType(LivingEntity entity) {
+        return switch (entity.getType()) {
+            case ZOMBIE, SKELETON, SPIDER -> 1;
+            case CREEPER, ENDERMAN -> 2;
+            case WITCH, VINDICATOR -> 3;
+            case EVOKER, VEX -> 4;
+            case WITHER_SKELETON -> 5;
+            case WITHER, ENDER_DRAGON -> 6; // Bosses get Tier 6
+            default -> 1;
+        };
+    }
     /**
      * Private constructor for singleton pattern
      */
@@ -161,7 +251,7 @@ public class DropsHandler implements Listener {
             public void run() {
                 int cleanedDamage = cleanupExpiredDamageTracking();
 
-                // FIXED: Move entity validation to main thread to avoid async chunk access
+
                 Bukkit.getScheduler().runTask(plugin, () -> {
                     int cleanedProcessed = cleanupInvalidProcessedMobs();
 
@@ -367,98 +457,6 @@ public class DropsHandler implements Listener {
         boolean isNamedElite = isElite && mobType != null && DropConfig.getEliteDropConfig(mobType.toLowerCase()) != null;
 
         return new MobAnalysis(tier, isElite, false, isNamedElite, mobType);
-    }
-
-    /**
-     * Enhanced tier detection with multiple fallback methods
-     */
-    private int detectMobTier(LivingEntity entity) {
-        // Method 1: Check equipment (most reliable)
-        int equipmentTier = detectTierFromEquipment(entity);
-        if (equipmentTier > 0) {
-            return equipmentTier;
-        }
-
-        // Method 2: Check metadata
-        int metadataTier = detectTierFromMetadata(entity);
-        if (metadataTier > 0) {
-            return metadataTier;
-        }
-
-        // Method 3: Default based on entity type
-        return getDefaultTierForEntityType(entity);
-    }
-
-    /**
-     * Detect tier from equipment with enhanced logic
-     */
-    private int detectTierFromEquipment(LivingEntity entity) {
-        if (entity.getEquipment() == null) {
-            return 0;
-        }
-
-        ItemStack mainHand = entity.getEquipment().getItemInMainHand();
-        if (mainHand != null && mainHand.getType() != org.bukkit.Material.AIR) {
-            String material = mainHand.getType().name();
-
-            // Enhanced material-based tier detection
-            if (material.contains("DIAMOND")) {
-                // Check for special blue display name for T6
-                if (mainHand.hasItemMeta() && mainHand.getItemMeta().hasDisplayName() &&
-                        mainHand.getItemMeta().getDisplayName().contains(ChatColor.BLUE.toString())) {
-                    return 6;
-                }
-                return 4;
-            } else if (material.contains("NETHERITE")) {
-                return 6; // Netherite should be highest tier
-            } else if (material.contains("GOLDEN") || material.contains("GOLD")) {
-                return 5;
-            } else if (material.contains("IRON")) {
-                return 3;
-            } else if (material.contains("STONE")) {
-                return 2;
-            } else if (material.contains("WOODEN") || material.contains("WOOD")) {
-                return 1;
-            }
-        }
-        return 0;
-    }
-
-    /**
-     * Detect tier from metadata with multiple key checking
-     */
-    private int detectTierFromMetadata(LivingEntity entity) {
-        String[] tierKeys = {"equipTier", "dropTier", "customTier", "tier"};
-
-        for (String key : tierKeys) {
-            if (entity.hasMetadata(key)) {
-                try {
-                    if (entity.getMetadata(key).get(0).value() instanceof Integer) {
-                        return entity.getMetadata(key).get(0).asInt();
-                    } else {
-                        return Integer.parseInt(entity.getMetadata(key).get(0).asString());
-                    }
-                } catch (NumberFormatException | IndexOutOfBoundsException ignored) {
-                    // Try next key
-                }
-            }
-        }
-        return 0;
-    }
-
-    /**
-     * Get default tier based on entity type
-     */
-    private int getDefaultTierForEntityType(LivingEntity entity) {
-        return switch (entity.getType()) {
-            case ZOMBIE, SKELETON, SPIDER -> 1;
-            case CREEPER, ENDERMAN -> 2;
-            case WITCH, VINDICATOR -> 3;
-            case EVOKER, VEX -> 4;
-            case WITHER_SKELETON -> 5;
-            case WITHER, ENDER_DRAGON -> 6;
-            default -> 1;
-        };
     }
 
     /**

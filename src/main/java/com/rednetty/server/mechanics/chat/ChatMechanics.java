@@ -57,7 +57,7 @@ public class ChatMechanics implements Listener {
     private static final int DEFAULT_CHAT_RANGE = 50;
     private static final int COOLDOWN_TICKS = 20; // 1 second
 
-    // Chat filter - FIXED: Made pattern more robust
+    
     private static final List<String> bannedWords = new ArrayList<>(Arrays.asList(
             "nigger"
             // Add other banned words here
@@ -833,9 +833,6 @@ public class ChatMechanics implements Listener {
     }
 
     /**
-     * Filter a chat message for inappropriate content
-     * FIXED: More robust filtering
-     *
      * @param message The message to filter
      * @return The filtered message
      */
@@ -888,9 +885,6 @@ public class ChatMechanics implements Listener {
         }
     }
 
-    /**
-     * FIXED: Build formatted name with better error handling
-     */
     private String buildFormattedName(Player player, YakPlayer yakPlayer) {
         StringBuilder name = new StringBuilder();
 

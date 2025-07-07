@@ -73,7 +73,7 @@ public class DeathRemnant {
 
         // Note: items parameter is completely ignored - remnants are always decorative only
 
-        // FIXED: Enhanced location validation
+        
         Location validatedLocation = findValidLocation(location.clone());
         if (validatedLocation == null) {
             this.location = location.clone();
@@ -83,7 +83,7 @@ public class DeathRemnant {
         this.location = validatedLocation;
 
         try {
-            // FIXED: Construct skeleton with enhanced error handling
+            
             if (!constructSkeleton() || !validateStructure()) {
                 logError("Failed skeleton construction at %s for player %s", formatLocation(this.location), this.playerName);
                 cleanup();
@@ -342,7 +342,7 @@ public class DeathRemnant {
                 stand.setInvulnerable(true);
                 stand.setHeadPose(angle);
 
-                // FIXED: Enhanced persistent data tagging
+                
                 stand.getPersistentDataContainer().set(remnantKey, PersistentDataType.STRING, id.toString());
 
                 // Set helmet item if not skull

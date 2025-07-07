@@ -53,7 +53,7 @@ public class AlignmentMechanics implements Listener {
     private final Map<UUID, Location> lastSafeLocations = new HashMap<>();
     private final Map<String, Player> lastAttackers = new HashMap<>();
 
-    // FIXED: Add synchronization lock for boss bar operations
+    
     private final Object bossBarLock = new Object();
 
     // Dependencies
@@ -105,7 +105,7 @@ public class AlignmentMechanics implements Listener {
      * Clean up on disable
      */
     public void onDisable() {
-        // FIXED: Properly clean up all boss bars with synchronization
+        
         synchronized (bossBarLock) {
             for (BossBar bar : playerBossBars.values()) {
                 try {
@@ -157,9 +157,6 @@ public class AlignmentMechanics implements Listener {
         }.runTaskTimer(YakRealms.getInstance(), 20L, 20L); // Run every second
     }
 
-    /**
-     * FIXED: Update alignment timers with proper scoreboard updates
-     */
     private void updateTimers(Player player, YakPlayer yakPlayer) {
         String oldAlignment = yakPlayer.getAlignment();
 
@@ -176,7 +173,7 @@ public class AlignmentMechanics implements Listener {
                 updatePlayerAlignment(player);
                 setNeutralAlignment(player);
 
-                // FIXED: Notify scoreboard system of alignment change
+                
                 handleAlignmentChanged(player, oldAlignment, "NEUTRAL");
             }
         }
@@ -193,7 +190,7 @@ public class AlignmentMechanics implements Listener {
                 updatePlayerAlignment(player);
                 setLawfulAlignment(player);
 
-                // FIXED: Notify scoreboard system of alignment change
+                
                 handleAlignmentChanged(player, oldAlignment, "LAWFUL");
             }
         }
@@ -206,7 +203,7 @@ public class AlignmentMechanics implements Listener {
         // Update the player's display name immediately
         updatePlayerAlignment(player);
 
-        // FIXED: Notify party scoreboard system of the alignment change
+        
         PartyScoreboards.handleAlignmentChange(player);
 
         // Log the change
@@ -294,7 +291,7 @@ public class AlignmentMechanics implements Listener {
                     titleColor + (int) player.getHealth() + ChatColor.BOLD + " / " +
                     titleColor + (int) player.getMaxHealth() + safeZoneText;
 
-            // FIXED: Proper boss bar management with synchronization
+            
             synchronized (bossBarLock) {
                 BossBar bossBar = playerBossBars.get(playerId);
 
@@ -308,7 +305,7 @@ public class AlignmentMechanics implements Listener {
                     bossBar.setTitle(title);
                     bossBar.setColor(barColor);
 
-                    // FIXED: Ensure player is added to the boss bar if not already present
+                    
                     if (!bossBar.getPlayers().contains(player)) {
                         bossBar.addPlayer(player);
                     }
@@ -437,7 +434,7 @@ public class AlignmentMechanics implements Listener {
         TextUtil.sendCenteredMessage(player, ChatColor.GRAY + "Any players who kill you while you're lawfully aligned will become chaotic.");
         TextUtil.sendCenteredMessage(player, ChatColor.GREEN + "* YOU ARE NOW " + ChatColor.BOLD + "LAWFUL" + ChatColor.GREEN + " ALIGNMENT *");
 
-        // FIXED: Update scoreboards for alignment change
+        
         if (!oldAlignment.equals("LAWFUL")) {
             PartyScoreboards.handleAlignmentChange(player);
         }
@@ -462,7 +459,7 @@ public class AlignmentMechanics implements Listener {
         TextUtil.sendCenteredMessage(player, ChatColor.GRAY + "Neutral alignment will expire 2 minutes after last hit on player.");
         TextUtil.sendCenteredMessage(player, ChatColor.YELLOW + "* YOU ARE NOW " + ChatColor.BOLD + "NEUTRAL" + ChatColor.YELLOW + " ALIGNMENT *");
 
-        // FIXED: Update scoreboards for alignment change
+        
         if (!oldAlignment.equals("NEUTRAL")) {
             PartyScoreboards.handleAlignmentChange(player);
         }
@@ -486,7 +483,7 @@ public class AlignmentMechanics implements Listener {
 
         updatePlayerAlignment(player);
 
-        // FIXED: Update scoreboards for alignment change
+        
         if (!oldAlignment.equals("CHAOTIC")) {
             PartyScoreboards.handleAlignmentChange(player);
         }
@@ -519,7 +516,7 @@ public class AlignmentMechanics implements Listener {
             // Update player display name
             player.setDisplayName(cc + player.getName());
 
-            // FIXED: Ensure ALL players see the color change above the player's head
+            
             // This is crucial for proper team color display
             Bukkit.getScheduler().runTaskLater(YakRealms.getInstance(), () -> {
                 try {
@@ -785,7 +782,7 @@ public class AlignmentMechanics implements Listener {
             // Make killer chaotic
             setChaoticAlignment(killer, CHAOTIC_SECONDS);
 
-            // FIXED: Handle alignment change for scoreboards
+            
             if (!oldKillerAlignment.equals("CHAOTIC")) {
                 PartyScoreboards.handleAlignmentChange(killer);
             }
@@ -906,7 +903,7 @@ public class AlignmentMechanics implements Listener {
 
                 updatePlayerAlignment(player);
 
-                // FIXED: Initialize scoreboard properly for alignment colors
+                
                 PartyScoreboards.updatePlayerTeamAssignments(player);
                 PartyScoreboards.handleAlignmentChange(player);
             }
@@ -967,7 +964,7 @@ public class AlignmentMechanics implements Listener {
             // Change to neutral
             setNeutralAlignment(attacker);
 
-            // FIXED: Handle alignment change for scoreboards
+            
             if (!oldAlignment.equals("NEUTRAL")) {
                 PartyScoreboards.handleAlignmentChange(attacker);
             }
@@ -997,7 +994,7 @@ public class AlignmentMechanics implements Listener {
             player.setHealth(0);
         }
 
-        // FIXED: Clean up resources with proper synchronization
+        
         UUID playerId = player.getUniqueId();
 
         // Clean up boss bar
@@ -1013,7 +1010,7 @@ public class AlignmentMechanics implements Listener {
         // Remove force field
         ForceFieldManager.getInstance().removePlayerForceField(player);
 
-        // FIXED: Clean up party scoreboards
+        
         PartyScoreboards.cleanupPlayer(player);
     }
 
