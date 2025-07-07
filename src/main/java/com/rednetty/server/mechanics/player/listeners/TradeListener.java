@@ -11,9 +11,10 @@ import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.entity.PlayerDeathEvent;
-import org.bukkit.event.inventory.InventoryClickEvent;
-import org.bukkit.event.inventory.InventoryCloseEvent;
+import org.bukkit.event.inventory.*;
 import org.bukkit.event.player.*;
+import org.bukkit.inventory.Inventory;
+import org.bukkit.inventory.InventoryView;
 import org.bukkit.scheduler.BukkitRunnable;
 
 import java.util.HashMap;
@@ -23,7 +24,7 @@ import java.util.UUID;
 /**
  * Handles all trade-related events including initiation, interaction, and cancellation.
  */
-public class TradeListener extends BaseListener{
+public class TradeListener extends BaseListener {
 
     private final YakRealms plugin;
     private final TradeManager tradeManager;
@@ -32,12 +33,9 @@ public class TradeListener extends BaseListener{
     private static final double MAX_TRADE_DISTANCE = 10.0; // Maximum distance for trading
 
     public TradeListener(YakRealms plugin) {
-        super();
         this.plugin = plugin;
         this.tradeManager = plugin.getTradeManager();
     }
-
-
 
     /**
      * Handles player interactions with other players for trade initiation/acceptance.
@@ -115,23 +113,63 @@ public class TradeListener extends BaseListener{
         Player player = (Player) event.getWhoClicked();
         Trade trade = tradeManager.getPlayerTrade(player);
 
-        if (trade == null) {
+        if (trade == null || !isTradeInventory(event.getView())) {
             return;
         }
 
         TradeMenu tradeMenu = tradeManager.getTradeMenu(trade);
-        if (tradeMenu == null || !event.getInventory().equals(tradeMenu.getInventory())) {
+        if (tradeMenu == null) {
+            event.setCancelled(true);
             return;
         }
 
-        // Handle the click in the trade menu
-        tradeMenu.handleClick(event);
+        // Handle shift-clicks from player inventory to trade inventory
+        if (event.getClick() == ClickType.SHIFT_LEFT &&
+                event.getClickedInventory() != null &&
+                event.getClickedInventory().getType() == InventoryType.PLAYER) {
+            event.setCancelled(true);
+            return;
+        }
+
+        // Handle clicks in the trade menu
+        if (event.getView().getTopInventory().equals(tradeMenu.getInventory())) {
+            tradeMenu.handleClick(event);
+            return;
+        }
+
+        // Cancel any other interactions with the trade inventory
+        event.setCancelled(true);
+    }
+
+    /**
+     * Handles inventory drag events - prevents dragging items in trade inventories.
+     */
+    @EventHandler(priority = EventPriority.HIGH)
+    public void onInventoryDrag(InventoryDragEvent event) {
+        if (!(event.getWhoClicked() instanceof Player)) {
+            return;
+        }
+
+        Player player = (Player) event.getWhoClicked();
+        Trade trade = tradeManager.getPlayerTrade(player);
+
+        if (trade == null || !isTradeInventory(event.getView())) {
+            return;
+        }
+
+        // Cancel all drag events in trade inventory
+        for (int slot : event.getRawSlots()) {
+            if (slot < event.getView().getTopInventory().getSize()) {
+                event.setCancelled(true);
+                return;
+            }
+        }
     }
 
     /**
      * Handles inventory closing - cancels trade if inventory is closed.
      */
-    @EventHandler(priority = EventPriority.HIGH)
+    @EventHandler(priority = EventPriority.MONITOR)
     public void onInventoryClose(InventoryCloseEvent event) {
         if (!(event.getPlayer() instanceof Player)) {
             return;
@@ -140,25 +178,28 @@ public class TradeListener extends BaseListener{
         Player player = (Player) event.getPlayer();
         Trade trade = tradeManager.getPlayerTrade(player);
 
-        if (trade == null) {
+        if (trade == null || !isTradeInventory(event.getView())) {
             return;
         }
 
         TradeMenu tradeMenu = tradeManager.getTradeMenu(trade);
-        if (tradeMenu == null || !event.getInventory().equals(tradeMenu.getInventory())) {
-            return;
+        if (tradeMenu != null && !trade.isCompleted()) {
+            // Only handle close if player is not in a prompt
+            if (!TradeMenu.isPlayerInPrompt(player.getUniqueId())) {
+                tradeMenu.handleClose(event);
+            }
         }
-
-        // Handle the inventory close in the trade menu
-        tradeMenu.handleClose(event);
     }
 
     /**
      * Cancels trades when players quit the server.
      */
-    @EventHandler(priority = EventPriority.HIGH)
+    @EventHandler(priority = EventPriority.MONITOR)
     public void onPlayerQuit(PlayerQuitEvent event) {
         Player player = event.getPlayer();
+
+        // Clear any prompt state
+        TradeMenu.clearPromptState(player.getUniqueId());
 
         // Cancel any active trade
         if (tradeManager.isPlayerTrading(player)) {
@@ -315,6 +356,34 @@ public class TradeListener extends BaseListener{
                 player.sendMessage(ChatColor.RED + "⚠ " + ChatColor.GRAY + "You are not currently in a trade!");
             }
         }
+    }
+
+    /**
+     * Prevents hoppers and other containers from interacting with trade inventories.
+     */
+    @EventHandler(priority = EventPriority.HIGHEST)
+    public void onInventoryMoveItem(InventoryMoveItemEvent event) {
+        // Prevent hoppers and other containers from interacting with trade inventory
+        if (isTradeInventory(event.getSource()) || isTradeInventory(event.getDestination())) {
+            event.setCancelled(true);
+        }
+    }
+
+    /**
+     * Checks if an inventory view represents a trade inventory.
+     */
+    private boolean isTradeInventory(InventoryView view) {
+        return view != null && view.getTitle() != null && view.getTitle().startsWith("Trade: ");
+    }
+
+    /**
+     * Checks if an inventory is a trade inventory by checking its viewers.
+     */
+    private boolean isTradeInventory(Inventory inventory) {
+        if (inventory == null || inventory.getViewers().isEmpty()) {
+            return false;
+        }
+        return isTradeInventory(inventory.getViewers().get(0).getOpenInventory());
     }
 
     /**
