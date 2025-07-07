@@ -2,6 +2,7 @@ package com.rednetty.server.commands.staff.admin;
 
 import com.rednetty.server.YakRealms;
 import com.rednetty.server.commands.player.LogoutCommand;
+import com.rednetty.server.mechanics.combat.pvp.AlignmentMechanics;
 import com.rednetty.server.mechanics.moderation.ModerationMechanics;
 import com.rednetty.server.mechanics.moderation.Rank;
 import com.rednetty.server.mechanics.player.YakPlayer;
@@ -307,6 +308,7 @@ public class ShutdownCommand implements CommandExecutor, TabCompleter {
 
         for (Player player : Bukkit.getOnlinePlayers()) {
             try {
+                AlignmentMechanics.getInstance().clearCombatTag(player);
                 player.kickPlayer(kickMessage);
             } catch (Exception e) {
                 YakRealms.getInstance().getLogger().log(Level.WARNING,
