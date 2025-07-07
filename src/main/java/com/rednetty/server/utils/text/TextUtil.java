@@ -1,5 +1,6 @@
 package com.rednetty.server.utils.text;
 
+import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.entity.Player;
 
@@ -22,6 +23,14 @@ public class TextUtil {
     private static final Pattern HEX_PATTERN = Pattern.compile("&#([A-Fa-f0-9]{6})");
     private final static int CENTER_PX = 154;
 
+    /**
+     * Broadcast a centered message to all online players
+     */
+    public static void broadcastCenteredMessage(String message) {
+        for (Player player : Bukkit.getOnlinePlayers()) {
+            sendCenteredMessage(player, message);
+        }
+    }
     /**
      * Private constructor to prevent instantiation
      */

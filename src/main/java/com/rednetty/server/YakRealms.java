@@ -619,13 +619,20 @@ public class YakRealms extends JavaPlugin {
     }
 
     /**
-     * Initialize commands
+     * Initialize commands - UPDATED to include logout and shutdown commands
      */
     private boolean initializeCommands() {
         boolean success = true;
 
         try {
             getLogger().info("Registering commands...");
+
+            // Player commands
+            success &= registerCommand("logout", new com.rednetty.server.commands.player.LogoutCommand(),
+                    new com.rednetty.server.commands.player.LogoutCommand());
+            success &= registerCommand("toggles", new TogglesCommand());
+            success &= registerCommand("alignment", new AlignmentCommand(alignmentMechanics));
+            success &= registerCommand("invsee", new InvseeCommand());
 
             // Economy commands
             success &= registerCommand("balance", new BalanceCommand(economyManager));
@@ -723,11 +730,6 @@ public class YakRealms extends JavaPlugin {
             // Mount commands
             success &= registerCommand("mount", new MountCommand());
 
-            // Player commands
-            success &= registerCommand("toggles", new TogglesCommand());
-            success &= registerCommand("alignment", new AlignmentCommand(alignmentMechanics));
-            success &= registerCommand("invsee", new InvseeCommand());
-
             // Item commands - Updated with enhanced ItemCommand
             success &= registerCommand("item", new ItemCommand(this));
             success &= registerCommand("journal", new JournalCommand());
@@ -751,6 +753,10 @@ public class YakRealms extends JavaPlugin {
             success &= registerCommand("unmute", new UnmuteCommand(ModerationMechanics.getInstance()));
             success &= registerCommand("vanish", new VanishCommand(this));
             success &= registerCommand("setrank", new SetRankCommand(ModerationMechanics.getInstance()));
+
+            // Admin commands - NEW SHUTDOWN COMMAND
+            success &= registerCommand("shutdown", new com.rednetty.server.commands.staff.admin.ShutdownCommand(),
+                    new com.rednetty.server.commands.staff.admin.ShutdownCommand());
 
             // Navigation commands
             if (pathManager != null) {

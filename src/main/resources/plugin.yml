@@ -253,7 +253,16 @@ commands:
     description: Manage navigation node mapping
     usage: /nodemap <generate|progress|pause|cancel|help>
     permission: yakrealms.admin.nodemap
+  logout:
+    description: Safely logout and save your character data
+    usage: /logout [cancel]
+    aliases: [quit, exit]
 
+  shutdown:
+    description: Safely shutdown the server with player data saving
+    usage: /shutdown [seconds] [reason] | /shutdown now [reason]
+    aliases: [restart, stop]
+    permission: yakrealms.admin.shutdown
 permissions:
   # Root Permissions
   yakrealms.*:

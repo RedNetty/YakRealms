@@ -940,7 +940,7 @@ public class AlignmentMechanics implements Listener {
     }
 
     /**
-     * FIXED: Process a PvP attack between players with alignment updates
+     * FIXED: Process a PvP attack between players with alignment updates and logout cancellation
      */
     private void handlePvPAttack(Player attacker, Player victim) {
         YakPlayer yakAttacker = playerManager.getPlayer(attacker);
@@ -950,6 +950,22 @@ public class AlignmentMechanics implements Listener {
 
         // Skip for anti-PvP
         if (Toggles.isToggled(attacker, "Anti PVP")) return;
+
+        // Cancel any active logout processes for both players
+        try {
+            Class<?> logoutCommandClass = Class.forName("com.rednetty.server.commands.player.LogoutCommand");
+            java.lang.reflect.Method forceCancelMethod = logoutCommandClass.getMethod("forceCancelLogout", Player.class, String.class);
+
+            // Cancel logout for attacker
+            forceCancelMethod.invoke(null, attacker, "You entered combat!");
+
+            // Cancel logout for victim
+            forceCancelMethod.invoke(null, victim, "You were attacked!");
+
+        } catch (Exception e) {
+            // LogoutCommand might not be available yet during startup, so we ignore this
+            YakRealms.getInstance().getLogger().fine("Could not cancel logout (command not available): " + e.getMessage());
+        }
 
         String oldAlignment = yakAttacker.getAlignment();
 
@@ -964,7 +980,7 @@ public class AlignmentMechanics implements Listener {
             // Change to neutral
             setNeutralAlignment(attacker);
 
-            
+
             if (!oldAlignment.equals("NEUTRAL")) {
                 PartyScoreboards.handleAlignmentChange(attacker);
             }
