@@ -8,11 +8,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * FIXED: MobType enum with guaranteed initialization and comprehensive elite mob support
- * - Fixed static initialization to include ALL mob types including elites
- * - Enhanced validation for elite-only types
- * - Better error handling and debugging
- * - Comprehensive ID mapping with elite variations
- * - UPDATED: Enhanced epic names for all named elite mobs
+ * UPDATED: Enhanced T6 Netherite support with DARK_PURPLE color throughout
  */
 public enum MobType {
 
@@ -1084,7 +1080,7 @@ public enum MobType {
             case 3: return "Demonic Skeleton";
             case 4: return "Skeleton Guardian";
             case 5: return "Infernal Skeleton";
-            case 6: return "Frozen Skeleton";
+            case 6: return "Celestial Skeleton"; // T6 Netherite
             default: return "Skeleton";
         }
     }
@@ -1096,7 +1092,7 @@ public enum MobType {
             case 3: return "Demonic Chaos Skeleton";
             case 4: return "Skeleton Chaos Guardian";
             case 5: return "Infernal Chaos Skeleton";
-            case 6: return "Frozen Skeletal Minion";
+            case 6: return "Celestial Chaos Overlord"; // T6 Netherite
             default: return "Chaos Skeleton";
         }
     }
@@ -1108,7 +1104,7 @@ public enum MobType {
             case 3: return "Greater Zombie";
             case 4: return "Demonic Zombie";
             case 5: return "Infernal Zombie";
-            case 6: return "Frozen Zombie";
+            case 6: return "Celestial Zombie"; // T6 Netherite
             default: return "Zombie";
         }
     }
@@ -1120,7 +1116,7 @@ public enum MobType {
             case 3: return "Unstable Magma Cube";
             case 4: return "Boiling Magma Cube";
             case 5: return "Unstoppable Magma Cube";
-            case 6: return "Ice Cube";
+            case 6: return "Celestial Magma Cube"; // T6 Netherite
             default: return "Magma Cube";
         }
     }
@@ -1132,7 +1128,7 @@ public enum MobType {
             case 3: return "Unstable SilverFish";
             case 4: return "Mean SilverFish";
             case 5: return "Rude SilverFish";
-            case 6: return "Ice-Cold SilverFish";
+            case 6: return "Celestial SilverFish"; // T6 Netherite
             default: return "SilverFish";
         }
     }
@@ -1145,7 +1141,7 @@ public enum MobType {
             case 3: prefix = "Fierce"; break;
             case 4: prefix = "Dangerous"; break;
             case 5: prefix = "Lethal"; break;
-            case 6: prefix = "Devastating"; break;
+            case 6: prefix = "Divine"; break; // T6 Netherite
             default: prefix = ""; break;
         }
 
@@ -1160,7 +1156,7 @@ public enum MobType {
             case 3: return "Restored Golem";
             case 4: return "Mountain Golem";
             case 5: return "Powerful Golem";
-            case 6: return "Devastating Golem";
+            case 6: return "Celestial Golem"; // T6 Netherite
             default: return "Golem";
         }
     }
@@ -1172,7 +1168,7 @@ public enum MobType {
             case 3: return "Warrior Imp";
             case 4: return "Armoured Imp";
             case 5: return "Infernal Imp";
-            case 6: return "Arctic Imp";
+            case 6: return "Celestial Imp"; // T6 Netherite
             default: return "Imp";
         }
     }
@@ -1184,7 +1180,7 @@ public enum MobType {
             case 3: return "Demonic Daemon";
             case 4: return "Daemon Guardian";
             case 5: return "Infernal Daemon";
-            case 6: return "Chilled Daemon";
+            case 6: return "Celestial Daemon"; // T6 Netherite
             default: return "Daemon";
         }
     }
@@ -1196,7 +1192,7 @@ public enum MobType {
             case 3: return "Charged Creeper";
             case 4: return "Explosive Beast";
             case 5: return "Creeper Lord";
-            case 6: return "Ancient Bomber";
+            case 6: return "Celestial Bomber"; // T6 Netherite
             default: return "Creeper";
         }
     }
@@ -1208,7 +1204,7 @@ public enum MobType {
             case 3: return "Ender Stalker";
             case 4: return "Dimensional Hunter";
             case 5: return "Ender Lord";
-            case 6: return "Ancient Enderman";
+            case 6: return "Celestial Ender Demon"; // T6 Netherite
             default: return "Enderman";
         }
     }
@@ -1218,9 +1214,9 @@ public enum MobType {
             case 1: return "Weak Blaze";
             case 2: return "Fire Spirit";
             case 3: return "Blaze Warrior";
-            case 4: return "Infernal Guard";
-            case 5: return "Blaze Lord";
-            case 6: return "Ancient Blaze";
+            case 4: return "Ancient Guard";
+            case 5: return "Infernal Blaze Lord";
+            case 6: return "Celestial Blaze"; // T6 Netherite
             default: return "Blaze";
         }
     }
@@ -1232,7 +1228,7 @@ public enum MobType {
             case 3: return "Greater Ghast";
             case 4: return "Ghast Lord";
             case 5: return "Ancient Ghast";
-            case 6: return "Elder Ghast";
+            case 6: return "Celestial Ghast"; // T6 Netherite
             default: return "Ghast";
         }
     }
@@ -1244,7 +1240,7 @@ public enum MobType {
             case 3: return "Piglin Warrior";
             case 4: return "Nether Champion";
             case 5: return "Piglin Lord";
-            case 6: return "Ancient Piglin";
+            case 6: return "Celestial Piglin"; // T6 Netherite
             default: return "Zombified Piglin";
         }
     }
@@ -1256,7 +1252,7 @@ public enum MobType {
             case 3: return "Deep Guardian";
             case 4: return "Guardian Lord";
             case 5: return "Ancient Guardian";
-            case 6: return "Elder Guardian";
+            case 6: return "Celestial Guardian"; // T6 Netherite
             default: return "Guardian";
         }
     }
@@ -1268,7 +1264,7 @@ public enum MobType {
             case 3: return "Ancient Elder Guardian";
             case 4: return "Elder Lord";
             case 5: return "Primordial Guardian";
-            case 6: return "Leviathan Guardian";
+            case 6: return "Celestial Elder Guardian"; // T6 Netherite
             default: return "Elder Guardian";
         }
     }
@@ -1280,7 +1276,7 @@ public enum MobType {
             case 3: return "Ancient Warden";
             case 4: return "Warden Lord";
             case 5: return "Primordial Warden";
-            case 6: return "Cosmic Warden";
+            case 6: return "Celestial Warden"; // T6 Netherite
             default: return "Warden";
         }
     }
@@ -1336,7 +1332,7 @@ public enum MobType {
             case 3: return ChatColor.AQUA;
             case 4: return ChatColor.LIGHT_PURPLE;
             case 5: return ChatColor.YELLOW;
-            case 6: return ChatColor.BLUE;
+            case 6: return ChatColor.DARK_PURPLE; // T6 Netherite DARK_PURPLE
             default: return ChatColor.WHITE;
         }
     }

@@ -25,10 +25,10 @@ player:
 
 # Game Settings
 game:
-  t6-enabled: false  # Whether Tier 6 content is enabled
+  t6-enabled: true  # Whether Tier 6 content is enabled
   debug-mode: false
   patch_lockdown: false
-  min_level_for_advanced_features: 5
+  min_level_for_advanced_features: 0
 
 # Game Mechanics
 mechanics:
@@ -38,7 +38,7 @@ mechanics:
     safe_zones: true
     alignment_system_enabled: true
     death_remnants_enabled: true
-    chaotic_time_penalty: 3600  # seconds (1 hour)
+    chaotic_time_penalty: 300  # seconds (1 hour)
 
   # Mob System Settings
   mobs:
