@@ -1,6 +1,6 @@
 package com.rednetty.server.commands.economy;
 
-import com.rednetty.server.mechanics.market.MarketManager;
+import com.rednetty.server.mechanics.economy.market.MarketManager;
 import com.rednetty.server.mechanics.player.YakPlayer;
 import com.rednetty.server.mechanics.player.YakPlayerManager;
 import com.rednetty.server.utils.text.TextUtil;

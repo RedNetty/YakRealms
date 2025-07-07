@@ -1,10 +1,10 @@
 package com.rednetty.server.commands.admin;
 
-import com.rednetty.server.mechanics.lootchests.LootChestManager;
-import com.rednetty.server.mechanics.lootchests.types.ChestTier;
-import com.rednetty.server.mechanics.lootchests.types.ChestType;
-import com.rednetty.server.mechanics.lootchests.types.LootChestLocation;
-import com.rednetty.server.mechanics.lootchests.data.LootChestData;
+import com.rednetty.server.mechanics.world.lootchests.LootChestManager;
+import com.rednetty.server.mechanics.world.lootchests.types.ChestTier;
+import com.rednetty.server.mechanics.world.lootchests.types.ChestType;
+import com.rednetty.server.mechanics.world.lootchests.types.LootChestLocation;
+import com.rednetty.server.mechanics.world.lootchests.data.LootChestData;
 import org.bukkit.ChatColor;
 import org.bukkit.Location;
 import org.bukkit.command.Command;

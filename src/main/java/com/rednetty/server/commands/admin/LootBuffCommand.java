@@ -1,6 +1,6 @@
 package com.rednetty.server.commands.admin;
 
-import com.rednetty.server.mechanics.drops.buff.LootBuffManager;
+import com.rednetty.server.mechanics.item.drops.buff.LootBuffManager;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.command.Command;

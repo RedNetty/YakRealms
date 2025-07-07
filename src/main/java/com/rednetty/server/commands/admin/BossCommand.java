@@ -1,6 +1,6 @@
 package com.rednetty.server.commands.admin;
 
-import com.rednetty.server.mechanics.mobs.MobManager;
+import com.rednetty.server.mechanics.world.mobs.MobManager;
 import org.bukkit.ChatColor;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;

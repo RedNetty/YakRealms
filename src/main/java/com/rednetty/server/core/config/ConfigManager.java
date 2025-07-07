@@ -1,8 +1,8 @@
 package com.rednetty.server.core.config;
 
 import com.rednetty.server.YakRealms;
-import com.rednetty.server.mechanics.drops.DropConfig;
-import com.rednetty.server.mechanics.drops.types.*;
+import com.rednetty.server.mechanics.item.drops.DropConfig;
+import com.rednetty.server.mechanics.item.drops.types.*;
 import org.bukkit.ChatColor;
 import org.bukkit.Material;
 import org.bukkit.configuration.ConfigurationSection;

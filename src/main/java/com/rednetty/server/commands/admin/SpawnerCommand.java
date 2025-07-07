@@ -1,13 +1,11 @@
 package com.rednetty.server.commands.admin;
 
 import com.rednetty.server.YakRealms;
-import com.rednetty.server.mechanics.mobs.MobManager;
-import com.rednetty.server.mechanics.mobs.SpawnerProperties;
-import com.rednetty.server.mechanics.mobs.core.MobType;
-import com.rednetty.server.mechanics.mobs.spawners.MobEntry;
-import com.rednetty.server.mechanics.mobs.spawners.MobSpawner;
-import com.rednetty.server.mechanics.mobs.spawners.SpawnerCreationSession;
-import com.rednetty.server.mechanics.mobs.utils.MobUtils;
+import com.rednetty.server.mechanics.world.mobs.MobManager;
+import com.rednetty.server.mechanics.world.mobs.core.MobType;
+import com.rednetty.server.mechanics.world.mobs.spawners.MobEntry;
+import com.rednetty.server.mechanics.world.mobs.spawners.MobSpawner;
+import com.rednetty.server.mechanics.world.mobs.utils.MobUtils;
 import org.bukkit.*;
 import org.bukkit.block.Block;
 import org.bukkit.command.Command;

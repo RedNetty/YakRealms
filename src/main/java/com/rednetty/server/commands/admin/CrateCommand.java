@@ -1,8 +1,8 @@
 package com.rednetty.server.commands.admin;
 import com.rednetty.server.YakRealms;
-import com.rednetty.server.mechanics.crates.CrateManager;
-import com.rednetty.server.mechanics.crates.menu.CratePreviewGUI;
-import com.rednetty.server.mechanics.crates.types.CrateType;
+import com.rednetty.server.mechanics.item.crates.CrateManager;
+import com.rednetty.server.mechanics.item.crates.menu.CratePreviewGUI;
+import com.rednetty.server.mechanics.item.crates.types.CrateType;
 import com.rednetty.server.mechanics.moderation.ModerationMechanics;
 import com.rednetty.server.mechanics.moderation.Rank;
 import com.rednetty.server.utils.text.TextUtil;
@@ -12,14 +12,12 @@ import net.md_5.bungee.api.chat.HoverEvent;
 import net.md_5.bungee.api.chat.TextComponent;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
-import org.bukkit.Material;
 import org.bukkit.Sound;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
 import org.bukkit.command.TabCompleter;
 import org.bukkit.entity.Player;
-import org.bukkit.inventory.ItemStack;
 
 import java.util.*;
 import java.util.stream.Collectors;

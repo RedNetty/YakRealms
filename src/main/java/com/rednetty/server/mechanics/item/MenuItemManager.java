@@ -1,7 +1,6 @@
 package com.rednetty.server.mechanics.item;
 
 import com.rednetty.server.YakRealms;
-import com.rednetty.server.mechanics.player.YakPlayer;
 import com.rednetty.server.mechanics.player.YakPlayerManager;
 import com.rednetty.server.mechanics.player.settings.Toggles;
 import com.rednetty.server.utils.nbt.NBTAccessor;
@@ -249,8 +248,8 @@ public class MenuItemManager {
     private void handleElytraMount(Player player) {
         try {
             // Get the mount manager
-            com.rednetty.server.mechanics.mounts.MountManager mountManager =
-                    com.rednetty.server.mechanics.mounts.MountManager.getInstance();
+            com.rednetty.server.mechanics.player.mounts.MountManager mountManager =
+                    com.rednetty.server.mechanics.player.mounts.MountManager.getInstance();
 
             // Check if player has elytra mount permission
             if (!player.hasPermission("yakrp.mount.elytra")) {
@@ -284,7 +283,7 @@ public class MenuItemManager {
             }
 
             // Attempt to summon the elytra
-            if (mountManager.summonMount(player, com.rednetty.server.mechanics.mounts.MountType.ELYTRA)) {
+            if (mountManager.summonMount(player, com.rednetty.server.mechanics.player.mounts.MountType.ELYTRA)) {
                 logger.fine("Elytra mount summoned for " + player.getName());
                 // Close the crafting inventory to prevent interference
                 player.closeInventory();
@@ -304,8 +303,8 @@ public class MenuItemManager {
     private void handleHorseMount(Player player) {
         try {
             // Get the mount manager
-            com.rednetty.server.mechanics.mounts.MountManager mountManager =
-                    com.rednetty.server.mechanics.mounts.MountManager.getInstance();
+            com.rednetty.server.mechanics.player.mounts.MountManager mountManager =
+                    com.rednetty.server.mechanics.player.mounts.MountManager.getInstance();
 
             // Check if player has a horse mount
             int horseTier = mountManager.getHorseTier(player);
@@ -329,7 +328,7 @@ public class MenuItemManager {
             }
 
             // Attempt to summon the horse
-            if (mountManager.summonMount(player, com.rednetty.server.mechanics.mounts.MountType.HORSE)) {
+            if (mountManager.summonMount(player, com.rednetty.server.mechanics.player.mounts.MountType.HORSE)) {
                 logger.fine("Horse mount summoned for " + player.getName());
                 // Close the crafting inventory to prevent interference
                 player.closeInventory();

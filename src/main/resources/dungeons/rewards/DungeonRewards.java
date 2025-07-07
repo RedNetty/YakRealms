@@ -1,10 +1,10 @@
 package com.rednetty.server.mechanics.dungeons.rewards;
 
 import com.rednetty.server.YakRealms;
-import com.rednetty.server.mechanics.drops.DropsManager;
+import com.rednetty.server.mechanics.item.drops.DropsManager;
 import com.rednetty.server.mechanics.dungeons.config.DungeonTemplate;
 import com.rednetty.server.mechanics.dungeons.instance.DungeonInstance;
-import com.rednetty.server.mechanics.mobs.MobManager;
+import com.rednetty.server.mechanics.world.mobs.MobManager;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.Location;

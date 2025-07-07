@@ -18,11 +18,12 @@ import com.rednetty.server.mechanics.combat.MagicStaff;
 import com.rednetty.server.mechanics.combat.death.RespawnManager;
 import com.rednetty.server.mechanics.combat.death.remnant.DeathRemnantManager;
 import com.rednetty.server.mechanics.combat.pvp.AlignmentMechanics;
-import com.rednetty.server.mechanics.crates.CrateManager;
+import com.rednetty.server.mechanics.economy.merchant.MerchantSystem;
+import com.rednetty.server.mechanics.item.crates.CrateManager;
 import com.rednetty.server.commands.admin.CrateCommand;
-import com.rednetty.server.mechanics.drops.DropsHandler;
-import com.rednetty.server.mechanics.drops.DropsManager;
-import com.rednetty.server.mechanics.drops.buff.LootBuffManager;
+import com.rednetty.server.mechanics.item.drops.DropsHandler;
+import com.rednetty.server.mechanics.item.drops.DropsManager;
+import com.rednetty.server.mechanics.item.drops.buff.LootBuffManager;
 import com.rednetty.server.mechanics.economy.BankManager;
 import com.rednetty.server.mechanics.economy.EconomyManager;
 import com.rednetty.server.mechanics.economy.GemPouchManager;
@@ -38,12 +39,12 @@ import com.rednetty.server.mechanics.item.binding.BindingRuneSystem;
 import com.rednetty.server.mechanics.item.corruption.CorruptionSystem;
 import com.rednetty.server.mechanics.item.essence.EssenceCrystalSystem;
 import com.rednetty.server.mechanics.item.forge.ForgeHammerSystem;
-import com.rednetty.server.mechanics.lootchests.LootChestManager;
-import com.rednetty.server.mechanics.market.MarketManager;
-import com.rednetty.server.mechanics.mobs.MobManager;
-import com.rednetty.server.mechanics.mobs.tasks.SpawnerHologramUpdater;
+import com.rednetty.server.mechanics.world.lootchests.LootChestManager;
+import com.rednetty.server.mechanics.economy.market.MarketManager;
+import com.rednetty.server.mechanics.world.mobs.MobManager;
+import com.rednetty.server.mechanics.world.mobs.tasks.SpawnerHologramUpdater;
 import com.rednetty.server.mechanics.moderation.ModerationMechanics;
-import com.rednetty.server.mechanics.mounts.MountManager;
+import com.rednetty.server.mechanics.player.mounts.MountManager;
 import com.rednetty.server.mechanics.party.PartyMechanics;
 import com.rednetty.server.mechanics.player.PlayerMechanics;
 import com.rednetty.server.mechanics.player.YakPlayerManager;
@@ -53,7 +54,6 @@ import com.rednetty.server.mechanics.teleport.HearthstoneSystem;
 import com.rednetty.server.mechanics.teleport.PortalSystem;
 import com.rednetty.server.mechanics.teleport.TeleportBookSystem;
 import com.rednetty.server.mechanics.teleport.TeleportManager;
-import com.rednetty.server.mechanics.world.holograms.HologramManager;
 import com.rednetty.server.mechanics.world.trail.TrailSystem;
 import com.rednetty.server.mechanics.world.trail.pathing.ParticleSystem;
 import com.rednetty.server.mechanics.world.trail.pathing.PathManager;
@@ -65,7 +65,6 @@ import org.bukkit.Bukkit;
 import org.bukkit.World;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.plugin.java.JavaPlugin;
-import org.bukkit.scheduler.BukkitRunnable;
 
 import java.io.File;
 import java.util.List;
@@ -126,7 +125,7 @@ public class YakRealms extends JavaPlugin {
     private PathManager pathManager;
     private CrateManager crateManager;
     private LootChestManager lootChestManager;
-
+    private MerchantSystem merchantSystem;
     // Game settings
     private static boolean patchLockdown = false;
     private static boolean t6Enabled = false;
@@ -260,6 +259,7 @@ public class YakRealms extends JavaPlugin {
             allSuccess &= safeInitialize("Combat Systems", this::initializeCombatSystems);
             allSuccess &= safeInitialize("Death Systems", this::initializeDeathSystems);
             allSuccess &= safeInitialize("Mob System", this::initializeMobSystem);
+            allSuccess &= safeInitialize("Merchant System", this::initializeMerchantSystem);
             allSuccess &= safeInitialize("Drops System", this::initializeDropsSystem);
             allSuccess &= safeInitialize("Teleport Systems", this::initializeTeleportSystems);
             allSuccess &= safeInitialize("World Systems", this::initializeWorldSystems);
@@ -899,6 +899,8 @@ public class YakRealms extends JavaPlugin {
             }
         }
 
+        shutdownMerchantSystem();
+
         // Shutdown item enhancement systems
         getLogger().info("Shutting down item enhancement systems...");
         // These systems typically don't need explicit shutdown as they're event-based
@@ -1055,6 +1057,48 @@ public class YakRealms extends JavaPlugin {
             throw new IllegalStateException("Loot chest manager not available");
         }
         return instance.lootChestManager;
+    }
+    /**
+     * Initialize the merchant system
+     */
+    private boolean initializeMerchantSystem() {
+        try {
+            getLogger().info("Initializing merchant system...");
+
+            merchantSystem = MerchantSystem.getInstance();
+
+            // Validate dependencies before initialization
+            if (!merchantSystem.validateDependencies()) {
+                getLogger().warning("Merchant system dependencies not satisfied - skipping initialization");
+                return false;
+            }
+
+            // Initialize the system
+            merchantSystem.initialize();
+
+            getLogger().info("Merchant system initialized successfully");
+
+            return true;
+        } catch (Exception e) {
+            getLogger().log(Level.SEVERE, "Failed to initialize merchant system", e);
+            throw new RuntimeException("Merchant system initialization failed", e);
+        }
+    }
+
+    /**
+     * Shutdown the merchant system
+     */
+    private boolean shutdownMerchantSystem() {
+        if (merchantSystem != null) {
+            try {
+                merchantSystem.shutdown();
+                getLogger().info("Merchant system shutdown completed");
+                return true;
+            } catch (Exception e) {
+                getLogger().log(Level.SEVERE, "Error shutting down merchant system", e);
+            }
+        }
+        return false;
     }
 
     /**

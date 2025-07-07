@@ -4,7 +4,7 @@ import com.rednetty.server.YakRealms;
 import com.rednetty.server.mechanics.dungeons.bosses.DungeonBoss;
 import com.rednetty.server.mechanics.dungeons.config.DungeonTemplate;
 import com.rednetty.server.mechanics.dungeons.instance.DungeonInstance;
-import com.rednetty.server.mechanics.mobs.MobManager;
+import com.rednetty.server.mechanics.world.mobs.MobManager;
 import org.bukkit.*;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;

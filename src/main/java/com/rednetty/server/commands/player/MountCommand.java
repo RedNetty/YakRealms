@@ -1,7 +1,7 @@
 package com.rednetty.server.commands.player;
 
-import com.rednetty.server.mechanics.mounts.MountManager;
-import com.rednetty.server.mechanics.mounts.MountType;
+import com.rednetty.server.mechanics.player.mounts.MountManager;
+import com.rednetty.server.mechanics.player.mounts.MountType;
 import com.rednetty.server.mechanics.player.YakPlayer;
 import com.rednetty.server.mechanics.player.YakPlayerManager;
 import org.bukkit.ChatColor;

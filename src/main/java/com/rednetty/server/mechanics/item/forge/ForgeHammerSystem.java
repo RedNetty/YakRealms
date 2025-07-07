@@ -2,7 +2,7 @@ package com.rednetty.server.mechanics.item.forge;
 
 import com.rednetty.server.YakRealms;
 import com.rednetty.server.mechanics.item.enchants.Enchants;
-import com.rednetty.server.mechanics.drops.DropsManager;
+import com.rednetty.server.mechanics.item.drops.DropsManager;
 import com.rednetty.server.utils.particles.FireworkUtil;
 import com.rednetty.server.utils.particles.ParticleUtil;
 import com.rednetty.server.utils.text.TextUtil;
