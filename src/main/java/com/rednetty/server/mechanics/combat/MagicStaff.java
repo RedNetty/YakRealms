@@ -4,7 +4,7 @@ import com.rednetty.server.YakRealms;
 import com.rednetty.server.mechanics.combat.pvp.AlignmentMechanics;
 import com.rednetty.server.mechanics.player.YakPlayer;
 import com.rednetty.server.mechanics.player.YakPlayerManager;
-import com.rednetty.server.mechanics.player.friends.Buddies;
+import com.rednetty.server.mechanics.player.social.friends.Buddies;
 import com.rednetty.server.mechanics.player.settings.Toggles;
 import com.rednetty.server.mechanics.player.stamina.Energy;
 import com.rednetty.server.utils.math.BoundingBox;

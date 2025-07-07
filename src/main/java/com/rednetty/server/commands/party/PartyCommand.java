@@ -1,9 +1,8 @@
 package com.rednetty.server.commands.party;
 
 import com.rednetty.server.mechanics.chat.ChatMechanics;
-import com.rednetty.server.mechanics.party.PartyMechanics;
+import com.rednetty.server.mechanics.player.social.party.PartyMechanics;
 import org.bukkit.ChatColor;
-import org.bukkit.Material;
 import org.bukkit.Sound;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
@@ -15,7 +14,6 @@ import org.bukkit.inventory.ItemStack;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-import java.util.logging.Level;
 
 /**
  * Enhanced Party Chat Command with comprehensive messaging features and validation

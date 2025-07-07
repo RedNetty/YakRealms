@@ -1,4 +1,4 @@
-package com.rednetty.server.mechanics.player.friends;
+package com.rednetty.server.mechanics.player.social.friends;
 
 import com.rednetty.server.YakRealms;
 import com.rednetty.server.mechanics.player.YakPlayer;

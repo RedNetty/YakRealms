@@ -1,4 +1,4 @@
-package com.rednetty.server.mechanics.party;
+package com.rednetty.server.mechanics.player.social.party;
 
 import com.rednetty.server.YakRealms;
 import com.rednetty.server.mechanics.player.YakPlayer;

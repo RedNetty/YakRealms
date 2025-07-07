@@ -7,7 +7,7 @@ import com.rednetty.server.mechanics.world.mobs.CritManager;
 import com.rednetty.server.mechanics.world.mobs.MobManager;
 import com.rednetty.server.mechanics.world.mobs.core.CustomMob;
 import com.rednetty.server.mechanics.world.mobs.utils.MobUtils;
-import com.rednetty.server.mechanics.party.PartyMechanics;
+import com.rednetty.server.mechanics.player.social.party.PartyMechanics;
 import com.rednetty.server.mechanics.player.YakPlayer;
 import com.rednetty.server.mechanics.player.YakPlayerManager;
 import com.rednetty.server.mechanics.player.settings.Toggles;

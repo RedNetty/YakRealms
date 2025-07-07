@@ -1,6 +1,6 @@
 package com.rednetty.server.commands.party;
 
-import com.rednetty.server.mechanics.party.PartyMechanics;
+import com.rednetty.server.mechanics.player.social.party.PartyMechanics;
 import org.bukkit.ChatColor;
 import org.bukkit.Sound;
 import org.bukkit.command.Command;

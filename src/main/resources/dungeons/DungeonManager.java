@@ -6,7 +6,7 @@ import com.rednetty.server.mechanics.dungeons.config.DungeonTemplate;
 import com.rednetty.server.mechanics.dungeons.instance.DungeonInstance;
 import com.rednetty.server.mechanics.dungeons.instance.InstanceManager;
 import com.rednetty.server.mechanics.dungeons.rewards.DungeonRewards;
-import com.rednetty.server.mechanics.party.PartyMechanics;
+import com.rednetty.server.mechanics.player.social.party.PartyMechanics;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.entity.Player;

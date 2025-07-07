@@ -1,9 +1,7 @@
 package com.rednetty.server.mechanics.player.settings;
 
 import com.rednetty.server.YakRealms;
-import com.rednetty.server.mechanics.moderation.ModerationMechanics;
-import com.rednetty.server.mechanics.moderation.Rank;
-import com.rednetty.server.mechanics.party.PartyMechanics;
+import com.rednetty.server.mechanics.player.social.party.PartyMechanics;
 import com.rednetty.server.mechanics.player.YakPlayer;
 import com.rednetty.server.mechanics.player.YakPlayerManager;
 import org.bukkit.Bukkit;

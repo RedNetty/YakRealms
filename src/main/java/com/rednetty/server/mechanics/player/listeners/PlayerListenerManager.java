@@ -32,6 +32,7 @@ public class PlayerListenerManager {
     private VisualEffectsListener visualEffectsListener;
     private WorldListener worldListener;
     private MenuItemListener menuItemListener;
+    private TradeListener tradeListener;
 
     /**
      * Private constructor for singleton pattern
@@ -71,6 +72,7 @@ public class PlayerListenerManager {
         visualEffectsListener = new VisualEffectsListener();
         worldListener = new WorldListener();
         menuItemListener = new MenuItemListener(YakRealms.getInstance());
+        tradeListener = new TradeListener(YakRealms.getInstance());
 
         // Add to list for management
         listeners.add(menuItemListener);
@@ -83,6 +85,7 @@ public class PlayerListenerManager {
         listeners.add(itemInteractionListener);
         listeners.add(visualEffectsListener);
         listeners.add(worldListener);
+        listeners.add(tradeListener);
 
         // Register each listener
         for (BaseListener listener : listeners) {

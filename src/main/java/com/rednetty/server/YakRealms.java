@@ -39,13 +39,14 @@ import com.rednetty.server.mechanics.item.binding.BindingRuneSystem;
 import com.rednetty.server.mechanics.item.corruption.CorruptionSystem;
 import com.rednetty.server.mechanics.item.essence.EssenceCrystalSystem;
 import com.rednetty.server.mechanics.item.forge.ForgeHammerSystem;
+import com.rednetty.server.mechanics.player.social.trade.TradeManager;
 import com.rednetty.server.mechanics.world.lootchests.LootChestManager;
 import com.rednetty.server.mechanics.economy.market.MarketManager;
 import com.rednetty.server.mechanics.world.mobs.MobManager;
 import com.rednetty.server.mechanics.world.mobs.tasks.SpawnerHologramUpdater;
 import com.rednetty.server.mechanics.moderation.ModerationMechanics;
 import com.rednetty.server.mechanics.player.mounts.MountManager;
-import com.rednetty.server.mechanics.party.PartyMechanics;
+import com.rednetty.server.mechanics.player.social.party.PartyMechanics;
 import com.rednetty.server.mechanics.player.PlayerMechanics;
 import com.rednetty.server.mechanics.player.YakPlayerManager;
 import com.rednetty.server.mechanics.player.items.SpeedfishMechanics;
@@ -98,6 +99,7 @@ public class YakRealms extends JavaPlugin {
     private OrbManager orbManager;
     private Journal journalSystem;
     private MenuItemManager menuItemManager;
+    private TradeManager tradeManager;
 
     // New Item Enhancement Systems
     private AwakeningStoneSystem awakeningStoneSystem;
@@ -228,6 +230,9 @@ public class YakRealms extends JavaPlugin {
             // Then initialize PlayerMechanics
             playerMechanics = PlayerMechanics.getInstance();
             playerMechanics.onEnable();
+
+            tradeManager = new TradeManager(this);
+
 
             getLogger().info("Player systems initialized successfully");
             return true;
@@ -1157,6 +1162,10 @@ public class YakRealms extends JavaPlugin {
      */
     public static boolean isAwakeningStoneSystemAvailable() {
         return instance != null && instance.awakeningStoneSystem != null;
+    }
+
+    public TradeManager getTradeManager() {
+        return tradeManager;
     }
 
     public static boolean isBindingRuneSystemAvailable() {

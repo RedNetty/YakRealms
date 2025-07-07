@@ -1,13 +1,12 @@
 package com.rednetty.server.mechanics.player;
 
 import com.rednetty.server.YakRealms;
-import com.rednetty.server.mechanics.player.friends.Buddies;
+import com.rednetty.server.mechanics.player.social.friends.Buddies;
 import com.rednetty.server.mechanics.player.listeners.PlayerListenerManager;
 import com.rednetty.server.mechanics.player.movement.DashMechanics;
 import com.rednetty.server.mechanics.player.settings.Toggles;
 import com.rednetty.server.mechanics.player.stamina.Energy;
 import org.bukkit.Bukkit;
-import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
