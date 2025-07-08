@@ -24,12 +24,12 @@ public class CombatHologramHandler {
     private static CombatHologramHandler instance;
 
     // Animation constants
-    private static final double INITIAL_HEIGHT_OFFSET = 1.8; // Height above target to start
-    private static final double PEAK_HEIGHT_ADDITION = 1.2; // Additional height for arc peak
+    private static final double INITIAL_HEIGHT_OFFSET = .1; // Height above target to start
+    private static final double PEAK_HEIGHT_ADDITION = .8; // Additional height for arc peak
     private static final double HORIZONTAL_SPREAD = 1.5; // Horizontal randomness
     private static final double ANIMATION_SPEED = 0.08; // Speed of animation (lower = slower)
     private static final int MAX_ANIMATION_TICKS = 60; // Maximum animation duration
-    private static final double GROUND_CHECK_OFFSET = 0.1; // Ground collision detection
+    private static final double GROUND_CHECK_OFFSET = 0.4; // Ground collision detection
     private static final double FADE_START_HEIGHT = 0.5; // Height to start fading
 
     // Performance and cleanup constants
@@ -104,7 +104,7 @@ public class CombatHologramHandler {
         DODGE(ChatColor.GREEN, "💨", false),
         HEAL(ChatColor.GREEN, "❤", false),
         LIFESTEAL(ChatColor.DARK_GREEN, "🩸", false),
-        THORNS(ChatColor.DARK_PURPLE, "🌹", true),
+        THORNS(ChatColor.GOLD, "🌹", true),
         MISS(ChatColor.GRAY, "○", false),
         IMMUNE(ChatColor.YELLOW, "⚡", false),
         ELEMENTAL_ICE(ChatColor.AQUA, "❄", true),

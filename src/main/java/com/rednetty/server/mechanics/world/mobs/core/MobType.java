@@ -8,7 +8,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * FIXED: MobType enum with guaranteed initialization and comprehensive elite mob support
- * UPDATED: Enhanced T6 Netherite support with DARK_PURPLE color throughout
+ * UPDATED: Enhanced T6 Netherite support with GOLD color throughout
  */
 public enum MobType {
 
@@ -1332,7 +1332,7 @@ public enum MobType {
             case 3: return ChatColor.AQUA;
             case 4: return ChatColor.LIGHT_PURPLE;
             case 5: return ChatColor.YELLOW;
-            case 6: return ChatColor.DARK_PURPLE; // T6 Netherite DARK_PURPLE
+            case 6: return ChatColor.GOLD; // T6 Netherite GOLD
             default: return ChatColor.WHITE;
         }
     }

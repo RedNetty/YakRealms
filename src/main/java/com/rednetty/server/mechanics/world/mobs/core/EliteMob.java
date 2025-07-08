@@ -329,7 +329,7 @@ public class EliteMob extends CustomMob {
         } else if (isFrozenType()) {
             return ChatColor.AQUA;
         } else if (isWardenType()) {
-            return ChatColor.DARK_PURPLE;
+            return ChatColor.GOLD;
         } else {
             return ChatColor.LIGHT_PURPLE;
         }

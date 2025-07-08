@@ -309,7 +309,7 @@ public class ItemAPI {
             String displayName = item.getItemMeta().getDisplayName();
 
             // Tier 6 - Netherite (Dark Purple)
-            if (displayName.contains(ChatColor.DARK_PURPLE.toString()) ||
+            if (displayName.contains(ChatColor.GOLD.toString()) ||
                     displayName.toLowerCase().contains("netherite")) {
                 return 6;
             }

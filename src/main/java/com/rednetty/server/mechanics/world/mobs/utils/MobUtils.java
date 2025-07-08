@@ -57,7 +57,7 @@ public class MobUtils {
 
     /**
      * UPDATED: Check if an item is T6 Netherite (replaces old isBlueLeather method)
-     * T6 items are Netherite with DARK_PURPLE color in display name
+     * T6 items are Netherite with GOLD color in display name
      */
     public static boolean isNetheriteT6(ItemStack item) {
         if (item == null || item.getType() == Material.AIR) {
@@ -69,7 +69,7 @@ public class MobUtils {
             // All netherite is T6, but check for special dark purple formatting
             if (item.hasItemMeta() && item.getItemMeta().hasDisplayName()) {
                 String displayName = item.getItemMeta().getDisplayName();
-                return displayName.contains(ChatColor.DARK_PURPLE.toString());
+                return displayName.contains(ChatColor.GOLD.toString());
             }
             return true; // Default netherite to T6
         }
@@ -77,7 +77,7 @@ public class MobUtils {
         // Method 2: Check for legacy items with dark purple color (for custom items)
         if (item.hasItemMeta() && item.getItemMeta().hasDisplayName()) {
             String displayName = item.getItemMeta().getDisplayName();
-            return displayName.contains(ChatColor.DARK_PURPLE.toString()) &&
+            return displayName.contains(ChatColor.GOLD.toString()) &&
                     (displayName.toLowerCase().contains("netherite") ||
                             displayName.toLowerCase().contains("tier 6") ||
                             displayName.toLowerCase().contains("t6"));
@@ -554,7 +554,7 @@ public class MobUtils {
     }
 
     /**
-     * Get tier color with enhanced T6 DARK_PURPLE support
+     * Get tier color with enhanced T6 GOLD support
      */
     public static ChatColor getTierColor(int tier) {
         switch (tier) {
@@ -563,7 +563,7 @@ public class MobUtils {
             case 3: return ChatColor.AQUA;
             case 4: return ChatColor.LIGHT_PURPLE;
             case 5: return ChatColor.YELLOW;
-            case 6: return ChatColor.DARK_PURPLE; // T6 Netherite color
+            case 6: return ChatColor.GOLD; // T6 Netherite color
             default: return ChatColor.WHITE;
         }
     }

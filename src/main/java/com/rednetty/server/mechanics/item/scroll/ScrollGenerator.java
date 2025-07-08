@@ -49,7 +49,7 @@ public class ScrollGenerator {
                 displayName = displayName + ChatColor.YELLOW + "Protect Gold Equipment";
                 break;
             case 5:
-                displayName = displayName + ChatColor.DARK_PURPLE + "Protect Netherite Equipment";
+                displayName = displayName + ChatColor.GOLD + "Protect Netherite Equipment";
                 break;
         }
 
@@ -117,7 +117,7 @@ public class ScrollGenerator {
                 name = ChatColor.YELLOW + " Enchant Gold";
                 break;
             case 6:
-                name = ChatColor.DARK_PURPLE + " Enchant Netherite";
+                name = ChatColor.GOLD + " Enchant Nether Forged";
                 break;
         }
 

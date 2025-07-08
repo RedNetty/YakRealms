@@ -125,11 +125,6 @@ public class ElytraMount implements Mount {
 
     @Override
     public boolean summonMount(Player player) {
-        // Check permission
-        if (!player.hasPermission("yakrp.mount.elytra")) {
-            player.sendMessage(ChatColor.RED + "You don't have permission to use an elytra mount.");
-            return false;
-        }
 
         // Check if already summoning
         if (isSummoning(player)) {
@@ -491,7 +486,7 @@ public class ElytraMount implements Mount {
         UUID playerUUID = player.getUniqueId();
 
         // Launch the player upward
-        player.setVelocity(new Vector(0, 2, 0));
+        player.setVelocity(new Vector(0, 3.5, 0));
 
         // Record launch time for grace period
         launchTimes.put(playerUUID, System.currentTimeMillis());

@@ -52,10 +52,10 @@
     armor: GOLDEN
 
 6:
-  color: BLUE
+  color: GOLD
   dropRate: 15
   eliteDropRate: 18
   crateDropRate: 1
   materials:
-    weapon: DIAMOND
-    armor: LEATHER
+    weapon: NETHERITE
+    armor: NETHERITE

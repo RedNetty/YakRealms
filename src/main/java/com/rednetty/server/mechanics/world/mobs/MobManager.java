@@ -15,6 +15,12 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.entity.*;
+import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.meta.ItemMeta;
+import org.bukkit.inventory.meta.ArmorMeta;
+import org.bukkit.inventory.meta.trim.ArmorTrim;
+import org.bukkit.inventory.meta.trim.TrimMaterial;
+import org.bukkit.inventory.meta.trim.TrimPattern;
 import org.bukkit.metadata.FixedMetadataValue;
 import org.bukkit.potion.PotionEffect;
 import org.bukkit.potion.PotionEffectType;
@@ -27,13 +33,15 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.logging.Logger;
 
 /**
- * FIXED: MobManager with comprehensive cleanup system for proper shutdown/startup handling
+ * FIXED: MobManager with comprehensive cleanup system and enhanced Tier 6 Netherite support
  * - Enhanced entity cleanup on shutdown - removes ALL custom mobs from worlds
  * - Startup cleanup - removes orphaned entities before starting
  * - Better coordination with CritManager for cleanup
  * - Systematic world scanning for custom entities
  * - Robust entity removal that ensures entities are deleted from world
  * - All original functionality preserved
+ * - CRITICAL FIX: Mark cleanup kills to prevent unwanted drops
+ * - ENHANCED: Full Tier 6 Netherite equipment support with gold trim
  */
 public class MobManager implements Listener {
 
@@ -384,6 +392,9 @@ public class MobManager implements Listener {
                         // During startup cleanup, remove all custom mobs
                         // During shutdown cleanup, remove tracked mobs
                         if (isStartupCleanup || isTrackedCustomMob(entity)) {
+                            // CRITICAL FIX: Mark as cleanup kill before removal
+                            markEntityAsCleanupKill(entity);
+
                             if (removeEntitySafely(entity, isStartupCleanup ? "startup-cleanup" : "shutdown-cleanup")) {
                                 removed++;
                             }
@@ -453,7 +464,47 @@ public class MobManager implements Listener {
     }
 
     /**
+     * CRITICAL FIX: Mark entity as cleanup kill to prevent drop processing
+     * This prevents the DropsHandler from processing drops for entities killed by cleanup tasks
+     */
+    private void markEntityAsCleanupKill(LivingEntity entity) {
+        if (entity == null) return;
+
+        try {
+            // Mark with metadata that it's a cleanup kill
+            entity.setMetadata("cleanup_kill", new FixedMetadataValue(plugin, true));
+            entity.setMetadata("no_drops", new FixedMetadataValue(plugin, true));
+            entity.setMetadata("system_kill", new FixedMetadataValue(plugin, true));
+
+            if (debug) {
+                logger.fine("§6[MobManager] §7Marked entity " + entity.getType() +
+                        " as cleanup kill (no drops will be processed)");
+            }
+
+        } catch (Exception e) {
+            logger.warning("§c[MobManager] Failed to mark entity as cleanup kill: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Check if an entity was killed by cleanup tasks
+     * This can be used by other systems to determine if an entity death should be processed
+     */
+    public static boolean isCleanupKill(LivingEntity entity) {
+        if (entity == null) return false;
+
+        try {
+            return entity.hasMetadata("cleanup_kill") ||
+                    entity.hasMetadata("no_drops") ||
+                    entity.hasMetadata("system_kill");
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /**
      * FIXED: Safely remove an entity with comprehensive cleanup
+     * Enhanced to mark cleanup kills to prevent drop processing
      */
     private boolean removeEntitySafely(LivingEntity entity, String reason) {
         if (entity == null) return false;
@@ -465,6 +516,9 @@ public class MobManager implements Listener {
                 logger.info("§6[MobManager] §7Removing entity " + entityId.toString().substring(0, 8) +
                         " (" + entity.getType() + ") - " + reason);
             }
+
+            // CRITICAL FIX: Mark as cleanup kill to prevent drop processing
+            markEntityAsCleanupKill(entity);
 
             // 1. Remove from CritManager first
             if (CritManager.getInstance() != null) {
@@ -725,6 +779,23 @@ public class MobManager implements Listener {
             }
         }.runTaskTimer(plugin, 20L, 20L); // Every second - SYNC task
 
+        mainTask = new BukkitRunnable() {
+            @Override
+            public void run() {
+                // This ALWAYS runs on the main thread
+                try {
+                    if (!isShuttingDown) {
+                        killAllUntrackedMobs();
+                    }
+                } catch (Exception e) {
+                    if (!isShuttingDown) {
+                        logger.warning("§c[MobManager] Main task error: " + e.getMessage());
+                        if (debug) e.printStackTrace();
+                    }
+                }
+            }
+        }.runTaskTimer(plugin, 200L, 200L); // Every second - SYNC task
+
         // Cleanup task - also SYNC for entity operations
         cleanupTask = new BukkitRunnable() {
             @Override
@@ -746,6 +817,207 @@ public class MobManager implements Listener {
     }
 
     // ================ ENHANCED SPAWNER MOB SPAWNING ================
+
+    /**
+     * Kill all untracked mobs in a specific world (keeps tracked custom mobs alive)
+     * This is useful for cleaning up vanilla mobs or rogue entities while preserving custom mobs
+     * FIXED: Mark entities as cleanup kills to prevent drop processing
+     */
+    public int killUntrackedMobsInWorld(World world) {
+        if (world == null) {
+            logger.warning("§c[MobManager] Cannot kill untracked mobs - world is null");
+            return 0;
+        }
+
+        logger.info("§6[MobManager] §7Killing untracked mobs in world: " + world.getName());
+
+        int killed = 0;
+        Set<UUID> trackedMobIds = new HashSet<>();
+
+        // Get all tracked mob UUIDs
+        mobLock.readLock().lock();
+        try {
+            for (CustomMob mob : activeMobs.values()) {
+                if (mob != null && mob.getEntity() != null) {
+                    trackedMobIds.add(mob.getEntity().getUniqueId());
+                }
+            }
+        } finally {
+            mobLock.readLock().unlock();
+        }
+
+        try {
+            // Get all living entities in the world
+            Collection<LivingEntity> entities = world.getLivingEntities();
+
+            for (LivingEntity entity : entities) {
+                // Skip players
+                if (entity instanceof Player) {
+                    continue;
+                }
+
+                // Skip tracked custom mobs
+                if (trackedMobIds.contains(entity.getUniqueId())) {
+                    if (debug) {
+                        logger.info("§6[MobManager] §7Skipping tracked mob: " + entity.getType() +
+                                " ID: " + entity.getUniqueId().toString().substring(0, 8));
+                    }
+                    continue;
+                }
+
+                // CRITICAL FIX: Mark entity as cleanup kill BEFORE killing it
+                try {
+                    markEntityAsCleanupKill(entity);
+
+                    if (debug) {
+                        logger.info("§6[MobManager] §7Killing untracked mob: " + entity.getType() +
+                                " at " + formatLocation(entity.getLocation()) +
+                                " ID: " + entity.getUniqueId().toString().substring(0, 8));
+                    }
+
+                    // Kill the entity
+                    entity.setHealth(0);
+                    entity.damage(999999);
+                    entity.remove();
+                    killed++;
+
+                } catch (Exception e) {
+                    if (debug) {
+                        logger.warning("§c[MobManager] Failed to kill untracked entity " +
+                                entity.getType() + ": " + e.getMessage());
+                    }
+                }
+            }
+
+        } catch (Exception e) {
+            logger.warning("§c[MobManager] Error getting entities from world " + world.getName() +
+                    ": " + e.getMessage());
+        }
+
+        logger.info("§a[MobManager] §7Killed " + killed + " untracked mobs in world: " + world.getName() +
+                " (preserved " + trackedMobIds.size() + " tracked mobs)");
+
+        return killed;
+    }
+
+    /**
+     * Kill all untracked mobs in all worlds (keeps tracked custom mobs alive)
+     */
+    public int killAllUntrackedMobs() {
+        logger.info("§6[MobManager] §7Killing all untracked mobs in all worlds");
+
+        int totalKilled = 0;
+        for (World world : Bukkit.getWorlds()) {
+            try {
+                int killed = killUntrackedMobsInWorld(world);
+                totalKilled += killed;
+            } catch (Exception e) {
+                logger.warning("§c[MobManager] Error killing untracked mobs in world " +
+                        world.getName() + ": " + e.getMessage());
+            }
+        }
+
+        logger.info("§a[MobManager] §7Total untracked mobs killed: " + totalKilled);
+        return totalKilled;
+    }
+
+    /**
+     * Get count of untracked mobs in a world
+     */
+    public int getUntrackedMobCount(World world) {
+        if (world == null) return 0;
+
+        Set<UUID> trackedMobIds = new HashSet<>();
+
+        // Get all tracked mob UUIDs
+        mobLock.readLock().lock();
+        try {
+            for (CustomMob mob : activeMobs.values()) {
+                if (mob != null && mob.getEntity() != null) {
+                    trackedMobIds.add(mob.getEntity().getUniqueId());
+                }
+            }
+        } finally {
+            mobLock.readLock().unlock();
+        }
+
+        int untrackedCount = 0;
+        try {
+            Collection<LivingEntity> entities = world.getLivingEntities();
+            for (LivingEntity entity : entities) {
+                if (!(entity instanceof Player) && !trackedMobIds.contains(entity.getUniqueId())) {
+                    untrackedCount++;
+                }
+            }
+        } catch (Exception e) {
+            logger.warning("§c[MobManager] Error counting untracked mobs: " + e.getMessage());
+        }
+
+        return untrackedCount;
+    }
+
+    /**
+     * Get detailed info about untracked mobs in a world
+     */
+    public String getUntrackedMobInfo(World world) {
+        if (world == null) return "World is null";
+
+        Set<UUID> trackedMobIds = new HashSet<>();
+
+        // Get all tracked mob UUIDs
+        mobLock.readLock().lock();
+        try {
+            for (CustomMob mob : activeMobs.values()) {
+                if (mob != null && mob.getEntity() != null) {
+                    trackedMobIds.add(mob.getEntity().getUniqueId());
+                }
+            }
+        } finally {
+            mobLock.readLock().unlock();
+        }
+
+        Map<EntityType, Integer> untrackedCounts = new HashMap<>();
+        List<String> examples = new ArrayList<>();
+
+        try {
+            Collection<LivingEntity> entities = world.getLivingEntities();
+            for (LivingEntity entity : entities) {
+                if (!(entity instanceof Player) && !trackedMobIds.contains(entity.getUniqueId())) {
+                    EntityType type = entity.getType();
+                    untrackedCounts.put(type, untrackedCounts.getOrDefault(type, 0) + 1);
+
+                    // Add example locations for first few
+                    if (examples.size() < 5) {
+                        examples.add(type + " at " + formatLocation(entity.getLocation()));
+                    }
+                }
+            }
+        } catch (Exception e) {
+            return "Error getting untracked mob info: " + e.getMessage();
+        }
+
+        StringBuilder info = new StringBuilder();
+        info.append("Untracked mobs in ").append(world.getName()).append(":\n");
+        info.append("Tracked custom mobs: ").append(trackedMobIds.size()).append("\n");
+        info.append("Untracked mob types:\n");
+
+        if (untrackedCounts.isEmpty()) {
+            info.append("  None found\n");
+        } else {
+            for (Map.Entry<EntityType, Integer> entry : untrackedCounts.entrySet()) {
+                info.append("  ").append(entry.getKey()).append(": ").append(entry.getValue()).append("\n");
+            }
+
+            if (!examples.isEmpty()) {
+                info.append("Examples:\n");
+                for (String example : examples) {
+                    info.append("  ").append(example).append("\n");
+                }
+            }
+        }
+
+        return info.toString();
+    }
 
     /**
      * FIXED: Enhanced spawner mob spawning with MAIN THREAD SAFETY and elite support
@@ -1408,13 +1680,13 @@ public class MobManager implements Listener {
     }
 
     /**
-     * Configure basic entity equipment
+     * ENHANCED: Configure basic entity equipment with proper Tier 6 Netherite support
      */
     private void configureEntityEquipment(LivingEntity entity, int tier, boolean elite) {
         try {
             if (entity.getEquipment() == null) return;
 
-            // Create basic weapon based on tier
+            // Create basic weapon based on tier with T6 Netherite support
             Material weaponMaterial;
             switch (tier) {
                 case 1:
@@ -1433,17 +1705,258 @@ public class MobManager implements Listener {
                     weaponMaterial = Material.GOLDEN_SWORD;
                     break;
                 case 6:
-                    weaponMaterial = Material.DIAMOND_SWORD;
+                    weaponMaterial = Material.NETHERITE_SWORD; // FIXED: Use Netherite for T6
                     break;
                 default:
                     weaponMaterial = Material.WOODEN_SWORD;
             }
 
-            entity.getEquipment().setItemInMainHand(new org.bukkit.inventory.ItemStack(weaponMaterial));
+            ItemStack weapon = new ItemStack(weaponMaterial);
+
+            // Apply T6 Netherite weapon enhancements
+            if (tier == 6) {
+                weapon = applyT6NetheriteWeaponEffects(weapon, elite);
+            } else {
+                // Make weapon unbreakable for all tiers
+                ItemMeta weaponMeta = weapon.getItemMeta();
+                if (weaponMeta != null) {
+                    weaponMeta.setUnbreakable(true);
+                    weapon.setItemMeta(weaponMeta);
+                }
+            }
+
+            entity.getEquipment().setItemInMainHand(weapon);
             entity.getEquipment().setItemInMainHandDropChance(0);
+
+            // Create and apply armor with T6 Netherite support
+            if (elite || tier >= 3) {
+                applyEntityArmor(entity, tier, elite);
+            }
 
         } catch (Exception e) {
             logger.warning("§c[MobManager] Failed to configure entity equipment: " + e.getMessage());
+        }
+    }
+
+    /**
+     * NEW: Apply armor to entity with T6 Netherite support
+     */
+    private void applyEntityArmor(LivingEntity entity, int tier, boolean elite) {
+        try {
+            if (entity.getEquipment() == null) return;
+
+            // Determine armor material based on tier
+            String armorPrefix;
+            switch (tier) {
+                case 1:
+                case 2:
+                    armorPrefix = "LEATHER";
+                    break;
+                case 3:
+                    armorPrefix = "IRON";
+                    break;
+                case 4:
+                    armorPrefix = "DIAMOND";
+                    break;
+                case 5:
+                    armorPrefix = "GOLDEN";
+                    break;
+                case 6:
+                    armorPrefix = "NETHERITE"; // T6 uses Netherite
+                    break;
+                default:
+                    armorPrefix = "LEATHER";
+            }
+
+            // Create and apply armor pieces
+            Material[] armorMaterials = {
+                    Material.valueOf(armorPrefix + "_HELMET"),
+                    Material.valueOf(armorPrefix + "_CHESTPLATE"),
+                    Material.valueOf(armorPrefix + "_LEGGINGS"),
+                    Material.valueOf(armorPrefix + "_BOOTS")
+            };
+
+            ItemStack[] armorPieces = new ItemStack[4];
+            for (int i = 0; i < 4; i++) {
+                try {
+                    armorPieces[i] = new ItemStack(armorMaterials[i]);
+
+                    // Apply T6 Netherite armor enhancements
+                    if (tier == 6) {
+                        armorPieces[i] = applyT6NetheriteArmorEffects(armorPieces[i], elite);
+                    } else {
+                        // Make armor unbreakable for all tiers
+                        ItemMeta armorMeta = armorPieces[i].getItemMeta();
+                        if (armorMeta != null) {
+                            armorMeta.setUnbreakable(true);
+                            armorPieces[i].setItemMeta(armorMeta);
+                        }
+                    }
+                } catch (IllegalArgumentException e) {
+                    // Material doesn't exist, skip this piece
+                    logger.warning("§c[MobManager] Invalid armor material: " + armorPrefix + " for piece " + i);
+                }
+            }
+
+            // Apply armor to entity
+            if (armorPieces[0] != null) entity.getEquipment().setHelmet(armorPieces[0]);
+            if (armorPieces[1] != null) entity.getEquipment().setChestplate(armorPieces[1]);
+            if (armorPieces[2] != null) entity.getEquipment().setLeggings(armorPieces[2]);
+            if (armorPieces[3] != null) entity.getEquipment().setBoots(armorPieces[3]);
+
+            // Set drop chances to 0 - items never drop
+            entity.getEquipment().setHelmetDropChance(0.0f);
+            entity.getEquipment().setChestplateDropChance(0.0f);
+            entity.getEquipment().setLeggingsDropChance(0.0f);
+            entity.getEquipment().setBootsDropChance(0.0f);
+
+        } catch (Exception e) {
+            logger.warning("§c[MobManager] Failed to apply entity armor: " + e.getMessage());
+        }
+    }
+
+    /**
+     * NEW: Apply T6 Netherite weapon effects for spawned mobs
+     */
+    private ItemStack applyT6NetheriteWeaponEffects(ItemStack weapon, boolean elite) {
+        if (weapon == null || weapon.getType() == Material.AIR) {
+            return weapon;
+        }
+
+        try {
+            ItemMeta meta = weapon.getItemMeta();
+            if (meta != null) {
+                // Make unbreakable
+                meta.setUnbreakable(true);
+
+                // Add enchantment glow for elite T6 weapons
+                if (elite && !meta.hasEnchants()) {
+                    weapon.addUnsafeEnchantment(org.bukkit.enchantments.Enchantment.DURABILITY, 1);
+                }
+
+                // Enhanced T6 weapon name
+                String weaponName = generateMobT6WeaponName(weapon.getType(), elite);
+                meta.setDisplayName(weaponName);
+
+                weapon.setItemMeta(meta);
+            }
+
+            if (debug) {
+                logger.info("§6[MobManager] §7Applied T6 Netherite weapon effects to " + weapon.getType());
+            }
+
+        } catch (Exception e) {
+            logger.warning("§c[MobManager] Failed to apply T6 weapon effects: " + e.getMessage());
+        }
+
+        return weapon;
+    }
+
+    /**
+     * NEW: Apply T6 Netherite armor effects for spawned mobs (including gold trim)
+     */
+    private ItemStack applyT6NetheriteArmorEffects(ItemStack armor, boolean elite) {
+        if (armor == null || armor.getType() == Material.AIR) {
+            return armor;
+        }
+
+        try {
+            ItemMeta meta = armor.getItemMeta();
+            if (meta != null) {
+                // Make unbreakable
+                meta.setUnbreakable(true);
+
+                // Enhanced T6 armor name
+                String armorName = generateMobT6ArmorName(armor.getType(), elite);
+                meta.setDisplayName(armorName);
+
+                armor.setItemMeta(meta);
+
+                // Apply gold trim to T6 Netherite armor
+                armor = applyMobNetheriteGoldTrim(armor);
+            }
+
+            if (debug) {
+                logger.info("§6[MobManager] §7Applied T6 Netherite armor effects with gold trim to " + armor.getType());
+            }
+
+        } catch (Exception e) {
+            logger.warning("§c[MobManager] Failed to apply T6 armor effects: " + e.getMessage());
+        }
+
+        return armor;
+    }
+
+    /**
+     * NEW: Apply gold trim to Netherite armor for mobs
+     */
+    private ItemStack applyMobNetheriteGoldTrim(ItemStack item) {
+        if (item.getItemMeta() instanceof ArmorMeta) {
+            try {
+                ArmorMeta armorMeta = (ArmorMeta) item.getItemMeta();
+
+                // Apply gold trim with eye pattern for T6 mob armor
+                ArmorTrim goldTrim = new ArmorTrim(
+                        TrimMaterial.GOLD,
+                        TrimPattern.EYE
+                );
+
+                armorMeta.setTrim(goldTrim);
+                item.setItemMeta(armorMeta);
+
+                if (debug) {
+                    logger.info("§6[MobManager] §7Applied gold trim to T6 mob Netherite armor: " + item.getType());
+                }
+            } catch (Exception e) {
+                logger.warning("§c[MobManager] Failed to apply gold trim to mob Netherite armor: " + e.getMessage());
+            }
+        }
+        return item;
+    }
+
+    /**
+     * NEW: Generate T6 weapon names for mobs
+     */
+    private String generateMobT6WeaponName(Material weaponType, boolean elite) {
+        String prefix = elite ? "§5§lElite " : "§5";
+
+        switch (weaponType) {
+            case NETHERITE_SWORD:
+                return prefix + "Nether Forged Blade";
+            case NETHERITE_AXE:
+                return prefix + "Nether Forged War Axe";
+            case NETHERITE_PICKAXE:
+                return prefix + "Nether Forged Crusher";
+            case NETHERITE_SHOVEL:
+                return prefix + "Nether Forged Spade";
+            case NETHERITE_HOE:
+                return prefix + "Nether Forged Scythe";
+            default:
+                String baseName = weaponType.name().replace("NETHERITE_", "").replace("_", " ");
+                baseName = baseName.substring(0, 1).toUpperCase() + baseName.substring(1).toLowerCase();
+                return prefix + "Nether Forged " + baseName;
+        }
+    }
+
+    /**
+     * NEW: Generate T6 armor names for mobs
+     */
+    private String generateMobT6ArmorName(Material armorType, boolean elite) {
+        String prefix = elite ? "§5§lElite " : "§5";
+
+        switch (armorType) {
+            case NETHERITE_HELMET:
+                return prefix + "Nether Forged Crown";
+            case NETHERITE_CHESTPLATE:
+                return prefix + "Nether Forged Chestguard";
+            case NETHERITE_LEGGINGS:
+                return prefix + "Nether Forged Legguards";
+            case NETHERITE_BOOTS:
+                return prefix + "Nether Forged Warboots";
+            default:
+                String baseName = armorType.name().replace("NETHERITE_", "").replace("_", " ");
+                baseName = baseName.substring(0, 1).toUpperCase() + baseName.substring(1).toLowerCase();
+                return prefix + "Nether Forged " + baseName;
         }
     }
 

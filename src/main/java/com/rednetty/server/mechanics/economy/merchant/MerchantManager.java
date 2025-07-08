@@ -19,6 +19,7 @@ import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryCloseEvent;
+import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.event.player.PlayerInteractEntityEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.inventory.Inventory;
@@ -54,7 +55,7 @@ public class MerchantManager implements Listener {
     private static final int ACCEPT_SLOT = 48;
     private static final int CANCEL_SLOT = 50;
 
-    // Update task for real-time value updates
+    // Update task for checking changes
     private BukkitRunnable updateTask;
     private final AtomicBoolean isEnabled = new AtomicBoolean(false);
 
@@ -97,11 +98,16 @@ public class MerchantManager implements Listener {
         // Register events
         Bukkit.getServer().getPluginManager().registerEvents(this, YakRealms.getInstance());
 
-        // Start the update task for real-time value calculations
+        // Start the update task for checking item changes
         startUpdateTask();
 
         isEnabled.set(true);
-        logger.info("Merchant system has been enabled");
+        logger.info("Merchant system has been enabled successfully!");
+        logger.info("=== MERCHANT DEBUG INFO ===");
+        logger.info("Max ore value: " + (int)(MerchantConfig.getInstance().getBaseOreValue() * 10) + " gems");
+        logger.info("Max weapon/armor value: ~" + (int)(MerchantConfig.getInstance().getWeaponArmorBaseMultiplier() * 60) + " gems");
+        logger.info("Orb value: " + MerchantConfig.getInstance().getOrbValue() + " gems");
+        logger.info("===========================");
 
         if (MerchantConfig.getInstance().isDebugMode()) {
             logger.info(MerchantConfig.getInstance().getConfigSummary());
@@ -132,7 +138,7 @@ public class MerchantManager implements Listener {
     }
 
     /**
-     * Start the real-time update task
+     * Start the update task for checking item changes
      */
     private void startUpdateTask() {
         updateTask = new BukkitRunnable() {
@@ -143,12 +149,12 @@ public class MerchantManager implements Listener {
                     return;
                 }
 
-                // Update all active merchant sessions
+                // Update sessions that need updating
                 for (MerchantSession session : activeSessions.values()) {
                     try {
-                        session.updateValueDisplay();
+                        session.checkForUpdates();
                     } catch (Exception e) {
-                        logger.log(Level.WARNING, "Error updating merchant session for player " + session.getPlayerUuid(), e);
+                        logger.log(Level.WARNING, "Error checking session updates for player " + session.getPlayerUuid(), e);
                     }
                 }
             }
@@ -348,9 +354,9 @@ public class MerchantManager implements Listener {
         }
 
         Player player = (Player) event.getWhoClicked();
-        Inventory clickedInventory = event.getClickedInventory();
 
-        if (clickedInventory == null || !MERCHANT_TITLE.equals(event.getView().getTitle())) {
+        // Check if this is a merchant interface
+        if (!MERCHANT_TITLE.equals(event.getView().getTitle())) {
             return;
         }
 
@@ -361,6 +367,33 @@ public class MerchantManager implements Listener {
             return;
         }
 
+        int rawSlot = event.getRawSlot();
+
+        // Raw slots 0-53 are the merchant inventory (top), 54+ are player inventory (bottom)
+        if (rawSlot >= INVENTORY_SIZE) {
+            // Click in player's inventory - allow all operations
+            // But handle shift-clicking to prevent items going to blocked slots
+            if (event.isShiftClick()) {
+                ItemStack clickedItem = event.getCurrentItem();
+                if (clickedItem != null && clickedItem.getType() != Material.AIR) {
+                    if (!MerchantItemUtil.isTradeableItem(clickedItem)) {
+                        // Don't allow shift-clicking untradeable items into merchant
+                        event.setCancelled(true);
+                        String reason = MerchantItemUtil.getUntradeableReason(clickedItem);
+                        player.sendMessage(ChatColor.RED + (reason != null ? reason : "This item cannot be traded!"));
+                        player.playSound(player.getLocation(), Sound.ENTITY_VILLAGER_NO, 1.0f, 1.0f);
+                    } else {
+                        // Allow shift-click but schedule update
+                        Bukkit.getScheduler().runTaskLater(YakRealms.getInstance(), () -> {
+                            session.markForUpdate();
+                        }, 1L);
+                    }
+                }
+            }
+            return;
+        }
+
+        // Click in merchant inventory (top) - handle specific slots
         int slot = event.getSlot();
 
         // Handle clicking in trading slots
@@ -377,7 +410,7 @@ public class MerchantManager implements Listener {
             event.setCancelled(true);
             handleCancelTrade(player, session);
         } else {
-            // Prevent interaction with non-trading slots
+            // Prevent interaction with non-trading slots in merchant inventory
             event.setCancelled(true);
         }
     }
@@ -387,22 +420,79 @@ public class MerchantManager implements Listener {
      */
     private void handleTradingSlotClick(InventoryClickEvent event, MerchantSession session) {
         Player player = (Player) event.getWhoClicked();
-        ItemStack clickedItem = event.getCurrentItem();
         ItemStack cursorItem = event.getCursor();
 
-        // Allow normal inventory operations for trading slots
-        // But validate items being placed
+        if (MerchantConfig.getInstance().isDebugMode()) {
+            logger.info("Trading slot click by " + player.getName() +
+                    ", cursor item: " + (cursorItem != null ? cursorItem.getType() : "null") +
+                    ", slot: " + event.getSlot() + ", click type: " + event.getClick());
+        }
+
+        // If placing an item, validate it
         if (cursorItem != null && cursorItem.getType() != Material.AIR) {
-            if (!isTradeableItem(cursorItem)) {
+            if (!MerchantItemUtil.isTradeableItem(cursorItem)) {
                 event.setCancelled(true);
-                player.sendMessage(ChatColor.RED + "This item cannot be traded with the merchant!");
+                String reason = MerchantItemUtil.getUntradeableReason(cursorItem);
+                player.sendMessage(ChatColor.RED + (reason != null ? reason : "This item cannot be traded!"));
                 player.playSound(player.getLocation(), Sound.ENTITY_VILLAGER_NO, 1.0f, 1.0f);
                 return;
             }
         }
 
-        // Schedule value update for next tick
-        Bukkit.getScheduler().runTaskLater(YakRealms.getInstance(), session::updateValueDisplay, 1L);
+        // Schedule value update for next tick to allow the click to process first
+        Bukkit.getScheduler().runTaskLater(YakRealms.getInstance(), () -> {
+            session.markForUpdate();
+            if (MerchantConfig.getInstance().isDebugMode()) {
+                logger.info("Scheduled update for " + player.getName() + "'s merchant session");
+            }
+        }, 1L);
+    }
+
+    /**
+     * Handle inventory drag events
+     */
+    @EventHandler(priority = EventPriority.HIGH)
+    public void onInventoryDrag(InventoryDragEvent event) {
+        if (!isEnabled.get() || !(event.getWhoClicked() instanceof Player)) {
+            return;
+        }
+
+        if (!MERCHANT_TITLE.equals(event.getView().getTitle())) {
+            return;
+        }
+
+        Player player = (Player) event.getWhoClicked();
+        MerchantSession session = activeSessions.get(player.getUniqueId());
+        if (session == null) {
+            event.setCancelled(true);
+            return;
+        }
+
+        // Check if any dragged slots are trading slots in the TOP inventory (merchant inventory)
+        boolean draggedToTradingSlot = false;
+        for (int rawSlot : event.getRawSlots()) {
+            // Only check slots in the top inventory (merchant inventory)
+            if (rawSlot < INVENTORY_SIZE && Arrays.stream(TRADING_SLOTS).anyMatch(i -> i == rawSlot)) {
+                draggedToTradingSlot = true;
+                break;
+            }
+        }
+
+        if (draggedToTradingSlot) {
+            ItemStack draggedItem = event.getOldCursor();
+            if (draggedItem != null && !MerchantItemUtil.isTradeableItem(draggedItem)) {
+                event.setCancelled(true);
+                String reason = MerchantItemUtil.getUntradeableReason(draggedItem);
+                player.sendMessage(ChatColor.RED + (reason != null ? reason : "This item cannot be traded!"));
+                player.playSound(player.getLocation(), Sound.ENTITY_VILLAGER_NO, 1.0f, 1.0f);
+                return;
+            }
+
+            // Schedule update
+            Bukkit.getScheduler().runTaskLater(YakRealms.getInstance(), () -> {
+                session.markForUpdate();
+            }, 1L);
+        }
     }
 
     /**
@@ -449,7 +539,7 @@ public class MerchantManager implements Listener {
             }
 
             // Execute the trade
-            TransactionResult result = economyManager.depositGems(player, finalValue);
+            TransactionResult result = economyManager.addBankGems(player, finalValue);
 
             if (result.isSuccess()) {
                 // Clear trading items from inventory
@@ -457,7 +547,7 @@ public class MerchantManager implements Listener {
 
                 // Success feedback
                 player.playSound(player.getLocation(), Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 1.0f, 1.2f);
-                player.sendMessage(ChatColor.GREEN + "Trade completed successfully!");
+                player.sendMessage(ChatColor.GREEN + "Trade completed successfully.. Gems deposited to bank.");
 
                 String bonusMessage = multiplier > 1.0 ?
                         ChatColor.GRAY + " (+" + (finalValue - totalValue) + " " + bonusType + " bonus gems)" : "";
@@ -534,19 +624,14 @@ public class MerchantManager implements Listener {
     }
 
     /**
-     * Check if an item is tradeable
-     */
-    private boolean isTradeableItem(ItemStack item) {
-        return MerchantItemUtil.isTradeableItem(item);
-    }
-
-    /**
      * Inner class representing a merchant trading session
      */
     private class MerchantSession {
         private final UUID playerUuid;
-        private final Inventory inventory;
+        protected final Inventory inventory; // Made protected so outer class can access
         private int lastCalculatedValue = 0;
+        private String lastItemsHash = "";
+        private boolean needsUpdate = false;
 
         public MerchantSession(UUID playerUuid, Inventory inventory) {
             this.playerUuid = playerUuid;
@@ -572,28 +657,68 @@ public class MerchantManager implements Listener {
 
         public int calculateTotalValue() {
             int totalValue = 0;
+            MerchantConfig config = MerchantConfig.getInstance();
 
             for (ItemStack item : getTradingItems()) {
-                totalValue += calculateItemValue(item);
+                int itemValue = calculateItemValue(item);
+                totalValue += itemValue;
+
+                if (config.isDebugMode()) {
+                    Player player = Bukkit.getPlayer(playerUuid);
+                    if (player != null) {
+                        player.sendMessage(ChatColor.GRAY + "Debug: " + item.getType() + " x" + item.getAmount() + " = " + itemValue + " gems");
+                    }
+                }
             }
 
             return totalValue;
+        }
+
+        public void markForUpdate() {
+            needsUpdate = true;
+        }
+
+        public void checkForUpdates() {
+            if (!needsUpdate) return;
+
+            String currentItemsHash = generateItemsHash();
+            if (!currentItemsHash.equals(lastItemsHash)) {
+                updateValueDisplay();
+                lastItemsHash = currentItemsHash;
+            }
+            needsUpdate = false;
+        }
+
+        private String generateItemsHash() {
+            StringBuilder hash = new StringBuilder();
+            for (int slot : TRADING_SLOTS) {
+                ItemStack item = inventory.getItem(slot);
+                if (item != null && item.getType() != Material.AIR) {
+                    hash.append(item.getType().name())
+                            .append(item.getAmount())
+                            .append(MerchantItemUtil.generateItemHash(item))
+                            .append(";");
+                }
+            }
+            return hash.toString();
         }
 
         public void updateValueDisplay() {
             try {
                 int currentValue = calculateTotalValue();
 
-                // Only update if value changed to reduce unnecessary operations
-                if (currentValue != lastCalculatedValue) {
-                    lastCalculatedValue = currentValue;
-                    inventory.setItem(VALUE_DISPLAY_SLOT, createValueDisplayItem(currentValue));
+                if (MerchantConfig.getInstance().isDebugMode()) {
+                    logger.info("Updating value display for player " + playerUuid +
+                            ": " + lastCalculatedValue + " -> " + currentValue);
+                }
 
-                    // Update viewers
-                    for (org.bukkit.entity.HumanEntity viewer : inventory.getViewers()) {
-                        if (viewer instanceof Player) {
-                            ((Player) viewer).updateInventory();
-                        }
+                lastCalculatedValue = currentValue;
+                inventory.setItem(VALUE_DISPLAY_SLOT, createValueDisplayItem(currentValue));
+
+                // Update viewers
+                for (org.bukkit.entity.HumanEntity viewer : inventory.getViewers()) {
+                    if (viewer instanceof Player) {
+                        ((Player) viewer).updateInventory();
                     }
                 }
             } catch (Exception e) {
@@ -643,42 +768,68 @@ public class MerchantManager implements Listener {
         }
 
         try {
+            MerchantConfig config = MerchantConfig.getInstance();
             int baseValue = 0;
             int amount = item.getAmount();
 
-            // Orb of Alteration
-            if (item.getType() == Material.MAGMA_CREAM && item.hasItemMeta() &&
-                    item.getItemMeta().hasDisplayName() &&
-                    ChatColor.stripColor(item.getItemMeta().getDisplayName()).equalsIgnoreCase("Orb of Alteration")) {
-                return 500 * amount;
+            if (config.isDebugMode()) {
+                logger.info("Calculating value for: " + item.getType() + " x" + amount);
             }
 
-            // Ores
-            if (item.getType().name().contains("_ORE") && !item.getType().name().contains("PICKAXE")) {
-                int oreTier = getOreTier(item.getType());
+            // Orb of Alteration
+            if (MerchantItemUtil.isOrbOfAlteration(item)) {
+                int totalValue = config.getOrbValue() * amount;
+
+                if (config.isDebugMode()) {
+                    logger.info("Orb value calculated: " + amount + " Orb(s) of Alteration = " + totalValue + " gems");
+                }
+
+                return totalValue;
+            }
+
+            // Ores - Simple linear calculation
+            if (MerchantItemUtil.isOre(item)) {
+                int oreTier = config.getOreTier(item.getType().name());
                 if (oreTier > 0) {
-                    baseValue = 20;
-                    return (int) ((baseValue * amount * oreTier) * 1.23);
+                    // New lower values: base value (3) * tier (1-10) = 3-30 per ore
+                    baseValue = (int) (config.getBaseOreValue() * oreTier);
+
+                    if (config.isDebugMode()) {
+                        logger.info("Ore value calculated: " + item.getType() + " (tier " + oreTier +
+                                ") = " + baseValue + " gems per item, total: " + (baseValue * amount));
+                    }
+
+                    return baseValue * amount;
                 }
             }
 
-            // Weapons and Armor
-            if (isWeaponOrArmor(item)) {
-                int tier = getItemTier(item);
+            // Weapons and Armor - More reasonable linear calculation
+            if (MerchantItemUtil.isWeapon(item) || MerchantItemUtil.isArmor(item)) {
+                int tier = MerchantItemUtil.getItemTier(item);
                 if (tier > 0) {
-                    baseValue = (int) (((tier / 10.0) + 1.0) * (tier * tier) * 12.0);
+                    // New lower values: base multiplier (1.5) * tier = 15-90 for tier 10-60
+                    baseValue = (int) (config.getWeaponArmorBaseMultiplier() * tier);
 
-                    // Apply rarity bonus
-                    double rarityMultiplier = getRarityMultiplier(item);
-                    baseValue = (int) (baseValue * rarityMultiplier);
+                    // Apply rarity bonus (much smaller impact)
+                    MerchantItemUtil.ItemRarity rarity = MerchantItemUtil.getItemRarity(item);
+                    double rarityBonus = (rarity.getValueMultiplier() - 1.0) * (1.0 - config.getRarityBonusReduction());
+                    baseValue = (int) (baseValue * (1.0 + rarityBonus));
 
-                    // Add some randomization (10-30% variation)
-                    Random random = new Random();
-                    double variation = 0.1 + (random.nextDouble() * 0.2); // 10-30%
+                    // Add small deterministic variation
+                    double variation = getDeterministicVariation(item, config);
                     baseValue = (int) (baseValue * (1.0 + variation));
 
-                    return baseValue;
+                    if (config.isDebugMode()) {
+                        logger.info("Item value calculated: " + item.getType() + " (tier " + tier +
+                                ", rarity " + rarity + ") = " + baseValue + " gems");
+                    }
+
+                    return Math.max(1, baseValue); // Ensure at least 1 gem
                 }
+            }
+
+            if (config.isDebugMode() && baseValue == 0) {
+                logger.info("Item " + item.getType() + " has no trade value (not recognized as ore/weapon/armor/orb)");
             }
 
             return baseValue;
@@ -690,109 +841,16 @@ public class MerchantManager implements Listener {
     }
 
     /**
-     * Get the tier of an ore
+     * Get a deterministic variation for an item based on its hash
+     * This ensures that the same item always has the same "random" variation
      */
-    private int getOreTier(Material material) {
-        switch (material) {
-            case COAL_ORE:
-            case DEEPSLATE_COAL_ORE:
-                return 1;
-            case COPPER_ORE:
-            case DEEPSLATE_COPPER_ORE:
-                return 2;
-            case IRON_ORE:
-            case DEEPSLATE_IRON_ORE:
-                return 3;
-            case GOLD_ORE:
-            case DEEPSLATE_GOLD_ORE:
-                return 4;
-            case REDSTONE_ORE:
-            case DEEPSLATE_REDSTONE_ORE:
-                return 5;
-            case LAPIS_ORE:
-            case DEEPSLATE_LAPIS_ORE:
-                return 6;
-            case DIAMOND_ORE:
-            case DEEPSLATE_DIAMOND_ORE:
-                return 7;
-            case EMERALD_ORE:
-            case DEEPSLATE_EMERALD_ORE:
-                return 8;
-            case ANCIENT_DEBRIS:
-                return 10;
-            default:
-                return 0;
-        }
-    }
+    private double getDeterministicVariation(ItemStack item, MerchantConfig config) {
+        int hash = MerchantItemUtil.generateItemHash(item);
+        double normalized = (hash % 1000) / 1000.0; // Normalize to 0-1
 
-    /**
-     * Check if an item is a weapon or armor piece
-     */
-    private boolean isWeaponOrArmor(ItemStack item) {
-        String typeName = item.getType().name();
+        double min = config.getRandomVariationMin();
+        double max = config.getRandomVariationMax();
 
-        return typeName.contains("SWORD") || typeName.contains("AXE") || typeName.contains("BOW") ||
-                typeName.contains("HELMET") || typeName.contains("CHESTPLATE") ||
-                typeName.contains("LEGGINGS") || typeName.contains("BOOTS") ||
-                typeName.contains("TRIDENT") || typeName.contains("CROSSBOW");
-    }
-
-    /**
-     * Get the tier of an item based on its material or color coding
-     */
-    private int getItemTier(ItemStack item) {
-        if (!item.hasItemMeta() || !item.getItemMeta().hasDisplayName()) {
-            return getMaterialTier(item.getType());
-        }
-
-        String displayName = item.getItemMeta().getDisplayName();
-
-        // Check color codes for tier determination
-        if (displayName.contains(ChatColor.WHITE.toString())) return 10;
-        if (displayName.contains(ChatColor.GREEN.toString())) return 20;
-        if (displayName.contains(ChatColor.BLUE.toString())) return 30;
-        if (displayName.contains(ChatColor.LIGHT_PURPLE.toString())) return 40;
-        if (displayName.contains(ChatColor.YELLOW.toString())) return 50;
-        if (displayName.contains(ChatColor.RED.toString())) return 60;
-
-        return getMaterialTier(item.getType());
-    }
-
-    /**
-     * Get base tier from material type
-     */
-    private int getMaterialTier(Material material) {
-        String name = material.name();
-
-        if (name.contains("WOOD") || name.contains("LEATHER")) return 10;
-        if (name.contains("STONE")) return 15;
-        if (name.contains("IRON") || name.contains("CHAINMAIL")) return 25;
-        if (name.contains("GOLD")) return 20;
-        if (name.contains("DIAMOND")) return 35;
-        if (name.contains("NETHERITE")) return 50;
-
-        return 10; // Default tier
-    }
-
-    /**
-     * Get rarity multiplier based on item lore
-     */
-    private double getRarityMultiplier(ItemStack item) {
-        if (!item.hasItemMeta() || !item.getItemMeta().hasLore()) {
-            return 1.0;
-        }
-
-        List<String> lore = item.getItemMeta().getLore();
-        String lastLine = lore.get(lore.size() - 1);
-        String cleanLine = ChatColor.stripColor(lastLine).toLowerCase();
-
-        if (cleanLine.contains("common")) return 1.0;
-        if (cleanLine.contains("uncommon")) return 1.25;
-        if (cleanLine.contains("rare")) return 1.5;
-        if (cleanLine.contains("epic")) return 2.0;
-        if (cleanLine.contains("legendary")) return 3.0;
-        if (cleanLine.contains("mythic")) return 5.0;
-
-        return 1.0;
+        return min + (normalized * (max - min));
     }
 }

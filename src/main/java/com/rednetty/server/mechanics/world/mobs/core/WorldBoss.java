@@ -248,7 +248,7 @@ public class WorldBoss extends EliteMob {
     }
 
     protected boolean executeSummonAbility() {
-        broadcastMessage(ChatColor.DARK_PURPLE + getDisplayBossName() + " summons reinforcements!", 50);
+        broadcastMessage(ChatColor.GOLD + getDisplayBossName() + " summons reinforcements!", 50);
         entity.getWorld().playSound(entity.getLocation(), Sound.ENTITY_EVOKER_CAST_SPELL, 1.0f, 1.0f);
         int minionCount = 2 + (currentPhase - 1);
         for (int i = 0; i < minionCount; i++) {
@@ -275,7 +275,7 @@ public class WorldBoss extends EliteMob {
     protected boolean executeDarknessAbility() {
         if (!isWardenType()) return false;
 
-        broadcastMessage(ChatColor.DARK_PURPLE + getDisplayBossName() + " shrouds the area in darkness!", 50);
+        broadcastMessage(ChatColor.GOLD + getDisplayBossName() + " shrouds the area in darkness!", 50);
         entity.getWorld().playSound(entity.getLocation(), Sound.ENTITY_WARDEN_SONIC_BOOM, 1.5f, 0.6f);
         entity.getWorld().spawnParticle(org.bukkit.Particle.SMOKE_LARGE, entity.getLocation(), 80, 8, 3, 8, 0.2);
 

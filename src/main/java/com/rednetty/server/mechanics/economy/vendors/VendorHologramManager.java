@@ -312,7 +312,7 @@ public class VendorHologramManager {
                 lines.add(ChatColor.RED + "" + ChatColor.ITALIC + "Medic");
                 break;
             case "gambler":
-                lines.add(ChatColor.DARK_PURPLE + "" + ChatColor.ITALIC + "Gambler");
+                lines.add(ChatColor.GOLD + "" + ChatColor.ITALIC + "Gambler");
                 break;
             default:
                 lines.add(ChatColor.GRAY + "" + ChatColor.ITALIC + "Vendor");

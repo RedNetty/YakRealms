@@ -1,8 +1,6 @@
 package com.rednetty.server.mechanics.economy.merchant;
 
 import com.rednetty.server.YakRealms;
-import com.rednetty.server.mechanics.economy.merchant.MerchantConfig;
-import com.rednetty.server.mechanics.economy.merchant.MerchantManager;
 import org.bukkit.Bukkit;
 import org.bukkit.command.PluginCommand;
 
@@ -55,13 +53,18 @@ public class MerchantSystem {
         try {
             logger.info("Initializing Merchant System...");
 
+            // Validate dependencies first
+            if (!validateDependencies()) {
+                throw new RuntimeException("Required dependencies not available");
+            }
+
             // Initialize configuration first
             initializeConfiguration();
 
             // Initialize core components
             initializeManager();
 
-            // Register commands
+            // Register commands if needed
             registerCommands();
 
             // Mark as initialized
@@ -126,12 +129,13 @@ public class MerchantSystem {
         try {
             logger.fine("Registering merchant commands...");
 
-            // Register the main merchant command
-       /*     PluginCommand merchantCmd = YakRealms.getInstance().getCommand("merchant");
+            // Register the main merchant command if it exists in plugin.yml
+            PluginCommand merchantCmd = YakRealms.getInstance().getCommand("merchant");
             if (merchantCmd != null) {
-                merchantCommand = new MerchantCommand();
-                merchantCmd.setExecutor(merchantCommand);
-                merchantCmd.setTabCompleter(merchantCommand);
+                // If you have a MerchantCommand class, register it here
+                // merchantCommand = new MerchantCommand();
+                // merchantCmd.setExecutor(merchantCommand);
+                // merchantCmd.setTabCompleter(merchantCommand);
 
                 // Set command properties
                 merchantCmd.setDescription("Merchant system administration commands");
@@ -140,12 +144,12 @@ public class MerchantSystem {
 
                 logger.fine("Merchant commands registered successfully");
             } else {
-                logger.warning("Could not register merchant command - command not found in plugin.yml");
-            }*/
+                logger.fine("No merchant command found in plugin.yml - skipping command registration");
+            }
 
         } catch (Exception e) {
-            logger.log(Level.SEVERE, "Failed to register merchant commands", e);
-            throw new RuntimeException("Command registration failed", e);
+            logger.log(Level.WARNING, "Failed to register merchant commands", e);
+            // Don't throw exception here as commands are optional
         }
     }
 
@@ -164,6 +168,11 @@ public class MerchantSystem {
 
         try {
             logger.info("Enabling Merchant System...");
+
+            // Perform health check before enabling
+            if (!healthCheck()) {
+                throw new RuntimeException("Health check failed - cannot enable system");
+            }
 
             // Enable merchant manager
             if (merchantManager != null) {
@@ -368,7 +377,7 @@ public class MerchantSystem {
                 return false;
             }
 
-            // Check if economy system is available (this would depend on your specific implementation)
+            // Check if economy system is available
             try {
                 Class.forName("com.rednetty.server.mechanics.economy.EconomyManager");
             } catch (ClassNotFoundException e) {
@@ -382,6 +391,22 @@ public class MerchantSystem {
             } catch (ClassNotFoundException e) {
                 logger.severe("Player management system not available");
                 return false;
+            }
+
+            // Check if text utils are available
+            try {
+                Class.forName("com.rednetty.server.utils.text.TextUtil");
+            } catch (ClassNotFoundException e) {
+                logger.warning("Text utility system not available - some features may not work properly");
+                // Don't return false here as it's not critical
+            }
+
+            // Check if moderation mechanics are available
+            try {
+                Class.forName("com.rednetty.server.mechanics.moderation.ModerationMechanics");
+            } catch (ClassNotFoundException e) {
+                logger.warning("Moderation mechanics not available - bonus multipliers may not work");
+                // Don't return false here as it's not critical
             }
 
             logger.fine("All merchant system dependencies validated successfully");
@@ -422,12 +447,6 @@ public class MerchantSystem {
                 return false;
             }
 
-            // Check if enabled when it should be
-            if (!enabled.get()) {
-                logger.warning("Health check failed: System should be enabled but isn't");
-                return false;
-            }
-
             logger.fine("Merchant system health check passed");
             return true;
 
@@ -441,6 +460,58 @@ public class MerchantSystem {
      * Get version information
      */
     public String getVersionInfo() {
-        return "YakRealms Merchant System v2.0.0 - Modern Trading Platform";
+        return "YakRealms Merchant System v2.1.0 - Modern Trading Platform (Fixed)";
+    }
+
+    /**
+     * Emergency disable - forces system to stop without proper cleanup
+     * Only use this in critical situations
+     */
+    public void emergencyDisable() {
+        logger.warning("Emergency disable triggered for Merchant System!");
+
+        enabled.set(false);
+        initialized.set(false);
+
+        if (merchantManager != null) {
+            try {
+                merchantManager.onDisable();
+            } catch (Exception e) {
+                logger.log(Level.SEVERE, "Error during emergency disable", e);
+            }
+        }
+
+        logger.warning("Merchant System emergency shutdown complete");
+    }
+
+    /**
+     * Get detailed diagnostic information
+     */
+    public String getDiagnosticInfo() {
+        StringBuilder diag = new StringBuilder();
+        diag.append("=== Merchant System Diagnostics ===\n");
+        diag.append("Version: ").append(getVersionInfo()).append("\n");
+        diag.append("Initialized: ").append(initialized.get()).append("\n");
+        diag.append("Enabled: ").append(enabled.get()).append("\n");
+        diag.append("Ready: ").append(isReady()).append("\n");
+        diag.append("Dependencies Valid: ").append(validateDependencies()).append("\n");
+        diag.append("Health Check: ").append(healthCheck()).append("\n");
+
+        if (merchantConfig != null) {
+            diag.append("\nConfiguration Status:\n");
+            diag.append("  Config Enabled: ").append(merchantConfig.isEnabled()).append("\n");
+            diag.append("  Debug Mode: ").append(merchantConfig.isDebugMode()).append("\n");
+            diag.append("  Update Interval: ").append(merchantConfig.getUpdateIntervalTicks()).append(" ticks\n");
+        }
+
+        if (merchantManager != null) {
+            diag.append("\nManager Status: Initialized\n");
+        } else {
+            diag.append("\nManager Status: Not Initialized\n");
+        }
+
+        diag.append("================================");
+
+        return diag.toString();
     }
 }

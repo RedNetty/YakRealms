@@ -55,7 +55,7 @@ public class BindingRuneSystem implements Listener {
                 "Apply poison DOT", PotionEffectType.POISON),
         LIGHTNING("Lightning", ChatColor.YELLOW, Color.YELLOW, "⚡", Material.LIGHTNING_ROD,
                 "Chain lightning on crits", PotionEffectType.SPEED),
-        SHADOW("Shadow", ChatColor.DARK_PURPLE, Color.PURPLE, "🌙", Material.OBSIDIAN,
+        SHADOW("Shadow", ChatColor.GOLD, Color.PURPLE, "🌙", Material.OBSIDIAN,
                 "+25% vs players, +15% dodge", PotionEffectType.INVISIBILITY),
         LIGHT("Light", ChatColor.WHITE, Color.WHITE, "☀", Material.GLOWSTONE,
                 "+25% vs monsters, +3 HP regen", PotionEffectType.REGENERATION);

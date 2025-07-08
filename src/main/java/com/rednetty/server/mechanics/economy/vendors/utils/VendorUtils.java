@@ -54,7 +54,7 @@ public class VendorUtils {
         VENDOR_TYPE_COLORS.put("upgrade", ChatColor.GREEN);
         VENDOR_TYPE_COLORS.put("banker", ChatColor.GOLD);
         VENDOR_TYPE_COLORS.put("medic", ChatColor.RED);
-        VENDOR_TYPE_COLORS.put("gambler", ChatColor.DARK_PURPLE);
+        VENDOR_TYPE_COLORS.put("gambler", ChatColor.GOLD);
         VENDOR_TYPE_COLORS.put("default", ChatColor.GRAY);
     }
 

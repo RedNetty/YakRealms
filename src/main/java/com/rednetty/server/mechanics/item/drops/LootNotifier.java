@@ -45,7 +45,7 @@ public class LootNotifier {
             "uncommon", new ChatColor[]{ChatColor.GREEN, ChatColor.DARK_GREEN},
             "rare", new ChatColor[]{ChatColor.AQUA, ChatColor.DARK_AQUA},
             "unique", new ChatColor[]{ChatColor.YELLOW, ChatColor.GOLD},
-            "legendary", new ChatColor[]{ChatColor.LIGHT_PURPLE, ChatColor.DARK_PURPLE}
+            "legendary", new ChatColor[]{ChatColor.LIGHT_PURPLE, ChatColor.GOLD}
     );
 
     // Enhanced sound mappings
@@ -74,7 +74,7 @@ public class LootNotifier {
             3, ChatColor.AQUA,
             4, ChatColor.LIGHT_PURPLE,
             5, ChatColor.YELLOW,
-            6, ChatColor.DARK_PURPLE  // Updated for Netherite
+            6, ChatColor.GOLD  // Updated for Netherite
     );
 
     /**
@@ -236,7 +236,7 @@ public class LootNotifier {
             if (displayName.contains(ChatColor.GREEN.toString()) ||
                     displayName.contains(ChatColor.DARK_GREEN.toString())) return "uncommon";
             // Check for Tier 6 Netherite
-            if (displayName.contains(ChatColor.DARK_PURPLE.toString()) ||
+            if (displayName.contains(ChatColor.GOLD.toString()) ||
                     displayName.toLowerCase().contains("netherite")) return "legendary";
         }
 

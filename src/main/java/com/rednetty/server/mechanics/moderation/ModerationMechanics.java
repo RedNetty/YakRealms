@@ -35,6 +35,7 @@ import java.util.logging.Logger;
  * - Staff activity monitoring and important staff protection
  * - Automatic rank validation and correction
  * - Permission debugging and audit capabilities
+ * - FIXED: Robust permission attachment management with proper validation
  */
 public class ModerationMechanics implements Listener {
 
@@ -49,6 +50,10 @@ public class ModerationMechanics implements Listener {
     private final Map<UUID, PermissionAttachment> permissionMap = new ConcurrentHashMap<>();
     private final Map<UUID, Long> lastPermissionUpdate = new ConcurrentHashMap<>();
     private final Map<UUID, String> permissionDebugLog = new ConcurrentHashMap<>();
+
+    // FIXED: Track player instances to ensure attachment validity
+    private final Map<UUID, Player> trackedPlayers = new ConcurrentHashMap<>();
+    private final Map<PermissionAttachment, UUID> attachmentPlayerMap = new ConcurrentHashMap<>();
 
     // Staff activity tracking
     private final Map<UUID, Long> staffLastActivity = new ConcurrentHashMap<>();
@@ -151,7 +156,7 @@ public class ModerationMechanics implements Listener {
                 try {
                     Player player = Bukkit.getPlayer(entry.getKey());
                     if (player != null && player.isOnline()) {
-                        player.removeAttachment(entry.getValue());
+                        cleanupPermissionAttachmentSafely(entry.getKey(), player, entry.getValue());
                         attachmentsCleaned++;
                     }
                 } catch (Exception e) {
@@ -173,6 +178,8 @@ public class ModerationMechanics implements Listener {
             staffLastActivity.clear();
             onlineStaff.clear();
             operationTimes.clear();
+            trackedPlayers.clear();
+            attachmentPlayerMap.clear();
 
             long shutdownTime = System.currentTimeMillis() - startTime;
 
@@ -257,6 +264,9 @@ public class ModerationMechanics implements Listener {
         final UUID uuid = player.getUniqueId();
 
         try {
+            // FIXED: Track the player instance
+            trackedPlayers.put(uuid, player);
+
             // Set default rank immediately to prevent null pointer exceptions
             if (!rankMap.containsKey(uuid)) {
                 rankMap.put(uuid, Rank.DEFAULT);
@@ -350,7 +360,7 @@ public class ModerationMechanics implements Listener {
                 YakRealms.log("WARNING: No player data found for quitting player: " + player.getName());
             }
 
-            // Clean up permission attachment with enhanced error handling
+            // FIXED: Clean up permission attachment with enhanced validation
             cleanupPermissionAttachment(uuid, player);
 
             // Clean up caches (do this last)
@@ -358,6 +368,7 @@ public class ModerationMechanics implements Listener {
             lastPermissionUpdate.remove(uuid);
             permissionDebugLog.remove(uuid);
             staffLastActivity.remove(uuid);
+            trackedPlayers.remove(uuid);
 
             long quitTime = System.currentTimeMillis() - startTime;
             recordOperationTime("player_quit", quitTime);
@@ -517,12 +528,16 @@ public class ModerationMechanics implements Listener {
         try {
             long startTime = System.currentTimeMillis();
 
-            // Remove existing attachment
+            // FIXED: Remove existing attachment safely
             cleanupPermissionAttachment(uuid, player);
 
             // Create new attachment
             PermissionAttachment attachment = player.addAttachment(YakRealms.getInstance());
             permissionMap.put(uuid, attachment);
+
+            // FIXED: Track the attachment and its associated player
+            attachmentPlayerMap.put(attachment, uuid);
+            trackedPlayers.put(uuid, player);
 
             // Get player's rank
             Rank rank = rankMap.getOrDefault(uuid, Rank.DEFAULT);
@@ -587,14 +602,11 @@ public class ModerationMechanics implements Listener {
         attachment.setPermission("yakrealms.player.lootbuff", true);
         attachment.setPermission("yakrealms.player.mobinfo", true);
         attachment.setPermission("yakrealms.player.lootchest.info", true);
-        attachment.setPermission("yakrealms.player.lootchest.info", true);
-
 
         // Market permissions
         attachment.setPermission("yakrealms.market.use", true);
         attachment.setPermission("yakrealms.market.sell", true);
         attachment.setPermission("yakrealms.market.buy", true);
-
     }
 
     /**
@@ -1234,30 +1246,99 @@ public class ModerationMechanics implements Listener {
     }
 
     /**
-     * Enhanced cleanup and utility methods
+     * FIXED: Enhanced cleanup and utility methods with proper validation
      */
 
+    /**
+     * FIXED: Safe permission attachment cleanup with comprehensive validation
+     */
     private void cleanupPermissionAttachment(UUID uuid, Player player) {
-        if (permissionMap.containsKey(uuid)) {
-            try {
-                PermissionAttachment attachment = permissionMap.get(uuid);
-                if (attachment != null) {
-                    player.removeAttachment(attachment);
-                }
-            } catch (Exception e) {
-                logger.log(Level.WARNING, "Error removing permission attachment for " + player.getName(), e);
+        try {
+            PermissionAttachment attachment = permissionMap.get(uuid);
+            if (attachment != null) {
+                cleanupPermissionAttachmentSafely(uuid, player, attachment);
             }
+        } catch (Exception e) {
+            logger.log(Level.WARNING, "Error during permission attachment cleanup for " + player.getName(), e);
+        }
+    }
+
+    /**
+     * FIXED: Safely remove permission attachment with proper validation
+     */
+    private void cleanupPermissionAttachmentSafely(UUID uuid, Player player, PermissionAttachment attachment) {
+        try {
+            // Validate that the attachment belongs to this player instance
+            UUID attachmentPlayerUuid = attachmentPlayerMap.get(attachment);
+            Player trackedPlayer = trackedPlayers.get(uuid);
+
+            // Multiple validation checks to ensure attachment safety
+            boolean isValidAttachment = false;
+
+            // Check 1: UUID matches
+            if (attachmentPlayerUuid != null && attachmentPlayerUuid.equals(uuid)) {
+                isValidAttachment = true;
+            }
+
+            // Check 2: Player instance matches our tracked player
+            if (trackedPlayer != null && trackedPlayer.equals(player)) {
+                isValidAttachment = true;
+            }
+
+            // Check 3: Player is online and attachment belongs to them (final safety check)
+            if (player.isOnline()) {
+                try {
+                    // This will throw an exception if the attachment doesn't belong to the player
+                    Collection<PermissionAttachment> playerAttachments = player.getEffectivePermissions()
+                            .stream()
+                            .map(permissionAttachmentInfo -> permissionAttachmentInfo.getAttachment())
+                            .filter(Objects::nonNull)
+                            .collect(java.util.stream.Collectors.toList());
+
+                    if (playerAttachments.contains(attachment)) {
+                        isValidAttachment = true;
+                    }
+                } catch (Exception e) {
+                    // If we can't verify, err on the side of caution
+                    logger.log(Level.FINE, "Could not verify attachment ownership for " + player.getName(), e);
+                }
+            }
+
+            if (isValidAttachment) {
+                try {
+                    player.removeAttachment(attachment);
+                    logger.fine("Successfully removed permission attachment for " + player.getName());
+                } catch (IllegalArgumentException e) {
+                    // This is the exact error we're trying to avoid
+                    logger.log(Level.WARNING, "Attempted to remove invalid attachment for " + player.getName() +
+                            ": " + e.getMessage());
+                }
+            } else {
+                logger.warning("Skipping removal of invalid permission attachment for " + player.getName() +
+                        " (attachment doesn't belong to this player instance)");
+            }
+
+        } catch (Exception e) {
+            logger.log(Level.WARNING, "Error during safe permission attachment cleanup for " + player.getName(), e);
+        } finally {
+            // Always clean up our tracking maps
             permissionMap.remove(uuid);
+            attachmentPlayerMap.remove(attachment);
         }
     }
 
     private void forceCleanupPlayer(UUID uuid) {
+        // Remove from all maps without trying to remove attachments
         permissionMap.remove(uuid);
         rankMap.remove(uuid);
         lastPermissionUpdate.remove(uuid);
         permissionDebugLog.remove(uuid);
         staffLastActivity.remove(uuid);
         onlineStaff.remove(uuid);
+        trackedPlayers.remove(uuid);
+
+        // Clean up attachment tracking
+        attachmentPlayerMap.entrySet().removeIf(entry -> entry.getValue().equals(uuid));
     }
 
     private void handleMissingRankInCache(Player player, YakPlayer yakPlayer) {

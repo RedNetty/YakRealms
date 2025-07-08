@@ -233,7 +233,7 @@ public class OrbAPI {
             String displayName = item.getItemMeta().getDisplayName();
 
             // Tier 6 - Netherite (Dark Purple)
-            if (displayName.contains(ChatColor.DARK_PURPLE.toString()) ||
+            if (displayName.contains(ChatColor.GOLD.toString()) ||
                     displayName.toLowerCase().contains("netherite")) {
                 LOGGER.info("Detected Tier 6 (Netherite/Dark Purple) item: " + displayName);
                 return 6;
@@ -556,21 +556,21 @@ public class OrbAPI {
     private static String getBaseTier6Name(int type) {
         switch (type) {
             case TYPE_STAFF:
-                return "Netherite Staff";
+                return "Nether Forged Staff";
             case TYPE_SPEAR:
-                return "Netherite Polearm";
+                return "Nether Forged Polearm";
             case TYPE_SWORD:
-                return "Netherite Sword";
+                return "Nether Forged Sword";
             case TYPE_AXE:
-                return "Netherite Axe";
+                return "Nether Forged Axe";
             case TYPE_HELMET:
-                return "Netherite Helmet";
+                return "Nether Forged Helmet";
             case TYPE_CHESTPLATE:
-                return "Netherite Chestplate";
+                return "Nether Forged Chestplate";
             case TYPE_LEGGINGS:
-                return "Netherite Leggings";
+                return "Nether Forged Leggings";
             case TYPE_BOOTS:
-                return "Netherite Boots";
+                return "Nether Forged Boots";
             default:
                 return "T6 Item";
         }
@@ -596,7 +596,7 @@ public class OrbAPI {
             case 5:
                 return ChatColor.YELLOW + name;
             case 6:
-                return ChatColor.DARK_PURPLE + name; // Netherite color
+                return ChatColor.GOLD + name; // Netherite color
             default:
                 return name;
         }

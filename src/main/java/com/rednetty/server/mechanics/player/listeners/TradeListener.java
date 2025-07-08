@@ -20,21 +20,63 @@ import org.bukkit.scheduler.BukkitRunnable;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
+import java.util.logging.Level;
 
 /**
  * Handles all trade-related events including initiation, interaction, and cancellation.
+ * Enhanced with robust null checking and error handling.
  */
 public class TradeListener extends BaseListener {
 
     private final YakRealms plugin;
-    private final TradeManager tradeManager;
+    private TradeManager tradeManager;
     private final Map<UUID, Long> lastInteractionTime = new HashMap<>();
     private static final long INTERACTION_COOLDOWN = 1000; // 1 second cooldown
     private static final double MAX_TRADE_DISTANCE = 10.0; // Maximum distance for trading
 
     public TradeListener(YakRealms plugin) {
         this.plugin = plugin;
-        this.tradeManager = plugin.getTradeManager();
+        this.tradeManager = null; // Initialize as null, will be set later
+
+        // Schedule a task to initialize the trade manager after plugin is fully loaded
+        if (plugin != null) {
+            plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
+                initializeTradeManager();
+            }, 20L); // 1 second delay
+        }
+    }
+
+    /**
+     * Initialize the trade manager safely
+     */
+    private void initializeTradeManager() {
+        try {
+            if (plugin != null) {
+                this.tradeManager = plugin.getTradeManager();
+                if (this.tradeManager != null) {
+                    plugin.getLogger().info("TradeListener: TradeManager initialized successfully");
+                } else {
+                    plugin.getLogger().warning("TradeListener: TradeManager is still null after initialization");
+                    // Retry initialization after another delay
+                    plugin.getServer().getScheduler().runTaskLater(plugin, this::initializeTradeManager, 40L);
+                }
+            }
+        } catch (Exception e) {
+            plugin.getLogger().log(Level.SEVERE, "TradeListener: Error initializing TradeManager", e);
+        }
+    }
+
+    /**
+     * Safe getter for trade manager with null checking
+     */
+    private TradeManager getTradeManager() {
+        if (tradeManager == null && plugin != null) {
+            tradeManager = plugin.getTradeManager();
+            if (tradeManager == null) {
+                plugin.getLogger().warning("TradeManager is not available yet");
+            }
+        }
+        return tradeManager;
     }
 
     /**
@@ -42,6 +84,11 @@ public class TradeListener extends BaseListener {
      */
     @EventHandler(priority = EventPriority.HIGH)
     public void onPlayerInteractEntity(PlayerInteractEntityEvent event) {
+        TradeManager tm = getTradeManager();
+        if (tm == null) {
+            return; // Trade system not ready yet
+        }
+
         Player player = event.getPlayer();
 
         // Check if the clicked entity is a player
@@ -76,12 +123,12 @@ public class TradeListener extends BaseListener {
         }
 
         // Check if either player is already trading
-        if (tradeManager.isPlayerTrading(player)) {
+        if (tm.isPlayerTrading(player)) {
             player.sendMessage(ChatColor.RED + "⚠ " + ChatColor.GRAY + "You are already in a trade!");
             return;
         }
 
-        if (tradeManager.isPlayerTrading(target)) {
+        if (tm.isPlayerTrading(target)) {
             player.sendMessage(ChatColor.RED + "⚠ " + ChatColor.GRAY + target.getDisplayName() + " is already trading!");
             return;
         }
@@ -89,15 +136,15 @@ public class TradeListener extends BaseListener {
         updateCooldown(player);
 
         // Check if target has a pending request from this player
-        if (tradeManager.hasPendingTradeRequest(target, player)) {
+        if (tm.hasPendingTradeRequest(target, player)) {
             // Target is accepting the trade request
-            tradeManager.acceptTradeRequest(target, player);
-        } else if (tradeManager.hasPendingTradeRequest(player, target)) {
+            tm.acceptTradeRequest(target, player);
+        } else if (tm.hasPendingTradeRequest(player, target)) {
             // Player already sent a request, remind them
             player.sendMessage(ChatColor.YELLOW + "⏳ " + ChatColor.GRAY + "You already have a pending trade request with " + target.getDisplayName());
         } else {
             // Send new trade request
-            tradeManager.sendTradeRequest(player, target);
+            tm.sendTradeRequest(player, target);
         }
     }
 
@@ -106,18 +153,23 @@ public class TradeListener extends BaseListener {
      */
     @EventHandler(priority = EventPriority.HIGH)
     public void onInventoryClick(InventoryClickEvent event) {
+        TradeManager tm = getTradeManager();
+        if (tm == null) {
+            return; // Trade system not ready yet
+        }
+
         if (!(event.getWhoClicked() instanceof Player)) {
             return;
         }
 
         Player player = (Player) event.getWhoClicked();
-        Trade trade = tradeManager.getPlayerTrade(player);
+        Trade trade = tm.getPlayerTrade(player);
 
         if (trade == null || !isTradeInventory(event.getView())) {
             return;
         }
 
-        TradeMenu tradeMenu = tradeManager.getTradeMenu(trade);
+        TradeMenu tradeMenu = tm.getTradeMenu(trade);
         if (tradeMenu == null) {
             event.setCancelled(true);
             return;
@@ -146,12 +198,17 @@ public class TradeListener extends BaseListener {
      */
     @EventHandler(priority = EventPriority.HIGH)
     public void onInventoryDrag(InventoryDragEvent event) {
+        TradeManager tm = getTradeManager();
+        if (tm == null) {
+            return; // Trade system not ready yet
+        }
+
         if (!(event.getWhoClicked() instanceof Player)) {
             return;
         }
 
         Player player = (Player) event.getWhoClicked();
-        Trade trade = tradeManager.getPlayerTrade(player);
+        Trade trade = tm.getPlayerTrade(player);
 
         if (trade == null || !isTradeInventory(event.getView())) {
             return;
@@ -168,25 +225,63 @@ public class TradeListener extends BaseListener {
 
     /**
      * Handles inventory closing - cancels trade if inventory is closed.
+     * FIXED: Added comprehensive null checking to prevent NullPointerException
      */
     @EventHandler(priority = EventPriority.MONITOR)
     public void onInventoryClose(InventoryCloseEvent event) {
+        // Enhanced null checking
         if (!(event.getPlayer() instanceof Player)) {
             return;
         }
 
         Player player = (Player) event.getPlayer();
-        Trade trade = tradeManager.getPlayerTrade(player);
+
+        // Get trade manager safely
+        TradeManager tm = getTradeManager();
+        if (tm == null) {
+            // Trade system not ready - log this for debugging
+            if (plugin != null) {
+                plugin.getLogger().finest("TradeListener.onInventoryClose: TradeManager not available for player " + player.getName());
+            }
+            return;
+        }
+
+        // Check if player has an active trade
+        Trade trade = null;
+        try {
+            trade = tm.getPlayerTrade(player);
+        } catch (Exception e) {
+            if (plugin != null) {
+                plugin.getLogger().log(Level.WARNING, "Error getting player trade for " + player.getName(), e);
+            }
+            return;
+        }
 
         if (trade == null || !isTradeInventory(event.getView())) {
             return;
         }
 
-        TradeMenu tradeMenu = tradeManager.getTradeMenu(trade);
+        // Get trade menu safely
+        TradeMenu tradeMenu = null;
+        try {
+            tradeMenu = tm.getTradeMenu(trade);
+        } catch (Exception e) {
+            if (plugin != null) {
+                plugin.getLogger().log(Level.WARNING, "Error getting trade menu for " + player.getName(), e);
+            }
+            return;
+        }
+
         if (tradeMenu != null && !trade.isCompleted()) {
             // Only handle close if player is not in a prompt
             if (!TradeMenu.isPlayerInPrompt(player.getUniqueId())) {
-                tradeMenu.handleClose(event);
+                try {
+                    tradeMenu.handleClose(event);
+                } catch (Exception e) {
+                    if (plugin != null) {
+                        plugin.getLogger().log(Level.WARNING, "Error handling trade menu close for " + player.getName(), e);
+                    }
+                }
             }
         }
     }
@@ -201,13 +296,23 @@ public class TradeListener extends BaseListener {
         // Clear any prompt state
         TradeMenu.clearPromptState(player.getUniqueId());
 
-        // Cancel any active trade
-        if (tradeManager.isPlayerTrading(player)) {
-            tradeManager.cancelTrade(player);
-        }
+        // Get trade manager safely
+        TradeManager tm = getTradeManager();
+        if (tm != null) {
+            try {
+                // Cancel any active trade
+                if (tm.isPlayerTrading(player)) {
+                    tm.cancelTrade(player);
+                }
 
-        // Cancel any pending trade requests
-        tradeManager.cancelTradeRequest(player);
+                // Cancel any pending trade requests
+                tm.cancelTradeRequest(player);
+            } catch (Exception e) {
+                if (plugin != null) {
+                    plugin.getLogger().log(Level.WARNING, "Error handling trade cleanup on quit for " + player.getName(), e);
+                }
+            }
+        }
 
         // Clear cooldown
         lastInteractionTime.remove(player.getUniqueId());
@@ -220,11 +325,21 @@ public class TradeListener extends BaseListener {
     public void onPlayerKick(PlayerKickEvent event) {
         Player player = event.getPlayer();
 
-        if (tradeManager.isPlayerTrading(player)) {
-            tradeManager.cancelTrade(player);
+        TradeManager tm = getTradeManager();
+        if (tm != null) {
+            try {
+                if (tm.isPlayerTrading(player)) {
+                    tm.cancelTrade(player);
+                }
+
+                tm.cancelTradeRequest(player);
+            } catch (Exception e) {
+                if (plugin != null) {
+                    plugin.getLogger().log(Level.WARNING, "Error handling trade cleanup on kick for " + player.getName(), e);
+                }
+            }
         }
 
-        tradeManager.cancelTradeRequest(player);
         lastInteractionTime.remove(player.getUniqueId());
     }
 
@@ -239,13 +354,21 @@ public class TradeListener extends BaseListener {
 
         Player player = (Player) event.getEntity();
 
-        if (tradeManager.isPlayerTrading(player)) {
+        TradeManager tm = getTradeManager();
+        if (tm != null && tm.isPlayerTrading(player)) {
             new BukkitRunnable() {
                 @Override
                 public void run() {
-                    if (player.isOnline() && tradeManager.isPlayerTrading(player)) {
-                        tradeManager.cancelTrade(player);
-                        player.sendMessage(ChatColor.RED + "✖ " + ChatColor.GRAY + "Trade cancelled due to taking damage!");
+                    try {
+                        TradeManager currentTm = getTradeManager();
+                        if (player.isOnline() && currentTm != null && currentTm.isPlayerTrading(player)) {
+                            currentTm.cancelTrade(player);
+                            player.sendMessage(ChatColor.RED + "✖ " + ChatColor.GRAY + "Trade cancelled due to taking damage!");
+                        }
+                    } catch (Exception e) {
+                        if (plugin != null) {
+                            plugin.getLogger().log(Level.WARNING, "Error cancelling trade on damage for " + player.getName(), e);
+                        }
                     }
                 }
             }.runTask(plugin);
@@ -259,11 +382,20 @@ public class TradeListener extends BaseListener {
     public void onPlayerDeath(PlayerDeathEvent event) {
         Player player = event.getEntity();
 
-        if (tradeManager.isPlayerTrading(player)) {
-            tradeManager.cancelTrade(player);
-        }
+        TradeManager tm = getTradeManager();
+        if (tm != null) {
+            try {
+                if (tm.isPlayerTrading(player)) {
+                    tm.cancelTrade(player);
+                }
 
-        tradeManager.cancelTradeRequest(player);
+                tm.cancelTradeRequest(player);
+            } catch (Exception e) {
+                if (plugin != null) {
+                    plugin.getLogger().log(Level.WARNING, "Error handling trade cleanup on death for " + player.getName(), e);
+                }
+            }
+        }
     }
 
     /**
@@ -273,23 +405,33 @@ public class TradeListener extends BaseListener {
     public void onPlayerTeleport(PlayerTeleportEvent event) {
         Player player = event.getPlayer();
 
-        if (tradeManager.isPlayerTrading(player)) {
-            Trade trade = tradeManager.getPlayerTrade(player);
-            Player otherPlayer = trade.getOtherPlayer(player);
+        TradeManager tm = getTradeManager();
+        if (tm != null && tm.isPlayerTrading(player)) {
+            Trade trade = tm.getPlayerTrade(player);
+            if (trade != null) {
+                Player otherPlayer = trade.getOtherPlayer(player);
 
-            // Check if teleport destination is too far from the other player
-            if (event.getTo() != null &&
-                    event.getTo().distance(otherPlayer.getLocation()) > MAX_TRADE_DISTANCE) {
+                // Check if teleport destination is too far from the other player
+                if (event.getTo() != null &&
+                        event.getTo().distance(otherPlayer.getLocation()) > MAX_TRADE_DISTANCE) {
 
-                new BukkitRunnable() {
-                    @Override
-                    public void run() {
-                        if (player.isOnline() && tradeManager.isPlayerTrading(player)) {
-                            tradeManager.cancelTrade(player);
-                            player.sendMessage(ChatColor.RED + "✖ " + ChatColor.GRAY + "Trade cancelled due to teleporting too far away!");
+                    new BukkitRunnable() {
+                        @Override
+                        public void run() {
+                            try {
+                                TradeManager currentTm = getTradeManager();
+                                if (player.isOnline() && currentTm != null && currentTm.isPlayerTrading(player)) {
+                                    currentTm.cancelTrade(player);
+                                    player.sendMessage(ChatColor.RED + "✖ " + ChatColor.GRAY + "Trade cancelled due to teleporting too far away!");
+                                }
+                            } catch (Exception e) {
+                                if (plugin != null) {
+                                    plugin.getLogger().log(Level.WARNING, "Error cancelling trade on teleport for " + player.getName(), e);
+                                }
+                            }
                         }
-                    }
-                }.runTask(plugin);
+                    }.runTask(plugin);
+                }
             }
         }
     }
@@ -306,15 +448,24 @@ public class TradeListener extends BaseListener {
             return;
         }
 
-        if (tradeManager.isPlayerTrading(player)) {
-            Trade trade = tradeManager.getPlayerTrade(player);
-            Player otherPlayer = trade.getOtherPlayer(player);
+        TradeManager tm = getTradeManager();
+        if (tm != null && tm.isPlayerTrading(player)) {
+            Trade trade = tm.getPlayerTrade(player);
+            if (trade != null) {
+                Player otherPlayer = trade.getOtherPlayer(player);
 
-            // Check distance between players
-            if (player.getLocation().distance(otherPlayer.getLocation()) > MAX_TRADE_DISTANCE) {
-                tradeManager.cancelTrade(player);
-                player.sendMessage(ChatColor.RED + "✖ " + ChatColor.GRAY + "Trade cancelled - players too far apart!");
-                otherPlayer.sendMessage(ChatColor.RED + "✖ " + ChatColor.GRAY + "Trade cancelled - players too far apart!");
+                // Check distance between players
+                if (player.getLocation().distance(otherPlayer.getLocation()) > MAX_TRADE_DISTANCE) {
+                    try {
+                        tm.cancelTrade(player);
+                        player.sendMessage(ChatColor.RED + "✖ " + ChatColor.GRAY + "Trade cancelled - players too far apart!");
+                        otherPlayer.sendMessage(ChatColor.RED + "✖ " + ChatColor.GRAY + "Trade cancelled - players too far apart!");
+                    } catch (Exception e) {
+                        if (plugin != null) {
+                            plugin.getLogger().log(Level.WARNING, "Error cancelling trade on move for " + player.getName(), e);
+                        }
+                    }
+                }
             }
         }
     }
@@ -326,14 +477,23 @@ public class TradeListener extends BaseListener {
     public void onPlayerChangedWorld(PlayerChangedWorldEvent event) {
         Player player = event.getPlayer();
 
-        if (tradeManager.isPlayerTrading(player)) {
-            Trade trade = tradeManager.getPlayerTrade(player);
-            Player otherPlayer = trade.getOtherPlayer(player);
+        TradeManager tm = getTradeManager();
+        if (tm != null && tm.isPlayerTrading(player)) {
+            Trade trade = tm.getPlayerTrade(player);
+            if (trade != null) {
+                Player otherPlayer = trade.getOtherPlayer(player);
 
-            // Cancel trade if players are no longer in the same world
-            if (!player.getWorld().equals(otherPlayer.getWorld())) {
-                tradeManager.cancelTrade(player);
-                player.sendMessage(ChatColor.RED + "✖ " + ChatColor.GRAY + "Trade cancelled due to world change!");
+                // Cancel trade if players are no longer in the same world
+                if (!player.getWorld().equals(otherPlayer.getWorld())) {
+                    try {
+                        tm.cancelTrade(player);
+                        player.sendMessage(ChatColor.RED + "✖ " + ChatColor.GRAY + "Trade cancelled due to world change!");
+                    } catch (Exception e) {
+                        if (plugin != null) {
+                            plugin.getLogger().log(Level.WARNING, "Error cancelling trade on world change for " + player.getName(), e);
+                        }
+                    }
+                }
             }
         }
     }
@@ -349,11 +509,23 @@ public class TradeListener extends BaseListener {
         if (message.startsWith("/trade cancel") || message.startsWith("/t cancel")) {
             event.setCancelled(true);
 
-            if (tradeManager.isPlayerTrading(player)) {
-                tradeManager.cancelTrade(player);
-                player.sendMessage(ChatColor.RED + "✖ " + ChatColor.GRAY + "Trade cancelled!");
+            TradeManager tm = getTradeManager();
+            if (tm != null) {
+                try {
+                    if (tm.isPlayerTrading(player)) {
+                        tm.cancelTrade(player);
+                        player.sendMessage(ChatColor.RED + "✖ " + ChatColor.GRAY + "Trade cancelled!");
+                    } else {
+                        player.sendMessage(ChatColor.RED + "⚠ " + ChatColor.GRAY + "You are not currently in a trade!");
+                    }
+                } catch (Exception e) {
+                    if (plugin != null) {
+                        plugin.getLogger().log(Level.WARNING, "Error handling trade cancel command for " + player.getName(), e);
+                    }
+                    player.sendMessage(ChatColor.RED + "⚠ " + ChatColor.GRAY + "Error cancelling trade!");
+                }
             } else {
-                player.sendMessage(ChatColor.RED + "⚠ " + ChatColor.GRAY + "You are not currently in a trade!");
+                player.sendMessage(ChatColor.RED + "⚠ " + ChatColor.GRAY + "Trade system is not available!");
             }
         }
     }
@@ -410,5 +582,15 @@ public class TradeListener extends BaseListener {
      */
     public void cleanup() {
         lastInteractionTime.clear();
+    }
+
+    /**
+     * Manual initialization method for cases where the constructor initialization fails
+     */
+    public void setTradeManager(TradeManager tradeManager) {
+        this.tradeManager = tradeManager;
+        if (plugin != null) {
+            plugin.getLogger().info("TradeListener: TradeManager set manually");
+        }
     }
 }

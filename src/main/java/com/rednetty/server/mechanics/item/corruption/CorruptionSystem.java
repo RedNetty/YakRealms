@@ -47,7 +47,7 @@ public class CorruptionSystem implements Listener {
 
     // Corruption vial types
     public enum CorruptionVialType {
-        MINOR("Vial of Minor Corruption", Material.LINGERING_POTION, ChatColor.DARK_PURPLE, 1200,
+        MINOR("Vial of Minor Corruption", Material.LINGERING_POTION, ChatColor.GOLD, 1200,
                 "Adds random corruption effect", 70, 30, 0, 3),
         MAJOR("Vial of Major Corruption", Material.TOTEM_OF_UNDYING, ChatColor.DARK_RED, 8000,
                 "Powerful corruption effects", 50, 40, 10, 1);
@@ -99,7 +99,7 @@ public class CorruptionSystem implements Listener {
         SOUL_BURN("Soul Burn", true, "Elemental damage spreads to nearby enemies",
                 ChatColor.BLUE, "🔥", 100, 0),
         VOID_TOUCHED("Void Touched", true, "+{value}% damage, attacks ignore {penalty}% accuracy",
-                ChatColor.DARK_PURPLE, "🌀", 30, 20),
+                ChatColor.GOLD, "🌀", 30, 20),
         SHADOW_INFUSED("Shadow Infused", true, "+{value}% critical hit, -{penalty}% visibility",
                 ChatColor.GRAY, "🌙", 20, 15),
 
@@ -113,7 +113,7 @@ public class CorruptionSystem implements Listener {
         VENGEFUL_SPIRIT("Vengeful Spirit", false, "Item occasionally attacks random nearby players",
                 ChatColor.DARK_RED, "👹", 0, 0),
         CHAOS_TOUCH("Chaos Touch", false, "Stats randomly fluctuate by ±{penalty}% each minute",
-                ChatColor.DARK_PURPLE, "🌪", 0, 25),
+                ChatColor.GOLD, "🌪", 0, 25),
         SOUL_DRAIN("Soul Drain", false, "-{penalty}% max HP, +{value}% damage to undead",
                 ChatColor.BLACK, "💀", 50, 20);
 
@@ -520,7 +520,7 @@ public class CorruptionSystem implements Listener {
         // Update name to indicate corruption
         String currentName = meta.getDisplayName();
         String corruptionPrefix = isMajor ? ChatColor.DARK_RED + "[MAJOR CORRUPT] " :
-                ChatColor.DARK_PURPLE + "[CORRUPT] ";
+                ChatColor.GOLD + "[CORRUPT] ";
 
         if (!currentName.contains("[CORRUPT]") && !currentName.contains("[MAJOR CORRUPT]")) {
             meta.setDisplayName(corruptionPrefix + currentName);
@@ -540,7 +540,7 @@ public class CorruptionSystem implements Listener {
         List<ItemCorruption> existingCorruptions = getItemCorruptions(item);
         if (existingCorruptions.isEmpty()) {
             lore.add(insertIndex, "");
-            lore.add(insertIndex + 1, ChatColor.DARK_PURPLE + "◆ CORRUPTED ESSENCE ◆");
+            lore.add(insertIndex + 1, ChatColor.GOLD + "◆ CORRUPTED ESSENCE ◆");
             insertIndex += 2;
         }
 
@@ -708,7 +708,7 @@ public class CorruptionSystem implements Listener {
                             case CHAOS_TOUCH:
                                 // Random stat fluctuation (visual effect only for now)
                                 if (ThreadLocalRandom.current().nextInt(100) < 10) {
-                                    player.sendMessage(ChatColor.DARK_PURPLE + "🌪 Your corrupted gear fluctuates with chaotic energy!");
+                                    player.sendMessage(ChatColor.GOLD + "🌪 Your corrupted gear fluctuates with chaotic energy!");
                                     showChaosEffect(player);
                                 }
                                 break;

@@ -59,7 +59,7 @@ public class ItemVendorMenu extends Menu {
 
     // Categories
     private enum Category {
-        ORBS("Mystical Orbs", Material.MAGMA_CREAM, ChatColor.DARK_PURPLE),
+        ORBS("Mystical Orbs", Material.MAGMA_CREAM, ChatColor.GOLD),
         POUCHES("Gem Pouches", Material.BUNDLE, ChatColor.GREEN),
         PROTECTION("Protection Scrolls", Material.SHIELD, ChatColor.BLUE),
         WEAPON("Weapon Scrolls", Material.IRON_SWORD, ChatColor.RED),

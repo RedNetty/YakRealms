@@ -1163,7 +1163,7 @@ public class ChatMechanics implements Listener {
                     case '2': return ChatColor.DARK_GREEN.toString();
                     case '3': return ChatColor.DARK_AQUA.toString();
                     case '4': return ChatColor.DARK_RED.toString();
-                    case '5': return ChatColor.DARK_PURPLE.toString();
+                    case '5': return ChatColor.GOLD.toString();
                     case '6': return ChatColor.GOLD.toString();
                     case '7': return ChatColor.GRAY.toString();
                     case '8': return ChatColor.DARK_GRAY.toString();

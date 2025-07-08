@@ -6,6 +6,8 @@ import com.rednetty.server.mechanics.chat.ChatMechanics;
 import com.rednetty.server.mechanics.chat.ChatTag;
 import com.rednetty.server.mechanics.moderation.ModerationMechanics;
 import com.rednetty.server.mechanics.moderation.Rank;
+import com.rednetty.server.mechanics.player.listeners.PlayerListenerManager;
+import com.rednetty.server.mechanics.player.stats.PlayerStatsCalculator;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.entity.Player;
@@ -15,6 +17,7 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.player.AsyncPlayerPreLoginEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.inventory.ItemStack;
 import org.bukkit.plugin.Plugin;
 import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.scheduler.BukkitTask;
@@ -455,7 +458,27 @@ public class YakPlayerManager implements Listener {
             player.setExp(1.0f);
             player.setLevel(100);
 
-            
+            // Apply saved inventory and armor first (needed for health calculation)
+            yakPlayer.applyInventory(player);
+
+            // Calculate max health based on current armor and apply all stats
+            // This needs to be done AFTER inventory is applied so armor is equipped
+            Bukkit.getScheduler().runTaskLater(plugin, () -> {
+                try {
+                    PlayerListenerManager.getInstance().getHealthListener().recalculateHealth(player);
+
+                    // Apply all stats including the corrected health values
+                    yakPlayer.applyStats(player);
+
+                    logger.fine("Applied health stats for " + player.getName() +
+                            ": " + yakPlayer.getHealth() + "/" + yakPlayer.getMaxHealth());
+
+                } catch (Exception e) {
+                    logger.log(Level.WARNING, "Error applying health stats for " + player.getName(), e);
+                }
+            }, 1L); // Delay by 1 tick to ensure inventory is fully applied
+
+            // Initialize rank system
             try {
                 String rankString = yakPlayer.getRank();
                 if (rankString == null || rankString.trim().isEmpty()) {
@@ -464,7 +487,6 @@ public class YakPlayerManager implements Listener {
                     logger.info("Set default rank for player with null/empty rank: " + player.getName());
                 }
 
-                // Use fromString to properly convert database string to enum
                 Rank rank = Rank.fromString(rankString);
                 ModerationMechanics.rankMap.put(uuid, rank);
 
@@ -474,11 +496,9 @@ public class YakPlayerManager implements Listener {
                 logger.warning("Invalid rank for player " + player.getName() + ": " + yakPlayer.getRank() +
                         ". Setting to DEFAULT and saving correction.");
 
-                // Set to default and save the correction
                 ModerationMechanics.rankMap.put(uuid, Rank.DEFAULT);
                 yakPlayer.setRank("default");
 
-                // Save the correction asynchronously
                 savePlayerDataAsync(yakPlayer).whenComplete((result, error) -> {
                     if (error != null) {
                         logger.warning("Failed to save rank correction for " + player.getName() + ": " + error.getMessage());
@@ -488,7 +508,7 @@ public class YakPlayerManager implements Listener {
                 });
             }
 
-            
+            // Initialize chat tag system
             try {
                 String chatTagString = yakPlayer.getChatTag();
                 if (chatTagString == null || chatTagString.trim().isEmpty()) {
@@ -512,6 +532,7 @@ public class YakPlayerManager implements Listener {
             logger.log(Level.WARNING, "Error initializing player systems for " + player.getName(), e);
         }
     }
+
 
     /**
      * Update player data before saving

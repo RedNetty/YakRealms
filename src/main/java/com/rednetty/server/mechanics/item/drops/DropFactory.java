@@ -44,7 +44,7 @@ public class DropFactory {
             3, ChatColor.AQUA,
             4, ChatColor.LIGHT_PURPLE,
             5, ChatColor.YELLOW,
-            6, ChatColor.DARK_PURPLE  // Updated for Netherite
+            6, ChatColor.GOLD  // Updated for Netherite
     );
 
     /**
@@ -392,7 +392,7 @@ public class DropFactory {
             case 3 -> "Mystical container radiating magical energy";
             case 4 -> "Ancient chest blessed by powerful forces";
             case 5 -> "Legendary container of immense power";
-            case 6 -> "Netherite chest forged in the depths of the Nether";
+            case 6 -> "Nether Forged chest forged in the depths of the Nether";
             default -> "";
         };
     }

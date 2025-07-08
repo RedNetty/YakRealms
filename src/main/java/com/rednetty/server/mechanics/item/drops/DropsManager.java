@@ -4,6 +4,8 @@ import com.rednetty.server.YakRealms;
 import com.rednetty.server.core.config.ConfigManager;
 import com.rednetty.server.mechanics.item.drops.buff.LootBuffManager;
 import com.rednetty.server.mechanics.item.drops.types.*;
+import com.rednetty.server.mechanics.item.orb.OrbAPI;
+import com.rednetty.server.mechanics.item.orb.OrbManager;
 import com.rednetty.server.mechanics.world.mobs.MobManager;
 import org.bukkit.*;
 import org.bukkit.entity.Item;
@@ -327,7 +329,7 @@ public class DropsManager {
             item = applyNetheriteGoldTrim(item);
         }
 
-        return item;
+        return OrbManager.getInstance().applyOrbToItem(item, false, 0);
     }
 
     /**
@@ -439,7 +441,7 @@ public class DropsManager {
                 tierColor = ChatColor.YELLOW;
                 break;
             case 6:
-                tierColor = ChatColor.DARK_PURPLE; // Netherite color
+                tierColor = ChatColor.GOLD; // Netherite color
                 break;
             default:
                 tierColor = ChatColor.WHITE;
@@ -767,7 +769,7 @@ public class DropsManager {
             case 5:
                 return generateNamePrefix(item, "Legendary", ChatColor.YELLOW);
             case 6:
-                return generateNamePrefix(item, "Netherite", ChatColor.DARK_PURPLE);
+                return generateNamePrefix(item, "Netherite", ChatColor.GOLD);
         }
         return "Error, talk to owner";
     }

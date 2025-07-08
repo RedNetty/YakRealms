@@ -40,6 +40,7 @@ import com.rednetty.server.mechanics.item.corruption.CorruptionSystem;
 import com.rednetty.server.mechanics.item.essence.EssenceCrystalSystem;
 import com.rednetty.server.mechanics.item.forge.ForgeHammerSystem;
 import com.rednetty.server.mechanics.player.social.trade.TradeManager;
+import com.rednetty.server.mechanics.player.listeners.TradeListener;
 import com.rednetty.server.mechanics.world.lootchests.LootChestManager;
 import com.rednetty.server.mechanics.economy.market.MarketManager;
 import com.rednetty.server.mechanics.world.mobs.MobManager;
@@ -73,7 +74,7 @@ import java.util.concurrent.ThreadLocalRandom;
 import java.util.logging.Level;
 
 /**
- * Main plugin class for YakRealms with fixed initialization order
+ * Main plugin class for YakRealms with fixed initialization order and trade system
  */
 public class YakRealms extends JavaPlugin {
 
@@ -83,6 +84,7 @@ public class YakRealms extends JavaPlugin {
     private MongoDBManager mongoDBManager;
     private YakPlayerManager playerManager;
     private PlayerMechanics playerMechanics;
+    private ModerationMechanics moderationMechanics;
 
     // All other systems
     private CombatMechanics combatMechanics;
@@ -99,7 +101,10 @@ public class YakRealms extends JavaPlugin {
     private OrbManager orbManager;
     private Journal journalSystem;
     private MenuItemManager menuItemManager;
+
+    // FIXED: Trade system components
     private TradeManager tradeManager;
+    private TradeListener tradeListener;
 
     // New Item Enhancement Systems
     private AwakeningStoneSystem awakeningStoneSystem;
@@ -128,6 +133,7 @@ public class YakRealms extends JavaPlugin {
     private CrateManager crateManager;
     private LootChestManager lootChestManager;
     private MerchantSystem merchantSystem;
+
     // Game settings
     private static boolean patchLockdown = false;
     private static boolean t6Enabled = false;
@@ -173,6 +179,12 @@ public class YakRealms extends JavaPlugin {
                 return;
             }
 
+            if (!initializeModerationSystems()) {
+                getLogger().severe("Failed to initialize moderation systems!");
+                getServer().getPluginManager().disablePlugin(this);
+                return;
+            }
+
             if (!initializeGameSystems()) {
                 getLogger().severe("Failed to initialize game systems!");
                 getServer().getPluginManager().disablePlugin(this);
@@ -214,7 +226,7 @@ public class YakRealms extends JavaPlugin {
     }
 
     /**
-     * Initialize player management systems
+     * FIXED: Initialize player management systems with proper trade system setup
      */
     private boolean initializePlayerSystems() {
         try {
@@ -227,17 +239,53 @@ public class YakRealms extends JavaPlugin {
             // Wait a moment for player manager to be ready
             Thread.sleep(1000);
 
+            // Initialize TradeManager BEFORE PlayerMechanics
+            tradeManager = new TradeManager(this);
+            getLogger().info("TradeManager initialized successfully");
+
+            // Initialize TradeListener with proper error handling
+            tradeListener = new TradeListener(this);
+            getLogger().info("TradeListener created");
+
+            // Register trade listener events
+            Bukkit.getServer().getPluginManager().registerEvents(tradeListener, this);
+            getLogger().info("TradeListener events registered");
+
+            // Schedule a task to ensure TradeManager is properly linked to TradeListener
+            Bukkit.getScheduler().runTaskLater(this, () -> {
+                if (tradeListener != null && tradeManager != null) {
+                    tradeListener.setTradeManager(tradeManager);
+                    getLogger().info("TradeManager properly linked to TradeListener");
+                }
+            }, 10L); // 0.5 second delay
+
             // Then initialize PlayerMechanics
             playerMechanics = PlayerMechanics.getInstance();
             playerMechanics.onEnable();
-
-            tradeManager = new TradeManager(this);
-
 
             getLogger().info("Player systems initialized successfully");
             return true;
         } catch (Exception e) {
             getLogger().log(Level.SEVERE, "Error initializing player systems", e);
+            return false;
+        }
+    }
+
+    /**
+     * FIXED: Initialize moderation systems separately for better organization
+     */
+    private boolean initializeModerationSystems() {
+        try {
+            getLogger().info("Initializing moderation systems...");
+
+            // Initialize moderation mechanics with enhanced error handling
+            moderationMechanics = ModerationMechanics.getInstance();
+            moderationMechanics.onEnable();
+
+            getLogger().info("Moderation systems initialized successfully");
+            return true;
+        } catch (Exception e) {
+            getLogger().log(Level.SEVERE, "Error initializing moderation systems", e);
             return false;
         }
     }
@@ -750,14 +798,14 @@ public class YakRealms extends JavaPlugin {
             success &= registerCommand("staffchat", new StaffChatCommand());
             success &= registerCommand("chattag", new ChatTagCommand());
 
-            // Moderation commands
+            // Moderation commands - Use the instance instead of static call
             success &= registerCommand("kick", new KickCommand());
-            success &= registerCommand("ban", new BanCommand(ModerationMechanics.getInstance()));
-            success &= registerCommand("unban", new UnbanCommand(ModerationMechanics.getInstance()));
-            success &= registerCommand("mute", new MuteCommand(ModerationMechanics.getInstance()));
-            success &= registerCommand("unmute", new UnmuteCommand(ModerationMechanics.getInstance()));
+            success &= registerCommand("ban", new BanCommand(moderationMechanics));
+            success &= registerCommand("unban", new UnbanCommand(moderationMechanics));
+            success &= registerCommand("mute", new MuteCommand(moderationMechanics));
+            success &= registerCommand("unmute", new UnmuteCommand(moderationMechanics));
             success &= registerCommand("vanish", new VanishCommand(this));
-            success &= registerCommand("setrank", new SetRankCommand(ModerationMechanics.getInstance()));
+            success &= registerCommand("setrank", new SetRankCommand(moderationMechanics));
 
             // Admin commands - NEW SHUTDOWN COMMAND
             success &= registerCommand("shutdown", new com.rednetty.server.commands.staff.admin.ShutdownCommand(),
@@ -831,6 +879,9 @@ public class YakRealms extends JavaPlugin {
         getLogger().info("T6 Content: " + (t6Enabled ? "Enabled" : "Disabled"));
         getLogger().info("Economy System: " + (economyManager != null ? "Active" : "Inactive"));
         getLogger().info("Menu Item System: " + (menuItemManager != null ? "Active" : "Inactive"));
+        getLogger().info("Trade System: " + (tradeManager != null ? "Active" : "Inactive"));
+        getLogger().info("Trade Listener: " + (tradeListener != null ? "Active" : "Inactive"));
+        getLogger().info("Moderation System: " + (moderationMechanics != null ? "Active" : "Inactive"));
         getLogger().info("Crate System: " + (crateManager != null ? "Active" : "Inactive"));
         getLogger().info("Loot Chest System: " + (lootChestManager != null ? "Active" : "Inactive"));
         getLogger().info("Mob System: " + (mobManager != null ? "Active" : "Inactive"));
@@ -850,11 +901,31 @@ public class YakRealms extends JavaPlugin {
         try {
             getLogger().info("Starting YakRealms shutdown...");
 
+            // Shutdown trade system first to clean up active trades
+            if (tradeManager != null) {
+                getLogger().info("Shutting down trade system...");
+                tradeManager.clearAllTrades();
+                getLogger().info("Trade system shutdown completed");
+            }
+
+            if (tradeListener != null) {
+                getLogger().info("Cleaning up trade listener...");
+                tradeListener.cleanup();
+                getLogger().info("Trade listener cleanup completed");
+            }
+
             // Shutdown menu system first to clean up all online players
             if (MenuSystemInitializer.isInitialized()) {
                 getLogger().info("Shutting down menu item system...");
                 MenuSystemInitializer.shutdown();
                 getLogger().info("Menu item system shutdown completed");
+            }
+
+            // Shutdown moderation mechanics
+            if (moderationMechanics != null) {
+                getLogger().info("Shutting down moderation mechanics...");
+                moderationMechanics.onDisable();
+                getLogger().info("Moderation mechanics shutdown completed");
             }
 
             // Shutdown in reverse order
@@ -952,6 +1023,7 @@ public class YakRealms extends JavaPlugin {
     public MongoDBManager getMongoDBManager() { return mongoDBManager; }
     public YakPlayerManager getPlayerManager() { return playerManager; }
     public PlayerMechanics getPlayerMechanics() { return playerMechanics; }
+    public ModerationMechanics getModerationMechanics() { return moderationMechanics; }
     public PartyMechanics getPartyMechanics() { return partyMechanics; }
     public DashMechanics getDashMechanics() { return dashMechanics; }
     public SpeedfishMechanics getSpeedfishMechanics() { return speedfishMechanics; }
@@ -960,6 +1032,10 @@ public class YakRealms extends JavaPlugin {
     public OrbManager getOrbManager() { return orbManager; }
     public Journal getJournalSystem() { return journalSystem; }
     public MenuItemManager getMenuItemManager() { return menuItemManager; }
+
+    // FIXED: Trade system getters
+    public TradeManager getTradeManager() { return tradeManager; }
+    public TradeListener getTradeListener() { return tradeListener; }
 
     // New getters for item enhancement systems
     public AwakeningStoneSystem getAwakeningStoneSystem() { return awakeningStoneSystem; }
@@ -1061,6 +1137,23 @@ public class YakRealms extends JavaPlugin {
     }
 
     /**
+     * FIXED: Get trade manager safely
+     */
+    public static TradeManager getTradeManagerSafe() {
+        if (instance == null || instance.tradeManager == null) {
+            throw new IllegalStateException("Trade manager not available");
+        }
+        return instance.tradeManager;
+    }
+
+    /**
+     * FIXED: Check if trade system is available
+     */
+    public static boolean isTradeSystemAvailable() {
+        return instance != null && instance.tradeManager != null && instance.tradeListener != null;
+    }
+
+    /**
      * Get loot chest manager safely
      */
     public static LootChestManager getLootChestManagerSafe() {
@@ -1069,6 +1162,7 @@ public class YakRealms extends JavaPlugin {
         }
         return instance.lootChestManager;
     }
+
     /**
      * Initialize the merchant system
      */
@@ -1162,10 +1256,6 @@ public class YakRealms extends JavaPlugin {
      */
     public static boolean isAwakeningStoneSystemAvailable() {
         return instance != null && instance.awakeningStoneSystem != null;
-    }
-
-    public TradeManager getTradeManager() {
-        return tradeManager;
     }
 
     public static boolean isBindingRuneSystemAvailable() {

@@ -251,23 +251,6 @@ public class MenuItemManager {
             com.rednetty.server.mechanics.player.mounts.MountManager mountManager =
                     com.rednetty.server.mechanics.player.mounts.MountManager.getInstance();
 
-            // Check if player has elytra mount permission
-            if (!player.hasPermission("yakrp.mount.elytra")) {
-                player.sendMessage(ChatColor.RED + "═══════════════════════════════════");
-                player.sendMessage(ChatColor.AQUA + "         Elytra Mount Locked");
-                player.sendMessage(ChatColor.RED + "═══════════════════════════════════");
-                player.sendMessage("");
-                player.sendMessage(ChatColor.GRAY + "You don't have access to elytra mounts!");
-                player.sendMessage(ChatColor.YELLOW + "This is a premium feature that allows");
-                player.sendMessage(ChatColor.YELLOW + "you to soar through the skies with");
-                player.sendMessage(ChatColor.YELLOW + "magical enhanced wings.");
-                player.sendMessage("");
-                player.sendMessage(ChatColor.GREEN + "Contact staff or visit the donation shop");
-                player.sendMessage(ChatColor.GREEN + "to unlock this exclusive mount type!");
-                player.sendMessage(ChatColor.RED + "═══════════════════════════════════");
-                return;
-            }
-
             // Check if player already has an active mount
             if (mountManager.hasActiveMount(player.getUniqueId())) {
                 player.sendMessage(ChatColor.RED + "You already have an active mount! Dismount first.");

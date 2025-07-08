@@ -32,6 +32,7 @@ import java.util.stream.Collectors;
 /**
  * Enhanced event handler for item drops from mobs with improved performance and visual effects
  * Fixed async entity access issues by moving validation to main thread
+ * CRITICAL FIX: Skip drop processing for entities killed by cleanup tasks
  */
 public class DropsHandler implements Listener {
     private static DropsHandler instance;
@@ -155,7 +156,7 @@ public class DropsHandler implements Listener {
             } else if (material.contains("DIAMOND")) {
                 // Check for special dark purple display name for enhanced Netherite items
                 if (mainHand.hasItemMeta() && mainHand.getItemMeta().hasDisplayName() &&
-                        mainHand.getItemMeta().getDisplayName().contains(ChatColor.DARK_PURPLE.toString())) {
+                        mainHand.getItemMeta().getDisplayName().contains(ChatColor.GOLD.toString())) {
                     return 6; // Enhanced Netherite
                 }
                 return 4; // Regular Diamond
@@ -283,6 +284,7 @@ public class DropsHandler implements Listener {
 
     /**
      * Cleanup processed mobs that are no longer valid
+     * Enhanced to remove cleanup kill entities from tracking
      * FIXED: This method must run on main thread to avoid async chunk access
      */
     private int cleanupInvalidProcessedMobs() {
@@ -302,6 +304,29 @@ public class DropsHandler implements Listener {
             processedMobs.remove(uuid);
             // Also clean up damage tracking for invalid entities
             mobDamageTracking.remove(uuid);
+        }
+
+        // Also clean up any entities that might have been cleanup kills
+        int cleanupKillsRemoved = 0;
+        try {
+            // Check all worlds for entities marked as cleanup kills and remove them from tracking
+            for (org.bukkit.World world : Bukkit.getWorlds()) {
+                for (LivingEntity entity : world.getLivingEntities()) {
+                    if (isCleanupKill(entity)) {
+                        UUID entityUuid = entity.getUniqueId();
+                        if (processedMobs.remove(entityUuid)) {
+                            cleanupKillsRemoved++;
+                        }
+                        mobDamageTracking.remove(entityUuid);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            // Silent fail for cleanup kill cleanup
+        }
+
+        if (logger.isLoggable(java.util.logging.Level.FINE) && cleanupKillsRemoved > 0) {
+            logger.info("§6[DropsHandler] §7Cleaned up " + cleanupKillsRemoved + " cleanup kill entities from tracking");
         }
 
         return initialSize - processedMobs.size();
@@ -330,7 +355,8 @@ public class DropsHandler implements Listener {
     }
 
     /**
-     * Enhanced mob death handler with better organization
+     * Enhanced mob death handler with cleanup kill detection
+     * FIXED: Skip drop processing for entities killed by cleanup tasks
      */
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onMobDeath(EntityDeathEvent event) {
@@ -342,6 +368,15 @@ public class DropsHandler implements Listener {
 
         // Skip players
         if (entity instanceof Player) {
+            return;
+        }
+
+        // CRITICAL FIX: Skip entities killed by cleanup tasks
+        if (isCleanupKill(entity)) {
+            if (logger.isLoggable(java.util.logging.Level.FINE)) {
+                logger.info("§6[DropsHandler] §7Skipping drop processing for cleanup kill: " + entity.getType() +
+                        " ID: " + entity.getUniqueId().toString().substring(0, 8));
+            }
             return;
         }
 
@@ -364,11 +399,46 @@ public class DropsHandler implements Listener {
     }
 
     /**
-     * Enhanced damage tracking with better performance
+     * CRITICAL FIX: Check if an entity was killed by cleanup tasks
+     * This prevents drop processing for entities killed by MobManager cleanup tasks
+     */
+    private boolean isCleanupKill(LivingEntity entity) {
+        if (entity == null) return false;
+
+        try {
+            // Check for cleanup kill markers set by MobManager
+            boolean hasCleanupMarker = entity.hasMetadata("cleanup_kill") ||
+                    entity.hasMetadata("no_drops") ||
+                    entity.hasMetadata("system_kill");
+
+            if (hasCleanupMarker && logger.isLoggable(java.util.logging.Level.FINE)) {
+                logger.fine("§6[DropsHandler] §7Entity " + entity.getType() +
+                        " marked as cleanup kill - skipping drop processing");
+            }
+
+            return hasCleanupMarker;
+
+        } catch (Exception e) {
+            if (logger.isLoggable(java.util.logging.Level.FINE)) {
+                logger.warning("§c[DropsHandler] Error checking cleanup kill status: " + e.getMessage());
+            }
+            return false;
+        }
+    }
+
+    /**
+     * Enhanced damage tracking with cleanup kill awareness
      */
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onEntityDamage(EntityDamageByEntityEvent event) {
         if (!(event.getEntity() instanceof LivingEntity) || event.getEntity() instanceof Player) {
+            return;
+        }
+
+        LivingEntity entity = (LivingEntity) event.getEntity();
+
+        // Skip damage tracking for entities marked for cleanup
+        if (isCleanupKill(entity)) {
             return;
         }
 
@@ -377,7 +447,7 @@ public class DropsHandler implements Listener {
             return;
         }
 
-        UUID entityUuid = event.getEntity().getUniqueId();
+        UUID entityUuid = entity.getUniqueId();
         UUID playerUuid = damager.getUniqueId();
         double damage = event.getFinalDamage();
 
@@ -408,9 +478,15 @@ public class DropsHandler implements Listener {
 
     /**
      * Marks entity as processed to prevent double drops
+     * Enhanced with cleanup kill detection
      */
     private boolean markAsProcessed(LivingEntity entity) {
         UUID entityUuid = entity.getUniqueId();
+
+        // Skip processing if it's a cleanup kill
+        if (isCleanupKill(entity)) {
+            return false;
+        }
 
         if (processedMobs.contains(entityUuid) || entity.hasMetadata("dropsProcessed")) {
             return false;
@@ -423,8 +499,17 @@ public class DropsHandler implements Listener {
 
     /**
      * Enhanced mob drop handling with better organization
+     * This method is only called for legitimate mob deaths (not cleanup kills)
      */
     private void handleEnhancedMobDrops(LivingEntity entity) {
+        // Double-check that this isn't a cleanup kill (safety measure)
+        if (isCleanupKill(entity)) {
+            if (logger.isLoggable(java.util.logging.Level.WARNING)) {
+                logger.warning("§c[DropsHandler] Cleanup kill detected in handleEnhancedMobDrops - this should not happen!");
+            }
+            return;
+        }
+
         MobAnalysis analysis = analyzeMob(entity);
 
         // Check if this entity should drop items
@@ -512,8 +597,17 @@ public class DropsHandler implements Listener {
 
     /**
      * Enhanced drop decision logic
+     * Only called for legitimate mob deaths (not cleanup kills)
      */
     private boolean shouldDropItems(LivingEntity entity, MobAnalysis analysis) {
+        // Additional safety check
+        if (isCleanupKill(entity)) {
+            if (logger.isLoggable(java.util.logging.Level.WARNING)) {
+                logger.warning("§c[DropsHandler] Cleanup kill reached shouldDropItems - this should not happen!");
+            }
+            return false;
+        }
+
         if (analysis.isWorldBoss()) {
             return true; // World bosses always drop
         }
@@ -804,12 +898,31 @@ public class DropsHandler implements Listener {
         return dropsManager.getDropRate(tier);
     }
 
+    /**
+     * Get enhanced statistics including cleanup kill information
+     */
     public Map<String, Object> getStatistics() {
         Map<String, Object> stats = new HashMap<>();
         stats.put("activeDamageTracking", mobDamageTracking.size());
         stats.put("processedMobs", processedMobs.size());
         stats.put("totalDamageEntries", mobDamageTracking.values().stream()
                 .mapToInt(data -> data.getDamageMap().size()).sum());
+
+        // Count cleanup kills in tracking (for debugging)
+        int cleanupKillsInTracking = 0;
+        try {
+            for (org.bukkit.World world : Bukkit.getWorlds()) {
+                for (LivingEntity entity : world.getLivingEntities()) {
+                    if (isCleanupKill(entity) && processedMobs.contains(entity.getUniqueId())) {
+                        cleanupKillsInTracking++;
+                    }
+                }
+            }
+        } catch (Exception e) {
+            // Silent fail
+        }
+
+        stats.put("cleanupKillsInTracking", cleanupKillsInTracking);
         return stats;
     }
 }

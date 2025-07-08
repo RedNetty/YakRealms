@@ -499,7 +499,7 @@ public class CrateFactory {
 
         if (isHalloween) {
             lore.add(ChatColor.GOLD + "🎃 Halloween Bonus Rewards");
-            lore.add(ChatColor.DARK_PURPLE + "Enhanced with spooky magic!");
+            lore.add(ChatColor.GOLD + "Enhanced with spooky magic!");
         }
 
         lore.add("");

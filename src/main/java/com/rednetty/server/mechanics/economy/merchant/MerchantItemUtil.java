@@ -53,6 +53,10 @@ public class MerchantItemUtil {
                 // Axes
                 Material.WOODEN_AXE, Material.STONE_AXE, Material.IRON_AXE,
                 Material.GOLDEN_AXE, Material.DIAMOND_AXE, Material.NETHERITE_AXE,
+                Material.WOODEN_HOE, Material.STONE_HOE, Material.IRON_HOE,
+                Material.GOLDEN_HOE, Material.DIAMOND_HOE, Material.NETHERITE_HOE,
+                Material.WOODEN_SHOVEL, Material.STONE_SHOVEL, Material.IRON_SHOVEL,
+                Material.GOLDEN_SHOVEL, Material.DIAMOND_SHOVEL, Material.NETHERITE_SHOVEL,
                 // Ranged weapons
                 Material.BOW, Material.CROSSBOW, Material.TRIDENT
         ));
@@ -83,13 +87,15 @@ public class MerchantItemUtil {
         // Soulbound/untradeable keywords
         SOULBOUND_KEYWORDS.addAll(Arrays.asList(
                 "soulbound", "untradeable", "bound", "cannot be traded",
-                "personal", "account bound", "character bound"
+                "personal", "account bound", "character bound", "soul bound",
+                "not tradeable", "no trade", "untrade"
         ));
 
         // Specific item names that cannot be traded
         BLACKLISTED_ITEMS.addAll(Arrays.asList(
                 "admin", "staff", "moderator", "owner", "console",
-                "creative", "debug", "test", "gm", "gamemaster"
+                "creative", "debug", "test", "gm", "gamemaster",
+                "dev", "developer", "op", "operator"
         ));
     }
 
@@ -111,6 +117,21 @@ public class MerchantItemUtil {
 
         // Check for soulbound/untradeable lore
         if (hasSoulboundLore(item)) {
+            return false;
+        }
+
+        // Check if the item type is enabled in configuration
+        MerchantConfig config = MerchantConfig.getInstance();
+        if (isOre(item) && !config.isOresAllowed()) {
+            return false;
+        }
+        if (isWeapon(item) && !config.isWeaponsAllowed()) {
+            return false;
+        }
+        if (isArmor(item) && !config.isArmorAllowed()) {
+            return false;
+        }
+        if (isOrbOfAlteration(item) && !config.isOrbsAllowed()) {
             return false;
         }
 
@@ -278,39 +299,7 @@ public class MerchantItemUtil {
      * @return The ore tier (0 if not an ore)
      */
     public static int getOreTier(Material material) {
-        switch (material) {
-            case COAL_ORE:
-            case DEEPSLATE_COAL_ORE:
-                return 1;
-            case COPPER_ORE:
-            case DEEPSLATE_COPPER_ORE:
-                return 2;
-            case IRON_ORE:
-            case DEEPSLATE_IRON_ORE:
-                return 3;
-            case GOLD_ORE:
-            case DEEPSLATE_GOLD_ORE:
-            case NETHER_GOLD_ORE:
-                return 4;
-            case REDSTONE_ORE:
-            case DEEPSLATE_REDSTONE_ORE:
-                return 5;
-            case LAPIS_ORE:
-            case DEEPSLATE_LAPIS_ORE:
-                return 6;
-            case DIAMOND_ORE:
-            case DEEPSLATE_DIAMOND_ORE:
-                return 7;
-            case EMERALD_ORE:
-            case DEEPSLATE_EMERALD_ORE:
-                return 8;
-            case NETHER_QUARTZ_ORE:
-                return 6;
-            case ANCIENT_DEBRIS:
-                return 10;
-            default:
-                return 0;
-        }
+        return MerchantConfig.getInstance().getOreTier(material.name());
     }
 
     /**
@@ -384,6 +373,24 @@ public class MerchantItemUtil {
             return "This item is not allowed to be traded";
         }
 
+        MerchantConfig config = MerchantConfig.getInstance();
+
+        if (isOre(item) && !config.isOresAllowed()) {
+            return "Ore trading is currently disabled";
+        }
+
+        if (isWeapon(item) && !config.isWeaponsAllowed()) {
+            return "Weapon trading is currently disabled";
+        }
+
+        if (isArmor(item) && !config.isArmorAllowed()) {
+            return "Armor trading is currently disabled";
+        }
+
+        if (isOrbOfAlteration(item) && !config.isOrbsAllowed()) {
+            return "Orb trading is currently disabled";
+        }
+
         if (!isTradeableMaterial(item.getType())) {
             return "This type of item cannot be traded with the merchant";
         }
@@ -403,6 +410,35 @@ public class MerchantItemUtil {
         allTradeable.addAll(TRADEABLE_ARMOR);
         allTradeable.add(Material.MAGMA_CREAM); // Orb of Alteration
         return Collections.unmodifiableSet(allTradeable);
+    }
+
+    /**
+     * Generate a deterministic hash for an item to ensure consistent variation
+     * This ensures that the same item always has the same "random" variation
+     *
+     * @param item The item to hash
+     * @return A deterministic hash value
+     */
+    public static int generateItemHash(ItemStack item) {
+        if (item == null) return 0;
+
+        int hash = item.getType().ordinal();
+
+        if (item.hasItemMeta()) {
+            ItemMeta meta = item.getItemMeta();
+            if (meta.hasDisplayName()) {
+                hash = hash * 31 + meta.getDisplayName().hashCode();
+            }
+            if (meta.hasLore()) {
+                hash = hash * 31 + meta.getLore().hashCode();
+            }
+            if (meta.hasEnchants()) {
+                hash = hash * 31 + meta.getEnchants().hashCode();
+            }
+        }
+
+        // Make sure hash is positive
+        return Math.abs(hash);
     }
 
     /**

@@ -1020,7 +1020,7 @@ public class CombatMechanics implements Listener {
             return 2;
         } else if (name.contains(ChatColor.BLUE.toString())) {
             return 3;
-        } else if (name.contains(ChatColor.DARK_PURPLE.toString())) {
+        } else if (name.contains(ChatColor.GOLD.toString())) {
             return 4;
         } else if (name.contains(ChatColor.GOLD.toString())) {
             return 5;

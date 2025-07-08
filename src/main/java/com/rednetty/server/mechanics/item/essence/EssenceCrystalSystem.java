@@ -81,7 +81,7 @@ public class EssenceCrystalSystem implements Listener {
         INTELLECT("INT", ChatColor.AQUA, "🧠"),
         VITALITY("VIT", ChatColor.DARK_GREEN, "🌿"),
         DEXTERITY("DEX", ChatColor.YELLOW, "🏃"),
-        CRITICAL_HIT("CRITICAL HIT", ChatColor.DARK_PURPLE, "💥"),
+        CRITICAL_HIT("CRITICAL HIT", ChatColor.GOLD, "💥"),
         LIFE_STEAL("LIFE STEAL", ChatColor.DARK_RED, "🩸"),
         ACCURACY("ACCURACY", ChatColor.WHITE, "🎯"),
         DODGE("DODGE", ChatColor.LIGHT_PURPLE, "💨"),
@@ -140,7 +140,7 @@ public class EssenceCrystalSystem implements Listener {
         ItemStack extractor = new ItemStack(Material.GHAST_TEAR);
         ItemMeta meta = extractor.getItemMeta();
 
-        meta.setDisplayName(ChatColor.DARK_PURPLE + "⚗ " + ChatColor.BOLD + "Essence Extractor" + ChatColor.RESET + " ⚗");
+        meta.setDisplayName(ChatColor.GOLD + "⚗ " + ChatColor.BOLD + "Essence Extractor" + ChatColor.RESET + " ⚗");
 
         List<String> lore = Arrays.asList(
                 "",
@@ -152,7 +152,7 @@ public class EssenceCrystalSystem implements Listener {
                 ChatColor.YELLOW + "Usage: Click on any enhanced item",
                 ChatColor.AQUA + "Price: " + ChatColor.WHITE + "1,500g",
                 "",
-                ChatColor.DARK_PURPLE + "✨ " + ChatColor.ITALIC + "Channel the essence within..."
+                ChatColor.GOLD + "✨ " + ChatColor.ITALIC + "Channel the essence within..."
         );
         meta.setLore(lore);
 

@@ -24,21 +24,21 @@ public class MerchantConfig {
 
     // Configuration values with defaults
     private boolean enabled = true;
-    private boolean debugMode = false;
+    private boolean debugMode = true; // Temporarily enabled for testing
     private double donorMultiplier = 1.2;
     private double staffMultiplier = 1.2;
-    private int updateIntervalTicks = 5;
+    private int updateIntervalTicks = 20; // Changed to 20 ticks (1 second) instead of 5
     private boolean allowOres = true;
     private boolean allowWeapons = true;
     private boolean allowArmor = true;
     private boolean allowOrbs = true;
-    private double baseOreValue = 20.0;
+    private double baseOreValue = 3.0; // Reduced from 20.0 to 3.0
     private double oreMultiplier = 1.23;
-    private int orbValue = 500;
-    private double weaponArmorBaseMultiplier = 12.0;
+    private int orbValue = 100; // Reduced from 500 to 100
+    private double weaponArmorBaseMultiplier = 1.5; // Reduced from 5.0 to 1.5
     private double rarityBonusReduction = 0.25;
-    private double randomVariationMin = 0.1; // 10%
-    private double randomVariationMax = 0.3; // 30%
+    private double randomVariationMin = 0.05; // Reduced from 0.1 to 0.05 (5%)
+    private double randomVariationMax = 0.15; // Reduced from 0.3 to 0.15 (15%)
 
     // Ore tier values
     private final Map<String, Integer> oreTiers = new HashMap<>();
@@ -201,18 +201,18 @@ public class MerchantConfig {
                 "General merchant system settings",
                 "enabled: Whether the merchant system is active",
                 "debug-mode: Enable debug logging for troubleshooting",
-                "update-interval-ticks: How often to update the value display (lower = more responsive)"
+                "update-interval-ticks: How often to update the value display (20 = 1 second)"
         ));
 
         config.setComments("multipliers", java.util.Arrays.asList(
                 "Value calculation multipliers",
                 "donor-bonus: Multiplier for donors (1.2 = 20% bonus)",
                 "staff-bonus: Multiplier for staff members",
-                "ore-base-value: Base value for ore calculations",
-                "ore-multiplier: Additional multiplier applied to ore values",
-                "weapon-armor-base: Base multiplier for weapons and armor",
+                "ore-base-value: Base value for ore calculations (linear: base * tier)",
+                "ore-multiplier: Additional multiplier applied to ore values (UNUSED in current version)",
+                "weapon-armor-base: Base multiplier for weapons and armor (linear: base * tier)",
                 "rarity-bonus-reduction: How much to reduce rarity bonus (0.25 = 25% reduction)",
-                "random-variation-min/max: Random variation range for item values"
+                "random-variation-min/max: Random variation range for item values (deterministic per item)"
         ));
 
         config.setComments("item-types", java.util.Arrays.asList(
@@ -278,6 +278,11 @@ public class MerchantConfig {
             logger.info("Merchant config loaded with debug mode enabled");
             logger.info("Donor multiplier: " + donorMultiplier);
             logger.info("Staff multiplier: " + staffMultiplier);
+            logger.info("Update interval: " + updateIntervalTicks + " ticks");
+            logger.info("Ore base value: " + baseOreValue + " (per tier)");
+            logger.info("Weapon/Armor base: " + weaponArmorBaseMultiplier + " (per tier)");
+            logger.info("Price ranges - Ores: " + (int)(baseOreValue * 1) + "-" + (int)(baseOreValue * 10) + " gems per ore");
+            logger.info("Price ranges - Items: " + (int)(weaponArmorBaseMultiplier * 10) + "-" + (int)(weaponArmorBaseMultiplier * 60) + " gems (before rarity/variation)");
             logger.info("Loaded " + oreTiers.size() + " ore tiers");
             logger.info("Loaded " + materialTiers.size() + " material tiers");
             logger.info("Loaded " + rarityMultipliers.size() + " rarity multipliers");
@@ -449,15 +454,28 @@ public class MerchantConfig {
             needsSave = true;
         }
 
-        if (updateIntervalTicks < 1 || updateIntervalTicks > 100) {
-            logger.warning("Invalid update interval: " + updateIntervalTicks + ", resetting to 5");
-            updateIntervalTicks = 5;
+        if (updateIntervalTicks < 10 || updateIntervalTicks > 200) {
+            logger.warning("Invalid update interval: " + updateIntervalTicks + ", resetting to 20");
+            updateIntervalTicks = 20;
             needsSave = true;
         }
 
         if (orbValue < 0) {
             logger.warning("Invalid orb value: " + orbValue + ", resetting to 500");
             orbValue = 500;
+            needsSave = true;
+        }
+
+        // Validate random variation ranges
+        if (randomVariationMin < 0.0 || randomVariationMin > 0.5) {
+            logger.warning("Invalid random variation min: " + randomVariationMin + ", resetting to 0.05");
+            randomVariationMin = 0.05;
+            needsSave = true;
+        }
+
+        if (randomVariationMax < randomVariationMin || randomVariationMax > 1.0) {
+            logger.warning("Invalid random variation max: " + randomVariationMax + ", resetting to 0.15");
+            randomVariationMax = 0.15;
             needsSave = true;
         }
 

@@ -758,7 +758,8 @@ public class MagicStaff implements Listener {
         STONE(Material.STONE_HOE, 8, 0.0f, 1.0f, 0.0f),    // Green
         IRON(Material.IRON_HOE, 9, 0.0f, 1.0f, 1.0f),      // Aqua
         DIAMOND(Material.DIAMOND_HOE, 10, 0.0f, 0.0f, 0.5f), // Navy
-        GOLD(Material.GOLDEN_HOE, 11, 1.0f, 1.0f, 0.0f);   // Yellow
+        GOLD(Material.GOLDEN_HOE, 11, 1.0f, 1.0f, 0.0f),   // Yellow
+        NETHERITE(Material.NETHERITE_HOE, 15, .855f, .647f, 0.125f);   // Yellow
 
         private final Material material;
         private final int energyCost;

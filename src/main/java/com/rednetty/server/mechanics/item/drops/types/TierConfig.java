@@ -60,7 +60,7 @@ public class TierConfig {
                 config.getMaterials().put("armor", "GOLDEN");
                 break;
             case 6:
-                config.setColor(ChatColor.DARK_PURPLE);
+                config.setColor(ChatColor.GOLD);
                 config.setDropRate(25);
                 config.setEliteDropRate(30);
                 config.setCrateDropRate(1);
