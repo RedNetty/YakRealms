@@ -87,6 +87,9 @@ public class PlayerListenerManager {
         listeners.add(worldListener);
         listeners.add(tradeListener);
 
+
+        tradeListener.setTradeManager(YakRealms.getInstance().getTradeManager());
+
         // Register each listener
         for (BaseListener listener : listeners) {
             pm.registerEvents(listener, plugin);
