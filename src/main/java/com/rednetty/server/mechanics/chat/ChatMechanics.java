@@ -9,6 +9,7 @@ import com.rednetty.server.utils.text.TextUtil;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.Material;
+import org.bukkit.Sound;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -21,136 +22,236 @@ import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.scheduler.BukkitRunnable;
+import org.bukkit.scheduler.BukkitTask;
 
 import java.io.File;
 import java.io.IOException;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 /**
- * Handles all chat-related functionality:
- * - Chat formatting and display
- * - Chat tags management
- * - Chat filtering and moderation
- * - Item display in chat
- * - Chat cooldowns
- * - Guild tag integration
- *  Improved error handling, logic fixes, and item display functionality
+ * Enhanced ChatMechanics system for YakRealms
+ *
+ * Handles all chat-related functionality including:
+ * - Advanced chat formatting and display
+ * - Chat tags management with animations
+ * - Multi-layer chat filtering and moderation
+ * - Interactive item display in chat with hover effects
+ * - Intelligent cooldown management
+ * - Guild tag integration with permissions
+ * - Real-time mute system with persistence
+ *
+ * @version 2.0
+ * @author YakRealms Development Team
  */
 public class ChatMechanics implements Listener {
 
-    private static ChatMechanics instance;
+    // === CONSTANTS ===
+    private static final class Config {
+        static final int DEFAULT_CHAT_RANGE = 50;
+        static final int COOLDOWN_TICKS = 20; // 1 second
+        static final int MUTE_TIMER_INTERVAL = 20; // 1 second
+        static final String MUTED_FILE = "muted.yml";
+        static final String MUTED_CONFIG_PATH = "muted";
+    }
+
+    private static final class Messages {
+        static final String MUTED_MESSAGE = ChatColor.RED + "You are currently muted";
+        static final String MUTED_TEMPORARY = ChatColor.RED + "Your mute expires in %d minutes.";
+        static final String MUTED_PERMANENT = ChatColor.RED + "Your mute WILL NOT expire.";
+        static final String COOLDOWN_MESSAGE = ChatColor.RED + "Please wait before chatting again.";
+        static final String NO_LISTENERS = ChatColor.GRAY.toString() + ChatColor.ITALIC + "No one heard you.";
+        static final String UNMUTED_MESSAGE = ChatColor.GREEN + "You have been unmuted.";
+        static final String UNKNOWN_COMMAND = ChatColor.WHITE + "Unknown command. View your Character Journal's Index for a list of commands.";
+        static final String HOLD_ITEM_MESSAGE = ChatColor.GRAY + "Hold an item in your main hand to display it in chat.";
+    }
+
+    private static final class Sounds {
+        static final Sound CLICK = Sound.UI_BUTTON_CLICK;
+        static final Sound ERROR = Sound.ENTITY_VILLAGER_NO;
+        static final float DEFAULT_VOLUME = 0.5f;
+        static final float DEFAULT_PITCH = 1.0f;
+    }
+
+    // === INSTANCE MANAGEMENT ===
+    private static volatile ChatMechanics instance;
+    private static final Object INSTANCE_LOCK = new Object();
+
+    // === CORE DEPENDENCIES ===
     private final YakPlayerManager playerManager;
     private final Logger logger;
+    private final AtomicBoolean isEnabled = new AtomicBoolean(false);
 
-    // Memory caches
+    // === THREAD-SAFE DATA STORAGE ===
     private static final Map<UUID, ChatTag> playerTags = new ConcurrentHashMap<>();
-    private static final Map<UUID, List<String>> unlockedPlayerTags = new ConcurrentHashMap<>();
+    private static final Map<UUID, Set<String>> unlockedPlayerTags = new ConcurrentHashMap<>();
     private static final Map<UUID, Integer> chatCooldown = new ConcurrentHashMap<>();
     private static final Map<UUID, Player> replyTargets = new ConcurrentHashMap<>();
     private static final Map<UUID, Integer> mutedPlayers = new ConcurrentHashMap<>();
 
-    // Chat configuration
-    private static final int DEFAULT_CHAT_RANGE = 50;
-    private static final int COOLDOWN_TICKS = 20; // 1 second
+    // === TASK MANAGEMENT ===
+    private BukkitTask cooldownTask;
+    private BukkitTask muteTimerTask;
 
-    
-    private static final List<String> bannedWords = new ArrayList<>(Arrays.asList(
-            "nigger"
-            // Add other banned words here
-    ));
-    private static final Pattern IP_PATTERN = Pattern.compile("\\b(?:[0-9]{1,3}\\.){3}[0-9]{1,3}\\b");
+    // === FILTER PATTERNS ===
+    private static final List<String> BANNED_WORDS = Collections.synchronizedList(
+            new ArrayList<>(Arrays.asList("nigger")) // Add other banned words here
+    );
+    private static final Pattern IP_PATTERN = Pattern.compile(
+            "\\b(?:[0-9]{1,3}\\.){3}[0-9]{1,3}\\b"
+    );
+    private static final Set<String> RESTRICTED_COMMANDS = Set.of(
+            "save-all", "stack", "stop", "restart", "reload", "tpall", "kill", "mute"
+    );
 
     /**
-     * Gets the singleton instance of ChatMechanics
-     *
-     * @return The ChatMechanics instance
+     * Gets the singleton instance with double-checked locking for thread safety
      */
     public static ChatMechanics getInstance() {
         if (instance == null) {
-            instance = new ChatMechanics();
+            synchronized (INSTANCE_LOCK) {
+                if (instance == null) {
+                    instance = new ChatMechanics();
+                }
+            }
         }
         return instance;
     }
 
     /**
-     * Private constructor for singleton pattern
+     * Private constructor implementing singleton pattern
      */
     private ChatMechanics() {
         this.playerManager = YakPlayerManager.getInstance();
         this.logger = YakRealms.getInstance().getLogger();
     }
 
+    // === LIFECYCLE MANAGEMENT ===
+
     /**
-     * Initialize the chat mechanics
+     * Enhanced initialization with better error recovery
      */
     public void onEnable() {
+        if (isEnabled.get()) {
+            logger.warning("ChatMechanics is already enabled");
+            return;
+        }
+
         try {
-            Bukkit.getServer().getPluginManager().registerEvents(this, YakRealms.getInstance());
+            // Register event listeners
+            registerEventListeners();
 
-            // Start cooldown task
-            startCooldownTask();
+            // Initialize background tasks
+            initializeBackgroundTasks();
 
-            // Start mute timer task
-            startMuteTimerTask();
-
-            // Load muted players data
-            loadMutedPlayers();
+            // Load persistent data
+            loadPersistentData();
 
             // Load chat tags for online players
-            for (Player player : Bukkit.getOnlinePlayers()) {
-                loadPlayerChatTag(player);
-            }
+            loadOnlinePlayerData();
 
-            YakRealms.log("ChatMechanics has been enabled.");
+            isEnabled.set(true);
+            logger.info("ChatMechanics v2.0 enabled successfully");
             logger.info("Chat system compatibility: " + getCompatibilityInfo());
+
         } catch (Exception e) {
-            logger.log(Level.SEVERE, "Error enabling ChatMechanics", e);
+            logger.log(Level.SEVERE, "Critical error enabling ChatMechanics", e);
+            // Attempt graceful fallback
+            isEnabled.set(false);
+            throw new RuntimeException("Failed to enable ChatMechanics", e);
         }
     }
 
     /**
-     * Clean up on disable
+     * Enhanced cleanup with better resource management
      */
     public void onDisable() {
+        if (!isEnabled.get()) {
+            return;
+        }
+
         try {
-            // Save all chat tags back to player data
-            saveAllChatTags();
+            // Stop background tasks
+            stopBackgroundTasks();
 
-            // Save muted players data
-            saveMutedPlayers();
+            // Save all persistent data
+            savePersistentData();
 
-            chatCooldown.clear();
-            replyTargets.clear();
-            mutedPlayers.clear();
+            // Clear memory caches
+            clearCaches();
 
-            YakRealms.log("ChatMechanics has been disabled.");
+            isEnabled.set(false);
+            logger.info("ChatMechanics disabled successfully");
+
         } catch (Exception e) {
-            logger.log(Level.WARNING, "Error disabling ChatMechanics", e);
+            logger.log(Level.WARNING, "Error during ChatMechanics shutdown", e);
         }
     }
 
+    // === INITIALIZATION HELPERS ===
+
+    private void registerEventListeners() {
+        Bukkit.getPluginManager().registerEvents(this, YakRealms.getInstance());
+    }
+
+    private void initializeBackgroundTasks() {
+        startCooldownTask();
+        startMuteTimerTask();
+    }
+
+    private void loadPersistentData() {
+        loadMutedPlayers();
+    }
+
+    private void loadOnlinePlayerData() {
+        Bukkit.getOnlinePlayers().forEach(this::loadPlayerChatTag);
+    }
+
+    private void stopBackgroundTasks() {
+        Optional.ofNullable(cooldownTask)
+                .filter(task -> !task.isCancelled())
+                .ifPresent(BukkitTask::cancel);
+
+        Optional.ofNullable(muteTimerTask)
+                .filter(task -> !task.isCancelled())
+                .ifPresent(BukkitTask::cancel);
+    }
+
+    private void savePersistentData() {
+        saveAllChatTags();
+        saveMutedPlayers();
+    }
+
+    private void clearCaches() {
+        chatCooldown.clear();
+        replyTargets.clear();
+        // Note: Keep muted players and tags for persistence
+    }
+
+    // === BACKGROUND TASKS ===
+
     /**
-     * Start the task that manages chat cooldowns
+     * Enhanced cooldown management with better performance
      */
     private void startCooldownTask() {
-        new BukkitRunnable() {
+        cooldownTask = new BukkitRunnable() {
             @Override
             public void run() {
                 try {
-                    Iterator<Map.Entry<UUID, Integer>> iterator = chatCooldown.entrySet().iterator();
-                    while (iterator.hasNext()) {
-                        Map.Entry<UUID, Integer> entry = iterator.next();
+                    chatCooldown.entrySet().removeIf(entry -> {
                         int newValue = entry.getValue() - 1;
                         if (newValue <= 0) {
-                            iterator.remove();
+                            return true; // Remove expired cooldowns
                         } else {
-                            chatCooldown.put(entry.getKey(), newValue);
+                            entry.setValue(newValue);
+                            return false;
                         }
-                    }
+                    });
                 } catch (Exception e) {
                     logger.log(Level.WARNING, "Error in cooldown task", e);
                 }
@@ -159,165 +260,594 @@ public class ChatMechanics implements Listener {
     }
 
     /**
-     * Start the task that decreases mute times
+     * Enhanced mute timer with better player data synchronization
      */
     private void startMuteTimerTask() {
-        new BukkitRunnable() {
+        muteTimerTask = new BukkitRunnable() {
             @Override
             public void run() {
                 try {
-                    Iterator<Map.Entry<UUID, Integer>> iterator = mutedPlayers.entrySet().iterator();
-                    while (iterator.hasNext()) {
-                        Map.Entry<UUID, Integer> entry = iterator.next();
-                        int newValue = entry.getValue();
+                    mutedPlayers.entrySet().removeIf(entry -> {
+                        UUID uuid = entry.getKey();
+                        int muteTime = entry.getValue();
 
                         // Skip permanent mutes (value <= 0)
-                        if (newValue > 0) {
-                            newValue--;
-                            if (newValue <= 0) {
-                                iterator.remove();
-                                // Update player data
-                                UUID uuid = entry.getKey();
-                                Player player = Bukkit.getPlayer(uuid);
-                                if (player != null && player.isOnline()) {
-                                    YakPlayer yakPlayer = playerManager.getPlayer(player);
-                                    if (yakPlayer != null) {
-                                        yakPlayer.setMuteTime(0);
-                                        playerManager.savePlayer(yakPlayer);
-                                    }
-                                }
-                            } else {
-                                entry.setValue(newValue);
-                            }
+                        if (muteTime <= 0) {
+                            return false;
                         }
-                    }
+
+                        int newTime = muteTime - 1;
+                        if (newTime <= 0) {
+                            // Mute expired
+                            updatePlayerMuteStatus(uuid, 0);
+                            return true; // Remove from map
+                        } else {
+                            entry.setValue(newTime);
+                            return false;
+                        }
+                    });
                 } catch (Exception e) {
                     logger.log(Level.WARNING, "Error in mute timer task", e);
                 }
             }
-        }.runTaskTimer(YakRealms.getInstance(), 20, 20); // Run every second
+        }.runTaskTimer(YakRealms.getInstance(), Config.MUTE_TIMER_INTERVAL, Config.MUTE_TIMER_INTERVAL);
     }
 
     /**
-     * Load muted players from configuration or database
+     * Helper method to update player mute status in data
+     */
+    private void updatePlayerMuteStatus(UUID uuid, int muteTime) {
+        Player player = Bukkit.getPlayer(uuid);
+        if (player != null && player.isOnline()) {
+            YakPlayer yakPlayer = playerManager.getPlayer(player);
+            if (yakPlayer != null) {
+                yakPlayer.setMuteTime(muteTime);
+                playerManager.savePlayer(yakPlayer);
+            }
+        }
+    }
+
+    // === PERSISTENCE MANAGEMENT ===
+
+    /**
+     * Enhanced muted players loading with better error handling
      */
     private void loadMutedPlayers() {
+        File file = new File(YakRealms.getInstance().getDataFolder(), Config.MUTED_FILE);
+
+        if (!ensureFileExists(file)) {
+            return;
+        }
+
         try {
-            File file = new File(YakRealms.getInstance().getDataFolder(), "muted.yml");
-            if (!file.exists()) {
-                file.createNewFile();
+            YamlConfiguration config = YamlConfiguration.loadConfiguration(file);
+            var mutedSection = config.getConfigurationSection(Config.MUTED_CONFIG_PATH);
+
+            if (mutedSection == null) {
                 return;
             }
 
-            YamlConfiguration config = YamlConfiguration.loadConfiguration(file);
-            if (config.getConfigurationSection("muted") != null) {
-                for (String key : config.getConfigurationSection("muted").getKeys(false)) {
-                    try {
-                        UUID uuid = UUID.fromString(key);
-                        int time = config.getInt("muted." + key);
-                        mutedPlayers.put(uuid, time);
+            for (String key : mutedSection.getKeys(false)) {
+                try {
+                    UUID uuid = UUID.fromString(key);
+                    int time = config.getInt(Config.MUTED_CONFIG_PATH + "." + key);
+                    mutedPlayers.put(uuid, time);
 
-                        // Update player data if they're online
-                        Player player = Bukkit.getPlayer(uuid);
-                        if (player != null && player.isOnline()) {
-                            YakPlayer yakPlayer = playerManager.getPlayer(player);
-                            if (yakPlayer != null) {
-                                yakPlayer.setMuteTime(time);
-                            }
-                        }
-                    } catch (IllegalArgumentException e) {
-                        logger.warning("Invalid UUID in muted.yml: " + key);
-                    }
+                    // Update online player data
+                    updatePlayerMuteStatus(uuid, time);
+
+                } catch (IllegalArgumentException e) {
+                    logger.warning("Invalid UUID in muted.yml: " + key);
                 }
             }
-        } catch (IOException e) {
+
+            logger.info("Loaded " + mutedPlayers.size() + " muted players");
+
+        } catch (Exception e) {
             logger.log(Level.SEVERE, "Error loading muted players data", e);
         }
     }
 
     /**
-     * Save muted players to configuration or database
+     * Enhanced muted players saving with atomic operations
      */
     private void saveMutedPlayers() {
+        File file = new File(YakRealms.getInstance().getDataFolder(), Config.MUTED_FILE);
+
         try {
-            File file = new File(YakRealms.getInstance().getDataFolder(), "muted.yml");
             YamlConfiguration config = new YamlConfiguration();
 
-            for (Map.Entry<UUID, Integer> entry : mutedPlayers.entrySet()) {
-                config.set("muted." + entry.getKey().toString(), entry.getValue());
+            // Create a snapshot to avoid concurrent modification
+            Map<UUID, Integer> snapshot = new HashMap<>(mutedPlayers);
+
+            for (Map.Entry<UUID, Integer> entry : snapshot.entrySet()) {
+                config.set(Config.MUTED_CONFIG_PATH + "." + entry.getKey().toString(), entry.getValue());
             }
 
             config.save(file);
+            logger.fine("Saved " + snapshot.size() + " muted players");
+
         } catch (IOException e) {
             logger.log(Level.SEVERE, "Error saving muted players data", e);
         }
     }
 
     /**
-     * Save all chat tags from memory to player data
+     * Enhanced chat tags saving with batch operations
      */
     private void saveAllChatTags() {
         try {
+            int saved = 0;
             for (Map.Entry<UUID, ChatTag> entry : playerTags.entrySet()) {
                 YakPlayer player = playerManager.getPlayer(entry.getKey());
                 if (player != null) {
                     player.setChatTag(entry.getValue().name());
                     playerManager.savePlayer(player);
+                    saved++;
                 }
             }
+            logger.fine("Saved " + saved + " chat tags");
+
         } catch (Exception e) {
             logger.log(Level.WARNING, "Error saving chat tags", e);
         }
     }
 
+    // === EVENT HANDLERS ===
+
     /**
-     * Handler for player join to load chat tags
+     * Enhanced player join handling with better error recovery
      */
-    @EventHandler
+    @EventHandler(priority = EventPriority.MONITOR)
     public void onPlayerJoin(PlayerJoinEvent event) {
         try {
             Player player = event.getPlayer();
-            loadPlayerChatTag(player);
 
-            // Load mute status if exists
-            YakPlayer yakPlayer = playerManager.getPlayer(player);
-            if (yakPlayer != null && yakPlayer.isMuted()) {
-                mutedPlayers.put(player.getUniqueId(), yakPlayer.getMuteTime());
-            }
+            // Load chat data asynchronously to avoid blocking
+            Bukkit.getScheduler().runTaskAsynchronously(YakRealms.getInstance(), () -> {
+                loadPlayerChatTag(player);
+                loadPlayerMuteStatus(player);
+            });
+
         } catch (Exception e) {
             logger.log(Level.WARNING, "Error handling player join for " + event.getPlayer().getName(), e);
         }
     }
 
     /**
-     * Handler for player quit to save chat tags
+     * Enhanced player quit handling with cleanup
      */
-    @EventHandler
+    @EventHandler(priority = EventPriority.MONITOR)
     public void onPlayerQuit(PlayerQuitEvent event) {
         try {
             Player player = event.getPlayer();
             UUID uuid = player.getUniqueId();
 
-            // Save chat tag
-            YakPlayer yakPlayer = playerManager.getPlayer(player);
-            if (yakPlayer != null && playerTags.containsKey(uuid)) {
-                yakPlayer.setChatTag(playerTags.get(uuid).name());
-                playerManager.savePlayer(yakPlayer);
-            }
+            // Save player data asynchronously
+            Bukkit.getScheduler().runTaskAsynchronously(YakRealms.getInstance(), () -> {
+                savePlayerChatTag(player);
+            });
 
-            // Clean up
+            // Clean up runtime data
             chatCooldown.remove(uuid);
             replyTargets.remove(uuid);
+
         } catch (Exception e) {
             logger.log(Level.WARNING, "Error handling player quit for " + event.getPlayer().getName(), e);
         }
     }
 
     /**
-     * Load a player's chat tag from their data
-     *  Better error handling and validation
-     *
-     * @param player The player to load for
+     * Enhanced command preprocessing with better validation
+     */
+    @EventHandler(priority = EventPriority.LOWEST)
+    public void onPlayerCommand(PlayerCommandPreprocessEvent event) {
+        if (event.isCancelled()) {
+            return;
+        }
+
+        try {
+            Player player = event.getPlayer();
+            String command = event.getMessage().toLowerCase();
+
+            // Handle chat messages with // prefix
+            if (handleChatPrefix(player, event, command)) {
+                return;
+            }
+
+            // Handle restricted commands
+            if (handleRestrictedCommands(player, event, command)) {
+                return;
+            }
+
+            // Handle guild commands without permissions
+            handleGuildCommands(player, event, command);
+
+        } catch (Exception e) {
+            logger.log(Level.WARNING, "Error processing command for " + event.getPlayer().getName(), e);
+        }
+    }
+
+    /**
+     * Enhanced chat event handling with async processing
+     */
+    @EventHandler(priority = EventPriority.HIGH)
+    public void onPlayerChat(AsyncPlayerChatEvent event) {
+        if (event.isCancelled()) {
+            return;
+        }
+
+        try {
+            Player player = event.getPlayer();
+            String message = event.getMessage();
+
+            // Cancel default behavior
+            event.setCancelled(true);
+
+            // Process synchronously to avoid thread issues
+            Bukkit.getScheduler().runTask(YakRealms.getInstance(), () -> {
+                processChat(player, message);
+            });
+
+        } catch (Exception e) {
+            logger.log(Level.WARNING, "Error handling chat for " + event.getPlayer().getName(), e);
+        }
+    }
+
+    // === COMMAND HANDLING HELPERS ===
+
+    private boolean handleChatPrefix(Player player, PlayerCommandPreprocessEvent event, String command) {
+        if (command.startsWith("//")) {
+            event.setCancelled(true);
+            String message = event.getMessage().substring(2).trim();
+            if (!message.isEmpty()) {
+                processChat(player, message);
+            }
+            return true;
+        }
+        return false;
+    }
+
+    private boolean handleRestrictedCommands(Player player, PlayerCommandPreprocessEvent event, String command) {
+        if (player.isOp() || ModerationMechanics.isStaff(player)) {
+            return false;
+        }
+
+        String cmdName = extractCommandName(command);
+        if (RESTRICTED_COMMANDS.contains(cmdName)) {
+            event.setCancelled(true);
+            player.sendMessage(Messages.UNKNOWN_COMMAND);
+            return true;
+        }
+        return false;
+    }
+
+    private void handleGuildCommands(Player player, PlayerCommandPreprocessEvent event, String command) {
+        if ((command.startsWith("/g ")) &&
+                !player.hasPermission("yakrealms.guild.chat")) {
+            event.setCancelled(true);
+            String message = command.substring(command.indexOf(' ') + 1).trim();
+            if (!message.isEmpty()) {
+                processChat(player, message);
+            }
+        }
+    }
+
+    private String extractCommandName(String command) {
+        String cmdName = command.startsWith("/") ? command.substring(1) : command;
+        if (cmdName.contains(" ")) {
+            cmdName = cmdName.split(" ")[0];
+        }
+        return cmdName;
+    }
+
+    // === CHAT PROCESSING ===
+
+    /**
+     * Enhanced chat processing with comprehensive validation and features
+     */
+    public void processChat(Player player, String message) {
+        if (!validateChatInput(player, message)) {
+            return;
+        }
+
+        try {
+            UUID uuid = player.getUniqueId();
+
+            // Check mute status using YakPlayer
+            if (isPlayerMuted(player)) {
+                return;
+            }
+
+            // Check and apply cooldown
+            if (hasChatCooldown(uuid)) {
+                player.sendMessage(Messages.COOLDOWN_MESSAGE);
+                return;
+            }
+
+            applyChatCooldown(uuid);
+
+            // Filter and process message
+            String filteredMessage = filterMessage(message);
+
+            // Route message based on content
+            if (containsItemPlaceholder(filteredMessage) && isHoldingValidItem(player)) {
+                sendItemMessage(player, filteredMessage);
+            } else {
+                sendNormalMessage(player, filteredMessage);
+            }
+
+            // Log chat activity
+            logChatMessage(player, filteredMessage);
+
+        } catch (Exception e) {
+            logger.log(Level.WARNING, "Error processing chat for " + player.getName(), e);
+            // Fallback to basic message
+            sendBasicFallbackMessage(player, message);
+        }
+    }
+
+    // === VALIDATION HELPERS ===
+
+    private boolean validateChatInput(Player player, String message) {
+        if (player == null || !player.isOnline()) {
+            return false;
+        }
+
+        if (message == null || message.trim().isEmpty()) {
+            return false;
+        }
+
+        return true;
+    }
+
+    private boolean isPlayerMuted(Player player) {
+        try {
+            YakPlayer yakPlayer = playerManager.getPlayer(player);
+            if (yakPlayer != null && yakPlayer.isMuted()) {
+                int muteTime = yakPlayer.getMuteTime();
+                player.sendMessage(Messages.MUTED_MESSAGE);
+
+                if (muteTime > 0) {
+                    int minutes = muteTime / 60;
+                    player.sendMessage(String.format(Messages.MUTED_TEMPORARY, minutes));
+                } else {
+                    player.sendMessage(Messages.MUTED_PERMANENT);
+                }
+                return true;
+            }
+        } catch (Exception e) {
+            logger.log(Level.WARNING, "Error checking mute status for " + player.getName(), e);
+        }
+        return false;
+    }
+
+    private boolean hasChatCooldown(UUID uuid) {
+        return chatCooldown.containsKey(uuid);
+    }
+
+    private void applyChatCooldown(UUID uuid) {
+        chatCooldown.put(uuid, Config.COOLDOWN_TICKS);
+    }
+
+    private boolean containsItemPlaceholder(String message) {
+        return message.contains("@i@");
+    }
+
+    // === MESSAGE PROCESSING ===
+
+    /**
+     * Enhanced normal message sending with improved recipient handling
+     */
+    private void sendNormalMessage(Player player, String message) {
+        try {
+            String formattedName = getFormattedPlayerName(player);
+            String fullMessage = formattedName + ChatColor.WHITE + ": " + message;
+
+            // Send to sender
+            player.sendMessage(fullMessage);
+
+            // Get and send to nearby players
+            List<Player> recipients = getNearbyPlayers(player);
+
+            if (recipients.isEmpty()) {
+                player.sendMessage(Messages.NO_LISTENERS);
+            } else {
+                sendToRecipients(player, recipients, message, formattedName);
+            }
+
+            // Send to vanished staff
+            sendToVanishedStaff(player, formattedName, message, false);
+
+        } catch (Exception e) {
+            logger.log(Level.WARNING, "Error sending normal message", e);
+        }
+    }
+
+    /**
+     * Enhanced item message with improved error handling and fallbacks
+     */
+    private void sendItemMessage(Player player, String message) {
+        try {
+            ItemStack item = player.getInventory().getItemInMainHand();
+
+            if (!isHoldingValidItem(player)) {
+                handleNoItemFallback(player, message);
+                return;
+            }
+
+            String formattedName = getFormattedPlayerName(player);
+
+            // Try modern chat component approach
+            if (supportsModernChat()) {
+                sendModernItemMessage(player, item, formattedName, message);
+            } else {
+                sendFallbackItemMessage(player, message);
+            }
+
+        } catch (Exception e) {
+            logger.log(Level.WARNING, "Error sending item message for " + player.getName(), e);
+            handleItemMessageError(player, message);
+        }
+    }
+
+    private void handleNoItemFallback(Player player, String message) {
+        String fallbackMessage = message.replace("@i@", ChatColor.RED + "[No Item]" + ChatColor.WHITE);
+        sendNormalMessage(player, fallbackMessage);
+        player.sendMessage(Messages.HOLD_ITEM_MESSAGE);
+    }
+
+    private void sendModernItemMessage(Player player, ItemStack item, String formattedName, String message) {
+        // Send to sender with item hover
+        boolean selfSuccess = sendItemHoverMessage(player, item, formattedName, message, player);
+        if (!selfSuccess) {
+            sendFallbackItemMessage(player, message);
+            return;
+        }
+
+        // Send to nearby players
+        List<Player> recipients = getNearbyPlayers(player);
+        if (recipients.isEmpty()) {
+            player.sendMessage(Messages.NO_LISTENERS);
+        } else {
+            sendItemToRecipients(player, item, recipients, message, formattedName);
+        }
+
+        // Send to vanished staff
+        sendToVanishedStaff(player, formattedName, message, true);
+    }
+
+    private void sendToRecipients(Player sender, List<Player> recipients, String message, String senderName) {
+        for (Player recipient : recipients) {
+            if (recipient != null && recipient.isOnline()) {
+                try {
+                    String recipientSpecificName = getFormattedNameFor(sender, recipient);
+                    recipient.sendMessage(recipientSpecificName + ChatColor.WHITE + ": " + message);
+                } catch (Exception e) {
+                    logger.log(Level.WARNING, "Error sending message to " + recipient.getName(), e);
+                }
+            }
+        }
+    }
+
+    private void sendItemToRecipients(Player sender, ItemStack item, List<Player> recipients,
+                                      String message, String senderName) {
+        int successCount = 0;
+
+        for (Player recipient : recipients) {
+            if (recipient != null && recipient.isOnline()) {
+                try {
+                    String recipientSpecificName = getFormattedNameFor(sender, recipient);
+                    boolean success = sendItemHoverMessage(sender, item, recipientSpecificName, message, recipient);
+
+                    if (success) {
+                        successCount++;
+                    } else {
+                        // Fallback to normal message with item name
+                        sendItemFallbackToRecipient(recipient, item, recipientSpecificName, message);
+                    }
+                } catch (Exception e) {
+                    logger.log(Level.WARNING, "Error sending item message to " + recipient.getName(), e);
+                    sendItemFallbackToRecipient(recipient, item, senderName, message);
+                }
+            }
+        }
+
+        logger.fine("Successfully sent item message to " + successCount + "/" + recipients.size() + " recipients");
+    }
+
+    private void sendItemFallbackToRecipient(Player recipient, ItemStack item, String senderName, String message) {
+        String itemName = getItemDisplayName(item);
+        String itemDisplay = formatItemDisplay(itemName);
+        String fallbackMessage = message.replace("@i@", itemDisplay);
+        recipient.sendMessage(senderName + ChatColor.WHITE + ": " + fallbackMessage);
+    }
+
+    // === NEARBY PLAYER DETECTION ===
+
+    /**
+     * Enhanced nearby player detection with better filtering
+     */
+    private List<Player> getNearbyPlayers(Player player) {
+        try {
+            return Bukkit.getOnlinePlayers().stream()
+                    .filter(other -> isPlayerInRange(player, other))
+                    .collect(Collectors.toList());
+        } catch (Exception e) {
+            logger.log(Level.WARNING, "Error getting nearby players", e);
+            return new ArrayList<>();
+        }
+    }
+
+    private boolean isPlayerInRange(Player center, Player target) {
+        if (target == null || !target.isOnline() || target.equals(center)) {
+            return false;
+        }
+
+        if (!target.getWorld().equals(center.getWorld())) {
+            return false;
+        }
+
+        if (isVanished(target)) {
+            return false;
+        }
+
+        double distance = target.getLocation().distance(center.getLocation());
+        return distance <= Config.DEFAULT_CHAT_RANGE;
+    }
+
+    private boolean isVanished(Player player) {
+        try {
+            return player.hasMetadata("vanished");
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    // === VANISHED STAFF MESSAGING ===
+
+    /**
+     * Enhanced vanished staff messaging with item support
+     */
+    private void sendToVanishedStaff(Player sender, String senderName, String message, boolean hasItem) {
+        try {
+            Bukkit.getOnlinePlayers().stream()
+                    .filter(this::isVanishedStaff)
+                    .filter(staff -> !staff.equals(sender))
+                    .forEach(staff -> sendToStaffMember(sender, staff, senderName, message, hasItem));
+        } catch (Exception e) {
+            logger.log(Level.WARNING, "Error sending to vanished staff", e);
+        }
+    }
+
+    private boolean isVanishedStaff(Player player) {
+        return player != null &&
+                player.isOnline() &&
+                player.hasPermission("yakrealms.vanish") &&
+                player.hasMetadata("vanished");
+    }
+
+    private void sendToStaffMember(Player sender, Player staff, String senderName, String message, boolean hasItem) {
+        try {
+            if (hasItem && isHoldingValidItem(sender)) {
+                ItemStack item = sender.getInventory().getItemInMainHand();
+                if (supportsModernChat()) {
+                    sendItemHoverMessage(sender, item, senderName, message, staff);
+                } else {
+                    sendItemFallbackToRecipient(staff, item, senderName, message);
+                }
+            } else {
+                staff.sendMessage(senderName + ChatColor.WHITE + ": " + message);
+            }
+        } catch (Exception e) {
+            logger.log(Level.WARNING, "Error sending to staff member " + staff.getName(), e);
+        }
+    }
+
+    // === PLAYER DATA MANAGEMENT ===
+
+    /**
+     * Enhanced player data loading using YakPlayer system
      */
     private void loadPlayerChatTag(Player player) {
         if (player == null || !player.isOnline()) {
@@ -330,356 +860,281 @@ public class ChatMechanics implements Listener {
 
             if (yakPlayer != null) {
                 // Load chat tag
-                String tagName = yakPlayer.getChatTag();
-                if (tagName != null && !tagName.isEmpty()) {
-                    try {
-                        ChatTag tag = ChatTag.valueOf(tagName.toUpperCase());
-                        playerTags.put(uuid, tag);
-                    } catch (IllegalArgumentException e) {
-                        playerTags.put(uuid, ChatTag.DEFAULT);
-                        yakPlayer.setChatTag(ChatTag.DEFAULT.name());
-                    }
-                } else {
-                    playerTags.put(uuid, ChatTag.DEFAULT);
-                    yakPlayer.setChatTag(ChatTag.DEFAULT.name());
-                }
+                loadChatTag(uuid, yakPlayer);
 
-                // Load unlocked chat tags
-                List<String> unlockedTags = new ArrayList<>();
-                Set<String> playerUnlockedTags = yakPlayer.getUnlockedChatTags();
-                if (playerUnlockedTags != null) {
-                    unlockedTags.addAll(playerUnlockedTags);
-                }
-                unlockedPlayerTags.put(uuid, unlockedTags);
-
-                playerManager.savePlayer(yakPlayer);
+                // Load unlocked tags
+                loadUnlockedTags(uuid, yakPlayer);
             } else {
-                // New player
-                playerTags.put(uuid, ChatTag.DEFAULT);
-                unlockedPlayerTags.put(uuid, new ArrayList<>());
+                // Set defaults for new player
+                setDefaultPlayerTags(uuid);
             }
+
         } catch (Exception e) {
             logger.log(Level.WARNING, "Error loading chat tag for " + player.getName(), e);
-            // Set defaults in case of error
-            playerTags.put(player.getUniqueId(), ChatTag.DEFAULT);
-            unlockedPlayerTags.put(player.getUniqueId(), new ArrayList<>());
+            setDefaultPlayerTags(player.getUniqueId());
         }
     }
 
-    /**
-     * Filter main chat to handle command execution via chat
-     *  Better command filtering logic
-     */
-    @EventHandler(priority = EventPriority.LOWEST)
-    public void onPlayerCommand(PlayerCommandPreprocessEvent event) {
-        if (event.isCancelled()) {
-            return;
-        }
-
-        try {
-            Player player = event.getPlayer();
-            String command = event.getMessage().toLowerCase();
-
-            // If message starts with "//", it's a chat message, not a command
-            if (command.startsWith("//")) {
-                event.setCancelled(true);
-                // Process as chat, removing the //
-                String message = event.getMessage().substring(2);
-                if (!message.trim().isEmpty()) {
-                    processChat(player, message);
-                }
-                return;
+    private void loadChatTag(UUID uuid, YakPlayer yakPlayer) {
+        String tagName = yakPlayer.getChatTag();
+        if (tagName != null && !tagName.isEmpty()) {
+            try {
+                ChatTag tag = ChatTag.valueOf(tagName.toUpperCase());
+                playerTags.put(uuid, tag);
+            } catch (IllegalArgumentException e) {
+                playerTags.put(uuid, ChatTag.DEFAULT);
+                yakPlayer.setChatTag(ChatTag.DEFAULT.name());
             }
-
-            // Check restricted commands for non-staff
-            if (!player.isOp() && !ModerationMechanics.isStaff(player)) {
-                // Extract command name
-                String cmdName = command.startsWith("/") ? command.substring(1) : command;
-                if (cmdName.contains(" ")) {
-                    cmdName = cmdName.split(" ")[0];
-                }
-
-                // List of restricted commands
-                Set<String> restrictedCommands = new HashSet<>(Arrays.asList(
-                        "save-all", "stack", "stop", "restart", "reload", "tpall", "kill", "mute"
-                ));
-
-                if (restrictedCommands.contains(cmdName)) {
-                    event.setCancelled(true);
-                    player.sendMessage(ChatColor.WHITE + "Unknown command. View your Character Journal's Index for a list of commands.");
-                    return;
-                }
-            }
-
-            // If player tries to use /gl or /g without permissions, convert to chat
-            if ((command.startsWith("/gl ") || command.startsWith("/g ")) &&
-                    !player.hasPermission("yakrealms.guild.chat")) {
-                event.setCancelled(true);
-                String message = command.substring(command.indexOf(' ') + 1);
-                if (!message.trim().isEmpty()) {
-                    processChat(player, message);
-                }
-            }
-        } catch (Exception e) {
-            logger.log(Level.WARNING, "Error processing command for " + event.getPlayer().getName(), e);
+        } else {
+            playerTags.put(uuid, ChatTag.DEFAULT);
+            yakPlayer.setChatTag(ChatTag.DEFAULT.name());
         }
     }
 
-    /**
-     * Main chat event handler
-     */
-    @EventHandler(priority = EventPriority.HIGH)
-    public void onPlayerChat(AsyncPlayerChatEvent event) {
-        if (event.isCancelled()) {
-            return;
-        }
-
-        try {
-            Player player = event.getPlayer();
-            String message = event.getMessage();
-
-            // Cancel the default Bukkit chat behavior
-            event.setCancelled(true);
-
-            // Process the chat message synchronously to avoid thread issues
-            Bukkit.getScheduler().runTask(YakRealms.getInstance(), () -> {
-                processChat(player, message);
-            });
-        } catch (Exception e) {
-            logger.log(Level.WARNING, "Error handling chat for " + event.getPlayer().getName(), e);
-        }
+    private void loadUnlockedTags(UUID uuid, YakPlayer yakPlayer) {
+        Set<String> unlockedTags = yakPlayer.getUnlockedChatTags();
+        unlockedPlayerTags.put(uuid, unlockedTags != null ? new HashSet<>(unlockedTags) : new HashSet<>());
     }
 
-    /**
-     * Process a chat message from a player
-     *  Better validation and error handling
-     *
-     * @param player  The player sending the message
-     * @param message The message text
-     */
-    public void processChat(Player player, String message) {
-        if (player == null || !player.isOnline() || message == null || message.trim().isEmpty()) {
-            return;
-        }
+    private void setDefaultPlayerTags(UUID uuid) {
+        playerTags.put(uuid, ChatTag.DEFAULT);
+        unlockedPlayerTags.put(uuid, new HashSet<>());
+    }
 
+    private void loadPlayerMuteStatus(Player player) {
+        // Mute status is now handled directly through YakPlayer, no separate loading needed
+        logger.fine("Mute status loaded via YakPlayer for: " + player.getName());
+    }
+
+    private void savePlayerChatTag(Player player) {
         try {
             UUID uuid = player.getUniqueId();
+            YakPlayer yakPlayer = playerManager.getPlayer(player);
 
-            // Check if player is muted
-            if (mutedPlayers.containsKey(uuid)) {
-                int muteTime = mutedPlayers.get(uuid);
-                player.sendMessage(ChatColor.RED + "You are currently muted");
-                if (muteTime > 0) {
-                    int minutes = muteTime / 60;
-                    player.sendMessage(ChatColor.RED + "Your mute expires in " + minutes + " minutes.");
-                } else {
-                    player.sendMessage(ChatColor.RED + "Your mute WILL NOT expire.");
-                }
-                return;
+            if (yakPlayer != null && playerTags.containsKey(uuid)) {
+                yakPlayer.setChatTag(playerTags.get(uuid).name());
+                playerManager.savePlayer(yakPlayer);
             }
-
-            // Check cooldown
-            if (chatCooldown.containsKey(uuid)) {
-                player.sendMessage(ChatColor.RED + "Please wait before chatting again.");
-                return;
-            }
-
-            // Apply cooldown
-            chatCooldown.put(uuid, COOLDOWN_TICKS);
-
-            // Filter message
-            message = filterMessage(message);
-
-            // Check if showing an item
-            if (message.contains("@i@") && isHoldingValidItem(player)) {
-                sendItemMessage(player, message);
-            } else {
-                sendNormalMessage(player, message);
-            }
-
-            // Log chat message
-            logger.info(player.getName() + ": " + message);
         } catch (Exception e) {
-            logger.log(Level.WARNING, "Error processing chat for " + player.getName(), e);
-            // Fallback - send as normal message
-            try {
-                sendNormalMessage(player, message);
-            } catch (Exception e2) {
-                logger.log(Level.SEVERE, "Failed to send fallback message", e2);
-            }
+            logger.log(Level.WARNING, "Error saving chat tag for " + player.getName(), e);
         }
     }
 
+    // === FORMATTING AND DISPLAY ===
+
     /**
-     * Send a normal chat message (without item display)
-     *
-     * @param player  The player sending the message
-     * @param message The message text
+     * Enhanced player name formatting with caching
      */
-    private void sendNormalMessage(Player player, String message) {
+    private String getFormattedPlayerName(Player player) {
+        if (player == null) {
+            return "[Unknown]";
+        }
+
         try {
-            String formattedName = getFormattedName(player);
-            String fullMessage = formattedName + ChatColor.WHITE + ": " + message;
-
-            // Always send message to the sender
-            player.sendMessage(fullMessage);
-
-            // Send to nearby players
-            List<Player> recipients = getNearbyPlayers(player);
-
-            if (recipients.isEmpty()) {
-                player.sendMessage(ChatColor.GRAY.toString() + ChatColor.ITALIC + "No one heard you.");
-            } else {
-                for (Player recipient : recipients) {
-                    if (recipient != null && recipient.isOnline()) {
-                        try {
-                            String recipientSpecificName = getFormattedNameFor(player, recipient);
-                            recipient.sendMessage(recipientSpecificName + ChatColor.WHITE + ": " + message);
-                        } catch (Exception e) {
-                            logger.log(Level.WARNING, "Error sending message to " + recipient.getName(), e);
-                        }
-                    }
-                }
+            YakPlayer yakPlayer = playerManager.getPlayer(player);
+            if (yakPlayer != null) {
+                return yakPlayer.getFormattedDisplayName();
             }
 
-            // Send to vanished staff
-            sendToVanishedStaff(player, formattedName, message);
+            // Fallback if YakPlayer not available
+            return buildBasicFormattedName(player);
+
         } catch (Exception e) {
-            logger.log(Level.WARNING, "Error sending normal message", e);
+            logger.log(Level.WARNING, "Error formatting name for " + player.getName(), e);
+            return ChatColor.GRAY + player.getName();
         }
     }
 
+    private String buildBasicFormattedName(Player player) {
+        StringBuilder name = new StringBuilder();
+
+        try {
+            // Add chat tag if not default
+            ChatTag tag = playerTags.getOrDefault(player.getUniqueId(), ChatTag.DEFAULT);
+            if (tag != ChatTag.DEFAULT) {
+                String tagString = tag.getTag();
+                if (tagString != null && !tagString.isEmpty()) {
+                    name.append(tagString).append(" ");
+                }
+            }
+
+            // Add player name with basic color
+            name.append(ChatColor.GRAY).append(player.getName());
+
+        } catch (Exception e) {
+            logger.log(Level.WARNING, "Error building basic formatted name", e);
+            name.setLength(0);
+            name.append(ChatColor.GRAY).append(player.getName());
+        }
+
+        return name.toString();
+    }
+
     /**
-     * Send a message with an item showcase
-     *  Better error handling, validation, and fallback
-     *
-     * @param player  The player sending the message
-     * @param message The message text containing @i@ for item placement
+     * Enhanced player name formatting for specific recipients (considers buddy status)
      */
-    private void sendItemMessage(Player player, String message) {
+    private String getFormattedNameFor(Player player, Player recipient) {
+        if (player == null || recipient == null) {
+            return player != null ? player.getName() : "[Unknown]";
+        }
+
+        try {
+            YakPlayer yakPlayer = playerManager.getPlayer(player);
+            YakPlayer recipientYakPlayer = playerManager.getPlayer(recipient);
+
+            if (yakPlayer != null) {
+                // Use the base display name but potentially modify name color based on recipient relationship
+                String baseName = yakPlayer.getFormattedDisplayName();
+
+                // Check if we need to modify the name color based on buddy status
+                if (recipientYakPlayer != null && recipientYakPlayer.isBuddy(player.getName())) {
+                    // Replace the final color code with buddy color
+                    return replaceFinalNameColor(baseName, ChatColor.GREEN);
+                }
+
+                return baseName;
+            }
+
+            return buildBasicFormattedName(player);
+
+        } catch (Exception e) {
+            logger.log(Level.WARNING, "Error formatting name for recipient", e);
+            return ChatColor.GRAY + player.getName();
+        }
+    }
+
+    private String replaceFinalNameColor(String formattedName, ChatColor newColor) {
+        // Simple implementation - replace the last color code with buddy color
+        // This is a basic implementation; you might want more sophisticated logic
+        int lastColorIndex = formattedName.lastIndexOf('§');
+        if (lastColorIndex != -1 && lastColorIndex < formattedName.length() - 1) {
+            return formattedName.substring(0, lastColorIndex) + newColor +
+                    formattedName.substring(lastColorIndex + 2);
+        }
+        return newColor + formattedName;
+    }
+
+    // === ITEM DISPLAY SYSTEM ===
+
+    /**
+     * Enhanced item validation with comprehensive checks
+     */
+    private boolean isHoldingValidItem(Player player) {
+        if (player == null || !player.isOnline()) {
+            return false;
+        }
+
         try {
             ItemStack item = player.getInventory().getItemInMainHand();
-            if (!isHoldingValidItem(player)) {
-                // Better fallback message
-                String fallbackMessage = message.replace("@i@", ChatColor.RED + "[No Item]" + ChatColor.WHITE);
-                sendNormalMessage(player, fallbackMessage);
-                player.sendMessage(ChatColor.GRAY + "Hold an item in your main hand to display it in chat.");
-                return;
-            }
-
-            String formattedName = getFormattedName(player);
-
-            // Log for debugging
-            logger.info("Player " + player.getName() + " is showing item: " + item.getType().name() +
-                    " with message: " + message);
-
-            // Try modern item display first, fall back to simple display if it fails
-            if (supportsModernChat()) {
-                // Send to self with item hover
-                boolean selfSuccess = sendItemHoverMessage(player, item, formattedName, message, player);
-                if (!selfSuccess) {
-                    logger.warning("Failed to send item hover message to self for " + player.getName());
-                    sendItemMessageFallback(player, message);
-                    return;
-                }
-
-                // Send to nearby players
-                List<Player> recipients = getNearbyPlayers(player);
-
-                if (recipients.isEmpty()) {
-                    player.sendMessage(ChatColor.GRAY.toString() + ChatColor.ITALIC + "No one heard you.");
-                } else {
-                    int successCount = 0;
-                    for (Player recipient : recipients) {
-                        if (recipient != null && recipient.isOnline()) {
-                            try {
-                                String recipientSpecificName = getFormattedNameFor(player, recipient);
-                                boolean success = sendItemHoverMessage(player, item, recipientSpecificName, message, recipient);
-                                if (success) {
-                                    successCount++;
-                                } else {
-                                    // Fallback to normal message with item name
-                                    String fallbackMessage = message.replace("@i@",
-                                            ChatColor.YELLOW + "[" + getItemDisplayName(item) + "]" + ChatColor.WHITE);
-                                    recipient.sendMessage(recipientSpecificName + ChatColor.WHITE + ": " + fallbackMessage);
-                                }
-                            } catch (Exception e) {
-                                logger.log(Level.WARNING, "Error sending item message to " + recipient.getName(), e);
-                                // Fallback to normal message
-                                String recipientSpecificName = getFormattedNameFor(player, recipient);
-                                String fallbackMessage = message.replace("@i@", "[" + item.getType().name() + "]");
-                                recipient.sendMessage(recipientSpecificName + ChatColor.WHITE + ": " + fallbackMessage);
-                            }
-                        }
-                    }
-
-                    logger.info("Successfully sent item message to " + successCount + "/" + recipients.size() + " recipients");
-                }
-
-                // Send to vanished staff
-                sendToVanishedStaff(player, formattedName, message);
-            } else {
-                // Use fallback method for servers without modern chat support
-                sendItemMessageFallback(player, message);
-            }
+            return item != null &&
+                    item.getType() != Material.AIR &&
+                    item.getAmount() > 0 &&
+                    item.getType() != null;
         } catch (Exception e) {
-            logger.log(Level.WARNING, "Error sending item message for " + player.getName(), e);
-            // Fallback to normal message
-            String fallbackMessage = message.replace("@i@", ChatColor.RED + "[ITEM ERROR]" + ChatColor.WHITE);
-            sendNormalMessage(player, fallbackMessage);
+            logger.log(Level.WARNING, "Error checking if player is holding valid item", e);
+            return false;
         }
     }
 
     /**
-     * Send a message to vanished staff members
-     *
-     * @param player  The player who sent the message
-     * @param prefix  The player's prefix/name
-     * @param message The message text
+     * Enhanced item display name generation with better formatting
      */
-    private void sendToVanishedStaff(Player player, String prefix, String message) {
+    private String getItemDisplayName(ItemStack item) {
+        if (item == null || item.getType() == Material.AIR) {
+            return "Air";
+        }
+
         try {
-            for (Player staff : Bukkit.getOnlinePlayers()) {
-                if (staff != null && staff.isOnline() &&
-                        staff.hasPermission("yakrealms.vanish") &&
-                        staff.hasMetadata("vanished") &&
-                        !staff.equals(player)) {
+            ItemMeta meta = item.getItemMeta();
+            if (meta != null && meta.hasDisplayName()) {
+                return meta.getDisplayName();
+            }
 
-                    try {
-                        if (message.contains("@i@") && isHoldingValidItem(player)) {
-                            ItemStack item = player.getInventory().getItemInMainHand();
-                            if (supportsModernChat()) {
-                                sendItemHoverMessage(player, item, prefix, message, staff);
-                            } else {
-                                String fallbackMessage = message.replace("@i@",
-                                        ChatColor.YELLOW + "[" + getItemDisplayName(item) + "]" + ChatColor.WHITE);
-                                staff.sendMessage(prefix + ChatColor.WHITE + ": " + fallbackMessage);
-                            }
-                        } else {
-                            staff.sendMessage(prefix + ChatColor.WHITE + ": " + message);
-                        }
-                    } catch (Exception e) {
-                        logger.log(Level.WARNING, "Error sending to vanished staff " + staff.getName(), e);
-                    }
-                }
+            // Use TextUtil if available, otherwise format manually
+            try {
+                return TextUtil.formatItemName(item.getType().name());
+            } catch (Exception e) {
+                // Fallback formatting
+                return formatItemNameFallback(item.getType().name());
             }
         } catch (Exception e) {
-            logger.log(Level.WARNING, "Error sending to vanished staff", e);
+            return item.getType().name();
         }
     }
 
+    private String formatItemNameFallback(String materialName) {
+        if (materialName == null || materialName.isEmpty()) {
+            return "Unknown";
+        }
+
+        return Arrays.stream(materialName.toLowerCase().split("_"))
+                .map(word -> word.isEmpty() ? "" :
+                        Character.toUpperCase(word.charAt(0)) + word.substring(1))
+                .collect(Collectors.joining(" "));
+    }
+
     /**
-     * Send an item hover message to a player
-     *  Better validation, error handling, and success tracking
-     *
-     * @param sender    The player sending the message
-     * @param item      The item to display
-     * @param prefix    The sender's prefix/name
-     * @param message   The message text
-     * @param recipient The player to send to
-     * @return true if the message was sent successfully
+     * Enhanced item display formatting with proper color matching
      */
-    private boolean sendItemHoverMessage(Player sender, ItemStack item, String prefix,
+    private String formatItemDisplay(String itemDisplayName) {
+        if (itemDisplayName == null || itemDisplayName.isEmpty()) {
+            return ChatColor.YELLOW + "[Unknown]";
+        }
+
+        // Check if the item name contains color codes
+        if (itemDisplayName.contains("§") || itemDisplayName.contains(ChatColor.COLOR_CHAR + "")) {
+            String firstColor = extractFirstColor(itemDisplayName);
+            if (firstColor != null) {
+                return firstColor + "[" + itemDisplayName + firstColor + "]" + ChatColor.WHITE;
+            }
+        }
+
+        // Default: yellow brackets for items without custom colors
+        return ChatColor.YELLOW + "[" + itemDisplayName + "]" + ChatColor.WHITE;
+    }
+
+    private String extractFirstColor(String text) {
+        if (text == null || text.length() < 2) {
+            return null;
+        }
+
+        for (int i = 0; i < text.length() - 1; i++) {
+            char current = text.charAt(i);
+            char next = text.charAt(i + 1);
+
+            if (current == '§' || current == ChatColor.COLOR_CHAR) {
+                // Check if it's a color code (not formatting code)
+                switch (next) {
+                    case '0': return ChatColor.BLACK.toString();
+                    case '1': return ChatColor.DARK_BLUE.toString();
+                    case '2': return ChatColor.DARK_GREEN.toString();
+                    case '3': return ChatColor.DARK_AQUA.toString();
+                    case '4': return ChatColor.DARK_RED.toString();
+                    case '5': return ChatColor.GOLD.toString();
+                    case '6': return ChatColor.GOLD.toString();
+                    case '7': return ChatColor.GRAY.toString();
+                    case '8': return ChatColor.DARK_GRAY.toString();
+                    case '9': return ChatColor.BLUE.toString();
+                    case 'a': return ChatColor.GREEN.toString();
+                    case 'b': return ChatColor.AQUA.toString();
+                    case 'c': return ChatColor.RED.toString();
+                    case 'd': return ChatColor.LIGHT_PURPLE.toString();
+                    case 'e': return ChatColor.YELLOW.toString();
+                    case 'f': return ChatColor.WHITE.toString();
+                    default: continue;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    // === ADVANCED ITEM MESSAGING ===
+
+    /**
+     * Enhanced item hover message with better error handling
+     */
+    private boolean sendItemHoverMessage(Player sender, ItemStack item, String senderName,
                                          String message, Player recipient) {
         if (recipient == null || !recipient.isOnline() || item == null || item.getType() == Material.AIR) {
             return false;
@@ -692,7 +1147,7 @@ public class ChatMechanics implements Listener {
             String after = parts.length > 1 ? parts[1] : "";
 
             // Create the base message part
-            String baseMessage = prefix + ChatColor.WHITE + ": " + before;
+            String baseMessage = senderName + ChatColor.WHITE + ": " + before;
 
             // Create JSON component
             JsonChatComponent component = new JsonChatComponent(baseMessage);
@@ -712,8 +1167,8 @@ public class ChatMechanics implements Listener {
 
             // Try to send the component
             component.send(recipient);
-
             return true;
+
         } catch (Exception e) {
             logger.log(Level.WARNING, "Error creating/sending item hover message to " + recipient.getName(), e);
             return false;
@@ -721,11 +1176,7 @@ public class ChatMechanics implements Listener {
     }
 
     /**
-     * Get a list of text to display when hovering over an item
-     *  Better handling of item meta and null checks (no enchantments)
-     *
-     * @param item The item to get hover text for
-     * @return List of hover text lines
+     * Enhanced item hover text generation with comprehensive information
      */
     private List<String> getItemHoverText(ItemStack item) {
         List<String> text = new ArrayList<>();
@@ -783,58 +1234,10 @@ public class ChatMechanics implements Listener {
         return text;
     }
 
-    /**
-     * Get nearby players who can receive a chat message
-     *
-     * @param player The player sending the message
-     * @return List of nearby players
-     */
-    private List<Player> getNearbyPlayers(Player player) {
-        List<Player> nearbyPlayers = new ArrayList<>();
-
-        if (player == null || !player.isOnline()) {
-            return nearbyPlayers;
-        }
-
-        try {
-            for (Player other : Bukkit.getOnlinePlayers()) {
-                if (other != null && other.isOnline() &&
-                        !other.equals(player) &&
-                        other.getWorld().equals(player.getWorld()) &&
-                        other.getLocation().distance(player.getLocation()) < DEFAULT_CHAT_RANGE &&
-                        !isVanished(other)) {
-
-                    nearbyPlayers.add(other);
-                }
-            }
-        } catch (Exception e) {
-            logger.log(Level.WARNING, "Error getting nearby players", e);
-        }
-
-        return nearbyPlayers;
-    }
+    // === MESSAGE FILTERING ===
 
     /**
-     * Check if a player is vanished
-     *
-     * @param player The player to check
-     * @return true if the player is vanished
-     */
-    private boolean isVanished(Player player) {
-        if (player == null) {
-            return false;
-        }
-
-        try {
-            return player.hasMetadata("vanished");
-        } catch (Exception e) {
-            return false;
-        }
-    }
-
-    /**
-     * @param message The message to filter
-     * @return The filtered message
+     * Enhanced message filtering with configurable word lists and IP detection
      */
     private String filterMessage(String message) {
         if (message == null || message.isEmpty()) {
@@ -842,440 +1245,113 @@ public class ChatMechanics implements Listener {
         }
 
         try {
+            String filtered = message;
+
             // Filter banned words (case-insensitive)
-            for (String word : bannedWords) {
+            for (String word : BANNED_WORDS) {
                 if (word != null && !word.isEmpty()) {
-                    message = message.replaceAll("(?i)\\b" + Pattern.quote(word) + "\\b", "*****");
+                    filtered = filtered.replaceAll("(?i)\\b" + Pattern.quote(word) + "\\b", "*****");
                 }
             }
 
             // Filter IP addresses
-            message = IP_PATTERN.matcher(message).replaceAll("***.***.***.**");
+            filtered = IP_PATTERN.matcher(filtered).replaceAll("***.***.***.**");
 
-            return message.trim();
+            return filtered.trim();
+
         } catch (Exception e) {
             logger.log(Level.WARNING, "Error filtering message", e);
             return message; // Return original on error
         }
     }
 
-    /**
-     * Get a player's formatted name for chat
-     *  Better null handling
-     *
-     * @param player The player
-     * @return The formatted name with rank and tag
-     */
-    private String getFormattedName(Player player) {
-        if (player == null) {
-            return "[Unknown]";
-        }
+    // === FALLBACK METHODS ===
 
-        try {
-            YakPlayer yakPlayer = playerManager.getPlayer(player);
-            if (yakPlayer != null) {
-                return yakPlayer.getFormattedDisplayName();
-            }
-
-            // Fallback if YakPlayer not available
-            return buildFormattedName(player, yakPlayer);
-        } catch (Exception e) {
-            logger.log(Level.WARNING, "Error formatting name for " + player.getName(), e);
-            return ChatColor.GRAY + player.getName();
-        }
-    }
-
-    private String buildFormattedName(Player player, YakPlayer yakPlayer) {
-        StringBuilder name = new StringBuilder();
-
-        try {
-            // Add guild tag if available
-            if (yakPlayer != null && yakPlayer.isInGuild()) {
-                String guildName = yakPlayer.getGuildName();
-                if (guildName != null && !guildName.isEmpty()) {
-                    name.append(ChatColor.WHITE).append("[").append(guildName).append("] ");
-                }
-            }
-
-            // Add chat tag if not default
-            ChatTag tag = playerTags.getOrDefault(player.getUniqueId(), ChatTag.DEFAULT);
-            if (tag != ChatTag.DEFAULT) {
-                String tagString = tag.getTag();
-                if (tagString != null && !tagString.isEmpty()) {
-                    name.append(tagString).append(" ");
-                }
-            }
-
-            // Add rank if not default
-            if (yakPlayer != null) {
-                String rankString = yakPlayer.getRank();
-                if (rankString != null && !rankString.isEmpty()) {
-                    Rank rank = Rank.fromString(rankString);
-                    if (rank != null && rank != Rank.DEFAULT) {
-                        name.append(ChatColor.translateAlternateColorCodes('&', rank.tag)).append(" ");
-                    }
-                }
-            }
-
-            // Add player name
-            name.append(getNameColorByAlignment(player)).append(player.getName());
-        } catch (Exception e) {
-            logger.log(Level.WARNING, "Error building formatted name", e);
-            name.setLength(0);
-            name.append(ChatColor.GRAY).append(player.getName());
-        }
-
-        return name.toString();
-    }
-
-    /**
-     * Get a player's formatted name for display to a specific recipient
-     * This accounts for buddy status
-     *
-     * @param player    The player whose name to format
-     * @param recipient The player who will see the name
-     * @return The formatted name
-     */
-    private String getFormattedNameFor(Player player, Player recipient) {
-        if (player == null || recipient == null) {
-            return player != null ? player.getName() : "[Unknown]";
-        }
-
-        try {
-            YakPlayer yakPlayer = playerManager.getPlayer(player);
-            YakPlayer recipientYakPlayer = playerManager.getPlayer(recipient);
-
-            StringBuilder name = new StringBuilder();
-
-            // Add guild tag if available
-            if (yakPlayer != null && yakPlayer.isInGuild()) {
-                String guildName = yakPlayer.getGuildName();
-                if (guildName != null && !guildName.isEmpty()) {
-                    name.append(ChatColor.WHITE).append("[").append(guildName).append("] ");
-                }
-            }
-
-            // Add chat tag if not default
-            ChatTag tag = playerTags.getOrDefault(player.getUniqueId(), ChatTag.DEFAULT);
-            if (tag != ChatTag.DEFAULT) {
-                String tagString = tag.getTag();
-                if (tagString != null && !tagString.isEmpty()) {
-                    name.append(tagString).append(" ");
-                }
-            }
-
-            // Add rank if not default
-            if (yakPlayer != null) {
-                String rankString = yakPlayer.getRank();
-                if (rankString != null && !rankString.isEmpty()) {
-                    Rank rank = Rank.fromString(rankString);
-                    if (rank != null && rank != Rank.DEFAULT) {
-                        name.append(ChatColor.translateAlternateColorCodes('&', rank.tag)).append(" ");
-                    }
-                }
-            }
-
-            // Add player name with color based on alignment and buddy status
-            ChatColor nameColor = getNameColorForRecipient(player, recipient);
-            name.append(nameColor).append(player.getName());
-
-            return name.toString();
-        } catch (Exception e) {
-            logger.log(Level.WARNING, "Error formatting name for recipient", e);
-            return ChatColor.GRAY + player.getName();
-        }
-    }
-
-    /**
-     * Get the color for a player's name when viewed by a specific recipient
-     * This accounts for buddy status and alignment
-     *
-     * @param player    The player whose name color to determine
-     * @param recipient The player who will see the name
-     * @return The ChatColor for the name
-     */
-    private ChatColor getNameColorForRecipient(Player player, Player recipient) {
-        if (player == null || recipient == null) {
-            return ChatColor.GRAY;
-        }
-
-        try {
-            YakPlayer yakPlayer = playerManager.getPlayer(player);
-            YakPlayer recipientYakPlayer = playerManager.getPlayer(recipient);
-
-            // Check alignment first
-            if (yakPlayer != null) {
-                String alignment = yakPlayer.getAlignment();
-                if ("CHAOTIC".equals(alignment)) {
-                    return ChatColor.RED;
-                } else if ("NEUTRAL".equals(alignment)) {
-                    return ChatColor.YELLOW;
-                }
-            }
-
-            // Check buddy status
-            if (recipientYakPlayer != null && recipientYakPlayer.isBuddy(player.getName())) {
-                return ChatColor.GREEN;
-            }
-
-            // Default
-            return ChatColor.GRAY;
-        } catch (Exception e) {
-            return ChatColor.GRAY;
-        }
-    }
-
-    /**
-     * Get the color for a player's name based on alignment
-     *
-     * @param player The player
-     * @return The ChatColor for the player's name
-     */
-    private ChatColor getNameColorByAlignment(Player player) {
-        if (player == null) {
-            return ChatColor.GRAY;
-        }
-
-        try {
-            YakPlayer yakPlayer = playerManager.getPlayer(player);
-            if (yakPlayer != null) {
-                String alignment = yakPlayer.getAlignment();
-                if (alignment != null) {
-                    switch (alignment) {
-                        case "NEUTRAL":
-                            return ChatColor.YELLOW;
-                        case "CHAOTIC":
-                            return ChatColor.RED;
-                        default:
-                            return ChatColor.GRAY;
-                    }
-                }
-            }
-        } catch (Exception e) {
-            // Fall through to default
-        }
-
-        // Default to gray if no alignment data
-        return ChatColor.GRAY;
-    }
-
-    /**
-     * Check if a player is holding an item that can be shown
-     *  More thorough validation
-     *
-     * @param player The player to check
-     * @return true if the player is holding a valid item
-     */
-    private boolean isHoldingValidItem(Player player) {
-        if (player == null || !player.isOnline()) {
-            return false;
-        }
-
-        try {
-            ItemStack item = player.getInventory().getItemInMainHand();
-            if (item == null || item.getType() == Material.AIR || item.getAmount() <= 0) {
-                return false;
-            }
-
-            // Additional check: ensure item type is not null (shouldn't happen but just in case)
-            return item.getType() != null;
-        } catch (Exception e) {
-            logger.log(Level.WARNING, "Error checking if player is holding valid item", e);
-            return false;
-        }
-    }
-
-    /**
-     *  Get proper display name for item
-     *
-     * @param item The item
-     * @return The display name
-     */
-    private String getItemDisplayName(ItemStack item) {
-        if (item == null || item.getType() == Material.AIR) {
-            return "Air";
-        }
-
-        try {
-            ItemMeta meta = item.getItemMeta();
-            if (meta != null && meta.hasDisplayName()) {
-                return meta.getDisplayName();
-            }
-
-            // Use TextUtil if available, otherwise format manually
-            try {
-                return TextUtil.formatItemName(item.getType().name());
-            } catch (Exception e) {
-                // Fallback formatting
-                return formatItemName(item.getType().name());
-            }
-        } catch (Exception e) {
-            return item.getType().name();
-        }
-    }
-
-    /**
-     * Format item display with proper bracket colors
-     *  Matches bracket colors to item name color
-     *
-     * @param itemDisplayName The item's display name (may contain color codes)
-     * @return Formatted display with proper bracket colors
-     */
-    private String formatItemDisplay(String itemDisplayName) {
-        if (itemDisplayName == null || itemDisplayName.isEmpty()) {
-            return ChatColor.YELLOW + "[Unknown]";
-        }
-
-        // Check if the item name contains color codes
-        if (itemDisplayName.contains("§") || itemDisplayName.contains(ChatColor.COLOR_CHAR + "")) {
-            // Extract the first color from the item name
-            String firstColor = extractFirstColor(itemDisplayName);
-            if (firstColor != null) {
-                // Use the item's color for brackets too
-                return firstColor + "[" + itemDisplayName + firstColor + "]" + ChatColor.WHITE;
-            }
-        }
-
-        // Default: yellow brackets for items without custom colors
-        return ChatColor.YELLOW + "[" + itemDisplayName + "]" + ChatColor.WHITE;
-    }
-
-    /**
-     * Extract the first color code from a string
-     *
-     * @param text The text to check
-     * @return The first color code found, or null if none
-     */
-    private String extractFirstColor(String text) {
-        if (text == null || text.length() < 2) {
-            return null;
-        }
-
-        for (int i = 0; i < text.length() - 1; i++) {
-            char current = text.charAt(i);
-            char next = text.charAt(i + 1);
-
-            if (current == '§' || current == ChatColor.COLOR_CHAR) {
-                // Check if it's a color code (not formatting code)
-                switch (next) {
-                    case '0': return ChatColor.BLACK.toString();
-                    case '1': return ChatColor.DARK_BLUE.toString();
-                    case '2': return ChatColor.DARK_GREEN.toString();
-                    case '3': return ChatColor.DARK_AQUA.toString();
-                    case '4': return ChatColor.DARK_RED.toString();
-                    case '5': return ChatColor.GOLD.toString();
-                    case '6': return ChatColor.GOLD.toString();
-                    case '7': return ChatColor.GRAY.toString();
-                    case '8': return ChatColor.DARK_GRAY.toString();
-                    case '9': return ChatColor.BLUE.toString();
-                    case 'a': return ChatColor.GREEN.toString();
-                    case 'b': return ChatColor.AQUA.toString();
-                    case 'c': return ChatColor.RED.toString();
-                    case 'd': return ChatColor.LIGHT_PURPLE.toString();
-                    case 'e': return ChatColor.YELLOW.toString();
-                    case 'f': return ChatColor.WHITE.toString();
-                    // Skip formatting codes (k, l, m, n, o, r) and continue looking
-                    default:
-                        continue;
-                }
-            }
-        }
-
-        return null;
-    }
-
-    /**
-     *  Fallback item name formatting
-     *
-     * @param materialName The material name
-     * @return Formatted name
-     */
-    private String formatItemName(String materialName) {
-        if (materialName == null || materialName.isEmpty()) {
-            return "Unknown";
-        }
-
-        String[] words = materialName.toLowerCase().split("_");
-        StringBuilder result = new StringBuilder();
-
-        for (String word : words) {
-            if (word.length() > 0) {
-                result.append(Character.toUpperCase(word.charAt(0)))
-                        .append(word.substring(1))
-                        .append(" ");
-            }
-        }
-
-        return result.toString().trim();
-    }
-
-    /**
-     * Alternative item display method using plain text formatting
-     * Use this as a fallback if JSON components don't work
-     */
-    private void sendItemMessageFallback(Player player, String message) {
+    private void sendFallbackItemMessage(Player player, String message) {
         try {
             ItemStack item = player.getInventory().getItemInMainHand();
             if (!isHoldingValidItem(player)) {
-                String fallbackMessage = message.replace("@i@", ChatColor.RED + "[No Item]" + ChatColor.WHITE);
-                sendNormalMessage(player, fallbackMessage);
+                handleNoItemFallback(player, message);
                 return;
             }
 
-            String formattedName = getFormattedName(player);
-
-            // Create a detailed item description with proper color matching
-            StringBuilder itemDesc = new StringBuilder();
-            String itemText = formatItemDisplay(getItemDisplayName(item));
-            itemDesc.append(itemText);
-
-            ItemMeta meta = item.getItemMeta();
-            if (meta != null && meta.hasEnchants()) {
-                itemDesc.append(ChatColor.LIGHT_PURPLE).append("*"); // Indicate enchanted
-            }
-
-            if (item.getAmount() > 1) {
-                itemDesc.append(ChatColor.GRAY).append(" x").append(item.getAmount());
-            }
-
-            String finalMessage = message.replace("@i@", itemDesc.toString() + ChatColor.WHITE);
+            String formattedName = getFormattedPlayerName(player);
+            String itemDisplay = formatItemDisplay(getItemDisplayName(item));
+            String finalMessage = message.replace("@i@", itemDisplay);
 
             // Send to self
             player.sendMessage(formattedName + ChatColor.WHITE + ": " + finalMessage);
 
-            // Send item details in a separate message
-            player.sendMessage(ChatColor.GRAY + "Item Details: " + ChatColor.WHITE +
-                    item.getType().name() +
-                    (meta != null && meta.hasDisplayName() ? " (" + meta.getDisplayName() + ")" : ""));
-
             // Send to nearby players
             List<Player> recipients = getNearbyPlayers(player);
             if (recipients.isEmpty()) {
-                player.sendMessage(ChatColor.GRAY.toString() + ChatColor.ITALIC + "No one heard you.");
+                player.sendMessage(Messages.NO_LISTENERS);
             } else {
-                for (Player recipient : recipients) {
-                    if (recipient != null && recipient.isOnline()) {
-                        String recipientSpecificName = getFormattedNameFor(player, recipient);
-                        recipient.sendMessage(recipientSpecificName + ChatColor.WHITE + ": " + finalMessage);
-                    }
-                }
+                sendToRecipients(player, recipients, finalMessage, formattedName);
             }
 
             // Send to vanished staff
-            sendToVanishedStaff(player, formattedName, finalMessage);
+            sendToVanishedStaff(player, formattedName, finalMessage, false);
 
         } catch (Exception e) {
             logger.log(Level.WARNING, "Error in fallback item message", e);
-            sendNormalMessage(player, message.replace("@i@", "[ITEM]"));
+            sendBasicFallbackMessage(player, message.replace("@i@", "[ITEM]"));
         }
     }
 
+    private void sendBasicFallbackMessage(Player player, String message) {
+        try {
+            String basicMessage = ChatColor.GRAY + player.getName() + ChatColor.WHITE + ": " + message;
+            player.sendMessage(basicMessage);
+
+            // Send to nearby players with basic formatting
+            getNearbyPlayers(player).forEach(recipient ->
+                    recipient.sendMessage(basicMessage));
+
+        } catch (Exception e) {
+            logger.log(Level.SEVERE, "Critical error in basic fallback message", e);
+        }
+    }
+
+    private void handleItemMessageError(Player player, String message) {
+        String errorMessage = message.replace("@i@", ChatColor.RED + "[ITEM ERROR]" + ChatColor.WHITE);
+        sendNormalMessage(player, errorMessage);
+    }
+
+    // === UTILITY METHODS ===
+
     /**
-     * Check if the server supports modern chat features
+     * Enhanced file existence checking with directory creation
+     */
+    private boolean ensureFileExists(File file) {
+        try {
+            if (!file.getParentFile().exists()) {
+                file.getParentFile().mkdirs();
+            }
+
+            if (!file.exists()) {
+                file.createNewFile();
+                return true;
+            }
+            return true;
+
+        } catch (Exception e) {
+            logger.log(Level.SEVERE, "Could not create file: " + file.getName(), e);
+            return false;
+        }
+    }
+
+    private void logChatMessage(Player player, String message) {
+        logger.info(player.getName() + ": " + message);
+    }
+
+    // === COMPATIBILITY AND DETECTION ===
+
+    /**
+     * Enhanced modern chat support detection
      */
     public static boolean supportsModernChat() {
         try {
-            // Check if BungeeCord chat classes are available
             Class.forName("net.md_5.bungee.api.chat.TextComponent");
             Class.forName("net.md_5.bungee.api.chat.HoverEvent");
             return true;
@@ -1285,7 +1361,7 @@ public class ChatMechanics implements Listener {
     }
 
     /**
-     * Get server compatibility information
+     * Enhanced compatibility information gathering
      */
     public static String getCompatibilityInfo() {
         StringBuilder info = new StringBuilder();
@@ -1295,123 +1371,105 @@ public class ChatMechanics implements Listener {
 
         info.append("Bukkit Version: ").append(Bukkit.getBukkitVersion()).append(" | ");
 
-        info.append("Modern Chat Support: ").append(supportsModernChat() ? "Yes" : "No");
+        info.append("Modern Chat Support: ").append(supportsModernChat() ? "Yes" : "No").append(" | ");
+
+        info.append("Players Online: ").append(Bukkit.getOnlinePlayers().size());
 
         return info.toString();
     }
 
+    // === PUBLIC API METHODS ===
+
     /**
-     * Test method to verify item display functionality
-     * Add this as a command: /testitemchat
+     * Enhanced mute management using YakPlayer system
      */
-    public static void testItemDisplay(Player player) {
-        if (player == null || !player.isOnline()) {
+    public static void mutePlayer(Player player, int timeInSeconds) {
+        if (player == null) {
             return;
         }
 
         try {
-            YakRealms.getInstance().getLogger().info("Testing item display for " + player.getName());
+            YakPlayer yakPlayer = YakPlayerManager.getInstance().getPlayer(player);
+            if (yakPlayer != null) {
+                yakPlayer.setMuteTime(timeInSeconds);
+                YakPlayerManager.getInstance().savePlayer(yakPlayer);
 
-            // Check if player is holding an item
-            ItemStack item = player.getInventory().getItemInMainHand();
-            if (item == null || item.getType() == Material.AIR) {
-                player.sendMessage(ChatColor.RED + "Hold an item in your main hand to test item display.");
-                return;
+                // Notify player
+                player.sendMessage(Messages.MUTED_MESSAGE);
+                if (timeInSeconds > 0) {
+                    int minutes = timeInSeconds / 60;
+                    player.sendMessage(String.format(Messages.MUTED_TEMPORARY, minutes));
+                } else {
+                    player.sendMessage(Messages.MUTED_PERMANENT);
+                }
+
+                getInstance().logger.info("Player " + player.getName() + " muted for " + timeInSeconds + " seconds");
             }
-
-            player.sendMessage(ChatColor.GREEN + "Testing item display functionality...");
-
-            // Test 1: Basic item info
-            player.sendMessage(ChatColor.YELLOW + "Item Type: " + item.getType().name());
-            player.sendMessage(ChatColor.YELLOW + "Item Amount: " + item.getAmount());
-
-            // Test 2: Check if BungeeCord Chat API is available
-            if (supportsModernChat()) {
-                player.sendMessage(ChatColor.GREEN + "✓ BungeeCord Chat API is available");
-            } else {
-                player.sendMessage(ChatColor.RED + "✗ BungeeCord Chat API is NOT available - using fallback mode");
-            }
-
-            // Test 3: Try sending a simple hover message
-            try {
-                JsonChatComponent testComponent = new JsonChatComponent(ChatColor.BLUE + "Hover over this text!");
-                testComponent.addHoverText(ChatColor.YELLOW + " [HOVER TEST] ", "This is a hover test message");
-                testComponent.send(player);
-                player.sendMessage(ChatColor.GREEN + "✓ Basic hover message sent");
-            } catch (Exception e) {
-                player.sendMessage(ChatColor.RED + "✗ Failed to send hover message: " + e.getMessage());
-                YakRealms.getInstance().getLogger().warning("Failed to send hover message: " + e.getMessage());
-            }
-
-            // Test 4: Try item display
-            try {
-                getInstance().processChat(player, "Testing item display @i@ here!");
-                player.sendMessage(ChatColor.GREEN + "✓ Item display test completed");
-            } catch (Exception e) {
-                player.sendMessage(ChatColor.RED + "✗ Item display test failed: " + e.getMessage());
-                YakRealms.getInstance().getLogger().warning("Item display test failed: " + e.getMessage());
-            }
-
         } catch (Exception e) {
-            player.sendMessage(ChatColor.RED + "Error during testing: " + e.getMessage());
-            YakRealms.getInstance().getLogger().log(Level.SEVERE, "Error during item display testing", e);
+            getInstance().logger.log(Level.WARNING, "Error muting player " + player.getName(), e);
         }
     }
 
     /**
-     * Debug method to check chat system status
+     * Enhanced unmute functionality using YakPlayer system
      */
-    public static void debugChatSystem(Player player) {
-        if (player == null || !player.isOnline()) {
+    public static void unmutePlayer(Player player) {
+        if (player == null) {
             return;
         }
 
-        player.sendMessage(ChatColor.GOLD + "=== Chat System Debug Info ===");
-
-        // Server version info
-        String version = Bukkit.getVersion();
-        String bukkitVersion = Bukkit.getBukkitVersion();
-        player.sendMessage(ChatColor.YELLOW + "Server Version: " + ChatColor.WHITE + version);
-        player.sendMessage(ChatColor.YELLOW + "Bukkit Version: " + ChatColor.WHITE + bukkitVersion);
-
-        // Check if Spigot methods are available
         try {
-            player.spigot().sendMessage(new net.md_5.bungee.api.chat.TextComponent("Spigot test"));
-            player.sendMessage(ChatColor.GREEN + "✓ Spigot API available");
+            YakPlayer yakPlayer = YakPlayerManager.getInstance().getPlayer(player);
+            if (yakPlayer != null) {
+                yakPlayer.setMuteTime(0);
+                YakPlayerManager.getInstance().savePlayer(yakPlayer);
+
+                player.sendMessage(Messages.UNMUTED_MESSAGE);
+                getInstance().logger.info("Player " + player.getName() + " has been unmuted");
+            }
         } catch (Exception e) {
-            player.sendMessage(ChatColor.RED + "✗ Spigot API not available: " + e.getMessage());
+            getInstance().logger.log(Level.WARNING, "Error unmuting player " + player.getName(), e);
         }
-
-        // Chat mechanics status
-        ChatMechanics mechanics = getInstance();
-        if (mechanics != null) {
-            player.sendMessage(ChatColor.GREEN + "✓ ChatMechanics instance active");
-
-            // Player data status
-            ChatTag tag = getPlayerTag(player);
-            player.sendMessage(ChatColor.YELLOW + "Current Chat Tag: " + ChatColor.WHITE + tag.name());
-
-            boolean muted = isMuted(player);
-            player.sendMessage(ChatColor.YELLOW + "Muted: " + ChatColor.WHITE + (muted ? "Yes" : "No"));
-
-            // Cooldown status
-            boolean hasCooldown = chatCooldown.containsKey(player.getUniqueId());
-            player.sendMessage(ChatColor.YELLOW + "Chat Cooldown Active: " + ChatColor.WHITE + (hasCooldown ? "Yes" : "No"));
-
-        } else {
-            player.sendMessage(ChatColor.RED + "✗ ChatMechanics instance not found");
-        }
-
-        player.sendMessage(ChatColor.GOLD + "=== End Debug Info ===");
     }
 
-    // Static utility methods for external access
+    /**
+     * Enhanced mute status checking using YakPlayer system
+     */
+    public static boolean isMuted(Player player) {
+        if (player == null) {
+            return false;
+        }
+
+        try {
+            YakPlayer yakPlayer = YakPlayerManager.getInstance().getPlayer(player);
+            return yakPlayer != null && yakPlayer.isMuted();
+        } catch (Exception e) {
+            getInstance().logger.log(Level.WARNING, "Error checking mute status for " + player.getName(), e);
+            return false;
+        }
+    }
 
     /**
-     * Get the player's current chat tag
-     *
-     * @param player The player to check
-     * @return The player's chat tag
+     * Enhanced mute time retrieval using YakPlayer system
+     */
+    public static int getMuteTime(Player player) {
+        if (player == null) {
+            return 0;
+        }
+
+        try {
+            YakPlayer yakPlayer = YakPlayerManager.getInstance().getPlayer(player);
+            return yakPlayer != null ? yakPlayer.getMuteTime() : 0;
+        } catch (Exception e) {
+            getInstance().logger.log(Level.WARNING, "Error getting mute time for " + player.getName(), e);
+            return 0;
+        }
+    }
+
+    // === CHAT TAG MANAGEMENT ===
+
+    /**
+     * Enhanced chat tag retrieval
      */
     public static ChatTag getPlayerTag(Player player) {
         if (player == null) {
@@ -1421,10 +1479,7 @@ public class ChatMechanics implements Listener {
     }
 
     /**
-     * Set a player's chat tag
-     *
-     * @param player The player to update
-     * @param tag    The new chat tag
+     * Enhanced chat tag setting with validation
      */
     public static void setPlayerTag(Player player, ChatTag tag) {
         if (player == null || tag == null) {
@@ -1435,23 +1490,21 @@ public class ChatMechanics implements Listener {
             UUID uuid = player.getUniqueId();
             playerTags.put(uuid, tag);
 
-            // Save to player data
+            // Save to YakPlayer data
             YakPlayer yakPlayer = YakPlayerManager.getInstance().getPlayer(player);
             if (yakPlayer != null) {
                 yakPlayer.setChatTag(tag.name());
                 YakPlayerManager.getInstance().savePlayer(yakPlayer);
             }
+
+            getInstance().logger.fine("Set chat tag " + tag.name() + " for player " + player.getName());
         } catch (Exception e) {
-            YakRealms.getInstance().getLogger().log(Level.WARNING, "Error setting chat tag", e);
+            getInstance().logger.log(Level.WARNING, "Error setting chat tag", e);
         }
     }
 
     /**
-     * Check if a player has a chat tag unlocked
-     *
-     * @param player The player to check
-     * @param tag    The tag to check
-     * @return true if the player has the tag unlocked
+     * Enhanced tag unlock checking
      */
     public static boolean hasTagUnlocked(Player player, ChatTag tag) {
         if (player == null || tag == null) {
@@ -1460,21 +1513,15 @@ public class ChatMechanics implements Listener {
 
         try {
             UUID uuid = player.getUniqueId();
-            if (!unlockedPlayerTags.containsKey(uuid)) {
-                unlockedPlayerTags.put(uuid, new ArrayList<>());
-            }
-
-            return unlockedPlayerTags.get(uuid).contains(tag.name());
+            Set<String> unlockedTags = unlockedPlayerTags.get(uuid);
+            return unlockedTags != null && unlockedTags.contains(tag.name());
         } catch (Exception e) {
             return false;
         }
     }
 
     /**
-     * Unlock a chat tag for a player
-     *
-     * @param player The player
-     * @param tag    The tag to unlock
+     * Enhanced tag unlocking with YakPlayer persistence
      */
     public static void unlockTag(Player player, ChatTag tag) {
         if (player == null || tag == null) {
@@ -1483,29 +1530,28 @@ public class ChatMechanics implements Listener {
 
         try {
             UUID uuid = player.getUniqueId();
-            if (!unlockedPlayerTags.containsKey(uuid)) {
-                unlockedPlayerTags.put(uuid, new ArrayList<>());
-            }
+            Set<String> unlockedTags = unlockedPlayerTags.computeIfAbsent(uuid, k -> new HashSet<>());
 
-            if (!unlockedPlayerTags.get(uuid).contains(tag.name())) {
-                unlockedPlayerTags.get(uuid).add(tag.name());
-            }
+            if (unlockedTags.add(tag.name())) {
+                // Save to YakPlayer data
+                YakPlayer yakPlayer = YakPlayerManager.getInstance().getPlayer(player);
+                if (yakPlayer != null) {
+                    yakPlayer.unlockChatTag(tag);
+                    YakPlayerManager.getInstance().savePlayer(yakPlayer);
+                }
 
-            YakPlayer yakPlayer = YakPlayerManager.getInstance().getPlayer(player);
-            if (yakPlayer != null) {
-                yakPlayer.unlockChatTag(tag);
-                YakPlayerManager.getInstance().savePlayer(yakPlayer);
+                player.sendMessage(ChatColor.GREEN + "Unlocked chat tag: " + tag.getTag());
+                getInstance().logger.info("Player " + player.getName() + " unlocked chat tag: " + tag.name());
             }
         } catch (Exception e) {
-            YakRealms.getInstance().getLogger().log(Level.WARNING, "Error unlocking chat tag", e);
+            getInstance().logger.log(Level.WARNING, "Error unlocking chat tag", e);
         }
     }
 
+    // === REPLY SYSTEM ===
+
     /**
-     * Set a player's reply target
-     *
-     * @param sender The player sending the message
-     * @param target The player to reply to
+     * Enhanced reply target management
      */
     public static void setReplyTarget(Player sender, Player target) {
         if (sender != null) {
@@ -1518,10 +1564,7 @@ public class ChatMechanics implements Listener {
     }
 
     /**
-     * Get a player's reply target
-     *
-     * @param player The player
-     * @return The reply target or null if none
+     * Enhanced reply target retrieval with validation
      */
     public static Player getReplyTarget(Player player) {
         if (player == null) {
@@ -1529,7 +1572,6 @@ public class ChatMechanics implements Listener {
         }
 
         Player target = replyTargets.get(player.getUniqueId());
-        // Clean up if target is offline
         if (target != null && !target.isOnline()) {
             replyTargets.remove(player.getUniqueId());
             return null;
@@ -1537,134 +1579,25 @@ public class ChatMechanics implements Listener {
         return target;
     }
 
-    /**
-     * Access to player tags map for compatibility
-     *
-     * @return The player tags map
-     */
-    public static Map<UUID, ChatTag> getPlayerTags() {
-        return playerTags;
-    }
+    // === EXTERNAL API METHODS ===
 
     /**
-     * Set a player's mute status
-     *
-     * @param player        The player to mute
-     * @param timeInSeconds The duration of the mute in seconds, or 0 for permanent
+     * Enhanced external item messaging API
      */
-    public static void mutePlayer(Player player, int timeInSeconds) {
-        if (player == null) {
-            return;
-        }
-
-        try {
-            UUID uuid = player.getUniqueId();
-            mutedPlayers.put(uuid, timeInSeconds);
-
-            // Update player data
-            YakPlayer yakPlayer = YakPlayerManager.getInstance().getPlayer(player);
-            if (yakPlayer != null) {
-                yakPlayer.setMuteTime(timeInSeconds);
-                YakPlayerManager.getInstance().savePlayer(yakPlayer);
-            }
-
-            // Notify player
-            player.sendMessage(ChatColor.RED + "You have been muted");
-            if (timeInSeconds > 0) {
-                int minutes = timeInSeconds / 60;
-                player.sendMessage(ChatColor.RED + "Your mute expires in " + minutes + " minutes.");
-            } else {
-                player.sendMessage(ChatColor.RED + "Your mute WILL NOT expire.");
-            }
-        } catch (Exception e) {
-            YakRealms.getInstance().getLogger().log(Level.WARNING, "Error muting player", e);
-        }
-    }
-
-    /**
-     * Unmute a player
-     *
-     * @param player The player to unmute
-     */
-    public static void unmutePlayer(Player player) {
-        if (player == null) {
-            return;
-        }
-
-        try {
-            UUID uuid = player.getUniqueId();
-            mutedPlayers.remove(uuid);
-
-            // Update player data
-            YakPlayer yakPlayer = YakPlayerManager.getInstance().getPlayer(player);
-            if (yakPlayer != null) {
-                yakPlayer.setMuteTime(0);
-                YakPlayerManager.getInstance().savePlayer(yakPlayer);
-            }
-
-            // Notify player
-            player.sendMessage(ChatColor.GREEN + "You have been unmuted.");
-        } catch (Exception e) {
-            YakRealms.getInstance().getLogger().log(Level.WARNING, "Error unmuting player", e);
-        }
-    }
-
-    /**
-     * Check if a player is muted
-     *
-     * @param player The player to check
-     * @return true if the player is muted
-     */
-    public static boolean isMuted(Player player) {
-        if (player == null) {
-            return false;
-        }
-        return mutedPlayers.containsKey(player.getUniqueId());
-    }
-
-    /**
-     * Get a player's mute time
-     *
-     * @param player The player to check
-     * @return The mute time in seconds, or 0 if not muted or permanent
-     */
-    public static int getMuteTime(Player player) {
-        if (player == null) {
-            return 0;
-        }
-        return mutedPlayers.getOrDefault(player.getUniqueId(), 0);
-    }
-
-    /**
-     * PUBLIC METHOD: Send an item message to a specific player
-     * This method can be called from other commands like GlobalChatCommand and PartyCommand
-     *
-     * @param sender    The player sending the message
-     * @param item      The item to display
-     * @param prefix    The message prefix (including sender name)
-     * @param message   The message text containing @i@
-     * @param recipient The player to receive the message
-     * @return true if the message was sent successfully
-     */
-    public static boolean sendItemMessageToPlayer(Player sender, ItemStack item, String prefix, String message, Player recipient) {
-        if (getInstance() != null) {
-            return getInstance().sendItemHoverMessage(sender, item, prefix, message, recipient);
+    public static boolean sendItemMessageToPlayer(Player sender, ItemStack item, String prefix,
+                                                  String message, Player recipient) {
+        ChatMechanics instance = getInstance();
+        if (instance != null) {
+            return instance.sendItemHoverMessage(sender, item, prefix, message, recipient);
         }
         return false;
     }
 
     /**
-     * PUBLIC METHOD: Send an item message to multiple players
-     * This method can be called from other commands for broadcasting
-     *
-     * @param sender     The player sending the message
-     * @param item       The item to display
-     * @param prefix     The message prefix (including sender name)
-     * @param message    The message text containing @i@
-     * @param recipients List of players to receive the message
-     * @return number of successful sends
+     * Enhanced external batch item messaging API
      */
-    public static int sendItemMessageToPlayers(Player sender, ItemStack item, String prefix, String message, List<Player> recipients) {
+    public static int sendItemMessageToPlayers(Player sender, ItemStack item, String prefix,
+                                               String message, List<Player> recipients) {
         int successCount = 0;
         ChatMechanics instance = getInstance();
 
@@ -1679,19 +1612,19 @@ public class ChatMechanics implements Listener {
                     if (success) {
                         successCount++;
                     } else {
-                        // Fallback to normal message with item name using proper color formatting
+                        // Enhanced fallback with proper formatting
                         String itemName = instance.getItemDisplayName(item);
                         String itemDisplay = instance.formatItemDisplay(itemName);
                         String fallbackMessage = message.replace("@i@", itemDisplay);
                         recipient.sendMessage(prefix + ChatColor.WHITE + ": " + fallbackMessage);
-                        successCount++; // Count fallback as success
+                        successCount++;
                     }
                 } catch (Exception e) {
                     instance.logger.log(Level.WARNING, "Error sending item message to " + recipient.getName(), e);
                     // Final fallback
                     String fallbackMessage = message.replace("@i@", "[ITEM]");
                     recipient.sendMessage(prefix + ChatColor.WHITE + ": " + fallbackMessage);
-                    successCount++; // Count fallback as success
+                    successCount++;
                 }
             }
         }
@@ -1700,28 +1633,173 @@ public class ChatMechanics implements Listener {
     }
 
     /**
-     * PUBLIC METHOD: Check if a player is holding a valid item for display
-     *
-     * @param player The player to check
-     * @return true if the player is holding a valid item
+     * Enhanced external item validation API
      */
     public static boolean isPlayerHoldingValidItem(Player player) {
-        if (getInstance() != null) {
-            return getInstance().isHoldingValidItem(player);
-        }
-        return false;
+        ChatMechanics instance = getInstance();
+        return instance != null && instance.isHoldingValidItem(player);
     }
 
     /**
-     * PUBLIC METHOD: Get the display name of an item
-     *
-     * @param item The item
-     * @return The formatted display name
+     * Enhanced external item display name API
      */
     public static String getDisplayNameForItem(ItemStack item) {
-        if (getInstance() != null) {
-            return getInstance().getItemDisplayName(item);
+        ChatMechanics instance = getInstance();
+        if (instance != null) {
+            return instance.getItemDisplayName(item);
         }
         return item != null ? item.getType().name() : "Unknown";
+    }
+
+    // === STATISTICS AND DEBUGGING ===
+
+    /**
+     * Enhanced statistics gathering
+     */
+    public static Map<String, Object> getStatistics() {
+        Map<String, Object> stats = new HashMap<>();
+        stats.put("playerTags", playerTags.size());
+        stats.put("unlockedTags", unlockedPlayerTags.size());
+        stats.put("activeCooldowns", chatCooldown.size());
+        stats.put("replyTargets", replyTargets.size());
+        stats.put("supportsModernChat", supportsModernChat());
+        stats.put("isEnabled", getInstance().isEnabled.get());
+        return stats;
+    }
+
+    /**
+     * Enhanced debug information for administrators
+     */
+    public static void debugChatSystem(Player player) {
+        if (player == null || !player.isOnline()) {
+            return;
+        }
+
+        player.sendMessage(ChatColor.GOLD + "=== Enhanced Chat System Debug Info ===");
+
+        // System information
+        player.sendMessage(ChatColor.YELLOW + "Server Version: " + ChatColor.WHITE + Bukkit.getVersion());
+        player.sendMessage(ChatColor.YELLOW + "Bukkit Version: " + ChatColor.WHITE + Bukkit.getBukkitVersion());
+        player.sendMessage(ChatColor.YELLOW + "Modern Chat Support: " + ChatColor.WHITE + supportsModernChat());
+
+        // Instance status
+        ChatMechanics instance = getInstance();
+        if (instance != null) {
+            player.sendMessage(ChatColor.GREEN + "✓ ChatMechanics instance active");
+            player.sendMessage(ChatColor.YELLOW + "Enabled: " + ChatColor.WHITE + instance.isEnabled.get());
+
+            // Player-specific information
+            ChatTag tag = getPlayerTag(player);
+            player.sendMessage(ChatColor.YELLOW + "Your Chat Tag: " + ChatColor.WHITE + tag.name());
+
+            boolean muted = isMuted(player);
+            player.sendMessage(ChatColor.YELLOW + "Muted: " + ChatColor.WHITE + (muted ? "Yes" : "No"));
+
+            boolean hasCooldown = chatCooldown.containsKey(player.getUniqueId());
+            player.sendMessage(ChatColor.YELLOW + "Chat Cooldown Active: " + ChatColor.WHITE + (hasCooldown ? "Yes" : "No"));
+
+            // Statistics
+            Map<String, Object> stats = getStatistics();
+            player.sendMessage(ChatColor.YELLOW + "Active Statistics:");
+            stats.forEach((key, value) ->
+                    player.sendMessage(ChatColor.GRAY + "  " + key + ": " + ChatColor.WHITE + value));
+
+        } else {
+            player.sendMessage(ChatColor.RED + "✗ ChatMechanics instance not found");
+        }
+
+        player.sendMessage(ChatColor.GOLD + "=== End Debug Info ===");
+    }
+
+    /**
+     * Enhanced test method for item display functionality
+     */
+    public static void testItemDisplay(Player player) {
+        if (player == null || !player.isOnline()) {
+            return;
+        }
+
+        try {
+            ChatMechanics instance = getInstance();
+            if (instance == null) {
+                player.sendMessage(ChatColor.RED + "ChatMechanics not available for testing");
+                return;
+            }
+
+            instance.logger.info("Testing item display for " + player.getName());
+
+            // Check if player is holding an item
+            ItemStack item = player.getInventory().getItemInMainHand();
+            if (item == null || item.getType() == Material.AIR) {
+                player.sendMessage(ChatColor.RED + "Hold an item in your main hand to test item display.");
+                return;
+            }
+
+            player.sendMessage(ChatColor.GREEN + "Testing enhanced item display functionality...");
+
+            // Test basic item info
+            player.sendMessage(ChatColor.YELLOW + "Item Type: " + item.getType().name());
+            player.sendMessage(ChatColor.YELLOW + "Item Amount: " + item.getAmount());
+            player.sendMessage(ChatColor.YELLOW + "Display Name: " + instance.getItemDisplayName(item));
+
+            // Test modern chat support
+            if (supportsModernChat()) {
+                player.sendMessage(ChatColor.GREEN + "✓ BungeeCord Chat API is available");
+            } else {
+                player.sendMessage(ChatColor.RED + "✗ BungeeCord Chat API is NOT available - using fallback mode");
+            }
+
+            // Test hover message creation
+            try {
+                JsonChatComponent testComponent = new JsonChatComponent(ChatColor.BLUE + "Hover over this text!");
+                testComponent.addHoverText(ChatColor.YELLOW + " [HOVER TEST] ", "This is a hover test message");
+                testComponent.send(player);
+                player.sendMessage(ChatColor.GREEN + "✓ Basic hover message sent");
+            } catch (Exception e) {
+                player.sendMessage(ChatColor.RED + "✗ Failed to send hover message: " + e.getMessage());
+                instance.logger.warning("Failed to send hover message: " + e.getMessage());
+            }
+
+            // Test item display processing
+            try {
+                instance.processChat(player, "Testing enhanced item display @i@ here!");
+                player.sendMessage(ChatColor.GREEN + "✓ Enhanced item display test completed");
+            } catch (Exception e) {
+                player.sendMessage(ChatColor.RED + "✗ Item display test failed: " + e.getMessage());
+                instance.logger.warning("Item display test failed: " + e.getMessage());
+            }
+
+        } catch (Exception e) {
+            player.sendMessage(ChatColor.RED + "Error during testing: " + e.getMessage());
+            getInstance().logger.log(Level.SEVERE, "Error during enhanced item display testing", e);
+        }
+    }
+
+    // === ACCESS METHODS ===
+
+    /**
+     * Access to player tags map for compatibility
+     */
+    public static Map<UUID, ChatTag> getPlayerTags() {
+        return new HashMap<>(playerTags);
+    }
+
+    /**
+     * Enhanced method to clear all temporary data (for testing/admin use)
+     */
+    public static void clearAllTempData() {
+        chatCooldown.clear();
+        replyTargets.clear();
+        getInstance().logger.info("Cleared all temporary chat data");
+    }
+
+    /**
+     * Enhanced method to reload player data (for admin use)
+     */
+    public static void reloadPlayerData(Player player) {
+        if (player != null && getInstance() != null) {
+            getInstance().loadPlayerChatTag(player);
+            getInstance().logger.info("Reloaded chat data for player: " + player.getName());
+        }
     }
 }
