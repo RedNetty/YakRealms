@@ -500,7 +500,7 @@ public class ElytraMount implements Mount {
                     return;
                 }
 
-                player.sendMessage(ChatColor.WHITE + ChatColor.BOLD.toString() + "ELYTRA MOUNT ACTIVATED!");
+                player.sendMessage(ChatColor.WHITE + ChatColor.BOLD.toString() + "LAUNCHING...");
 
                 // Enhanced chestplate handling
                 equipElytraWithChestplateProperties(player);

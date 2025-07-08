@@ -4,6 +4,7 @@ import com.rednetty.server.YakRealms;
 import com.rednetty.server.core.database.YakPlayerRepository;
 import com.rednetty.server.mechanics.chat.ChatMechanics;
 import com.rednetty.server.mechanics.chat.ChatTag;
+import com.rednetty.server.mechanics.combat.pvp.AlignmentMechanics;
 import com.rednetty.server.mechanics.moderation.ModerationMechanics;
 import com.rednetty.server.mechanics.moderation.Rank;
 import com.rednetty.server.mechanics.player.listeners.PlayerListenerManager;
@@ -228,89 +229,6 @@ public class YakPlayerManager implements Listener {
         }
     }
 
-    /**
-     * Enhanced player join handler
-     */
-    @EventHandler(priority = EventPriority.LOWEST)
-    public void onPlayerJoin(PlayerJoinEvent event) {
-        Player player = event.getPlayer();
-        UUID uuid = player.getUniqueId();
-        String playerName = player.getName();
-
-        totalPlayerJoins.incrementAndGet();
-        logger.info("Player joining: " + playerName + " (" + uuid + ")");
-
-        // Check system health
-        if (!repositoryReady.get() || repository == null) {
-            logger.severe("Player joined but repository not ready: " + playerName);
-            player.sendMessage(ChatColor.RED + "Server is not ready. Please reconnect in a moment.");
-            return;
-        }
-
-        // Check for duplicate processing
-        if (loadingPlayers.contains(uuid) || onlinePlayers.containsKey(uuid)) {
-            logger.warning("Duplicate join event for player: " + playerName);
-            return;
-        }
-
-        // Add to loading set
-        loadingPlayers.add(uuid);
-
-        // Set temporary join message
-        setTemporaryJoinMessage(event, player);
-
-        // Load player data asynchronously
-        loadPlayerDataAsync(player).whenComplete((yakPlayer, error) -> {
-            Bukkit.getScheduler().runTask(plugin, () -> {
-                handlePlayerLoadCompletion(player, yakPlayer, error);
-            });
-        });
-    }
-
-    /**
-     * Enhanced player quit handler
-     */
-    @EventHandler(priority = EventPriority.HIGHEST)
-    public void onPlayerQuit(PlayerQuitEvent event) {
-        Player player = event.getPlayer();
-        UUID uuid = player.getUniqueId();
-        String playerName = player.getName();
-
-        totalPlayerQuits.incrementAndGet();
-        logger.info("Player quitting: " + playerName);
-
-        // Remove from loading if still loading
-        loadingPlayers.remove(uuid);
-
-        // Get and remove player data
-        YakPlayer yakPlayer = onlinePlayers.remove(uuid);
-        if (yakPlayer == null) {
-            logger.warning("No player data found for quitting player: " + playerName);
-            cleanupPlayerReferences(uuid, playerName);
-            return;
-        }
-
-        // Update player data before saving
-        updatePlayerBeforeSave(yakPlayer, player);
-        yakPlayer.disconnect();
-
-        // Clean up references
-        cleanupPlayerReferences(uuid, playerName);
-
-        // Save player data
-        savePlayerDataAsync(yakPlayer).whenComplete((result, error) -> {
-            if (error != null) {
-                logger.log(Level.SEVERE, "Failed to save player on quit: " + playerName, error);
-                failedSaves.incrementAndGet();
-            } else {
-                logger.fine("Successfully saved player on quit: " + playerName);
-                successfulSaves.incrementAndGet();
-            }
-        });
-
-        // Set quit message
-        setEnhancedQuitMessage(event, player, yakPlayer);
-    }
 
     /**
      * Load player data asynchronously
@@ -442,113 +360,6 @@ public class YakPlayerManager implements Listener {
                 return false;
             }
         }, ioExecutor);
-    }
-
-    /**
-     * Initialize player systems after successful data loading
-     */
-    private void initializePlayerSystems(Player player, YakPlayer yakPlayer) {
-        try {
-            UUID uuid = player.getUniqueId();
-
-            // Initialize energy
-            if (!yakPlayer.hasTemporaryData("energy")) {
-                yakPlayer.setTemporaryData("energy", 100);
-            }
-            player.setExp(1.0f);
-            player.setLevel(100);
-
-            // Apply saved inventory and armor first (needed for health calculation)
-            yakPlayer.applyInventory(player);
-
-            // Calculate max health based on current armor and apply all stats
-            // This needs to be done AFTER inventory is applied so armor is equipped
-            Bukkit.getScheduler().runTaskLater(plugin, () -> {
-                try {
-                    PlayerListenerManager.getInstance().getHealthListener().recalculateHealth(player);
-
-                    // Apply all stats including the corrected health values
-                    yakPlayer.applyStats(player);
-
-                    logger.fine("Applied health stats for " + player.getName() +
-                            ": " + yakPlayer.getHealth() + "/" + yakPlayer.getMaxHealth());
-
-                } catch (Exception e) {
-                    logger.log(Level.WARNING, "Error applying health stats for " + player.getName(), e);
-                }
-            }, 1L); // Delay by 1 tick to ensure inventory is fully applied
-
-            // Initialize rank system
-            try {
-                String rankString = yakPlayer.getRank();
-                if (rankString == null || rankString.trim().isEmpty()) {
-                    rankString = "default";
-                    yakPlayer.setRank("default");
-                    logger.info("Set default rank for player with null/empty rank: " + player.getName());
-                }
-
-                Rank rank = Rank.fromString(rankString);
-                ModerationMechanics.rankMap.put(uuid, rank);
-
-                logger.fine("Successfully loaded rank " + rank.name() + " for player: " + player.getName());
-
-            } catch (IllegalArgumentException e) {
-                logger.warning("Invalid rank for player " + player.getName() + ": " + yakPlayer.getRank() +
-                        ". Setting to DEFAULT and saving correction.");
-
-                ModerationMechanics.rankMap.put(uuid, Rank.DEFAULT);
-                yakPlayer.setRank("default");
-
-                savePlayerDataAsync(yakPlayer).whenComplete((result, error) -> {
-                    if (error != null) {
-                        logger.warning("Failed to save rank correction for " + player.getName() + ": " + error.getMessage());
-                    } else {
-                        logger.info("Successfully corrected and saved rank for " + player.getName());
-                    }
-                });
-            }
-
-            // Initialize chat tag system
-            try {
-                String chatTagString = yakPlayer.getChatTag();
-                if (chatTagString == null || chatTagString.trim().isEmpty()) {
-                    chatTagString = "DEFAULT";
-                    yakPlayer.setChatTag("DEFAULT");
-                }
-
-                ChatTag tag = ChatTag.valueOf(chatTagString);
-                ChatMechanics.getPlayerTags().put(uuid, tag);
-
-            } catch (IllegalArgumentException e) {
-                logger.warning("Invalid chat tag for player " + player.getName() + ": " + yakPlayer.getChatTag() +
-                        ". Setting to DEFAULT.");
-                ChatMechanics.getPlayerTags().put(uuid, ChatTag.DEFAULT);
-                yakPlayer.setChatTag("DEFAULT");
-            }
-
-            logger.fine("Initialized systems for player: " + player.getName());
-
-        } catch (Exception e) {
-            logger.log(Level.WARNING, "Error initializing player systems for " + player.getName(), e);
-        }
-    }
-
-
-    /**
-     * Update player data before saving
-     */
-    private void updatePlayerBeforeSave(YakPlayer yakPlayer, Player bukkitPlayer) {
-        if (yakPlayer == null || bukkitPlayer == null) {
-            return;
-        }
-
-        try {
-            yakPlayer.updateLocation(bukkitPlayer.getLocation());
-            yakPlayer.updateInventory(bukkitPlayer);
-            yakPlayer.updateStats(bukkitPlayer);
-        } catch (Exception e) {
-            logger.log(Level.WARNING, "Error updating player before save: " + yakPlayer.getUsername(), e);
-        }
     }
 
     /**
@@ -704,56 +515,6 @@ public class YakPlayerManager implements Listener {
         } finally {
             initialized.set(false);
             repositoryReady.set(false);
-        }
-    }
-
-    /**
-     * Save all players on shutdown
-     */
-    private void saveAllPlayersOnShutdown() {
-        logger.info("Saving " + onlinePlayers.size() + " players on shutdown...");
-
-        List<CompletableFuture<Boolean>> saveFutures = new ArrayList<>();
-
-        for (YakPlayer yakPlayer : new ArrayList<>(onlinePlayers.values())) {
-            Player player = yakPlayer.getBukkitPlayer();
-            if (player != null && player.isOnline()) {
-                updatePlayerBeforeSave(yakPlayer, player);
-            }
-            yakPlayer.disconnect();
-
-            // Use synchronous save for shutdown
-            saveFutures.add(CompletableFuture.supplyAsync(() -> {
-                try {
-                    YakPlayer result = repository.saveSync(yakPlayer);
-                    return result != null;
-                } catch (Exception e) {
-                    logger.log(Level.SEVERE, "Failed to save player on shutdown: " + yakPlayer.getUsername(), e);
-                    return false;
-                }
-            }, ioExecutor));
-        }
-
-        try {
-            CompletableFuture<Void> allSaves = CompletableFuture.allOf(
-                    saveFutures.toArray(new CompletableFuture[0]));
-            allSaves.get(30, TimeUnit.SECONDS);
-
-            long successful = saveFutures.stream()
-                    .mapToLong(future -> {
-                        try {
-                            return future.get() ? 1 : 0;
-                        } catch (Exception e) {
-                            return 0;
-                        }
-                    }).sum();
-
-            logger.info("Shutdown save completed: " + successful + "/" + saveFutures.size() + " players saved");
-
-        } catch (TimeoutException e) {
-            logger.warning("Shutdown save timed out after 30 seconds");
-        } catch (Exception e) {
-            logger.log(Level.SEVERE, "Error during shutdown save", e);
         }
     }
 
@@ -993,7 +754,337 @@ public class YakPlayerManager implements Listener {
     public boolean hasPlayer(String playerName) {
         return playerName != null && !playerName.trim().isEmpty() && getPlayer(playerName) != null;
     }
+// FIXED: Key methods for YakPlayerManager.java to prevent data corruption during combat logout
 
+    /**
+     * FIXED: Enhanced player quit handler with combat logout protection
+     */
+    @EventHandler(priority = EventPriority.HIGHEST)
+    public void onPlayerQuit(PlayerQuitEvent event) {
+        Player player = event.getPlayer();
+        UUID uuid = player.getUniqueId();
+        String playerName = player.getName();
+
+        totalPlayerQuits.incrementAndGet();
+        logger.info("Player quitting: " + playerName);
+
+        // Remove from loading if still loading
+        loadingPlayers.remove(uuid);
+
+        // Get and remove player data
+        YakPlayer yakPlayer = onlinePlayers.remove(uuid);
+        if (yakPlayer == null) {
+            logger.warning("No player data found for quitting player: " + playerName);
+            cleanupPlayerReferences(uuid, playerName);
+            return;
+        }
+
+        // FIXED: Check if this is a combat logout scenario
+        boolean isCombatLogout = false;
+        try {
+            // Check with AlignmentMechanics if player is combat logging
+            isCombatLogout = AlignmentMechanics.getInstance().isCombatLoggingOut(player);
+        } catch (Exception e) {
+            logger.warning("Could not check combat logout status for " + playerName + ": " + e.getMessage());
+        }
+
+        if (isCombatLogout) {
+            logger.info("COMBAT LOGOUT detected for " + playerName + " - special handling");
+
+            // For combat logout, DON'T update inventory/stats from the bukkit player
+            // This prevents the combat logger from keeping items they shouldn't have
+            yakPlayer.disconnect();
+
+            // Mark as combat logout in temporary data
+            yakPlayer.setTemporaryData("combat_logout_quit", System.currentTimeMillis());
+
+            // Clean up references
+            cleanupPlayerReferences(uuid, playerName);
+
+            // Save player data immediately (without updating from bukkit player)
+            savePlayerDataAsync(yakPlayer).whenComplete((result, error) -> {
+                if (error != null) {
+                    logger.log(Level.SEVERE, "Failed to save combat logout player: " + playerName, error);
+                    failedSaves.incrementAndGet();
+                } else {
+                    logger.info("Successfully saved combat logout player: " + playerName);
+                    successfulSaves.incrementAndGet();
+                }
+            });
+
+            // Set quit message
+            event.setQuitMessage(ChatColor.RED + "[-] " + ChatColor.GRAY + playerName + ChatColor.DARK_GRAY + " (combat logout)");
+            return;
+        }
+
+        // Normal quit processing
+        logger.fine("Normal quit processing for: " + playerName);
+
+        // Update player data before saving (only for normal quits)
+        updatePlayerBeforeSave(yakPlayer, player);
+        yakPlayer.disconnect();
+
+        // Clean up references
+        cleanupPlayerReferences(uuid, playerName);
+
+        // Save player data
+        savePlayerDataAsync(yakPlayer).whenComplete((result, error) -> {
+            if (error != null) {
+                logger.log(Level.SEVERE, "Failed to save player on quit: " + playerName, error);
+                failedSaves.incrementAndGet();
+            } else {
+                logger.fine("Successfully saved player on quit: " + playerName);
+                successfulSaves.incrementAndGet();
+            }
+        });
+
+        // Set quit message
+        setEnhancedQuitMessage(event, player, yakPlayer);
+    }
+
+    /**
+     * FIXED: Enhanced updatePlayerBeforeSave with combat logout protection
+     */
+    private void updatePlayerBeforeSave(YakPlayer yakPlayer, Player bukkitPlayer) {
+        if (yakPlayer == null || bukkitPlayer == null) {
+            return;
+        }
+
+        try {
+            // FIXED: Don't update data if player is dead or has very low health (ghost state)
+            if (bukkitPlayer.isDead() || bukkitPlayer.getHealth() <= 0.5) {
+                logger.warning("Skipping data update for dead/ghost player: " + bukkitPlayer.getName());
+                return;
+            }
+
+            // FIXED: Check if this player combat logged - if so, don't update inventory
+            boolean isCombatLogout = false;
+            try {
+                isCombatLogout = AlignmentMechanics.getInstance().isCombatLoggingOut(bukkitPlayer);
+            } catch (Exception e) {
+                logger.fine("Could not check combat logout status during save: " + e.getMessage());
+            }
+
+            // Always update location and stats
+            yakPlayer.updateLocation(bukkitPlayer.getLocation());
+            yakPlayer.updateStats(bukkitPlayer);
+
+            // Only update inventory for non-combat logouts
+            if (!isCombatLogout) {
+                yakPlayer.updateInventory(bukkitPlayer);
+                logger.fine("Updated inventory for normal quit: " + bukkitPlayer.getName());
+            } else {
+                logger.info("Skipped inventory update for combat logout: " + bukkitPlayer.getName());
+            }
+
+        } catch (Exception e) {
+            logger.log(Level.WARNING, "Error updating player before save: " + yakPlayer.getUsername(), e);
+        }
+    }
+
+    /**
+     * FIXED: Enhanced player join handler with combat logout detection
+     */
+    @EventHandler(priority = EventPriority.LOWEST)
+    public void onPlayerJoin(PlayerJoinEvent event) {
+        Player player = event.getPlayer();
+        UUID uuid = player.getUniqueId();
+        String playerName = player.getName();
+
+        totalPlayerJoins.incrementAndGet();
+        logger.info("Player joining: " + playerName + " (" + uuid + ")");
+
+        // Check system health
+        if (!repositoryReady.get() || repository == null) {
+            logger.severe("Player joined but repository not ready: " + playerName);
+            player.sendMessage(ChatColor.RED + "Server is not ready. Please reconnect in a moment.");
+            return;
+        }
+
+        // Check for duplicate processing
+        if (loadingPlayers.contains(uuid) || onlinePlayers.containsKey(uuid)) {
+            logger.warning("Duplicate join event for player: " + playerName);
+            return;
+        }
+
+        // Add to loading set
+        loadingPlayers.add(uuid);
+
+        // Set temporary join message
+        setTemporaryJoinMessage(event, player);
+
+        // Load player data asynchronously
+        loadPlayerDataAsync(player).whenComplete((yakPlayer, error) -> {
+            Bukkit.getScheduler().runTask(plugin, () -> {
+                handlePlayerLoadCompletion(player, yakPlayer, error);
+            });
+        });
+    }
+
+    /**
+     * FIXED: Enhanced initialization with combat logout state cleanup
+     */
+    private void initializePlayerSystems(Player player, YakPlayer yakPlayer) {
+        try {
+            UUID uuid = player.getUniqueId();
+
+            // FIXED: Check if player had a combat logout last session
+            boolean hadCombatLogout = yakPlayer.hasTemporaryData("combat_logout_quit");
+            if (hadCombatLogout) {
+                logger.info("Player " + player.getName() + " had a combat logout last session");
+                yakPlayer.removeTemporaryData("combat_logout_quit");
+
+                // Notify player about the combat logout consequences
+                player.sendMessage(ChatColor.RED + "⚠ You were punished for combat logging in your last session.");
+                player.sendMessage(ChatColor.GRAY + "All items were dropped at your death location.");
+            }
+
+            // Initialize energy
+            if (!yakPlayer.hasTemporaryData("energy")) {
+                yakPlayer.setTemporaryData("energy", 100);
+            }
+            player.setExp(1.0f);
+            player.setLevel(100);
+
+            // Apply saved inventory and armor first (needed for health calculation)
+            yakPlayer.applyInventory(player);
+
+            // Calculate max health based on current armor and apply all stats
+            // This needs to be done AFTER inventory is applied so armor is equipped
+            Bukkit.getScheduler().runTaskLater(plugin, () -> {
+                try {
+                    PlayerListenerManager.getInstance().getHealthListener().recalculateHealth(player);
+
+                    // Apply all stats including the corrected health values
+                    yakPlayer.applyStats(player);
+
+                    logger.fine("Applied health stats for " + player.getName() +
+                            ": " + yakPlayer.getHealth() + "/" + yakPlayer.getMaxHealth());
+
+                } catch (Exception e) {
+                    logger.log(Level.WARNING, "Error applying health stats for " + player.getName(), e);
+                }
+            }, 1L); // Delay by 1 tick to ensure inventory is fully applied
+
+            // Initialize rank system
+            try {
+                String rankString = yakPlayer.getRank();
+                if (rankString == null || rankString.trim().isEmpty()) {
+                    rankString = "default";
+                    yakPlayer.setRank("default");
+                    logger.info("Set default rank for player with null/empty rank: " + player.getName());
+                }
+
+                Rank rank = Rank.fromString(rankString);
+                ModerationMechanics.rankMap.put(uuid, rank);
+
+                logger.fine("Successfully loaded rank " + rank.name() + " for player: " + player.getName());
+
+            } catch (IllegalArgumentException e) {
+                logger.warning("Invalid rank for player " + player.getName() + ": " + yakPlayer.getRank() +
+                        ". Setting to DEFAULT and saving correction.");
+
+                ModerationMechanics.rankMap.put(uuid, Rank.DEFAULT);
+                yakPlayer.setRank("default");
+
+                savePlayerDataAsync(yakPlayer).whenComplete((result, error) -> {
+                    if (error != null) {
+                        logger.warning("Failed to save rank correction for " + player.getName() + ": " + error.getMessage());
+                    } else {
+                        logger.info("Successfully corrected and saved rank for " + player.getName());
+                    }
+                });
+            }
+
+            // Initialize chat tag system
+            try {
+                String chatTagString = yakPlayer.getChatTag();
+                if (chatTagString == null || chatTagString.trim().isEmpty()) {
+                    chatTagString = "DEFAULT";
+                    yakPlayer.setChatTag("DEFAULT");
+                }
+
+                ChatTag tag = ChatTag.valueOf(chatTagString);
+                ChatMechanics.getPlayerTags().put(uuid, tag);
+
+            } catch (IllegalArgumentException e) {
+                logger.warning("Invalid chat tag for player " + player.getName() + ": " + yakPlayer.getChatTag() +
+                        ". Setting to DEFAULT.");
+                ChatMechanics.getPlayerTags().put(uuid, ChatTag.DEFAULT);
+                yakPlayer.setChatTag("DEFAULT");
+            }
+
+            logger.fine("Initialized systems for player: " + player.getName());
+
+        } catch (Exception e) {
+            logger.log(Level.WARNING, "Error initializing player systems for " + player.getName(), e);
+        }
+    }
+
+    /**
+     * FIXED: Enhanced save all players on shutdown with combat logout handling
+     */
+    private void saveAllPlayersOnShutdown() {
+        logger.info("Saving " + onlinePlayers.size() + " players on shutdown...");
+
+        List<CompletableFuture<Boolean>> saveFutures = new ArrayList<>();
+
+        for (YakPlayer yakPlayer : new ArrayList<>(onlinePlayers.values())) {
+            Player player = yakPlayer.getBukkitPlayer();
+
+            // FIXED: For shutdown, save current state regardless of combat status
+            // But log if it was a combat logout for debugging
+            boolean wasCombatLogout = false;
+            if (player != null && player.isOnline()) {
+                try {
+                    wasCombatLogout = AlignmentMechanics.getInstance().isCombatLoggingOut(player);
+                    if (wasCombatLogout) {
+                        logger.info("Saving combat logout player on shutdown: " + player.getName());
+                    }
+                } catch (Exception e) {
+                    logger.fine("Could not check combat status during shutdown for " + yakPlayer.getUsername());
+                }
+
+                // Update player data before saving (normal update during shutdown)
+                updatePlayerBeforeSave(yakPlayer, player);
+            }
+
+            yakPlayer.disconnect();
+
+            // Use synchronous save for shutdown
+            saveFutures.add(CompletableFuture.supplyAsync(() -> {
+                try {
+                    YakPlayer result = repository.saveSync(yakPlayer);
+                    return result != null;
+                } catch (Exception e) {
+                    logger.log(Level.SEVERE, "Failed to save player on shutdown: " + yakPlayer.getUsername(), e);
+                    return false;
+                }
+            }, ioExecutor));
+        }
+
+        try {
+            CompletableFuture<Void> allSaves = CompletableFuture.allOf(
+                    saveFutures.toArray(new CompletableFuture[0]));
+            allSaves.get(30, TimeUnit.SECONDS);
+
+            long successful = saveFutures.stream()
+                    .mapToLong(future -> {
+                        try {
+                            return future.get() ? 1 : 0;
+                        } catch (Exception e) {
+                            return 0;
+                        }
+                    }).sum();
+
+            logger.info("Shutdown save completed: " + successful + "/" + saveFutures.size() + " players saved");
+
+        } catch (TimeoutException e) {
+            logger.warning("Shutdown save timed out after 30 seconds");
+        } catch (Exception e) {
+            logger.log(Level.SEVERE, "Error during shutdown save", e);
+        }
+    }
     public boolean hasPlayer(Player player) {
         return player != null && player.isOnline() && getPlayer(player) != null;
     }

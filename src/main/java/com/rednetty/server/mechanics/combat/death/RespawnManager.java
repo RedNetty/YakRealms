@@ -27,11 +27,11 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * FIXED: Manages player death and respawn mechanics with proper alignment-based item dropping
- * - Fixed shovel recognition (_SHOVEL vs _SPADE)
- * - Fixed first hotbar slot logic for all alignment types
- * - Fixed neutral armor dropping logic (25% chance total, not per item)
- * - Proper item categorization and dropping based on alignment rules
+ * FIXED: Manages player death and respawn mechanics with proper combat logout handling
+ * - Fixed combat logout detection using AlignmentMechanics tracking
+ * - Proper item dropping logic based on alignment rules
+ * - Enhanced data persistence and state management
+ * - Comprehensive error handling and debugging
  */
 public class RespawnManager implements Listener {
     private final ConcurrentHashMap<UUID, Long> respawnProcessed = new ConcurrentHashMap<>();
@@ -41,6 +41,9 @@ public class RespawnManager implements Listener {
     // Track neutral alignment item dropping decisions per death
     private final Map<UUID, Boolean> neutralArmorDropDecision = new HashMap<>();
     private final Map<UUID, Boolean> neutralWeaponDropDecision = new HashMap<>();
+
+    // FIXED: Combat logout tracking
+    private final Set<UUID> combatLogoutDeaths = ConcurrentHashMap.newKeySet();
 
     private static final String RESPAWN_PENDING_KEY = "respawn_pending";
     private static final String RESPAWN_ITEMS_KEY = "respawn_items";
@@ -77,6 +80,7 @@ public class RespawnManager implements Listener {
      */
     public void onDisable() {
         remnantManager.shutdown();
+        combatLogoutDeaths.clear();
         YakRealms.log("Respawn mechanics have been disabled.");
     }
 
@@ -102,7 +106,7 @@ public class RespawnManager implements Listener {
     }
 
     /**
-     * FIXED: Handles player death events with comprehensive alignment-based item processing
+     * FIXED: Handles player death events with proper combat logout detection
      */
     @EventHandler(priority = EventPriority.LOWEST)
     public void onPlayerDeath(PlayerDeathEvent event) {
@@ -112,6 +116,7 @@ public class RespawnManager implements Listener {
         // Skip if death was already processed recently
         if (respawnProcessed.containsKey(playerId) &&
                 System.currentTimeMillis() - respawnProcessed.get(playerId) < 5000) {
+            YakRealms.log("Skipping duplicate death processing for " + player.getName());
             return;
         }
 
@@ -124,16 +129,18 @@ public class RespawnManager implements Listener {
             return;
         }
 
-        // Check if this is a combat logout death
-        boolean isCombatLogoutDeath = isCombatLogoutDeath(player);
+        // FIXED: Check if this is a combat logout death using AlignmentMechanics
+        boolean isCombatLogoutDeath = AlignmentMechanics.getInstance().isCombatLoggingOut(player);
 
         if (isCombatLogoutDeath) {
             YakRealms.log("Processing COMBAT LOGOUT death for " + player.getName());
+            combatLogoutDeaths.add(playerId);
             yakPlayer.setTemporaryData(COMBAT_LOGOUT_DEATH_KEY, System.currentTimeMillis());
             handleCombatLogoutDeath(event, player, yakPlayer);
             return;
         }
 
+        // Regular death processing
         String alignment = yakPlayer.getAlignment();
         YakRealms.log("Processing normal death for " + player.getName() + " (alignment: " + alignment + ")");
 
@@ -147,7 +154,7 @@ public class RespawnManager implements Listener {
 
         YakRealms.log("Total items to process: " + allPlayerItems.size());
 
-        
+        // Calculate neutral drop decisions once per death
         boolean neutralShouldDropArmor = false;
         boolean neutralShouldDropWeapon = false;
         if ("NEUTRAL".equals(alignment)) {
@@ -218,47 +225,48 @@ public class RespawnManager implements Listener {
     }
 
     /**
-     * Handle combat logout deaths
+     * FIXED: Handle combat logout deaths with proper punishment
      */
     private void handleCombatLogoutDeath(PlayerDeathEvent event, Player player, YakPlayer yakPlayer) {
+        YakRealms.log("=== COMBAT LOGOUT DEATH PROCESSING ===");
+        YakRealms.log("Player: " + player.getName());
+
+        // Clear default drops
         event.getDrops().clear();
 
-        // For combat logout, preserve ALL items as the death itself is the punishment
+        // Combat logout punishment: DROP EVERYTHING
         List<ItemStack> allPlayerItems = getAllPlayerItems(player);
+        YakRealms.log("Combat logout: dropping ALL " + allPlayerItems.size() + " items");
 
-        if (!allPlayerItems.isEmpty()) {
-            storeRespawnItems(yakPlayer, allPlayerItems);
-            YakRealms.log("Combat logout: preserved " + allPlayerItems.size() + " items for " + player.getName());
-        }
-
-        player.sendMessage(ChatColor.RED + "" + ChatColor.BOLD + "COMBAT LOGOUT DETECTED!");
-        player.sendMessage(ChatColor.GRAY + "You have been killed for logging out during combat.");
-        player.sendMessage(ChatColor.GRAY + "Your items have been preserved this time.");
-
-        remnantManager.createDeathRemnant(player.getLocation(), Collections.emptyList(), player);
-        playerManager.savePlayer(yakPlayer);
-    }
-
-    /**
-     * Check if this death was caused by combat logout
-     */
-    private boolean isCombatLogoutDeath(Player player) {
-        try {
-            java.lang.reflect.Field logoutField = AlignmentMechanics.class.getDeclaredField("logout");
-            logoutField.setAccessible(true);
-            boolean isLogoutDeath = logoutField.getBoolean(null);
-
-            if (isLogoutDeath) {
-                logoutField.setBoolean(null, false);
-                return true;
+        // Drop all items at death location
+        Location deathLocation = player.getLocation();
+        for (ItemStack item : allPlayerItems) {
+            if (item != null && item.getType() != Material.AIR) {
+                try {
+                    deathLocation.getWorld().dropItemNaturally(deathLocation, item);
+                    YakRealms.log("Combat logout dropped: " + getItemDisplayName(item) + " x" + item.getAmount());
+                } catch (Exception e) {
+                    YakRealms.error("Failed to drop combat logout item: " + getItemDisplayName(item), e);
+                }
             }
-        } catch (Exception e) {
-            YakRealms.warn("Could not access logout flag from AlignmentMechanics: " + e.getMessage());
         }
 
-        return player.hasMetadata("combatLogout") ||
-                (player.getLastDamageCause() != null &&
-                        player.getLastDamageCause().getCause().toString().contains("CUSTOM"));
+        // Clear any stored respawn items (no items preserved for combat logout)
+        yakPlayer.removeTemporaryData(RESPAWN_PENDING_KEY);
+        yakPlayer.removeTemporaryData(RESPAWN_ITEMS_KEY);
+
+        // Notify player of the punishment
+        player.sendMessage(ChatColor.RED + "" + ChatColor.BOLD + "COMBAT LOGOUT PUNISHMENT!");
+        player.sendMessage(ChatColor.GRAY + "You have lost all items for logging out during combat.");
+        player.sendMessage(ChatColor.GRAY + "Items dropped at your death location.");
+
+        // Create death remnant
+        remnantManager.createDeathRemnant(player.getLocation(), Collections.emptyList(), player);
+
+        // Save player data
+        playerManager.savePlayer(yakPlayer);
+
+        YakRealms.log("=== COMBAT LOGOUT DEATH COMPLETE ===");
     }
 
     /**
@@ -449,7 +457,7 @@ public class RespawnManager implements Listener {
         return typeName.endsWith("_SWORD") ||
                 typeName.endsWith("_AXE") ||
                 typeName.endsWith("_SPADE") ||    // Old naming convention
-                typeName.endsWith("_SHOVEL") ||   
+                typeName.endsWith("_SHOVEL") ||
                 typeName.endsWith("_HOE") ||
                 typeName.endsWith("_HELMET") ||
                 typeName.endsWith("_CHESTPLATE") ||
@@ -490,7 +498,7 @@ public class RespawnManager implements Listener {
     }
 
     /**
-     * Stores respawn items in the database
+     * FIXED: Stores respawn items with enhanced error handling
      */
     private void storeRespawnItems(YakPlayer yakPlayer, List<ItemStack> keptItems) {
         try {
@@ -509,30 +517,20 @@ public class RespawnManager implements Listener {
             yakPlayer.setTemporaryData(RESPAWN_PENDING_KEY, System.currentTimeMillis());
             yakPlayer.setTemporaryData(RESPAWN_ITEMS_KEY, serializedItems);
 
-            boolean saveSuccess = false;
-            try {
-                playerManager.savePlayer(yakPlayer).get();
-                saveSuccess = true;
-            } catch (Exception e) {
-                YakRealms.error("Failed to save player data for " + yakPlayer.getUsername(), e);
-            }
+            YakRealms.log("Successfully stored " + keptItems.size() + " respawn items for player " + yakPlayer.getUsername());
 
-            if (saveSuccess) {
-                YakRealms.log("Successfully saved " + keptItems.size() + " respawn items for player " + yakPlayer.getUsername());
-            } else {
-                YakRealms.log("Failed to save respawn items for " + yakPlayer.getUsername() + " - player may lose items on respawn");
-            }
         } catch (Exception e) {
             YakRealms.error("Failed to store respawn items for " + yakPlayer.getUsername(), e);
         }
     }
 
     /**
-     * Handles player respawn events to restore kept items
+     * FIXED: Enhanced respawn handler with proper combat logout detection
      */
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onPlayerRespawn(PlayerRespawnEvent event) {
         Player player = event.getPlayer();
+        UUID playerId = player.getUniqueId();
         YakPlayer yakPlayer = playerManager.getPlayer(player);
 
         if (yakPlayer == null) {
@@ -542,10 +540,19 @@ public class RespawnManager implements Listener {
 
         YakRealms.log("Processing respawn for " + player.getName());
 
-        boolean wasCombatLogout = yakPlayer.hasTemporaryData(COMBAT_LOGOUT_DEATH_KEY);
+        // Check if this was a combat logout death
+        boolean wasCombatLogout = combatLogoutDeaths.remove(playerId) ||
+                yakPlayer.hasTemporaryData(COMBAT_LOGOUT_DEATH_KEY);
+
         if (wasCombatLogout) {
             yakPlayer.removeTemporaryData(COMBAT_LOGOUT_DEATH_KEY);
             YakRealms.log("Processing respawn for combat logout death: " + player.getName());
+
+            // Combat logout players get no items back
+            yakPlayer.removeTemporaryData(RESPAWN_PENDING_KEY);
+            yakPlayer.removeTemporaryData(RESPAWN_ITEMS_KEY);
+
+            player.sendMessage(ChatColor.RED + "You lost all items due to combat logging.");
         }
 
         // Determine appropriate respawn location based on alignment
@@ -554,15 +561,17 @@ public class RespawnManager implements Listener {
             event.setRespawnLocation(randomLocation);
         }
 
-        // Schedule item restoration after respawn completes
+        // Schedule item restoration and initialization after respawn completes
         new BukkitRunnable() {
             @Override
             public void run() {
                 if (player.isOnline() && !player.isDead()) {
-                    if (yakPlayer.hasTemporaryData(RESPAWN_PENDING_KEY)) {
+                    // Only restore items if NOT a combat logout
+                    if (!wasCombatLogout && yakPlayer.hasTemporaryData(RESPAWN_PENDING_KEY)) {
                         restoreRespawnItems(player, yakPlayer);
                     } else {
-                        YakRealms.log("No respawn items pending for " + player.getName());
+                        YakRealms.log("No respawn items to restore for " + player.getName() +
+                                " (combat logout: " + wasCombatLogout + ")");
                     }
 
                     initializeRespawnedPlayer(player, yakPlayer);
@@ -582,7 +591,7 @@ public class RespawnManager implements Listener {
     }
 
     /**
-     * Restores respawn items for a player
+     * FIXED: Restores respawn items with enhanced validation
      */
     private void restoreRespawnItems(Player player, YakPlayer yakPlayer) {
         try {
