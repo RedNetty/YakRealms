@@ -17,7 +17,7 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 /**
- * FIXED: EliteMob class with enhanced protection systems
+ *  EliteMob class with enhanced protection systems
  * - Equipment never takes durability damage (unbreakable)
  * - Never burns in sunlight (enhanced protection)
  * - All crit functionality handled by CritManager

@@ -32,7 +32,7 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * FIXED: Manages player alignment system with proper combat logout handling
+ *  Manages player alignment system with proper combat logout handling
  * - Removed static logout field to prevent race conditions
  * - Proper combat logout detection and punishment
  * - Enhanced boss bar management and health regeneration
@@ -51,7 +51,7 @@ public class AlignmentMechanics implements Listener {
     private final Map<UUID, Location> lastSafeLocations = new HashMap<>();
     private final Map<String, Player> lastAttackers = new HashMap<>();
 
-    // FIXED: Combat logout tracking - no more static field
+    //  Combat logout tracking - no more static field
     private final Map<UUID, CombatLogoutData> combatLogouts = new ConcurrentHashMap<>();
 
     // Synchronization
@@ -216,7 +216,7 @@ public class AlignmentMechanics implements Listener {
     }
 
     /**
-     * FIXED: Handle alignment changes and update all relevant scoreboards
+     *  Handle alignment changes and update all relevant scoreboards
      */
     private void handleAlignmentChanged(Player player, String oldAlignment, String newAlignment) {
         // Update the player's display name immediately
@@ -261,7 +261,7 @@ public class AlignmentMechanics implements Listener {
     }
 
     /**
-     * FIXED: Check if a player is combat logging
+     *  Check if a player is combat logging
      */
     public boolean isCombatLoggingOut(Player player) {
         return combatLogouts.containsKey(player.getUniqueId());
@@ -290,7 +290,7 @@ public class AlignmentMechanics implements Listener {
     }
 
     /**
-     * FIXED: Update a player's health bar display with proper synchronization
+     *  Update a player's health bar display with proper synchronization
      */
     private void updateHealthBar(Player player) {
         if (player == null || !player.isOnline() || player.isDead()) {
@@ -344,7 +344,7 @@ public class AlignmentMechanics implements Listener {
     }
 
     /**
-     * FIXED: Safely remove boss bar for a player
+     *  Safely remove boss bar for a player
      */
     private void removeBossBar(UUID playerId) {
         synchronized (bossBarLock) {
@@ -440,7 +440,7 @@ public class AlignmentMechanics implements Listener {
     }
 
     /**
-     * FIXED: Set a player to lawful alignment with scoreboard updates
+     *  Set a player to lawful alignment with scoreboard updates
      */
     public static void setLawfulAlignment(Player player) {
         YakPlayer yakPlayer = YakPlayerManager.getInstance().getPlayer(player);
@@ -463,7 +463,7 @@ public class AlignmentMechanics implements Listener {
     }
 
     /**
-     * FIXED: Set a player to neutral alignment with scoreboard updates
+     *  Set a player to neutral alignment with scoreboard updates
      */
     public static void setNeutralAlignment(Player player) {
         YakPlayer yakPlayer = YakPlayerManager.getInstance().getPlayer(player);
@@ -487,7 +487,7 @@ public class AlignmentMechanics implements Listener {
     }
 
     /**
-     * FIXED: Set a player to chaotic alignment with scoreboard updates
+     *  Set a player to chaotic alignment with scoreboard updates
      */
     public static void setChaoticAlignment(Player player, int time) {
         YakPlayer yakPlayer = YakPlayerManager.getInstance().getPlayer(player);
@@ -510,7 +510,7 @@ public class AlignmentMechanics implements Listener {
     }
 
     /**
-     * FIXED: Update player display name based on alignment with enhanced scoreboard integration
+     *  Update player display name based on alignment with enhanced scoreboard integration
      */
     public static void updatePlayerAlignment(Player player) {
         try {
@@ -763,7 +763,7 @@ public class AlignmentMechanics implements Listener {
     }
 
     /**
-     * FIXED: Handle player death and alignment changes with scoreboard updates
+     *  Handle player death and alignment changes with scoreboard updates
      */
     @EventHandler(priority = EventPriority.LOW)
     public void onPlayerDeath(PlayerDeathEvent event) {
@@ -771,7 +771,7 @@ public class AlignmentMechanics implements Listener {
         YakPlayer yakVictim = playerManager.getPlayer(victim);
         if (yakVictim == null) return;
 
-        // FIXED: Check if this is a combat logout death
+        //  Check if this is a combat logout death
         UUID victimId = victim.getUniqueId();
         if (combatLogouts.containsKey(victimId)) {
             YakRealms.log("Processing combat logout death for " + victim.getName());
@@ -909,7 +909,7 @@ public class AlignmentMechanics implements Listener {
     }
 
     /**
-     * FIXED: Handle player join/login with proper scoreboard setup
+     *  Handle player join/login with proper scoreboard setup
      */
     @EventHandler
     public void onPlayerJoin(PlayerJoinEvent event) {
@@ -930,7 +930,7 @@ public class AlignmentMechanics implements Listener {
     }
 
     /**
-     * FIXED: Handle player PvP and alignment changes with scoreboard updates
+     *  Handle player PvP and alignment changes with scoreboard updates
      */
     @EventHandler(priority = EventPriority.NORMAL)
     public void onPlayerDamage(EntityDamageByEntityEvent event) {
@@ -959,7 +959,7 @@ public class AlignmentMechanics implements Listener {
     }
 
     /**
-     * FIXED: Process a PvP attack between players with alignment updates and logout cancellation
+     *  Process a PvP attack between players with alignment updates and logout cancellation
      */
     private void handlePvPAttack(Player attacker, Player victim) {
         YakPlayer yakAttacker = playerManager.getPlayer(attacker);
@@ -1013,7 +1013,7 @@ public class AlignmentMechanics implements Listener {
     }
 
     /**
-     * FIXED: Handle combat logout punishment with proper tracking
+     *  Handle combat logout punishment with proper tracking
      */
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onCombatLogout(PlayerQuitEvent event) {
@@ -1055,7 +1055,7 @@ public class AlignmentMechanics implements Listener {
     }
 
     /**
-     * FIXED: Process combat logout death properly
+     *  Process combat logout death properly
      */
     private void processCombatLogoutDeath(Player player) {
         if (player == null || !player.isOnline()) {
@@ -1113,7 +1113,7 @@ public class AlignmentMechanics implements Listener {
     }
 
     /**
-     * FIXED: Public method to force cleanup of a player's boss bar
+     *  Public method to force cleanup of a player's boss bar
      */
     public void cleanupPlayerBossBar(Player player) {
         if (player != null) {
@@ -1122,7 +1122,7 @@ public class AlignmentMechanics implements Listener {
     }
 
     /**
-     * FIXED: Public method to force update of a player's health bar
+     *  Public method to force update of a player's health bar
      */
     public void forceUpdateHealthBar(Player player) {
         if (player != null && player.isOnline() && !player.isDead()) {

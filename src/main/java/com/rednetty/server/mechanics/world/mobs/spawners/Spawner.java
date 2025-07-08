@@ -20,7 +20,7 @@ import java.util.logging.Logger;
 import java.util.stream.Collectors;
 
 /**
- * FIXED: Complete Spawner class with enhanced reliability, error handling, and MAIN THREAD SAFETY
+ *  Complete Spawner class with enhanced reliability, error handling, and MAIN THREAD SAFETY
  * - Fixed entity creation validation and spawn failure handling
  * - Enhanced mob type validation with comprehensive error reporting
  * - Improved spawn success rates with better location finding
@@ -238,7 +238,7 @@ public class Spawner {
     // ================ ENHANCED MAIN PROCESSING ================
 
     /**
-     * FIXED: Main tick processing method with MAIN THREAD SAFETY
+     *  Main tick processing method with MAIN THREAD SAFETY
      * Called every second from MobSpawner - always on main thread
      */
     public void tick() {
@@ -288,7 +288,7 @@ public class Spawner {
     }
 
     /**
-     * FIXED: Enhanced mob validation and cleanup with MAIN THREAD SAFETY
+     *  Enhanced mob validation and cleanup with MAIN THREAD SAFETY
      */
     private void validateAndCleanupMobs() {
         // CRITICAL: Verify we're on the main thread for entity operations
@@ -366,7 +366,7 @@ public class Spawner {
     }
 
     /**
-     * FIXED: Process mobs waiting in the respawn queue with MAIN THREAD SAFETY
+     *  Process mobs waiting in the respawn queue with MAIN THREAD SAFETY
      */
     private void processRespawnQueue(long currentTime) {
         // CRITICAL: Verify we're on the main thread for entity spawning
@@ -426,7 +426,7 @@ public class Spawner {
     }
 
     /**
-     * FIXED: Spawn mobs to meet the configured amounts with MAIN THREAD SAFETY
+     *  Spawn mobs to meet the configured amounts with MAIN THREAD SAFETY
      */
     private void spawnMissingMobs() {
         // CRITICAL: Verify we're on the main thread for entity spawning
@@ -461,7 +461,7 @@ public class Spawner {
     }
 
     /**
-     * FIXED: Enhanced mob spawning with MAIN THREAD SAFETY
+     *  Enhanced mob spawning with MAIN THREAD SAFETY
      */
     private boolean spawnSingleMobEnhanced(String mobType, int tier, boolean elite) {
         // CRITICAL: Verify we're on the main thread for entity operations
@@ -614,7 +614,7 @@ public class Spawner {
     }
 
     /**
-     * FIXED: Enhanced random spawn location generation with better validation
+     *  Enhanced random spawn location generation with better validation
      */
     private Location getRandomSpawnLocationEnhanced() {
         double radiusX = properties.getSpawnRadiusX();
@@ -1125,7 +1125,7 @@ public class Spawner {
     // ================ MANAGEMENT METHODS ================
 
     /**
-     * FIXED: Enhanced spawner reset with MAIN THREAD SAFETY
+     *  Enhanced spawner reset with MAIN THREAD SAFETY
      */
     public void reset() {
         // CRITICAL: Verify we're on the main thread for entity operations
@@ -1355,7 +1355,7 @@ public class Spawner {
     }
 
     /**
-     * FIXED: Force an immediate spawn attempt with MAIN THREAD SAFETY
+     *  Force an immediate spawn attempt with MAIN THREAD SAFETY
      */
     public boolean forceSpawn() {
         // CRITICAL: Verify we're on the main thread for entity operations

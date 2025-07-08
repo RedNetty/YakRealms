@@ -102,7 +102,7 @@ public class YakRealms extends JavaPlugin {
     private Journal journalSystem;
     private MenuItemManager menuItemManager;
 
-    // FIXED: Trade system components
+    //  Trade system components
     private TradeManager tradeManager;
     private TradeListener tradeListener;
 
@@ -226,7 +226,7 @@ public class YakRealms extends JavaPlugin {
     }
 
     /**
-     * FIXED: Initialize player management systems with proper trade system setup
+     *  Initialize player management systems with proper trade system setup
      */
     private boolean initializePlayerSystems() {
         try {
@@ -272,7 +272,7 @@ public class YakRealms extends JavaPlugin {
     }
 
     /**
-     * FIXED: Initialize moderation systems separately for better organization
+     *  Initialize moderation systems separately for better organization
      */
     private boolean initializeModerationSystems() {
         try {
@@ -1033,7 +1033,7 @@ public class YakRealms extends JavaPlugin {
     public Journal getJournalSystem() { return journalSystem; }
     public MenuItemManager getMenuItemManager() { return menuItemManager; }
 
-    // FIXED: Trade system getters
+    //  Trade system getters
     public TradeManager getTradeManager() { return tradeManager; }
     public TradeListener getTradeListener() { return tradeListener; }
 
@@ -1137,7 +1137,7 @@ public class YakRealms extends JavaPlugin {
     }
 
     /**
-     * FIXED: Get trade manager safely
+     *  Get trade manager safely
      */
     public static TradeManager getTradeManagerSafe() {
         if (instance == null || instance.tradeManager == null) {
@@ -1147,7 +1147,7 @@ public class YakRealms extends JavaPlugin {
     }
 
     /**
-     * FIXED: Check if trade system is available
+     *  Check if trade system is available
      */
     public static boolean isTradeSystemAvailable() {
         return instance != null && instance.tradeManager != null && instance.tradeListener != null;

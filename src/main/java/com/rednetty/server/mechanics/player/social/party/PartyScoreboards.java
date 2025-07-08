@@ -17,7 +17,7 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * FIXED: Enhanced party scoreboards with proper team handling and null safety
+ *  Enhanced party scoreboards with proper team handling and null safety
  * - Fixed immutable collection clear() error
  * - Added comprehensive null checking
  * - Improved team entry management
@@ -117,7 +117,7 @@ public class PartyScoreboards {
     }
 
     /**
-     * FIXED: Get or create a player's enhanced scoreboard with proper error handling
+     *  Get or create a player's enhanced scoreboard with proper error handling
      */
     public static Scoreboard getPlayerScoreboard(Player player) {
         if (player == null || !player.isOnline()) {
@@ -161,7 +161,7 @@ public class PartyScoreboards {
     }
 
     /**
-     * FIXED: Setup enhanced teams with proper error handling
+     *  Setup enhanced teams with proper error handling
      */
     private static void setupEnhancedTeams(Scoreboard scoreboard) {
         if (scoreboard == null) return;
@@ -237,7 +237,7 @@ public class PartyScoreboards {
     }
 
     /**
-     * FIXED: Setup health display using BELOW_NAME for above-head display
+     *  Setup health display using BELOW_NAME for above-head display
      */
     private static void setupHealthDisplay(Scoreboard scoreboard) {
         if (scoreboard == null) return;
@@ -271,7 +271,7 @@ public class PartyScoreboards {
     }
 
     /**
-     * FIXED: Update a player's scoreboard with comprehensive error handling
+     *  Update a player's scoreboard with comprehensive error handling
      */
     public static void updatePlayerScoreboard(Player player) {
         if (player == null || !player.isOnline()) {
@@ -419,7 +419,7 @@ public class PartyScoreboards {
     }
 
     /**
-     * FIXED: Update the party objective with proper cleanup and unique entry names
+     *  Update the party objective with proper cleanup and unique entry names
      */
     private static void updatePartyObjective(Player player, Scoreboard scoreboard, PartyMechanics partyMechanics) {
         if (player == null || !player.isOnline() || scoreboard == null || partyMechanics == null) {
@@ -677,7 +677,7 @@ public class PartyScoreboards {
     }
 
     /**
-     * FIXED: Update team assignments with proper error handling and safe team entry management
+     *  Update team assignments with proper error handling and safe team entry management
      */
     public static void updatePlayerTeamAssignments(Player viewer) {
         if (viewer == null || !viewer.isOnline()) {
@@ -826,7 +826,7 @@ public class PartyScoreboards {
     }
 
     /**
-     * FIXED: Clear a player's party scoreboard with proper cleanup
+     *  Clear a player's party scoreboard with proper cleanup
      */
     public static void clearPlayerScoreboard(Player player) {
         if (player == null) {
@@ -1056,7 +1056,7 @@ public class PartyScoreboards {
     }
 
     /**
-     * FIXED: Public method to handle alignment changes
+     *  Public method to handle alignment changes
      * Call this whenever a player's alignment changes
      * Now updates ALL players' team assignments, not just party members
      */

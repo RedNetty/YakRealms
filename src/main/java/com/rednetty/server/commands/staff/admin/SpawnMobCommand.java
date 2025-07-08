@@ -308,7 +308,7 @@ public class SpawnMobCommand implements CommandExecutor, TabCompleter {
     }
 
     /**
-     * FIXED: Enhanced validation with proper elite support
+     *  Enhanced validation with proper elite support
      */
     private ValidationResult validateSpawnRequest(SpawnRequest request) {
         // Check mob type

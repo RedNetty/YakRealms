@@ -35,7 +35,7 @@ import java.util.logging.Logger;
  * - Staff activity monitoring and important staff protection
  * - Automatic rank validation and correction
  * - Permission debugging and audit capabilities
- * - FIXED: Robust permission attachment management with proper validation
+ * -  Robust permission attachment management with proper validation
  */
 public class ModerationMechanics implements Listener {
 
@@ -51,7 +51,7 @@ public class ModerationMechanics implements Listener {
     private final Map<UUID, Long> lastPermissionUpdate = new ConcurrentHashMap<>();
     private final Map<UUID, String> permissionDebugLog = new ConcurrentHashMap<>();
 
-    // FIXED: Track player instances to ensure attachment validity
+    //  Track player instances to ensure attachment validity
     private final Map<UUID, Player> trackedPlayers = new ConcurrentHashMap<>();
     private final Map<PermissionAttachment, UUID> attachmentPlayerMap = new ConcurrentHashMap<>();
 
@@ -264,7 +264,7 @@ public class ModerationMechanics implements Listener {
         final UUID uuid = player.getUniqueId();
 
         try {
-            // FIXED: Track the player instance
+            //  Track the player instance
             trackedPlayers.put(uuid, player);
 
             // Set default rank immediately to prevent null pointer exceptions
@@ -360,7 +360,7 @@ public class ModerationMechanics implements Listener {
                 YakRealms.log("WARNING: No player data found for quitting player: " + player.getName());
             }
 
-            // FIXED: Clean up permission attachment with enhanced validation
+            //  Clean up permission attachment with enhanced validation
             cleanupPermissionAttachment(uuid, player);
 
             // Clean up caches (do this last)
@@ -528,14 +528,14 @@ public class ModerationMechanics implements Listener {
         try {
             long startTime = System.currentTimeMillis();
 
-            // FIXED: Remove existing attachment safely
+            //  Remove existing attachment safely
             cleanupPermissionAttachment(uuid, player);
 
             // Create new attachment
             PermissionAttachment attachment = player.addAttachment(YakRealms.getInstance());
             permissionMap.put(uuid, attachment);
 
-            // FIXED: Track the attachment and its associated player
+            //  Track the attachment and its associated player
             attachmentPlayerMap.put(attachment, uuid);
             trackedPlayers.put(uuid, player);
 
@@ -1246,11 +1246,11 @@ public class ModerationMechanics implements Listener {
     }
 
     /**
-     * FIXED: Enhanced cleanup and utility methods with proper validation
+     *  Enhanced cleanup and utility methods with proper validation
      */
 
     /**
-     * FIXED: Safe permission attachment cleanup with comprehensive validation
+     *  Safe permission attachment cleanup with comprehensive validation
      */
     private void cleanupPermissionAttachment(UUID uuid, Player player) {
         try {
@@ -1264,7 +1264,7 @@ public class ModerationMechanics implements Listener {
     }
 
     /**
-     * FIXED: Safely remove permission attachment with proper validation
+     *  Safely remove permission attachment with proper validation
      */
     private void cleanupPermissionAttachmentSafely(UUID uuid, Player player, PermissionAttachment attachment) {
         try {

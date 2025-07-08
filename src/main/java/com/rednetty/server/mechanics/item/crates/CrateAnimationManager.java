@@ -18,7 +18,7 @@ import java.util.logging.Logger;
 
 /**
  * Enhanced CSGO-style crate animation with smooth scrolling and proper reward handling
- * FIXED: Now properly displays the best reward while giving all actual rewards
+ *  Now properly displays the best reward while giving all actual rewards
  */
 public class CrateAnimationManager {
     private final YakRealms plugin;
@@ -251,7 +251,7 @@ public class CrateAnimationManager {
         }
 
         /**
-         * FIXED: Finds the best reward to display as the featured item
+         *  Finds the best reward to display as the featured item
          * Priority: Equipment > Orbs > Scrolls > Gems > Other
          */
         private ItemStack findBestRewardForDisplay(List<ItemStack> rewards) {
@@ -327,7 +327,7 @@ public class CrateAnimationManager {
         }
 
         /**
-         * FIXED: Creates item strip with exact positioning
+         *  Creates item strip with exact positioning
          */
         private List<ItemStack> createEnhancedItemStrip() {
             List<ItemStack> strip = new ArrayList<>();
@@ -401,7 +401,7 @@ public class CrateAnimationManager {
         }
 
         /**
-         * FIXED: Updates display with accurate positioning and detailed logging
+         *  Updates display with accurate positioning and detailed logging
          */
         private void updateEnhancedDisplay() {
             // Calculate the starting index more precisely
@@ -468,7 +468,7 @@ public class CrateAnimationManager {
         }
 
         /**
-         * FIXED: Finishes animation with accurate final positioning
+         *  Finishes animation with accurate final positioning
          */
         private void finishEnhancedAnimation() {
             if (isCompleted) return;
@@ -524,7 +524,7 @@ public class CrateAnimationManager {
         }
 
         /**
-         * FIXED: Displays completion message with the actually selected item
+         *  Displays completion message with the actually selected item
          */
         private void displayEnhancedCompletionMessage(ItemStack actualSelectedItem) {
             player.sendMessage("");

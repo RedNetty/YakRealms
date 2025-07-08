@@ -219,7 +219,7 @@ public class CrateManager {
 // In CrateManager.java - Update the openCrate method to ensure single reward generation
 
     /**
-     * FIXED: Enhanced crate opening with single reward generation
+     *  Enhanced crate opening with single reward generation
      */
     public boolean openCrate(Player player, ItemStack crateItem) {
         UUID playerId = player.getUniqueId();

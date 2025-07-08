@@ -33,7 +33,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.logging.Logger;
 
 /**
- * FIXED: MobManager with comprehensive cleanup system and enhanced Tier 6 Netherite support
+ *  MobManager with comprehensive cleanup system and enhanced Tier 6 Netherite support
  * - Enhanced entity cleanup on shutdown - removes ALL custom mobs from worlds
  * - Startup cleanup - removes orphaned entities before starting
  * - Better coordination with CritManager for cleanup
@@ -129,7 +129,7 @@ public class MobManager implements Listener {
     }
 
     /**
-     * FIXED: Initialize mob type to EntityType mapping with proper elite support
+     *  Initialize mob type to EntityType mapping with proper elite support
      */
     private void initializeMobTypeMapping() {
         try {
@@ -274,7 +274,7 @@ public class MobManager implements Listener {
     // ================ ENHANCED INITIALIZATION WITH CLEANUP ================
 
     /**
-     * FIXED: Enhanced initialization with startup cleanup to remove orphaned entities
+     *  Enhanced initialization with startup cleanup to remove orphaned entities
      */
     public void initialize() {
         try {
@@ -305,7 +305,7 @@ public class MobManager implements Listener {
     // ================ STARTUP CLEANUP SYSTEM ================
 
     /**
-     * FIXED: Comprehensive startup cleanup to remove orphaned custom mobs
+     *  Comprehensive startup cleanup to remove orphaned custom mobs
      */
     private void performStartupCleanup() {
         try {
@@ -366,7 +366,7 @@ public class MobManager implements Listener {
     }
 
     /**
-     * FIXED: Clean up custom mobs in a specific world
+     *  Clean up custom mobs in a specific world
      */
     private CleanupResult cleanupWorldCustomMobs(World world, boolean isStartupCleanup) {
         if (world == null) {
@@ -414,7 +414,7 @@ public class MobManager implements Listener {
     }
 
     /**
-     * FIXED: Check if an entity is a custom mob by examining metadata
+     *  Check if an entity is a custom mob by examining metadata
      */
     private boolean isCustomMobEntity(LivingEntity entity) {
         if (entity == null) return false;
@@ -503,7 +503,7 @@ public class MobManager implements Listener {
     }
 
     /**
-     * FIXED: Safely remove an entity with comprehensive cleanup
+     *  Safely remove an entity with comprehensive cleanup
      * Enhanced to mark cleanup kills to prevent drop processing
      */
     private boolean removeEntitySafely(LivingEntity entity, String reason) {
@@ -636,7 +636,7 @@ public class MobManager implements Listener {
     // ================ ENHANCED SHUTDOWN SYSTEM ================
 
     /**
-     * FIXED: Enhanced shutdown with comprehensive cleanup
+     *  Enhanced shutdown with comprehensive cleanup
      */
     public void shutdown() {
         try {
@@ -689,7 +689,7 @@ public class MobManager implements Listener {
     }
 
     /**
-     * FIXED: Comprehensive shutdown cleanup
+     *  Comprehensive shutdown cleanup
      */
     private void performShutdownCleanup() {
         try {
@@ -753,7 +753,7 @@ public class MobManager implements Listener {
     // ================ ENHANCED TASKS ================
 
     /**
-     * FIXED: Start essential tasks with proper thread safety
+     *  Start essential tasks with proper thread safety
      * ALL entity operations must happen on the main thread
      */
     private void startTasks() {
@@ -821,7 +821,7 @@ public class MobManager implements Listener {
     /**
      * Kill all untracked mobs in a specific world (keeps tracked custom mobs alive)
      * This is useful for cleaning up vanilla mobs or rogue entities while preserving custom mobs
-     * FIXED: Mark entities as cleanup kills to prevent drop processing
+     *  Mark entities as cleanup kills to prevent drop processing
      */
     public int killUntrackedMobsInWorld(World world) {
         if (world == null) {
@@ -1020,7 +1020,7 @@ public class MobManager implements Listener {
     }
 
     /**
-     * FIXED: Enhanced spawner mob spawning with MAIN THREAD SAFETY and elite support
+     *  Enhanced spawner mob spawning with MAIN THREAD SAFETY and elite support
      * This method MUST always be called from the main thread
      */
     public LivingEntity spawnMobFromSpawner(Location location, String type, int tier, boolean elite) {
@@ -1103,7 +1103,7 @@ public class MobManager implements Listener {
     }
 
     /**
-     * FIXED: Enhanced chunk loading with proper validation
+     *  Enhanced chunk loading with proper validation
      */
     private boolean ensureChunkLoadedForSpawning(Location location) {
         if (location == null || location.getWorld() == null) {
@@ -1148,7 +1148,7 @@ public class MobManager implements Listener {
     }
 
     /**
-     * FIXED: Enhanced mob type normalization with elite support
+     *  Enhanced mob type normalization with elite support
      */
     private String normalizeMobType(String type) {
         if (type == null || type.trim().isEmpty()) {
@@ -1207,7 +1207,7 @@ public class MobManager implements Listener {
     }
 
     /**
-     * FIXED: Enhanced entity creation with MAIN THREAD SAFETY and elite support
+     *  Enhanced entity creation with MAIN THREAD SAFETY and elite support
      * This method MUST always be called from the main thread
      */
     private LivingEntity createEntityWithValidation(Location location, String type, int tier, boolean elite) {
@@ -1259,7 +1259,7 @@ public class MobManager implements Listener {
     }
 
     /**
-     * FIXED: Create entity with multiple attempts with elite support
+     *  Create entity with multiple attempts with elite support
      */
     private LivingEntity createEntityWithMultipleAttempts(Location location, String type, int tier, boolean elite) {
         if (!Bukkit.isPrimaryThread()) {
@@ -1371,7 +1371,7 @@ public class MobManager implements Listener {
     }
 
     /**
-     * FIXED: Create entity using MobType system with enhanced elite support
+     *  Create entity using MobType system with enhanced elite support
      */
     private LivingEntity createEntityUsingMobTypeSystem(Location location, String type, int tier, boolean elite) {
         // CRITICAL: Verify we're on the main thread
@@ -1437,7 +1437,7 @@ public class MobManager implements Listener {
     }
 
     /**
-     * FIXED: Final fallback with elite support
+     *  Final fallback with elite support
      */
     private LivingEntity createEntityFinalFallback(Location location, String type, int tier, boolean elite) {
         // CRITICAL: Verify we're on the main thread
@@ -1705,7 +1705,7 @@ public class MobManager implements Listener {
                     weaponMaterial = Material.GOLDEN_SWORD;
                     break;
                 case 6:
-                    weaponMaterial = Material.NETHERITE_SWORD; // FIXED: Use Netherite for T6
+                    weaponMaterial = Material.NETHERITE_SWORD; //  Use Netherite for T6
                     break;
                 default:
                     weaponMaterial = Material.WOODEN_SWORD;
@@ -2091,7 +2091,7 @@ public class MobManager implements Listener {
     }
 
     /**
-     * FIXED: Enhanced spawn request validation with elite support
+     *  Enhanced spawn request validation with elite support
      */
     private boolean isValidSpawnRequest(Location location, String type, int tier, boolean elite) {
         if (location == null || location.getWorld() == null) {
@@ -2118,7 +2118,7 @@ public class MobManager implements Listener {
     }
 
     /**
-     * FIXED: Check if spawner can spawn a mob with elite validation
+     *  Check if spawner can spawn a mob with elite validation
      */
     public boolean canSpawnerSpawnMob(String type, int tier, boolean elite) {
         try {
@@ -2335,7 +2335,7 @@ public class MobManager implements Listener {
     }
 
     /**
-     * FIXED: Safe mob teleportation - MAIN THREAD ONLY
+     *  Safe mob teleportation - MAIN THREAD ONLY
      */
     private void teleportMobToSpawner(LivingEntity entity, Location spawnerLoc, String reason) {
         // CRITICAL: Verify we're on the main thread
@@ -2393,7 +2393,7 @@ public class MobManager implements Listener {
     // ================ CRITICAL HIT DELEGATION ================
 
     /**
-     * FIXED: Roll for critical hit using CritManager
+     *  Roll for critical hit using CritManager
      */
     public void rollForCriticalHit(LivingEntity entity, double damage) {
         try {
@@ -2627,7 +2627,7 @@ public class MobManager implements Listener {
     // ================ ENHANCED DEATH HANDLING ================
 
     /**
-     * FIXED: Enhanced entity death handling with MAIN THREAD SAFETY
+     *  Enhanced entity death handling with MAIN THREAD SAFETY
      */
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onEntityDeath(EntityDeathEvent event) {

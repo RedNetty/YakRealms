@@ -25,14 +25,14 @@ import java.util.logging.Logger;
 import java.util.stream.Collectors;
 
 /**
- * FIXED: Centralized manager for ALL critical hit mechanics matching legacy behavior.
+ *  Centralized manager for ALL critical hit mechanics matching legacy behavior.
  * Key fixes:
  * - Proper 1-second countdown steps (20 ticks each)
  * - Complete state cleanup after explosions
  * - Frozen Boss special 3-step restart behavior
  * - Normal mobs consume crit state on attack
  * - Accurate timing and effect management
- * - FIXED: Elite mob explosions now properly damage players
+ * -  Elite mob explosions now properly damage players
  */
 public class CritManager {
 
@@ -398,7 +398,7 @@ public class CritManager {
     }
 
     /**
-     * FIXED: Execute massive whirlwind explosion for elite mobs - legacy matching with proper damage application
+     *  Execute massive whirlwind explosion for elite mobs - legacy matching with proper damage application
      */
     private void executeWhirlwindExplosion(CustomMob mob, CritState state) {
         LivingEntity entity = mob.getEntity();
@@ -525,7 +525,7 @@ public class CritManager {
     }
 
     /**
-     * FIXED: Apply whirlwind damage and knockback to a player - legacy matching with proper damage application
+     *  Apply whirlwind damage and knockback to a player - legacy matching with proper damage application
      */
     private boolean applyWhirlwindDamageAndKnockback(Player player, LivingEntity mob, double damage) {
         try {
@@ -575,7 +575,7 @@ public class CritManager {
     }
 
     /**
-     * FIXED: Apply raw damage directly to player to bypass CombatMechanics interference
+     *  Apply raw damage directly to player to bypass CombatMechanics interference
      */
     private void applyRawDamageToPlayer(Player player, double damage, LivingEntity source) {
         try {

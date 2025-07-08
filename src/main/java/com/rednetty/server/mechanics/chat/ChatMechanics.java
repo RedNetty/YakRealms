@@ -38,7 +38,7 @@ import java.util.regex.Pattern;
  * - Item display in chat
  * - Chat cooldowns
  * - Guild tag integration
- * FIXED: Improved error handling, logic fixes, and item display functionality
+ *  Improved error handling, logic fixes, and item display functionality
  */
 public class ChatMechanics implements Listener {
 
@@ -315,7 +315,7 @@ public class ChatMechanics implements Listener {
 
     /**
      * Load a player's chat tag from their data
-     * FIXED: Better error handling and validation
+     *  Better error handling and validation
      *
      * @param player The player to load for
      */
@@ -368,7 +368,7 @@ public class ChatMechanics implements Listener {
 
     /**
      * Filter main chat to handle command execution via chat
-     * FIXED: Better command filtering logic
+     *  Better command filtering logic
      */
     @EventHandler(priority = EventPriority.LOWEST)
     public void onPlayerCommand(PlayerCommandPreprocessEvent event) {
@@ -452,7 +452,7 @@ public class ChatMechanics implements Listener {
 
     /**
      * Process a chat message from a player
-     * FIXED: Better validation and error handling
+     *  Better validation and error handling
      *
      * @param player  The player sending the message
      * @param message The message text
@@ -551,7 +551,7 @@ public class ChatMechanics implements Listener {
 
     /**
      * Send a message with an item showcase
-     * FIXED: Better error handling, validation, and fallback
+     *  Better error handling, validation, and fallback
      *
      * @param player  The player sending the message
      * @param message The message text containing @i@ for item placement
@@ -670,7 +670,7 @@ public class ChatMechanics implements Listener {
 
     /**
      * Send an item hover message to a player
-     * FIXED: Better validation, error handling, and success tracking
+     *  Better validation, error handling, and success tracking
      *
      * @param sender    The player sending the message
      * @param item      The item to display
@@ -722,7 +722,7 @@ public class ChatMechanics implements Listener {
 
     /**
      * Get a list of text to display when hovering over an item
-     * FIXED: Better handling of item meta and null checks (no enchantments)
+     *  Better handling of item meta and null checks (no enchantments)
      *
      * @param item The item to get hover text for
      * @return List of hover text lines
@@ -861,7 +861,7 @@ public class ChatMechanics implements Listener {
 
     /**
      * Get a player's formatted name for chat
-     * FIXED: Better null handling
+     *  Better null handling
      *
      * @param player The player
      * @return The formatted name with rank and tag
@@ -1061,7 +1061,7 @@ public class ChatMechanics implements Listener {
 
     /**
      * Check if a player is holding an item that can be shown
-     * FIXED: More thorough validation
+     *  More thorough validation
      *
      * @param player The player to check
      * @return true if the player is holding a valid item
@@ -1086,7 +1086,7 @@ public class ChatMechanics implements Listener {
     }
 
     /**
-     * FIXED: Get proper display name for item
+     *  Get proper display name for item
      *
      * @param item The item
      * @return The display name
@@ -1116,7 +1116,7 @@ public class ChatMechanics implements Listener {
 
     /**
      * Format item display with proper bracket colors
-     * FIXED: Matches bracket colors to item name color
+     *  Matches bracket colors to item name color
      *
      * @param itemDisplayName The item's display name (may contain color codes)
      * @return Formatted display with proper bracket colors
@@ -1185,7 +1185,7 @@ public class ChatMechanics implements Listener {
     }
 
     /**
-     * FIXED: Fallback item name formatting
+     *  Fallback item name formatting
      *
      * @param materialName The material name
      * @return Formatted name

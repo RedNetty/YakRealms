@@ -225,7 +225,7 @@ public class TradeListener extends BaseListener {
 
     /**
      * Handles inventory closing - cancels trade if inventory is closed.
-     * FIXED: Added comprehensive null checking to prevent NullPointerException
+     *  Added comprehensive null checking to prevent NullPointerException
      */
     @EventHandler(priority = EventPriority.MONITOR)
     public void onInventoryClose(InventoryCloseEvent event) {

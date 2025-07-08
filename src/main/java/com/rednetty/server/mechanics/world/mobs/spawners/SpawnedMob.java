@@ -3,7 +3,7 @@ package com.rednetty.server.mechanics.world.mobs.spawners;
 import java.util.UUID;
 
 /**
- * FIXED: Simplified SpawnedMob data class.
+ *  Simplified SpawnedMob data class.
  * It only represents an active mob. Respawn state is handled by the Spawner.
  */
 public class SpawnedMob {

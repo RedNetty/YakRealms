@@ -7,7 +7,7 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * FIXED: MobType enum with guaranteed initialization and comprehensive elite mob support
+ *  MobType enum with guaranteed initialization and comprehensive elite mob support
  * UPDATED: Enhanced T6 Netherite support with GOLD color throughout
  */
 public enum MobType {
@@ -332,7 +332,7 @@ public enum MobType {
     private static final Object initLock = new Object();
 
     /**
-     * FIXED: Static initialization that CANNOT fail
+     *  Static initialization that CANNOT fail
      */
     static {
         try {
@@ -346,7 +346,7 @@ public enum MobType {
     }
 
     /**
-     * FIXED: Initialize all static mappings including ALL elite types
+     *  Initialize all static mappings including ALL elite types
      */
     private static void initializeStaticMappings() {
         synchronized (initLock) {
@@ -427,7 +427,7 @@ public enum MobType {
     }
 
     /**
-     * FIXED: Add comprehensive variations for each mob type, especially elites
+     *  Add comprehensive variations for each mob type, especially elites
      */
     private static void addComprehensiveVariationsForType(MobType type) {
         String baseId = type.id;
@@ -828,7 +828,7 @@ public enum MobType {
     // ================ ENHANCED LOOKUP METHODS ================
 
     /**
-     * FIXED: Get mob type by ID with enhanced elite support
+     *  Get mob type by ID with enhanced elite support
      */
     public static MobType getById(String id) {
         if (id == null || id.trim().isEmpty()) {
@@ -980,7 +980,7 @@ public enum MobType {
     }
 
     /**
-     * FIXED: Check if a type ID is valid - enhanced for elites
+     *  Check if a type ID is valid - enhanced for elites
      */
     public static boolean isValidType(String id) {
         MobType found = getById(id);
@@ -1338,7 +1338,7 @@ public enum MobType {
     }
 
     /**
-     * FIXED: Check if a tier is valid for this mob type
+     *  Check if a tier is valid for this mob type
      */
     public boolean isValidTier(int tier) {
         return tier >= minTier && tier <= maxTier;

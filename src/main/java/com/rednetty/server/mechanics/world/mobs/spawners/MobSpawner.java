@@ -18,7 +18,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Logger;
 
 /**
- * FIXED: Complete MobSpawner system with proper startup timing and dependency management
+ *  Complete MobSpawner system with proper startup timing and dependency management
  */
 public class MobSpawner implements Listener {
     private static MobSpawner instance;
@@ -70,7 +70,7 @@ public class MobSpawner implements Listener {
     // ================ ENHANCED INITIALIZATION WITH PROPER TIMING ================
 
     /**
-     * FIXED: Enhanced initialization with proper dependency management and timing
+     *  Enhanced initialization with proper dependency management and timing
      */
     public void initialize() {
         try {
@@ -369,7 +369,7 @@ public class MobSpawner implements Listener {
     // ================ ENHANCED LOADING AND SAVING ================
 
     /**
-     * FIXED: Enhanced spawner loading with better error handling and validation
+     *  Enhanced spawner loading with better error handling and validation
      */
     public void loadSpawners() {
         try {
@@ -519,7 +519,7 @@ public class MobSpawner implements Listener {
     }
 
     /**
-     * FIXED: Safe spawner block setting with validation and error handling
+     *  Safe spawner block setting with validation and error handling
      */
     private void setSpawnerBlockSafe(Block block, boolean visible) {
         try {
@@ -650,7 +650,7 @@ public class MobSpawner implements Listener {
     // ================ SPAWNER MANAGEMENT ================
 
     /**
-     * FIXED: Enhanced spawner addition with dependency checking
+     *  Enhanced spawner addition with dependency checking
      */
     public boolean addSpawner(Location location, String data) {
         if (location == null || data == null || data.trim().isEmpty()) {
@@ -867,7 +867,7 @@ public class MobSpawner implements Listener {
     }
 
     /**
-     * FIXED: Enhanced mob death registration with better validation
+     *  Enhanced mob death registration with better validation
      */
     public void registerMobDeath(Location spawnerLocation, UUID entityId) {
         if (entityId == null) {

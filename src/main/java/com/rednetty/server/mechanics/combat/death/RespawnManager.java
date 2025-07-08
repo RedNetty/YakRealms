@@ -27,7 +27,7 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * FIXED: Manages player death and respawn mechanics with proper combat logout handling
+ *  Manages player death and respawn mechanics with proper combat logout handling
  * - Fixed combat logout detection using AlignmentMechanics tracking
  * - Proper item dropping logic based on alignment rules
  * - Enhanced data persistence and state management
@@ -42,7 +42,7 @@ public class RespawnManager implements Listener {
     private final Map<UUID, Boolean> neutralArmorDropDecision = new HashMap<>();
     private final Map<UUID, Boolean> neutralWeaponDropDecision = new HashMap<>();
 
-    // FIXED: Combat logout tracking
+    //  Combat logout tracking
     private final Set<UUID> combatLogoutDeaths = ConcurrentHashMap.newKeySet();
 
     private static final String RESPAWN_PENDING_KEY = "respawn_pending";
@@ -85,7 +85,7 @@ public class RespawnManager implements Listener {
     }
 
     /**
-     * FIXED: Prevent ArmorStands and dead/ghost players from picking up items
+     *  Prevent ArmorStands and dead/ghost players from picking up items
      */
     @EventHandler
     public void onEntityPickupItem(EntityPickupItemEvent event) {
@@ -106,7 +106,7 @@ public class RespawnManager implements Listener {
     }
 
     /**
-     * FIXED: Handles player death events with proper combat logout detection
+     *  Handles player death events with proper combat logout detection
      */
     @EventHandler(priority = EventPriority.LOWEST)
     public void onPlayerDeath(PlayerDeathEvent event) {
@@ -129,7 +129,7 @@ public class RespawnManager implements Listener {
             return;
         }
 
-        // FIXED: Check if this is a combat logout death using AlignmentMechanics
+        //  Check if this is a combat logout death using AlignmentMechanics
         boolean isCombatLogoutDeath = AlignmentMechanics.getInstance().isCombatLoggingOut(player);
 
         if (isCombatLogoutDeath) {
@@ -225,7 +225,7 @@ public class RespawnManager implements Listener {
     }
 
     /**
-     * FIXED: Handle combat logout deaths with proper punishment
+     *  Handle combat logout deaths with proper punishment
      */
     private void handleCombatLogoutDeath(PlayerDeathEvent event, Player player, YakPlayer yakPlayer) {
         YakRealms.log("=== COMBAT LOGOUT DEATH PROCESSING ===");
@@ -270,7 +270,7 @@ public class RespawnManager implements Listener {
     }
 
     /**
-     * FIXED: Gets ALL items from a player's inventory including armor and off-hand
+     *  Gets ALL items from a player's inventory including armor and off-hand
      */
     private List<ItemStack> getAllPlayerItems(Player player) {
         List<ItemStack> allItems = new ArrayList<>();
@@ -314,7 +314,7 @@ public class RespawnManager implements Listener {
     }
 
     /**
-     * FIXED: Determine if an item should be kept based on alignment rules
+     *  Determine if an item should be kept based on alignment rules
      */
     private boolean determineIfItemShouldBeKept(ItemStack item, String alignment, Player player,
                                                 ItemStack firstHotbarItem, boolean neutralShouldDropArmor, boolean neutralShouldDropWeapon) {
@@ -401,7 +401,7 @@ public class RespawnManager implements Listener {
     }
 
     /**
-     * FIXED: Check if this item is the first hotbar item
+     *  Check if this item is the first hotbar item
      */
     private boolean isFirstHotbarItem(ItemStack item, ItemStack firstHotbarItem) {
         if (firstHotbarItem == null || item == null) {
@@ -442,7 +442,7 @@ public class RespawnManager implements Listener {
     }
 
     /**
-     * FIXED: Check if an item is a tool (pickaxe or fishing rod) - always kept
+     *  Check if an item is a tool (pickaxe or fishing rod) - always kept
      */
     private boolean isToolItem(ItemStack item) {
         String typeName = item.getType().name();
@@ -450,7 +450,7 @@ public class RespawnManager implements Listener {
     }
 
     /**
-     * FIXED: Check if item is a weapon or valid first slot item (includes both _SPADE and _SHOVEL)
+     *  Check if item is a weapon or valid first slot item (includes both _SPADE and _SHOVEL)
      */
     private boolean isWeaponOrValidFirstSlotItem(ItemStack item) {
         String typeName = item.getType().name();
@@ -487,7 +487,7 @@ public class RespawnManager implements Listener {
     }
 
     /**
-     * FIXED: Improved armor detection
+     *  Improved armor detection
      */
     private boolean isArmorItem(ItemStack item) {
         String typeName = item.getType().name();
@@ -498,7 +498,7 @@ public class RespawnManager implements Listener {
     }
 
     /**
-     * FIXED: Stores respawn items with enhanced error handling
+     *  Stores respawn items with enhanced error handling
      */
     private void storeRespawnItems(YakPlayer yakPlayer, List<ItemStack> keptItems) {
         try {
@@ -525,7 +525,7 @@ public class RespawnManager implements Listener {
     }
 
     /**
-     * FIXED: Enhanced respawn handler with proper combat logout detection
+     *  Enhanced respawn handler with proper combat logout detection
      */
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onPlayerRespawn(PlayerRespawnEvent event) {
@@ -591,7 +591,7 @@ public class RespawnManager implements Listener {
     }
 
     /**
-     * FIXED: Restores respawn items with enhanced validation
+     *  Restores respawn items with enhanced validation
      */
     private void restoreRespawnItems(Player player, YakPlayer yakPlayer) {
         try {

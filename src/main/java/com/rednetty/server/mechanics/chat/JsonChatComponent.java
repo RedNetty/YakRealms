@@ -39,7 +39,7 @@ public class JsonChatComponent {
 
     /**
      * Add text with a hover showing item details
-     * FIXED: Use modern BungeeCord chat API
+     *  Use modern BungeeCord chat API
      *
      * @param text      The clickable text
      * @param hoverText The text to show on hover
@@ -118,7 +118,7 @@ public class JsonChatComponent {
 
     /**
      * Send this component to a player
-     * FIXED: Use modern Spigot API with proper fallbacks
+     *  Use modern Spigot API with proper fallbacks
      *
      * @param player The player to send to
      */

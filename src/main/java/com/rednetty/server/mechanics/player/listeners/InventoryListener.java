@@ -71,7 +71,7 @@ public class InventoryListener extends BaseListener {
     }
 
     /**
-     * FIXED: Prevent armor from taking any durability damage ever
+     *  Prevent armor from taking any durability damage ever
      */
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onArmorDamage(PlayerItemDamageEvent event) {
@@ -143,7 +143,7 @@ public class InventoryListener extends BaseListener {
     }
 
     /**
-     * FIXED: Comprehensive armor change detection and health recalculation trigger
+     *  Comprehensive armor change detection and health recalculation trigger
      */
     private void handleArmorChangeForHealthRecalculation(Player player, InventoryClickEvent event,
                                                          ItemStack currentItem, ItemStack cursorItem, int rawSlot) {
@@ -204,14 +204,14 @@ public class InventoryListener extends BaseListener {
     }
 
     /**
-     * FIXED: Get the HealthListener instance for health recalculation
+     *  Get the HealthListener instance for health recalculation
      */
     private HealthListener getHealthListener() {
         return YakRealms.getInstance().getPlayerMechanics().getListenerManager().getHealthListener();
     }
 
     /**
-     * FIXED: Check if a raw slot is an armor slot (includes all armor slot scenarios)
+     *  Check if a raw slot is an armor slot (includes all armor slot scenarios)
      */
     private boolean isArmorSlot(int rawSlot) {
         // In player inventory view:

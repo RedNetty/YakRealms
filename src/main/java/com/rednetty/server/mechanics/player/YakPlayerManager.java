@@ -754,10 +754,9 @@ public class YakPlayerManager implements Listener {
     public boolean hasPlayer(String playerName) {
         return playerName != null && !playerName.trim().isEmpty() && getPlayer(playerName) != null;
     }
-// FIXED: Key methods for YakPlayerManager.java to prevent data corruption during combat logout
 
     /**
-     * FIXED: Enhanced player quit handler with combat logout protection
+     *  Enhanced player quit handler with combat logout protection
      */
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onPlayerQuit(PlayerQuitEvent event) {
@@ -779,7 +778,7 @@ public class YakPlayerManager implements Listener {
             return;
         }
 
-        // FIXED: Check if this is a combat logout scenario
+        //  Check if this is a combat logout scenario
         boolean isCombatLogout = false;
         try {
             // Check with AlignmentMechanics if player is combat logging
@@ -843,7 +842,7 @@ public class YakPlayerManager implements Listener {
     }
 
     /**
-     * FIXED: Enhanced updatePlayerBeforeSave with combat logout protection
+     *  Enhanced updatePlayerBeforeSave with combat logout protection
      */
     private void updatePlayerBeforeSave(YakPlayer yakPlayer, Player bukkitPlayer) {
         if (yakPlayer == null || bukkitPlayer == null) {
@@ -851,13 +850,13 @@ public class YakPlayerManager implements Listener {
         }
 
         try {
-            // FIXED: Don't update data if player is dead or has very low health (ghost state)
+            //  Don't update data if player is dead or has very low health (ghost state)
             if (bukkitPlayer.isDead() || bukkitPlayer.getHealth() <= 0.5) {
                 logger.warning("Skipping data update for dead/ghost player: " + bukkitPlayer.getName());
                 return;
             }
 
-            // FIXED: Check if this player combat logged - if so, don't update inventory
+            //  Check if this player combat logged - if so, don't update inventory
             boolean isCombatLogout = false;
             try {
                 isCombatLogout = AlignmentMechanics.getInstance().isCombatLoggingOut(bukkitPlayer);
@@ -883,7 +882,7 @@ public class YakPlayerManager implements Listener {
     }
 
     /**
-     * FIXED: Enhanced player join handler with combat logout detection
+     *  Enhanced player join handler with combat logout detection
      */
     @EventHandler(priority = EventPriority.LOWEST)
     public void onPlayerJoin(PlayerJoinEvent event) {
@@ -922,13 +921,13 @@ public class YakPlayerManager implements Listener {
     }
 
     /**
-     * FIXED: Enhanced initialization with combat logout state cleanup
+     *  Enhanced initialization with combat logout state cleanup
      */
     private void initializePlayerSystems(Player player, YakPlayer yakPlayer) {
         try {
             UUID uuid = player.getUniqueId();
 
-            // FIXED: Check if player had a combat logout last session
+            //  Check if player had a combat logout last session
             boolean hadCombatLogout = yakPlayer.hasTemporaryData("combat_logout_quit");
             if (hadCombatLogout) {
                 logger.info("Player " + player.getName() + " had a combat logout last session");
@@ -1022,7 +1021,7 @@ public class YakPlayerManager implements Listener {
     }
 
     /**
-     * FIXED: Enhanced save all players on shutdown with combat logout handling
+     *  Enhanced save all players on shutdown with combat logout handling
      */
     private void saveAllPlayersOnShutdown() {
         logger.info("Saving " + onlinePlayers.size() + " players on shutdown...");
@@ -1032,7 +1031,7 @@ public class YakPlayerManager implements Listener {
         for (YakPlayer yakPlayer : new ArrayList<>(onlinePlayers.values())) {
             Player player = yakPlayer.getBukkitPlayer();
 
-            // FIXED: For shutdown, save current state regardless of combat status
+            //  For shutdown, save current state regardless of combat status
             // But log if it was a combat logout for debugging
             boolean wasCombatLogout = false;
             if (player != null && player.isOnline()) {

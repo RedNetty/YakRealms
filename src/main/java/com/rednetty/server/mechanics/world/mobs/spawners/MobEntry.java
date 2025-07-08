@@ -3,7 +3,7 @@ package com.rednetty.server.mechanics.world.mobs.spawners;
 import com.rednetty.server.mechanics.world.mobs.core.MobType;
 
 /**
- * FIXED: Enhanced MobEntry with better validation and utility methods
+ *  Enhanced MobEntry with better validation and utility methods
  */
 public class MobEntry {
     private final String mobType;
@@ -27,7 +27,7 @@ public class MobEntry {
     }
 
     /**
-     * FIXED: Validate and normalize mob type
+     *  Validate and normalize mob type
      *
      * @param mobType The mob type to validate
      * @return Normalized mob type
@@ -121,7 +121,7 @@ public class MobEntry {
     }
 
     /**
-     * FIXED: Get the MobType object for this entry
+     *  Get the MobType object for this entry
      *
      * @return MobType instance or null if not found
      */
@@ -130,7 +130,7 @@ public class MobEntry {
     }
 
     /**
-     * FIXED: Check if this mob entry is valid for the current server configuration
+     *  Check if this mob entry is valid for the current server configuration
      *
      * @return true if valid
      */
@@ -154,7 +154,7 @@ public class MobEntry {
     }
 
     /**
-     * FIXED: Get a human-readable description of this mob entry
+     *  Get a human-readable description of this mob entry
      *
      * @return Formatted description
      */
@@ -239,7 +239,7 @@ public class MobEntry {
     }
 
     /**
-     * FIXED: Parse a MobEntry from a data string
+     *  Parse a MobEntry from a data string
      *
      * @param data The data string to parse
      * @return MobEntry instance

@@ -463,7 +463,7 @@ public class DropsManager {
             // Add damage to lore
             lore.add(ChatColor.RED + "DMG: " + minDmg + " - " + maxDmg);
 
-            // Add element damage if available (FIXED: Only one elemental type)
+            // Add element damage if available ( Only one elemental type)
             addElementalDamageFromConfig(lore, config, details, itemType);
 
             // Add weapon special stats
@@ -942,7 +942,7 @@ public class DropsManager {
     }
 
     /**
-     * FIXED: Add elemental damage stats from config - only ONE elemental type per weapon
+     *  Add elemental damage stats from config - only ONE elemental type per weapon
      */
     private void addElementalDamageFromConfig(List<String> lore, EliteDropConfig config, ItemDetails details, int itemType) {
         // Collect all available elemental damage types

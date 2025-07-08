@@ -17,7 +17,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
 
 /**
- * FIXED: Robust death remnant manager with comprehensive entity tracking and cleanup
+ *  Robust death remnant manager with comprehensive entity tracking and cleanup
  * - Implements consistent entity tagging and tracking system
  * - Enhanced cleanup that handles orphaned entities properly
  * - Death remnants are purely decorative visual elements only
@@ -65,7 +65,7 @@ public class DeathRemnantManager {
     }
 
     /**
-     * FIXED: Creates a decorative death remnant with robust entity tracking
+     *  Creates a decorative death remnant with robust entity tracking
      * @param location The location to create the remnant
      * @param items The items list (ignored - for compatibility only)
      * @param player The player who died
@@ -124,7 +124,7 @@ public class DeathRemnantManager {
     }
 
     /**
-     * FIXED: Safely removes a remnant with comprehensive cleanup
+     *  Safely removes a remnant with comprehensive cleanup
      */
     public boolean removeRemnant(UUID remnantId) {
         if (remnantId == null || removalInProgress.contains(remnantId)) {
@@ -165,7 +165,7 @@ public class DeathRemnantManager {
     }
 
     /**
-     * FIXED: Initialize comprehensive cleanup tasks
+     *  Initialize comprehensive cleanup tasks
      */
     private void initializeCleanupTasks() {
         // Regular cleanup task
@@ -188,7 +188,7 @@ public class DeathRemnantManager {
     }
 
     /**
-     * FIXED: Performs regular maintenance cleanup
+     *  Performs regular maintenance cleanup
      */
     private void performRegularCleanup() {
         try {
@@ -200,7 +200,7 @@ public class DeathRemnantManager {
     }
 
     /**
-     * FIXED: Performs comprehensive deep cleanup
+     *  Performs comprehensive deep cleanup
      */
     private void performDeepCleanup() {
         try {
@@ -213,7 +213,7 @@ public class DeathRemnantManager {
     }
 
     /**
-     * FIXED: Comprehensive orphaned entity cleanup
+     *  Comprehensive orphaned entity cleanup
      */
     private void cleanupOrphanedEntities() {
         int cleaned = 0;
@@ -319,7 +319,7 @@ public class DeathRemnantManager {
     }
 
     /**
-     * FIXED: Comprehensive entity tagging system
+     *  Comprehensive entity tagging system
      */
     private void tagRemnantEntity(ArmorStand entity, UUID remnantId, String playerName) {
         try {
@@ -346,7 +346,7 @@ public class DeathRemnantManager {
     }
 
     /**
-     * FIXED: Improved remnant entity detection
+     *  Improved remnant entity detection
      */
     private boolean isRemnantEntity(ArmorStand entity) {
         try {
@@ -447,7 +447,7 @@ public class DeathRemnantManager {
     }
 
     /**
-     * FIXED: Comprehensive shutdown with full cleanup
+     *  Comprehensive shutdown with full cleanup
      */
     public void shutdown() {
         plugin.getLogger().info("Shutting down death remnant manager - " + getStatistics());

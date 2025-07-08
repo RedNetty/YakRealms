@@ -48,8 +48,8 @@ import java.util.concurrent.ThreadLocalRandom;
  * - Critical hits and combat effects
  * - Advanced animated hologram system with arcing trajectories
  * - Enhanced PVP protection system
- * - FIXED: Proper mob-to-player damage calculations
- * - FIXED: Elite mob explosion damage bypass system
+ * -  Proper mob-to-player damage calculations
+ * -  Elite mob explosion damage bypass system
  */
 public class CombatMechanics implements Listener {
     // Constants
@@ -570,10 +570,10 @@ public class CombatMechanics implements Listener {
         return new double[]{dps, vit, str};
     }
 
-    // ============= FIXED: MOB-TO-PLAYER DAMAGE CALCULATION SYSTEM =============
+    // =============  MOB-TO-PLAYER DAMAGE CALCULATION SYSTEM =============
 
     /**
-     * FIXED: Calculate proper mob damage based on mob's weapon and stats
+     *  Calculate proper mob damage based on mob's weapon and stats
      */
     private double calculateMobDamage(LivingEntity mobAttacker, Player victim) {
         try {
@@ -1171,10 +1171,10 @@ public class CombatMechanics implements Listener {
         }
     }
 
-    // ============= FIXED: MOB-TO-PLAYER DAMAGE HANDLING =============
+    // =============  MOB-TO-PLAYER DAMAGE HANDLING =============
 
     /**
-     * FIXED: Handle mob-to-player damage with proper weapon-based calculations
+     *  Handle mob-to-player damage with proper weapon-based calculations
      */
     @EventHandler(priority = EventPriority.LOW)
     public void onMobToPlayerDamage(EntityDamageByEntityEvent event) {
@@ -1192,7 +1192,7 @@ public class CombatMechanics implements Listener {
             return;
         }
 
-        // FIXED: Check for whirlwind explosion damage (should bypass normal calculations)
+        //  Check for whirlwind explosion damage (should bypass normal calculations)
         if (victim.hasMetadata("whirlwindExplosionDamage")) {
             // This is whirlwind explosion damage - let it pass through unchanged
             double explosionDamage = victim.getMetadata("whirlwindExplosionDamage").get(0).asDouble();

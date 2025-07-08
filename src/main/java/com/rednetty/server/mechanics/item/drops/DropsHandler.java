@@ -285,7 +285,7 @@ public class DropsHandler implements Listener {
     /**
      * Cleanup processed mobs that are no longer valid
      * Enhanced to remove cleanup kill entities from tracking
-     * FIXED: This method must run on main thread to avoid async chunk access
+     *  This method must run on main thread to avoid async chunk access
      */
     private int cleanupInvalidProcessedMobs() {
         int initialSize = processedMobs.size();
@@ -333,7 +333,7 @@ public class DropsHandler implements Listener {
     }
 
     /**
-     * FIXED: Check if entity is still valid - must run on main thread
+     *  Check if entity is still valid - must run on main thread
      */
     private boolean isEntityValidMainThread(UUID entityUuid) {
         try {
@@ -356,7 +356,7 @@ public class DropsHandler implements Listener {
 
     /**
      * Enhanced mob death handler with cleanup kill detection
-     * FIXED: Skip drop processing for entities killed by cleanup tasks
+     *  Skip drop processing for entities killed by cleanup tasks
      */
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onMobDeath(EntityDeathEvent event) {

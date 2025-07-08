@@ -647,7 +647,7 @@ public class SpawnerCommand implements CommandExecutor, TabCompleter, Listener {
     }
 
     /**
-     * FIXED: Toggle spawner visibility in radius - actually implemented
+     *  Toggle spawner visibility in radius - actually implemented
      */
     private int toggleSpawnerVisibilityInRadius(Location center, int radius, boolean show) {
         try {
@@ -1475,7 +1475,7 @@ public class SpawnerCommand implements CommandExecutor, TabCompleter, Listener {
     }
 
     /**
-     * FIXED: Enhanced spawner block detection that handles metadata properly
+     *  Enhanced spawner block detection that handles metadata properly
      */
     private boolean isSpawnerBlock(Block block) {
         try {

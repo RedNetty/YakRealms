@@ -23,7 +23,7 @@ import java.util.concurrent.ThreadLocalRandom;
 import java.util.logging.Logger;
 
 /**
- * FIXED: CustomMob class with simplified, reliable spawning
+ *  CustomMob class with simplified, reliable spawning
  * - Equipment never takes durability damage (unbreakable)
  * - Mobs never burn in sunlight
  * - All entity operations properly validated for main thread
@@ -95,7 +95,7 @@ public class CustomMob {
     // ================ SIMPLIFIED SPAWNING SYSTEM ================
 
     /**
-     * FIXED: Simplified spawn method that focuses on success over perfection
+     *  Simplified spawn method that focuses on success over perfection
      */
     public boolean spawn(Location location) {
         if (!org.bukkit.Bukkit.isPrimaryThread()) {

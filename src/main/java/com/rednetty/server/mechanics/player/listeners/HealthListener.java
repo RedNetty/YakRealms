@@ -23,7 +23,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.Map;
 
 /**
- * FIXED: Handles all health-related events including health checks,
+ *  Handles all health-related events including health checks,
  * health potions, and health display with proper timing and coordination with AlignmentMechanics
  */
 public class HealthListener extends BaseListener {
@@ -47,7 +47,7 @@ public class HealthListener extends BaseListener {
     }
 
     /**
-     * FIXED: Recalculates a player's max health based on their equipment
+     *  Recalculates a player's max health based on their equipment
      * Now includes proper validation, cooldown, and coordination with AlignmentMechanics
      *
      * @param player The player to check
@@ -169,7 +169,7 @@ public class HealthListener extends BaseListener {
     }
 
     /**
-     * FIXED: Handle health recalculation after inventory changes with proper timing
+     *  Handle health recalculation after inventory changes with proper timing
      */
     @EventHandler
     public void onInventoryClick(InventoryClickEvent event) {
@@ -332,7 +332,7 @@ public class HealthListener extends BaseListener {
     }
 
     /**
-     * FIXED: Handle player join to set health - but ONLY after data is loaded
+     *  Handle player join to set health - but ONLY after data is loaded
      * This is now called by JoinLeaveListener after player data is loaded
      */
     @EventHandler(priority = EventPriority.MONITOR)
@@ -377,7 +377,7 @@ public class HealthListener extends BaseListener {
     }
 
     /**
-     * FIXED: Play equip sound when switching weapons with proper validation
+     *  Play equip sound when switching weapons with proper validation
      */
     @EventHandler
     public void onWeaponSwitch(PlayerItemHeldEvent event) {
@@ -491,7 +491,7 @@ public class HealthListener extends BaseListener {
     }
 
     /**
-     * FIXED: Clean up pending recalculations when player quits
+     *  Clean up pending recalculations when player quits
      */
     @EventHandler(priority = EventPriority.MONITOR)
     public void onPlayerQuit(org.bukkit.event.player.PlayerQuitEvent event) {

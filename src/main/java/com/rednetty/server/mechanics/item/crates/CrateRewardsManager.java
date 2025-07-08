@@ -16,7 +16,7 @@ import java.util.concurrent.ThreadLocalRandom;
 import java.util.logging.Logger;
 
 /**
- * FIXED: Enhanced manager for generating deterministic crate rewards
+ *  Enhanced manager for generating deterministic crate rewards
  * Ensures that the displayed item is always one of the actual rewards received
  */
 public class CrateRewardsManager {
@@ -36,7 +36,7 @@ public class CrateRewardsManager {
     }
 
     /**
-     * FIXED: Generates deterministic rewards for a crate opening
+     *  Generates deterministic rewards for a crate opening
      * Uses a seed-based approach to ensure consistency
      */
     public List<ItemStack> generateRewards(CrateType crateType, CrateConfiguration configuration) {
@@ -148,7 +148,7 @@ public class CrateRewardsManager {
     }
 
     /**
-     * FIXED: Creates a drop with specific rarity for preview generation
+     *  Creates a drop with specific rarity for preview generation
      * Uses the same deterministic approach
      */
     public ItemStack createDropWithRarity(int tier, int itemType, int rarity) {
@@ -162,7 +162,7 @@ public class CrateRewardsManager {
     }
 
     /**
-     * FIXED: Generates deterministic equipment reward
+     *  Generates deterministic equipment reward
      */
     private ItemStack generateDeterministicEquipmentReward(int tier, boolean isHalloween, Random random) {
         try {
@@ -188,7 +188,7 @@ public class CrateRewardsManager {
     }
 
     /**
-     * FIXED: Generates deterministic gem reward
+     *  Generates deterministic gem reward
      */
     private ItemStack generateDeterministicGemReward(int tier, boolean isHalloween, Random random) {
         try {
@@ -217,7 +217,7 @@ public class CrateRewardsManager {
     }
 
     /**
-     * FIXED: Generates deterministic orb reward
+     *  Generates deterministic orb reward
      */
     private ItemStack generateDeterministicOrbReward(int tier, boolean isHalloween, Random random) {
         try {
@@ -237,7 +237,7 @@ public class CrateRewardsManager {
     }
 
     /**
-     * FIXED: Generates deterministic scroll reward
+     *  Generates deterministic scroll reward
      */
     private ItemStack generateDeterministicScrollReward(int tier, boolean isHalloween, Random random) {
         try {
@@ -255,7 +255,7 @@ public class CrateRewardsManager {
     }
 
     /**
-     * FIXED: Generates deterministic protection scroll
+     *  Generates deterministic protection scroll
      */
     private ItemStack generateDeterministicProtectionScroll(int tier, Random random) {
         try {
@@ -269,7 +269,7 @@ public class CrateRewardsManager {
     }
 
     /**
-     * FIXED: Generates deterministic Halloween bonus rewards
+     *  Generates deterministic Halloween bonus rewards
      */
     private ItemStack generateDeterministicHalloweenBonus(int tier, Random random) {
         int bonusType = random.nextInt(3);
@@ -299,7 +299,7 @@ public class CrateRewardsManager {
     }
 
     /**
-     * FIXED: Deterministic rarity calculation
+     *  Deterministic rarity calculation
      */
     private int determineDeterministicRarity(int tier, boolean isHalloween, Random random) {
         // Base rarity chances

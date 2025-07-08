@@ -17,7 +17,7 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
- * FIXED: Creates purely decorative death remnants with robust entity management
+ *  Creates purely decorative death remnants with robust entity management
  * - All remnants are visual-only decorative skeletons
  * - No item storage or display - items always drop separately on ground
  * - Enhanced entity tracking and cleanup integration
@@ -54,7 +54,7 @@ public class DeathRemnant {
     private final long creationTime;
 
     /**
-     * FIXED: Creates a purely decorative death remnant with enhanced validation
+     *  Creates a purely decorative death remnant with enhanced validation
      * @param location The location to create the remnant
      * @param items The items list (ignored - always decorative only)
      * @param playerUuid The UUID of the deceased player
@@ -104,7 +104,7 @@ public class DeathRemnant {
     }
 
     /**
-     * FIXED: Enhanced location validation with better ground detection
+     *  Enhanced location validation with better ground detection
      */
     private Location findValidLocation(Location initialLoc) {
         if (initialLoc == null || initialLoc.getWorld() == null) {
@@ -196,7 +196,7 @@ public class DeathRemnant {
     }
 
     /**
-     * FIXED: Enhanced skeleton construction with better error handling
+     *  Enhanced skeleton construction with better error handling
      */
     private boolean constructSkeleton() {
         try {
@@ -322,7 +322,7 @@ public class DeathRemnant {
     }
 
     /**
-     * FIXED: Enhanced bone stand creation with better error handling
+     *  Enhanced bone stand creation with better error handling
      */
     private ArmorStand createBoneStand(Location loc, BonePart part, EulerAngle angle) {
         if (loc == null || loc.getWorld() == null) {
@@ -383,7 +383,7 @@ public class DeathRemnant {
     }
 
     /**
-     * FIXED: Enhanced removal with comprehensive cleanup
+     *  Enhanced removal with comprehensive cleanup
      */
     public void remove() {
         if (!isValid) return;
@@ -399,7 +399,7 @@ public class DeathRemnant {
     }
 
     /**
-     * FIXED: Comprehensive cleanup of all entities
+     *  Comprehensive cleanup of all entities
      */
     private void cleanup() {
         List<ArmorStand> toRemove = new ArrayList<>();
@@ -439,7 +439,7 @@ public class DeathRemnant {
     }
 
     /**
-     * FIXED: Enhanced structure validation
+     *  Enhanced structure validation
      */
     private boolean validateStructure() {
         // Check essential parts
@@ -562,14 +562,14 @@ public class DeathRemnant {
     }
 
     /**
-     * FIXED: Always returns 0 since remnants are purely decorative
+     *  Always returns 0 since remnants are purely decorative
      */
     public int getItemCount() {
         return 0;
     }
 
     /**
-     * FIXED: Always returns true since remnants are purely decorative
+     *  Always returns true since remnants are purely decorative
      */
     public boolean isDecorativeOnly() {
         return true;

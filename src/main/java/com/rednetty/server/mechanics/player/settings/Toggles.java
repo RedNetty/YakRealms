@@ -120,7 +120,7 @@ public class Toggles implements Listener {
     }
 
     /**
-     * FIXED: Initialize all toggle definitions with enhanced validation
+     *  Initialize all toggle definitions with enhanced validation
      */
     private void initializeToggleDefinitions() {
         logger.info("Initializing toggle definitions...");
@@ -186,7 +186,7 @@ public class Toggles implements Listener {
     }
 
     /**
-     * FIXED: Debug method to log all toggle definitions
+     *  Debug method to log all toggle definitions
      */
     private void logToggleDefinitions() {
         logger.info("Toggle Definitions Summary:");
@@ -245,7 +245,7 @@ public class Toggles implements Listener {
     }
 
     /**
-     * FIXED: Enhanced toggle checking with better validation
+     *  Enhanced toggle checking with better validation
      */
     public static boolean isToggled(Player player, String toggle) {
         if (player == null || toggle == null) {
@@ -275,7 +275,7 @@ public class Toggles implements Listener {
     }
 
     /**
-     * FIXED: Enhanced toggle setting with better validation
+     *  Enhanced toggle setting with better validation
      */
     public static boolean setToggle(Player player, String toggle, boolean enabled) {
         if (player == null || toggle == null) {
@@ -317,7 +317,7 @@ public class Toggles implements Listener {
     }
 
     /**
-     * FIXED: Enhanced toggle menu with improved debugging and validation
+     *  Enhanced toggle menu with improved debugging and validation
      */
     public Inventory getToggleMenu(Player player) {
         Inventory inventory = Bukkit.createInventory(null, MENU_SIZE, "§6§l✦ §e§lTOGGLE SETTINGS §6§l✦");
@@ -407,7 +407,7 @@ public class Toggles implements Listener {
     }
 
     /**
-     * FIXED: Add error item for debugging
+     *  Add error item for debugging
      */
     private void addErrorItem(Inventory inventory, String error) {
         ItemStack errorItem = new ItemStack(Material.BARRIER);
@@ -426,7 +426,7 @@ public class Toggles implements Listener {
     }
 
     /**
-     * FIXED: Validate slot numbers with better logging
+     *  Validate slot numbers with better logging
      */
     private boolean isValidSlot(int slot) {
         boolean valid = slot >= 0 && slot < USABLE_SLOTS;
@@ -437,7 +437,7 @@ public class Toggles implements Listener {
     }
 
     /**
-     * FIXED: Enhanced category header with better validation
+     *  Enhanced category header with better validation
      */
     private void addCategoryHeader(Inventory inventory, String category, int slot) {
         if (!isValidSlot(slot)) {
@@ -486,7 +486,7 @@ public class Toggles implements Listener {
     }
 
     /**
-     * FIXED: Add enhanced toggle item with better validation and debugging
+     *  Add enhanced toggle item with better validation and debugging
      */
     private void addToggleItem(Inventory inventory, ToggleDefinition def, YakPlayer yakPlayer, int slot) {
         if (!isValidSlot(slot)) {
@@ -533,7 +533,7 @@ public class Toggles implements Listener {
     }
 
     /**
-     * FIXED: Add locked toggle item with better validation
+     *  Add locked toggle item with better validation
      */
     private void addLockedToggleItem(Inventory inventory, ToggleDefinition def, int slot) {
         if (!isValidSlot(slot)) {
@@ -564,7 +564,7 @@ public class Toggles implements Listener {
     }
 
     /**
-     * FIXED: Add menu decorations with proper bounds checking
+     *  Add menu decorations with proper bounds checking
      */
     private void addMenuDecorations(Inventory inventory) {
         ItemStack glass = new ItemStack(Material.BLACK_STAINED_GLASS_PANE);
@@ -581,7 +581,7 @@ public class Toggles implements Listener {
     }
 
     /**
-     * FIXED: Add enhanced info button with bounds checking
+     *  Add enhanced info button with bounds checking
      */
     private void addInfoButton(Inventory inventory, int slot) {
         if (slot < 0 || slot >= MENU_SIZE) {
@@ -628,7 +628,7 @@ public class Toggles implements Listener {
     }
 
     /**
-     * FIXED: Enhanced toggle change with better validation
+     *  Enhanced toggle change with better validation
      */
     public boolean changeToggle(Player player, String toggle) {
         if (player == null || toggle == null) {
@@ -764,7 +764,7 @@ public class Toggles implements Listener {
     }
 
     /**
-     * FIXED: Enhanced inventory click handler with better debugging
+     *  Enhanced inventory click handler with better debugging
      */
     @EventHandler(priority = EventPriority.NORMAL)
     public void onToggleClick(InventoryClickEvent event) {
@@ -823,7 +823,7 @@ public class Toggles implements Listener {
     }
 
     /**
-     * FIXED: Better toggle name extraction with debugging
+     *  Better toggle name extraction with debugging
      */
     private String extractToggleName(String displayName) {
         logger.fine("Extracting toggle name from: '" + displayName + "'");
@@ -1003,7 +1003,7 @@ public class Toggles implements Listener {
     }
 
     /**
-     * FIXED: Enhanced player join handler with better initialization
+     *  Enhanced player join handler with better initialization
      */
     @EventHandler(priority = EventPriority.MONITOR)
     public void onPlayerJoin(PlayerJoinEvent event) {
@@ -1016,7 +1016,7 @@ public class Toggles implements Listener {
     }
 
     /**
-     * FIXED: Initialize player toggles with better validation
+     *  Initialize player toggles with better validation
      */
     private void initializePlayerToggles(Player player) {
         if (!player.isOnline()) {
@@ -1146,7 +1146,7 @@ public class Toggles implements Listener {
     }
 
     /**
-     * FIXED: Debug method to get system status
+     *  Debug method to get system status
      */
     public Map<String, Object> getSystemStatus() {
         Map<String, Object> status = new HashMap<>();

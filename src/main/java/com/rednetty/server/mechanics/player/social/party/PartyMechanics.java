@@ -25,7 +25,7 @@ import java.util.logging.Logger;
 import java.util.stream.Collectors;
 
 /**
- * FIXED: Enhanced party system mechanics implementation with improved stability
+ *  Enhanced party system mechanics implementation with improved stability
  * - Added comprehensive null checking
  * - Improved error handling and recovery
  * - Reduced complexity in critical paths
@@ -358,7 +358,7 @@ public class PartyMechanics implements Listener {
     }
 
     /**
-     * FIXED: Start the enhanced scoreboard refresh task with better error handling
+     *  Start the enhanced scoreboard refresh task with better error handling
      */
     private void startScoreboardRefreshTask() {
         scoreboardRefreshTask = new BukkitRunnable() {
@@ -378,7 +378,7 @@ public class PartyMechanics implements Listener {
     }
 
     /**
-     * FIXED: Safe method to refresh all party scoreboards
+     *  Safe method to refresh all party scoreboards
      */
     private void safeRefreshAllPartyScoreboards() {
         try {
@@ -401,7 +401,7 @@ public class PartyMechanics implements Listener {
     }
 
     /**
-     * FIXED: Safe method to update all player health
+     *  Safe method to update all player health
      */
     private void safeUpdateAllPlayerHealth() {
         try {
@@ -910,7 +910,7 @@ public class PartyMechanics implements Listener {
     }
 
     /**
-     * FIXED: Add a player to a party with enhanced validation and safer visual updates
+     *  Add a player to a party with enhanced validation and safer visual updates
      */
     public boolean addPlayerToParty(Player player, UUID partyId) {
         return player != null && addPlayerToParty(player.getUniqueId(), partyId);
@@ -982,7 +982,7 @@ public class PartyMechanics implements Listener {
     }
 
     /**
-     * FIXED: Remove a player from their party with enhanced handling and safer updates
+     *  Remove a player from their party with enhanced handling and safer updates
      */
     public boolean removePlayerFromParty(Player player) {
         return player != null && removePlayerFromParty(player.getUniqueId());
@@ -1355,7 +1355,7 @@ public class PartyMechanics implements Listener {
     }
 
     /**
-     * FIXED: Update all visual elements for party members with better error handling
+     *  Update all visual elements for party members with better error handling
      */
     private void updateAllPartyMemberVisuals(Party party) {
         if (party == null) return;
@@ -1594,7 +1594,7 @@ public class PartyMechanics implements Listener {
     }
 
     /**
-     * FIXED: Handle player join event to set up their scoreboard safely
+     *  Handle player join event to set up their scoreboard safely
      */
     @EventHandler(priority = EventPriority.MONITOR)
     public void onPlayerJoin(PlayerJoinEvent event) {
@@ -1617,7 +1617,7 @@ public class PartyMechanics implements Listener {
     }
 
     /**
-     * FIXED: Handle player quit event to remove them from their party safely
+     *  Handle player quit event to remove them from their party safely
      */
     @EventHandler(priority = EventPriority.MONITOR)
     public void onPlayerQuit(PlayerQuitEvent event) {

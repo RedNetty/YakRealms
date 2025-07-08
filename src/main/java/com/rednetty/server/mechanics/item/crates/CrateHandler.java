@@ -482,7 +482,7 @@ public class CrateHandler implements Listener {
     }
 
     /**
-     * FIXED: Better detection of valid crate inventory clicks
+     *  Better detection of valid crate inventory clicks
      */
     private boolean isValidCrateInventoryClick(InventoryClickEvent event) {
         // Handle player inventory (both when opened normally and when accessed through other GUIs)
@@ -507,7 +507,7 @@ public class CrateHandler implements Listener {
     }
 
     /**
-     * FIXED: Better detection of player-related inventories
+     *  Better detection of player-related inventories
      */
     private boolean isPlayerRelatedInventory(InventoryClickEvent event) {
         // Check if the clicked inventory belongs to the player
