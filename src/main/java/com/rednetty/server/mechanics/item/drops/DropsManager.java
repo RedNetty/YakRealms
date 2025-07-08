@@ -46,7 +46,7 @@ public class DropsManager {
         // Tier 4: base * 2.1³ (e.g., 278 HP)
         // Tier 5: base * 2.1⁴ (e.g., 584 HP)
         // Tier 6: base * 2.1⁵ (e.g., 1,226 HP)
-        static double TIER_GAP_MULTIPLIER = 2.4; // Made non-final for runtime modification
+        static double TIER_GAP_MULTIPLIER = 2.45; // Made non-final for runtime modification
 
         // Base values for tier 1 items
         static final double ARMOR_HP_BASE = 30.0;
