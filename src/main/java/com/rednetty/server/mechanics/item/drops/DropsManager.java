@@ -173,6 +173,7 @@ public class DropsManager {
         this.statCalculator = new StatCalculator();
         this.itemBuilder = new ItemBuilder();
         this.nameProvider = new NameProvider();
+
     }
 
     /**

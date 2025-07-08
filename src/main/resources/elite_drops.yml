@@ -1,53 +1,60 @@
 # Configuration for elite mob drops
-# mobType: Type identifier for the elite mob
-# tier: Base tier level for drops
-# rarity: Base rarity level for drops
-# stats: Common stat ranges for all items
-# weaponStats: Stat ranges specific to weapons
-# armorStats: Stat ranges specific to armor
-# items: Specific item configurations
+# Balanced using 2.4 tier gap multiplier with optimized scaling
+#
+# BASE VALUES (Tier 1):
+# - Weapon Damage: 8-11 base range
+# - Helmet/Boots HP: 35 base (70 for chestplate/leggings)
+# - Elemental Damage: 3-5 base
+# - Special Stats: 2-5 base
+#
+# TIER PROGRESSION (2.4^(tier-1)):
+# T1: 1.0x base    T2: 2.4x base    T3: 5.76x base
+# T4: 13.82x base  T5: 33.18x base  T6: 79.63x base
+#
+# RARITY MODIFIERS (balanced):
+# Uncommon(2): 1.15x  |  Rare(3): 1.25x  |  Unique(4): 1.4x
 
-# Tier 1 Elites
+# Tier 1 Elites - Base Values
 malachar:
   tier: 1
-  rarity: 2
+  rarity: 2  # Uncommon (1.15x modifier)
   stats:
     damage:
-      min: 18
-      max: 25
+      min: 9   # (8-11 base) * 1.15 = 9.2-12.6, rounded to 9-13
+      max: 13
     vitality:
-      min: 20
-      max: 60
+      min: 12
+      max: 20
     blockChance:
-      min: 4
-      max: 7
+      min: 2
+      max: 4
   weaponStats:
-    fireDamage:
-      min: 5
-      max: 10
-    lifeSteal:
+    fireDamage:  # Only fire damage - (3-5 base) * 1.15 = 3.4-5.7
       min: 3
       max: 6
+    lifeSteal:
+      min: 2
+      max: 4
   armorStats:
     energyRegen:
-      min: 4
-      max: 8
+      min: 2
+      max: 5
     armor:
       min: 2
-      max: 7
+      max: 4
     hp:
       helmet:
-        min: 100
-        max: 150
+        min: 40   # 35 * 1.15 = 40.2, rounded to 40-48
+        max: 48
       chestplate:
-        min: 225
-        max: 275
+        min: 80   # 70 * 1.15 = 80.5, rounded to 80-96
+        max: 96
       leggings:
-        min: 225
-        max: 275
+        min: 80
+        max: 96
       boots:
-        min: 100
-        max: 150
+        min: 40
+        max: 48
   items:
     1:
       name: "Malachar's Ember Fang"
@@ -72,41 +79,41 @@ malachar:
 
 xerathen:
   tier: 1
-  rarity: 2
+  rarity: 2  # Uncommon (1.15x modifier)
   stats:
     damage:
-      min: 16
-      max: 24
+      min: 9
+      max: 12
     strength:
-      min: 25
-      max: 55
+      min: 11
+      max: 18
     criticalHit:
-      min: 4
-      max: 7
+      min: 2
+      max: 4
   weaponStats:
-    poisonDamage:
-      min: 6
-      max: 11
+    poisonDamage:  # Only poison damage
+      min: 3
+      max: 5
   armorStats:
     dodgeChance:
-      min: 4
-      max: 7
+      min: 2
+      max: 4
     dps:
       min: 2
-      max: 5
+      max: 3
     hp:
       helmet:
-        min: 100
-        max: 150
+        min: 40
+        max: 48
       chestplate:
-        min: 225
-        max: 275
+        min: 80
+        max: 96
       leggings:
-        min: 225
-        max: 275
+        min: 80
+        max: 96
       boots:
-        min: 100
-        max: 150
+        min: 40
+        max: 48
   items:
     1:
       name: "Xerathen's Thorn Cleaver"
@@ -131,38 +138,38 @@ xerathen:
 
 veridiana:
   tier: 1
-  rarity: 2
+  rarity: 2  # Uncommon (1.15x modifier)
   stats:
     damage:
-      min: 17
-      max: 23
-    vitality:
-      min: 30
-      max: 65
-  weaponStats:
-    poisonDamage:
-      min: 7
+      min: 10
       max: 12
+    vitality:
+      min: 13
+      max: 22
+  weaponStats:
+    poisonDamage:  # Only poison damage
+      min: 4
+      max: 6
   armorStats:
     dps:
       min: 2
-      max: 4
+      max: 3
     energyRegen:
-      min: 5
-      max: 9
+      min: 3
+      max: 5
     hp:
       helmet:
-        min: 120
-        max: 170
+        min: 42
+        max: 50
       chestplate:
-        min: 240
-        max: 290
+        min: 84
+        max: 100
       leggings:
-        min: 240
-        max: 290
+        min: 84
+        max: 100
       boots:
-        min: 120
-        max: 170
+        min: 42
+        max: 50
   items:
     1:
       name: "Veridiana's Plague Scepter"
@@ -185,44 +192,44 @@ veridiana:
       material: LEATHER_BOOTS
       lore: "Boots that corrupt the very ground they touch."
 
-# Tier 2 Elites
+# Tier 2 Elites - Base * 2.4 = T1 * 2.4
 thorgrim:
   tier: 2
-  rarity: 2
+  rarity: 2  # Uncommon (1.15x modifier)
   stats:
     damage:
-      min: 45
-      max: 62
+      min: 22  # (8-11 * 2.4) * 1.15 = 22.1-30.4, rounded to 22-30
+      max: 30
     vitality:
-      min: 65
-      max: 125
+      min: 28
+      max: 48
     criticalHit:
-      min: 6
-      max: 9
+      min: 3
+      max: 5
   weaponStats:
-    poisonDamage:
-      min: 12
-      max: 18
+    fireDamage:  # Only fire damage - (3-5 * 2.4) * 1.15 = 8.3-13.8
+      min: 8
+      max: 14
   armorStats:
     energyRegen:
-      min: 5
-      max: 9
+      min: 3
+      max: 6
     armor:
-      min: 4
-      max: 12
+      min: 3
+      max: 7
     hp:
       helmet:
-        min: 250
-        max: 300
+        min: 97   # 35 * 2.4 * 1.15 = 96.6
+        max: 115
       chestplate:
-        min: 450
-        max: 550
+        min: 193  # 70 * 2.4 * 1.15 = 193.2
+        max: 231
       leggings:
-        min: 450
-        max: 550
+        min: 193
+        max: 231
       boots:
-        min: 250
-        max: 300
+        min: 97
+        max: 115
   items:
     1:
       name: "Thorgrim's Doom Bringer"
@@ -247,47 +254,44 @@ thorgrim:
 
 lysander:
   tier: 2
-  rarity: 3
+  rarity: 3  # Rare (1.25x modifier)
   stats:
     damage:
-      min: 58
-      max: 72
+      min: 24  # (8-11 * 2.4) * 1.25 = 24.0-33.0, rounded to 24-33
+      max: 33
     strength:
-      min: 85
-      max: 140
+      min: 30
+      max: 50
     intellect:
-      min: 70
-      max: 130
+      min: 25
+      max: 42
   weaponStats:
-    iceDamage:
-      min: 14
-      max: 18
-    pureDamage:
-      min: 10
+    iceDamage:  # Only ice damage - (3-5 * 2.4) * 1.25 = 9.0-15.0
+      min: 9
       max: 15
     lifeSteal:
-      min: 4
-      max: 7
+      min: 3
+      max: 5
   armorStats:
     energyRegen:
-      min: 5
-      max: 8
+      min: 3
+      max: 6
     dps:
-      min: 4
-      max: 8
+      min: 3
+      max: 5
     hp:
       helmet:
-        min: 280
-        max: 320
+        min: 105  # 35 * 2.4 * 1.25 = 105
+        max: 126
       chestplate:
-        min: 520
-        max: 580
+        min: 210  # 70 * 2.4 * 1.25 = 210
+        max: 252
       leggings:
-        min: 520
-        max: 580
+        min: 210
+        max: 252
       boots:
-        min: 280
-        max: 320
+        min: 105
+        max: 126
   items:
     1:
       name: "Lysander's Celestial Edge"
@@ -312,44 +316,44 @@ lysander:
 
 morgana:
   tier: 2
-  rarity: 2
+  rarity: 2  # Uncommon (1.15x modifier)
   stats:
     damage:
-      min: 48
-      max: 65
+      min: 24
+      max: 32
     strength:
-      min: 75
-      max: 135
+      min: 26
+      max: 42
     criticalHit:
-      min: 6
-      max: 9
+      min: 3
+      max: 5
   weaponStats:
-    pureDamage:
-      min: 8
-      max: 14
+    poisonDamage:  # Only poison damage
+      min: 9
+      max: 15
     criticalHit:
-      min: 5
-      max: 8
+      min: 3
+      max: 5
   armorStats:
     energyRegen:
       min: 3
-      max: 7
+      max: 5
     dps:
-      min: 4
-      max: 8
+      min: 3
+      max: 5
     hp:
       helmet:
-        min: 270
-        max: 310
+        min: 100
+        max: 120
       chestplate:
-        min: 500
-        max: 580
+        min: 200
+        max: 240
       leggings:
-        min: 500
-        max: 580
+        min: 200
+        max: 240
       boots:
-        min: 270
-        max: 310
+        min: 100
+        max: 120
   items:
     1:
       name: "Morgana's Soul Ripper"
@@ -372,50 +376,50 @@ morgana:
       material: CHAINMAIL_BOOTS
       lore: "Boots that walk between the world of the living and dead."
 
-# Tier 3 Elites
+# Tier 3 Elites - Base * 5.76 = T1 * 5.76
 vex:
   tier: 3
-  rarity: 2
+  rarity: 2  # Uncommon (1.15x modifier)
   stats:
     damage:
-      min: 78
-      max: 105
+      min: 53  # (8-11 * 5.76) * 1.15 = 52.9-72.9, rounded to 53-73
+      max: 73
     strength:
-      min: 125
-      max: 220
+      min: 46
+      max: 72
     blockChance:
-      min: 8
-      max: 11
+      min: 5
+      max: 8
   weaponStats:
-    poisonDamage:
+    poisonDamage:  # Only poison damage - (3-5 * 5.76) * 1.15 = 19.9-33.1
       min: 20
-      max: 25
+      max: 33
     lifeSteal:
-      min: 6
-      max: 10
+      min: 5
+      max: 7
     criticalHit:
-      min: 7
-      max: 11
+      min: 5
+      max: 7
   armorStats:
     energyRegen:
-      min: 6
-      max: 9
+      min: 5
+      max: 8
     dps:
-      min: 6
-      max: 12
+      min: 4
+      max: 7
     hp:
       helmet:
-        min: 500
-        max: 600
+        min: 232  # 35 * 5.76 * 1.15 = 231.8
+        max: 278
       chestplate:
-        min: 1000
-        max: 1200
+        min: 463  # 70 * 5.76 * 1.15 = 463.7
+        max: 556
       leggings:
-        min: 1000
-        max: 1200
+        min: 463
+        max: 556
       boots:
-        min: 500
-        max: 600
+        min: 232
+        max: 278
   items:
     1:
       name: "Vex's Nightmare Lance"
@@ -440,44 +444,44 @@ vex:
 
 cornelius:
   tier: 3
-  rarity: 3
+  rarity: 3  # Rare (1.25x modifier)
   stats:
     damage:
-      min: 95
-      max: 120
+      min: 58  # (8-11 * 5.76) * 1.25 = 57.6-79.2, rounded to 58-79
+      max: 79
     strength:
-      min: 140
-      max: 210
+      min: 50
+      max: 78
     blockChance:
-      min: 8
-      max: 11
+      min: 5
+      max: 8
   weaponStats:
-    fireDamage:
+    fireDamage:  # Only fire damage - (3-5 * 5.76) * 1.25 = 21.6-36.0
       min: 22
-      max: 26
+      max: 36
     lifeSteal:
-      min: 6
-      max: 9
+      min: 5
+      max: 8
   armorStats:
     energyRegen:
-      min: 7
-      max: 11
+      min: 5
+      max: 9
     dps:
-      min: 6
-      max: 12
+      min: 5
+      max: 8
     hp:
       helmet:
-        min: 550
-        max: 630
+        min: 252  # 35 * 5.76 * 1.25 = 252
+        max: 302
       chestplate:
-        min: 1100
-        max: 1250
+        min: 504  # 70 * 5.76 * 1.25 = 504
+        max: 605
       leggings:
-        min: 1100
-        max: 1250
+        min: 504
+        max: 605
       boots:
-        min: 550
-        max: 630
+        min: 252
+        max: 302
   items:
     1:
       name: "Cornelius's Avarice Cleaver"
@@ -502,41 +506,41 @@ cornelius:
 
 valdris:
   tier: 3
-  rarity: 2
+  rarity: 2  # Uncommon (1.15x modifier)
   stats:
     damage:
-      min: 85
-      max: 112
+      min: 55
+      max: 75
     vitality:
-      min: 155
-      max: 235
+      min: 56
+      max: 86
     accuracy:
-      min: 15
-      max: 22
+      min: 8
+      max: 12
   weaponStats:
-    pureDamage:
-      min: 18
-      max: 24
+    iceDamage:  # Only ice damage
+      min: 19
+      max: 32
   armorStats:
     energyRegen:
-      min: 7
-      max: 11
-    dps:
       min: 5
       max: 9
+    dps:
+      min: 4
+      max: 7
     hp:
       helmet:
-        min: 520
-        max: 610
+        min: 240
+        max: 288
       chestplate:
-        min: 1050
-        max: 1180
+        min: 480
+        max: 576
       leggings:
-        min: 1050
-        max: 1180
+        min: 480
+        max: 576
       boots:
-        min: 520
-        max: 610
+        min: 240
+        max: 288
   items:
     1:
       name: "Valdris's Eternal Blade"
@@ -561,38 +565,41 @@ valdris:
 
 seraphina:
   tier: 3
-  rarity: 3
+  rarity: 3  # Rare (1.25x modifier)
   stats:
     damage:
-      min: 92
-      max: 115
+      min: 60
+      max: 81
     intellect:
-      min: 180
-      max: 270
+      min: 72
+      max: 108
   weaponStats:
+    fireDamage:  # Only fire damage
+      min: 23
+      max: 38
     lifeSteal:
-      min: 7
-      max: 11
+      min: 5
+      max: 8
   armorStats:
     hpsregen:
-      min: 40
-      max: 70
+      min: 18
+      max: 28
     dps:
-      min: 8
-      max: 14
+      min: 5
+      max: 9
     hp:
       helmet:
-        min: 580
-        max: 660
+        min: 260
+        max: 312
       chestplate:
-        min: 1150
-        max: 1300
+        min: 520
+        max: 624
       leggings:
-        min: 1150
-        max: 1300
+        min: 520
+        max: 624
       boots:
-        min: 580
-        max: 660
+        min: 260
+        max: 312
   items:
     1:
       name: "Seraphina's Mercy Scythe"
@@ -617,44 +624,44 @@ seraphina:
 
 arachnia:
   tier: 3
-  rarity: 2
+  rarity: 2  # Uncommon (1.15x modifier)
   stats:
     damage:
-      min: 88
-      max: 118
+      min: 57
+      max: 76
     intellect:
-      min: 140
-      max: 210
-    dodge:
-      min: 8
-      max: 11
+      min: 46
+      max: 72
+    dodgeChance:
+      min: 6
+      max: 9
   weaponStats:
-    poisonDamage:
-      min: 24
-      max: 28
+    poisonDamage:  # Only poison damage
+      min: 21
+      max: 35
     accuracy:
-      min: 8
-      max: 12
+      min: 5
+      max: 8
   armorStats:
     hpsregen:
-      min: 50
-      max: 75
+      min: 20
+      max: 32
     dps:
-      min: 4
-      max: 8
+      min: 3
+      max: 6
     hp:
       helmet:
-        min: 480
-        max: 580
+        min: 225
+        max: 270
       chestplate:
-        min: 980
-        max: 1150
+        min: 450
+        max: 540
       leggings:
-        min: 980
-        max: 1150
+        min: 450
+        max: 540
       boots:
-        min: 480
-        max: 580
+        min: 225
+        max: 270
   items:
     1:
       name: "Arachnia's Web Weaver Fang"
@@ -677,47 +684,47 @@ arachnia:
       material: IRON_BOOTS
       lore: "Boots that can walk across any surface, no matter how treacherous."
 
-# Tier 4 Elites
+# Tier 4 Elites - Base * 13.82 = T1 * 13.82
 karnath:
   tier: 4
-  rarity: 3
+  rarity: 3  # Rare (1.25x modifier)
   stats:
     damage:
-      min: 250
-      max: 300
+      min: 138  # (8-11 * 13.82) * 1.25 = 138.2-190.1, rounded to 138-190
+      max: 190
     vitality:
-      min: 220
-      max: 320
+      min: 90
+      max: 150
   weaponStats:
-    iceDamage:
-      min: 28
-      max: 35
+    iceDamage:  # Only ice damage - (3-5 * 13.82) * 1.25 = 51.8-86.4, but capped
+      min: 42
+      max: 45  # Will be capped at T5 limit for now, but this is reasonable for T4
     criticalHit:
-      min: 9
-      max: 12
+      min: 6
+      max: 9
     lifeSteal:
-      min: 8
-      max: 11
+      min: 6
+      max: 9
   armorStats:
     energyRegen:
-      min: 7
-      max: 12
+      min: 6
+      max: 10
     dps:
       min: 6
       max: 12
     hp:
       helmet:
-        min: 800
-        max: 950
+        min: 606  # 35 * 13.82 * 1.25 = 605.6
+        max: 727
       chestplate:
-        min: 1600
-        max: 1900
+        min: 1211  # 70 * 13.82 * 1.25 = 1211.3
+        max: 1453
       leggings:
-        min: 1600
-        max: 1900
+        min: 1211
+        max: 1453
       boots:
-        min: 800
-        max: 950
+        min: 606
+        max: 727
   items:
     1:
       name: "Karnath's Carnage Cleaver"
@@ -742,47 +749,44 @@ karnath:
 
 zephyr:
   tier: 4
-  rarity: 2
+  rarity: 2  # Uncommon (1.15x modifier)
   stats:
     damage:
-      min: 220
-      max: 260
+      min: 127  # (8-11 * 13.82) * 1.15 = 127.1-175.0, rounded to 127-175
+      max: 175
     strength:
-      min: 195
-      max: 290
+      min: 75
+      max: 115
     blockChance:
-      min: 9
-      max: 12
+      min: 7
+      max: 10
   weaponStats:
-    poisonDamage:
-      min: 30
-      max: 35
-    pureDamage:
-      min: 20
-      max: 28
+    fireDamage:  # Only fire damage - (3-5 * 13.82) * 1.15 = 47.7-79.5
+      min: 48
+      max: 80  # Will be capped later but reasonable for T4
     criticalHit:
-      min: 8
-      max: 11
+      min: 5
+      max: 8
   armorStats:
     hpsregen:
-      min: 80
-      max: 110
+      min: 30
+      max: 45
     dps:
-      min: 10
-      max: 15
+      min: 7
+      max: 13
     hp:
       helmet:
-        min: 750
-        max: 900
+        min: 556  # 35 * 13.82 * 1.15 = 556.0
+        max: 667
       chestplate:
-        min: 1500
-        max: 1800
+        min: 1112  # 70 * 13.82 * 1.15 = 1112.1
+        max: 1334
       leggings:
-        min: 1500
-        max: 1800
+        min: 1112
+        max: 1334
       boots:
-        min: 750
-        max: 900
+        min: 556
+        max: 667
   items:
     1:
       name: "Zephyr's Wind Ripper Staff"
@@ -805,50 +809,47 @@ zephyr:
       material: DIAMOND_BOOTS
       lore: "Boots that herald the coming of the storm."
 
-# Tier 5 Elites - The Ancient Lords
+# Tier 5 Elites - Base * 33.18 = T1 * 33.18 (with caps applied)
 rimeclaw:
   tier: 5
-  rarity: 3
+  rarity: 3  # Rare (1.25x modifier)
   stats:
     damage:
-      min: 450
-      max: 500
+      min: 331  # (8-11 * 33.18) * 1.25 = 331.8-457.2, rounded to 332-457
+      max: 457
     vitality:
-      min: 320
-      max: 420
+      min: 145
+      max: 215
     dodgeChance:
-      min: 10
-      max: 12
+      min: 9
+      max: 12  # Max 12 for dodge
   weaponStats:
-    iceDamage:
-      min: 38
-      max: 45
+    iceDamage:  # Only ice damage - CAPPED at 45 for T5
+      min: 40
+      max: 45  # T5 max cap
     criticalHit:
       min: 8
-      max: 12
-    pureDamage:
-      min: 35
-      max: 42
+      max: 10  # T5 max cap
   armorStats:
     energyRegen:
-      min: 4
+      min: 5
       max: 9
     dps:
       min: 9
       max: 15
     hp:
       helmet:
-        min: 1200
-        max: 1450
+        min: 1452  # 35 * 33.18 * 1.25 = 1451.6
+        max: 1742
       chestplate:
-        min: 2400
-        max: 2900
+        min: 2904  # 70 * 33.18 * 1.25 = 2903.3
+        max: 3484
       leggings:
-        min: 2400
-        max: 2900
+        min: 2904
+        max: 3484
       boots:
-        min: 1200
-        max: 1450
+        min: 1452
+        max: 1742
   items:
     1:
       name: "Rimeclaw's Eternal Winter Axe"
@@ -873,41 +874,44 @@ rimeclaw:
 
 thalassa:
   tier: 5
-  rarity: 3
+  rarity: 3  # Rare (1.25x modifier)
   stats:
     damage:
-      min: 450
-      max: 500
+      min: 320
+      max: 440
     vitality:
-      min: 285
-      max: 380
+      min: 135
+      max: 200
     dodgeChance:
       min: 9
-      max: 12
+      max: 12  # Max 12 for dodge
   weaponStats:
-    iceDamage:
+    iceDamage:  # Only ice damage - CAPPED at 45 for T5
       min: 35
-      max: 42
+      max: 45  # T5 max cap
+    lifeSteal:
+      min: 7
+      max: 10  # T5 max cap
   armorStats:
     energyRegen:
-      min: 2
+      min: 3
       max: 9
     dps:
-      min: 3
-      max: 13
+      min: 4
+      max: 14
     hp:
       helmet:
-        min: 1100
-        max: 1350
+        min: 1380
+        max: 1656
       chestplate:
-        min: 2200
-        max: 2700
+        min: 2760
+        max: 3312
       leggings:
-        min: 2200
-        max: 2700
+        min: 2760
+        max: 3312
       boots:
-        min: 1100
-        max: 1350
+        min: 1380
+        max: 1656
   items:
     1:
       name: "Thalassa's Tide Turner War Axe"
@@ -932,47 +936,44 @@ thalassa:
 
 pyrion:
   tier: 5
-  rarity: 3
+  rarity: 3  # Rare (1.25x modifier)
   stats:
     damage:
-      min: 450
-      max: 500
+      min: 345
+      max: 475
     intellect:
-      min: 350
-      max: 480
+      min: 380
+      max: 520
     criticalHit:
-      min: 9
-      max: 12
+      min: 8
+      max: 10  # T5 max cap
     dodgeChance:
       min: 8
       max: 11
   weaponStats:
-    fireDamage:
+    fireDamage:  # Only fire damage - CAPPED at 45 for T5
       min: 40
-      max: 45
-    pureDamage:
-      min: 36
-      max: 43
+      max: 45  # T5 max cap
   armorStats:
     energyRegen:
-      min: 3
+      min: 4
       max: 10
     dps:
-      min: 3
-      max: 13
+      min: 4
+      max: 14
     hp:
       helmet:
-        min: 1150
-        max: 1400
+        min: 1480
+        max: 1776
       chestplate:
-        min: 2300
-        max: 2800
+        min: 2960
+        max: 3552
       leggings:
-        min: 2300
-        max: 2800
+        min: 2960
+        max: 3552
       boots:
-        min: 1150
-        max: 1400
+        min: 1480
+        max: 1776
   items:
     1:
       name: "Pyrion's Inferno Cleaver"
@@ -997,50 +998,47 @@ pyrion:
 
 meridian:
   tier: 5
-  rarity: 3
+  rarity: 3  # Rare (1.25x modifier)
   stats:
     damage:
-      min: 450
-      max: 500
+      min: 315
+      max: 425
     intellect:
-      min: 380
-      max: 500
+      min: 420
+      max: 560
     criticalHit:
-      min: 9
-      max: 12
+      min: 8
+      max: 10  # T5 max cap
     dodgeChance:
       min: 10
-      max: 12
+      max: 12  # Max 12 for dodge
   weaponStats:
-    iceDamage:
-      min: 33
-      max: 40
-    pureDamage:
-      min: 30
-      max: 38
+    poisonDamage:  # Only poison damage - CAPPED at 45 for T5
+      min: 35
+      max: 45  # T5 max cap
     lifeSteal:
       min: 6
-      max: 10
+      max: 10  # T5 max cap
   armorStats:
     energyRegen:
-      min: 2
+      min: 3
       max: 9
     dps:
-      min: 3
-      max: 13
+      min: 4
+      max: 14
     hp:
       helmet:
-        min: 1080
-        max: 1320
+        min: 1350
+        max: 1620
       chestplate:
-        min: 2160
-        max: 2640
+        min: 2700
+        max: 3240
       leggings:
-        min: 2160
-        max: 2640
+        min: 2700
+        max: 3240
       boots:
-        min: 1080
-        max: 1320
+        min: 1350
+        max: 1620
   items:
     1:
       name: "Meridian's Reality Fracture Staff"
@@ -1065,41 +1063,41 @@ meridian:
 
 nethys:
   tier: 5
-  rarity: 3
+  rarity: 3  # Rare (1.25x modifier)
   stats:
     damage:
-      min: 450
-      max: 500
+      min: 350
+      max: 480
     intellect:
-      min: 420
-      max: 500
-    pureDamage:
-      min: 32
-      max: 40
+      min: 450
+      max: 600
   weaponStats:
-    fireDamage:
+    fireDamage:  # Only fire damage - CAPPED at 45 for T5
       min: 38
-      max: 44
+      max: 45  # T5 max cap
+    accuracy:
+      min: 30
+      max: 35  # T5 max cap
   armorStats:
     hpsregen:
-      min: 120
-      max: 180
+      min: 100
+      max: 150
     dps:
-      min: 6
-      max: 10
+      min: 7
+      max: 12
     hp:
       helmet:
-        min: 1250
-        max: 1500
+        min: 1520
+        max: 1824
       chestplate:
-        min: 2500
-        max: 3000
+        min: 3040
+        max: 3648
       leggings:
-        min: 2500
-        max: 3000
+        min: 3040
+        max: 3648
       boots:
-        min: 1250
-        max: 1500
+        min: 1520
+        max: 1824
   items:
     1:
       name: "Nethys's Void Calling Scepter"
@@ -1121,3 +1119,90 @@ nethys:
       name: "Nethys's Oblivion Steps"
       material: GOLDEN_BOOTS
       lore: "Boots that walk the path to nothingness."
+
+# Tier 6 Elite - Base * 79.63 = T1 * 79.63 (with caps applied)
+apocalypse:
+  tier: 6
+  rarity: 4  # Unique (1.4x modifier) - The ultimate elite
+  stats:
+    damage:
+      min: 890  # (8-11 * 79.63) * 1.4 = 892.2-1228.0, rounded to 890-1230
+      max: 1230
+    vitality:
+      min: 280
+      max: 420
+    intellect:
+      min: 560
+      max: 840
+    criticalHit:
+      min: 10
+      max: 12  # T6 max cap
+    dodgeChance:
+      min: 10
+      max: 12  # Max 12 for dodge
+  weaponStats:
+    fireDamage:  # Only fire damage - CAPPED at 65 for T6
+      min: 58
+      max: 65  # T6 max cap
+    lifeSteal:
+      min: 10
+      max: 12  # T6 max cap
+    accuracy:
+      min: 35
+      max: 40  # T6 max cap
+  armorStats:
+    energyRegen:
+      min: 8
+      max: 15
+    hpsregen:
+      min: 175
+      max: 250
+    dps:
+      min: 12
+      max: 22
+    hp:
+      helmet:
+        min: 3900  # 35 * 79.63 * 1.4 = 3901.1
+        max: 4680
+      chestplate:
+        min: 7800  # 70 * 79.63 * 1.4 = 7802.2
+        max: 9360
+      leggings:
+        min: 7800
+        max: 9360
+      boots:
+        min: 3900
+        max: 4680
+  items:
+    1:
+      name: "Apocalypse's World Ender Scythe"
+      material: NETHERITE_HOE
+      lore: "The ultimate weapon that brings an end to all things. Forged from the essence of collapsed stars and bathed in the tears of dying gods."
+    2:
+      name: "Apocalypse's Reality Cleaver Glaive"
+      material: NETHERITE_SPADE
+      lore: "A polearm that cuts through the fabric of existence itself. Its blade has tasted the blood of immortals."
+    3:
+      name: "Apocalypse's Oblivion Edge Sword"
+      material: NETHERITE_SWORD
+      lore: "A blade that has witnessed the birth and death of universes. It hums with the power to unmake creation."
+    4:
+      name: "Apocalypse's Cosmos Splitter Axe"
+      material: NETHERITE_AXE
+      lore: "An axe capable of cleaving through dimensions. Each swing tears holes in the multiverse."
+    5:
+      name: "Apocalypse's Crown of Final Judgment"
+      material: NETHERITE_HELMET
+      lore: "A crown worn by the harbinger of the end times. It grants dominion over all endings."
+    6:
+      name: "Apocalypse's Doomsday Plate"
+      material: NETHERITE_CHESTPLATE
+      lore: "Armor forged from the remnants of destroyed worlds. It bears the weight of infinite apocalypses."
+    7:
+      name: "Apocalypse's Terminus Guards"
+      material: NETHERITE_LEGGINGS
+      lore: "Leg armor that has walked through the ashes of countless civilizations. Each step echoes with finality."
+    8:
+      name: "Apocalypse's Void Walker Sabatons"
+      material: NETHERITE_BOOTS
+      lore: "Boots that can stride between the spaces where universes once existed. They leave no trace in any reality."
