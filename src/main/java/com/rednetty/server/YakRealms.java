@@ -62,84 +62,41 @@ import com.rednetty.server.mechanics.world.trail.pathing.PathManager;
 import com.rednetty.server.mechanics.world.trail.pathing.nodes.AdvancedNodeMapGenerator;
 import com.rednetty.server.mechanics.world.trail.pathing.nodes.NavNode;
 import com.rednetty.server.utils.ui.ActionBarUtil;
+import com.rednetty.server.utils.async.AsyncUtil;
+import com.rednetty.server.utils.config.ConfigUtil;
+import com.rednetty.server.utils.text.StringUtil;
+import com.rednetty.server.utils.collections.CollectionUtil;
 import com.rednetty.server.commands.staff.admin.MenuCommand;
 import org.bukkit.Bukkit;
 import org.bukkit.World;
-import org.bukkit.configuration.file.FileConfiguration;
+import org.bukkit.command.CommandExecutor;
+import org.bukkit.command.TabCompleter;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.io.File;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.logging.Level;
 
 /**
- * Main plugin class for YakRealms with fixed initialization order and trade system
+ * Main plugin class for YakRealms - Refactored for better organization and maintainability
  */
 public class YakRealms extends JavaPlugin {
 
     private static YakRealms instance;
-
-    // Core systems - initialized in order
-    private MongoDBManager mongoDBManager;
-    private YakPlayerManager playerManager;
-    private PlayerMechanics playerMechanics;
-    private ModerationMechanics moderationMechanics;
-
-    // All other systems
-    private CombatMechanics combatMechanics;
-    private MagicStaff magicStaff;
-    private ChatMechanics chatMechanics;
-    private AlignmentMechanics alignmentMechanics;
-    private RespawnManager respawnManager;
-    private DeathRemnantManager deathRemnantManager;
-    private PartyMechanics partyMechanics;
-    private DashMechanics dashMechanics;
-    private SpeedfishMechanics speedfishMechanics;
-    private MountManager mountManager;
-    private ScrollManager scrollManager;
-    private OrbManager orbManager;
-    private Journal journalSystem;
-    private MenuItemManager menuItemManager;
-
-    //  Trade system components
-    private TradeManager tradeManager;
-    private TradeListener tradeListener;
-
-    // New Item Enhancement Systems
-    private AwakeningStoneSystem awakeningStoneSystem;
-    private BindingRuneSystem bindingRuneSystem;
-    private CorruptionSystem corruptionSystem;
-    private EssenceCrystalSystem essenceCrystalSystem;
-    private ForgeHammerSystem forgeHammerSystem;
-
-    private EconomyManager economyManager;
-    private BankManager bankManager;
-    private GemPouchManager gemPouchManager;
-    private VendorManager vendorManager;
-    private MarketManager marketManager;
-    private MobManager mobManager;
-    private SpawnerCommand spawnerCommand;
-    private DropsManager dropsManager;
-    private DropsHandler dropsHandler;
-    private LootBuffManager lootBuffManager;
-    private TeleportManager teleportManager;
-    private TeleportBookSystem teleportBookSystem;
-    private HearthstoneSystem hearthstoneSystem;
-    private PortalSystem portalSystem;
-    private TrailSystem trailSystem;
-    private ParticleSystem particleSystem;
-    private PathManager pathManager;
-    private CrateManager crateManager;
-    private LootChestManager lootChestManager;
-    private MerchantSystem merchantSystem;
-
-    // Game settings
+    private static int sessionID = 0;
     private static boolean patchLockdown = false;
     private static boolean t6Enabled = false;
-    private static int sessionID = 0;
-    private boolean mobsEnabled = true;
-    private boolean spawnerVisibilityDefault = false;
+
+    // Core Systems
+    private final CoreSystems coreSystems = new CoreSystems();
+    private final GameSystems gameSystems = new GameSystems();
+    private final EnhancementSystems enhancementSystems = new EnhancementSystems();
+
+    // Game Configuration
+    private final GameConfig gameConfig = new GameConfig();
 
     @Override
     public void onLoad() {
@@ -149,192 +106,545 @@ public class YakRealms extends JavaPlugin {
     @Override
     public void onEnable() {
         try {
-            getLogger().info("Starting YakRealms initialization...");
-
-            // Ensure data folder exists
-            if (!getDataFolder().exists()) {
-                getDataFolder().mkdirs();
-            }
-
-            // Save default config
-            saveDefaultConfig();
-            reloadConfig();
-
-            // Generate session ID
-            sessionID = ThreadLocalRandom.current().nextInt();
-
-            // Load game settings
-            loadGameSettings();
-
-            // Initialize in strict order to prevent circular dependencies
-            if (!initializeDatabase()) {
-                getLogger().severe("Failed to initialize database!");
-                getServer().getPluginManager().disablePlugin(this);
-                return;
-            }
-
-            if (!initializePlayerSystems()) {
-                getLogger().severe("Failed to initialize player systems!");
-                getServer().getPluginManager().disablePlugin(this);
-                return;
-            }
-
-            if (!initializeModerationSystems()) {
-                getLogger().severe("Failed to initialize moderation systems!");
-                getServer().getPluginManager().disablePlugin(this);
-                return;
-            }
-
-            if (!initializeGameSystems()) {
-                getLogger().severe("Failed to initialize game systems!");
-                getServer().getPluginManager().disablePlugin(this);
-                return;
-            }
-
-            if (!initializeCommands()) {
-                getLogger().warning("Some commands failed to register!");
-            }
-
-            finalizeStartup();
-            getLogger().info("YakRealms has been enabled successfully!");
-
+            initializePlugin();
         } catch (Exception e) {
             getLogger().log(Level.SEVERE, "Critical error during plugin startup", e);
             getServer().getPluginManager().disablePlugin(this);
         }
     }
 
-    /**
-     * Initialize database connection
-     */
-    private boolean initializeDatabase() {
+    @Override
+    public void onDisable() {
         try {
-            getLogger().info("Initializing database connection...");
-            mongoDBManager = MongoDBManager.initialize(getConfig(), this);
-
-            if (!mongoDBManager.connect()) {
-                getLogger().severe("Failed to connect to database!");
-                return false;
-            }
-
-            getLogger().info("Database connected successfully");
-            return true;
+            shutdownPlugin();
         } catch (Exception e) {
-            getLogger().log(Level.SEVERE, "Error initializing database", e);
-            return false;
+            getLogger().log(Level.WARNING, "Error during plugin shutdown", e);
         }
     }
 
+    // ========================================
+    // INITIALIZATION METHODS
+    // ========================================
+
     /**
-     *  Initialize player management systems with proper trade system setup
+     * Main plugin initialization method
      */
+    private void initializePlugin() {
+        getLogger().info("Starting YakRealms initialization...");
+
+        setupEnvironment();
+        loadConfiguration();
+
+        boolean success = true;
+        success &= initializeCoreSystemsInOrder();
+        success &= initializeGameSystemsInOrder();
+        success &= initializeCommands();
+
+        if (!success) {
+            throw new RuntimeException("Plugin initialization failed");
+        }
+
+        finalizeStartup();
+        getLogger().info("YakRealms has been enabled successfully!");
+    }
+
+    /**
+     * Setup basic environment and utilities
+     */
+    private void setupEnvironment() {
+        // Ensure data folder exists
+        if (!getDataFolder().exists()) {
+            getDataFolder().mkdirs();
+        }
+
+        // Initialize utilities
+        AsyncUtil.init(this);
+        ConfigUtil.init(this);
+        ActionBarUtil.init(this);
+
+        // Generate session ID
+        sessionID = ThreadLocalRandom.current().nextInt();
+
+        getLogger().info("Environment setup completed");
+    }
+
+    /**
+     * Load and validate configuration
+     */
+    private void loadConfiguration() {
+        saveDefaultConfig();
+        reloadConfig();
+
+        gameConfig.loadFromConfig(getConfig());
+
+        getLogger().info("Configuration loaded successfully");
+    }
+
+    /**
+     * Initialize core systems in proper order
+     */
+    private boolean initializeCoreSystemsInOrder() {
+        getLogger().info("Initializing core systems...");
+
+        return executeWithErrorHandling("Database", this::initializeDatabase) &&
+                executeWithErrorHandling("Player Systems", this::initializePlayerSystems) &&
+                executeWithErrorHandling("Moderation Systems", this::initializeModerationSystems);
+    }
+
+    /**
+     * Initialize game systems in proper order
+     */
+    private boolean initializeGameSystemsInOrder() {
+        getLogger().info("Initializing game systems...");
+
+        // Group related initializations
+        Map<String, Runnable> systemInitializers = new HashMap<>();
+        systemInitializers.put("Party & Alignment", this::initializePartyAndAlignment);
+        systemInitializers.put("Player Movement", this::initializePlayerMovement);
+        systemInitializers.put("Mount System", this::initializeMountSystem);
+        systemInitializers.put("Item Systems", this::initializeItemSystems);
+        systemInitializers.put("Item Enhancement", this::initializeItemEnhancementSystems);
+        systemInitializers.put("Chat & Communication", this::initializeChatSystems);
+        systemInitializers.put("Economy Systems", this::initializeEconomySystems);
+        systemInitializers.put("Combat Systems", this::initializeCombatSystems);
+        systemInitializers.put("World Systems", this::initializeWorldSystems);
+        systemInitializers.put("Special Systems", this::initializeSpecialSystems);
+
+        boolean allSuccess = true;
+        for (Map.Entry<String, Runnable> entry : systemInitializers.entrySet()) {
+            allSuccess &= executeWithErrorHandling(entry.getKey(), () -> {
+                entry.getValue().run();
+                return true;
+            });
+        }
+
+        return allSuccess;
+    }
+
+    // ========================================
+    // CORE SYSTEM INITIALIZERS
+    // ========================================
+
+    private boolean initializeDatabase() {
+        coreSystems.mongoDBManager = MongoDBManager.initialize(getConfig(), this);
+        if (!coreSystems.mongoDBManager.connect()) {
+            throw new RuntimeException("Failed to connect to database!");
+        }
+        return true;
+    }
+
     private boolean initializePlayerSystems() {
-        try {
-            getLogger().info("Initializing player systems...");
+        // Initialize YakPlayerManager first
+        coreSystems.playerManager = YakPlayerManager.getInstance();
+        coreSystems.playerManager.onEnable();
 
-            // Initialize YakPlayerManager first (it doesn't depend on PlayerMechanics)
-            playerManager = YakPlayerManager.getInstance();
-            playerManager.onEnable();
-
-            // Wait a moment for player manager to be ready
-            Thread.sleep(1000);
-
-            // Initialize TradeManager BEFORE PlayerMechanics
-            tradeManager = new TradeManager(this);
-            getLogger().info("TradeManager initialized successfully");
-
-            // Initialize TradeListener with proper error handling
-            tradeListener = new TradeListener(this);
-            getLogger().info("TradeListener created");
+        // Wait for player manager to be ready
+        AsyncUtil.scheduleDelayed("player-manager-ready", () -> {
+            // Initialize trade system components
+            coreSystems.tradeManager = new TradeManager(this);
+            coreSystems.tradeListener = new TradeListener(this);
 
             // Register trade listener events
-            Bukkit.getServer().getPluginManager().registerEvents(tradeListener, this);
-            getLogger().info("TradeListener events registered");
+            Bukkit.getServer().getPluginManager().registerEvents(coreSystems.tradeListener, this);
 
-            // Schedule a task to ensure TradeManager is properly linked to TradeListener
-            Bukkit.getScheduler().runTaskLater(this, () -> {
-                if (tradeListener != null && tradeManager != null) {
-                    tradeListener.setTradeManager(tradeManager);
+            // Link components after delay
+            AsyncUtil.scheduleDelayed("trade-link", () -> {
+                if (coreSystems.tradeListener != null && coreSystems.tradeManager != null) {
+                    coreSystems.tradeListener.setTradeManager(coreSystems.tradeManager);
                     getLogger().info("TradeManager properly linked to TradeListener");
                 }
-            }, 10L); // 0.5 second delay
+            }, 10L);
 
-            // Then initialize PlayerMechanics
-            playerMechanics = PlayerMechanics.getInstance();
-            playerMechanics.onEnable();
+            // Initialize PlayerMechanics
+            coreSystems.playerMechanics = PlayerMechanics.getInstance();
+            coreSystems.playerMechanics.onEnable();
 
-            getLogger().info("Player systems initialized successfully");
-            return true;
-        } catch (Exception e) {
-            getLogger().log(Level.SEVERE, "Error initializing player systems", e);
-            return false;
-        }
+        }, 20L); // 1 second delay
+
+        return true;
     }
 
-    /**
-     *  Initialize moderation systems separately for better organization
-     */
     private boolean initializeModerationSystems() {
+        coreSystems.moderationMechanics = ModerationMechanics.getInstance();
+        coreSystems.moderationMechanics.onEnable();
+        return true;
+    }
+
+    // ========================================
+    // GAME SYSTEM INITIALIZERS
+    // ========================================
+
+    private void initializePartyAndAlignment() {
+        gameSystems.partyMechanics = PartyMechanics.getInstance();
+        gameSystems.partyMechanics.onEnable();
+
+        gameSystems.alignmentMechanics = AlignmentMechanics.getInstance();
+        gameSystems.alignmentMechanics.onEnable();
+    }
+
+    private void initializePlayerMovement() {
+        gameSystems.dashMechanics = new DashMechanics();
+        gameSystems.dashMechanics.onEnable();
+
+        gameSystems.speedfishMechanics = new SpeedfishMechanics();
+        gameSystems.speedfishMechanics.onEnable();
+    }
+
+    private void initializeMountSystem() {
+        gameSystems.mountManager = MountManager.getInstance();
+        gameSystems.mountManager.onEnable();
+    }
+
+    private void initializeItemSystems() {
+        gameSystems.scrollManager = ScrollManager.getInstance();
+        gameSystems.scrollManager.initialize();
+
+        gameSystems.orbManager = OrbManager.getInstance();
+        gameSystems.orbManager.initialize();
+
+        gameSystems.journalSystem = new Journal();
+        gameSystems.menuItemManager = MenuItemManager.getInstance();
+        gameSystems.menuItemManager.initialize();
+
+        // Initialize menu system with delay
+        AsyncUtil.scheduleDelayed("menu-system-init", () -> {
+            try {
+                MenuSystemInitializer.initialize();
+                getLogger().info("Menu Item System initialized successfully!");
+            } catch (Exception e) {
+                getLogger().log(Level.SEVERE, "Failed to initialize Menu Item System", e);
+            }
+        }, 20L);
+    }
+
+    private void initializeItemEnhancementSystems() {
+        enhancementSystems.awakeningStoneSystem = AwakeningStoneSystem.getInstance();
+        enhancementSystems.awakeningStoneSystem.initialize();
+
+        enhancementSystems.bindingRuneSystem = BindingRuneSystem.getInstance();
+        enhancementSystems.bindingRuneSystem.initialize();
+
+        enhancementSystems.corruptionSystem = CorruptionSystem.getInstance();
+        enhancementSystems.corruptionSystem.initialize();
+
+        enhancementSystems.essenceCrystalSystem = EssenceCrystalSystem.getInstance();
+        enhancementSystems.essenceCrystalSystem.initialize();
+
+        enhancementSystems.forgeHammerSystem = ForgeHammerSystem.getInstance();
+        enhancementSystems.forgeHammerSystem.initialize();
+
+        getLogger().info("All item enhancement systems initialized successfully!");
+    }
+
+    private void initializeChatSystems() {
+        gameSystems.chatMechanics = ChatMechanics.getInstance();
+        gameSystems.chatMechanics.onEnable();
+    }
+
+    private void initializeEconomySystems() {
+        gameSystems.economyManager = EconomyManager.getInstance();
+        gameSystems.economyManager.onEnable();
+
+        gameSystems.bankManager = BankManager.getInstance();
+        gameSystems.bankManager.onEnable();
+
+        gameSystems.gemPouchManager = GemPouchManager.getInstance();
+        gameSystems.gemPouchManager.onEnable();
+
+        gameSystems.vendorManager = VendorManager.getInstance(this);
+        VendorSystemInitializer.initialize(this);
+
+        gameSystems.marketManager = MarketManager.getInstance();
+        gameSystems.marketManager.onEnable();
+    }
+
+    private void initializeCombatSystems() {
+        gameSystems.combatMechanics = new CombatMechanics();
+        gameSystems.combatMechanics.onEnable();
+
+        gameSystems.magicStaff = new MagicStaff();
+        gameSystems.magicStaff.onEnable();
+
+        gameSystems.deathRemnantManager = new DeathRemnantManager(this);
+        gameSystems.respawnManager = new RespawnManager();
+        gameSystems.respawnManager.onEnable();
+    }
+
+    private void initializeWorldSystems() {
+        // Mob system
+        gameSystems.mobManager = MobManager.getInstance();
+        gameSystems.mobManager.initialize();
+        gameSystems.mobManager.setSpawnersEnabled(gameConfig.mobsEnabled);
+
+        // Drops system
+        gameSystems.dropsHandler = DropsHandler.getInstance();
+        gameSystems.dropsHandler.initialize();
+        gameSystems.lootBuffManager = LootBuffManager.getInstance();
+        gameSystems.lootBuffManager.initialize();
+        gameSystems.dropsManager = DropsManager.getInstance();
+        gameSystems.dropsManager.initialize();
+
+        // Teleport systems
+        gameSystems.teleportManager = TeleportManager.getInstance();
+        gameSystems.teleportManager.onEnable();
+        gameSystems.teleportBookSystem = TeleportBookSystem.getInstance();
+        gameSystems.hearthstoneSystem = HearthstoneSystem.getInstance();
+        gameSystems.portalSystem = PortalSystem.getInstance();
+
+        // Trail and path systems
+        initializeTrailSystems();
+    }
+
+    private void initializeTrailSystems() {
+        gameSystems.trailSystem = new TrailSystem(this);
+        gameSystems.particleSystem = new ParticleSystem(this);
+
+        // Initialize path manager if possible
         try {
-            getLogger().info("Initializing moderation systems...");
-
-            // Initialize moderation mechanics with enhanced error handling
-            moderationMechanics = ModerationMechanics.getInstance();
-            moderationMechanics.onEnable();
-
-            getLogger().info("Moderation systems initialized successfully");
-            return true;
+            List<World> worlds = getServer().getWorlds();
+            if (CollectionUtil.isNotEmpty(worlds)) {
+                World mainWorld = worlds.get(0);
+                AdvancedNodeMapGenerator nodeGenerator = new AdvancedNodeMapGenerator();
+                File nodeMapFile = new File(getDataFolder(), mainWorld.getName() + "_advanced_navgraph.dat");
+                List<NavNode> nodes = nodeGenerator.getOrGenerateNodeMap(mainWorld, nodeMapFile);
+                gameSystems.pathManager = new PathManager(this, gameSystems.particleSystem);
+                getLogger().info("Path manager initialized with " + nodes.size() + " navigation nodes");
+            }
         } catch (Exception e) {
-            getLogger().log(Level.SEVERE, "Error initializing moderation systems", e);
-            return false;
+            getLogger().log(Level.WARNING, "Failed to initialize PathManager", e);
         }
     }
 
-    /**
-     * Initialize all game systems
-     */
-    private boolean initializeGameSystems() {
-        boolean allSuccess = true;
+    private void initializeSpecialSystems() {
+        // Crate system
+        gameSystems.crateManager = CrateManager.getInstance();
+        gameSystems.crateManager.initialize();
+        logSystemStats("Crate System", gameSystems.crateManager.getStatistics());
 
-        try {
-            getLogger().info("Initializing game systems...");
+        // Loot chest system
+        gameSystems.lootChestManager = LootChestManager.getInstance();
+        gameSystems.lootChestManager.initialize();
+        logSystemStats("Loot Chest System", gameSystems.lootChestManager.getStatistics());
 
-            // Initialize in dependency order
-            allSuccess &= safeInitialize("Party Mechanics", this::initializePartyMechanics);
-            allSuccess &= safeInitialize("Alignment Mechanics", this::initializeAlignmentMechanics);
-            allSuccess &= safeInitialize("Player Movement", this::initializePlayerMovement);
-            allSuccess &= safeInitialize("Mount System", this::initializeMountSystem);
-            allSuccess &= safeInitialize("Item Systems", this::initializeItemSystems);
-            allSuccess &= safeInitialize("Item Enhancement Systems", this::initializeItemEnhancementSystems);
-            allSuccess &= safeInitialize("Chat Mechanics", this::initializeChatMechanics);
-            allSuccess &= safeInitialize("Economy Systems", this::initializeEconomySystems);
-            allSuccess &= safeInitialize("Market System", this::initializeMarketSystem);
-            allSuccess &= safeInitialize("Combat Systems", this::initializeCombatSystems);
-            allSuccess &= safeInitialize("Death Systems", this::initializeDeathSystems);
-            allSuccess &= safeInitialize("Mob System", this::initializeMobSystem);
-            allSuccess &= safeInitialize("Merchant System", this::initializeMerchantSystem);
-            allSuccess &= safeInitialize("Drops System", this::initializeDropsSystem);
-            allSuccess &= safeInitialize("Teleport Systems", this::initializeTeleportSystems);
-            allSuccess &= safeInitialize("World Systems", this::initializeWorldSystems);
-            allSuccess &= safeInitialize("Crate System", this::initializeCrateSystem);
-            allSuccess &= safeInitialize("Loot Chest System", this::initializeLootChestSystem);
-
-            getLogger().info("Game systems initialization completed");
-            return allSuccess;
-
-        } catch (Exception e) {
-            getLogger().log(Level.SEVERE, "Error initializing game systems", e);
-            return false;
+        // Merchant system
+        gameSystems.merchantSystem = MerchantSystem.getInstance();
+        if (gameSystems.merchantSystem.validateDependencies()) {
+            gameSystems.merchantSystem.initialize();
+            getLogger().info("Merchant system initialized successfully");
+        } else {
+            getLogger().warning("Merchant system dependencies not satisfied - skipping initialization");
         }
     }
 
+    // ========================================
+    // COMMAND REGISTRATION
+    // ========================================
+
+    private boolean initializeCommands() {
+        getLogger().info("Registering commands...");
+
+        boolean success = true;
+
+        // Player commands
+        Map<String, CommandExecutor> playerCommands = new HashMap<>();
+        playerCommands.put("logout", new LogoutCommand());
+        playerCommands.put("toggles", new TogglesCommand());
+        playerCommands.put("alignment", new AlignmentCommand(gameSystems.alignmentMechanics));
+        playerCommands.put("invsee", new InvseeCommand());
+        success &= registerCommands(playerCommands);
+
+        // Economy commands
+        Map<String, CommandExecutor> economyCommands = new HashMap<>();
+        economyCommands.put("balance", new BalanceCommand(gameSystems.economyManager));
+        economyCommands.put("pay", new PayCommand(gameSystems.economyManager));
+        economyCommands.put("bank", new BankCommand(gameSystems.bankManager));
+        economyCommands.put("gems", new GemsCommand(gameSystems.economyManager));
+        economyCommands.put("gempouch", new GemPouchCommand(gameSystems.gemPouchManager));
+        economyCommands.put("eco", new EcoCommand(gameSystems.economyManager));
+        economyCommands.put("vendor", new VendorCommand(this));
+        success &= registerCommands(economyCommands);
+
+        // System-specific commands
+        success &= registerSystemCommands();
+
+        // Staff commands
+        success &= registerStaffCommands();
+
+        getLogger().info("Commands registered successfully!");
+        return success;
+    }
+
+    private boolean registerSystemCommands() {
+        boolean success = true;
+
+        // Market command
+        if (gameSystems.marketManager != null) {
+            MarketCommand marketCommand = new MarketCommand();
+            success &= registerCommandWithCompleter("market", marketCommand, marketCommand);
+        }
+
+        // Menu command
+        if (gameSystems.menuItemManager != null) {
+            MenuCommand menuCommand = new MenuCommand();
+            success &= registerCommandWithCompleter("menu", menuCommand, menuCommand);
+        }
+
+        // Crate command
+        if (gameSystems.crateManager != null) {
+            CrateCommand crateCommand = new CrateCommand();
+            success &= registerCommandWithCompleter("crate", crateCommand, crateCommand);
+        }
+
+        // More system commands...
+        success &= registerMobCommands();
+        success &= registerUtilityCommands();
+
+        return success;
+    }
+
+    private boolean registerMobCommands() {
+        if (gameSystems.mobManager == null) return true;
+
+        gameSystems.spawnerCommand = new SpawnerCommand(gameSystems.mobManager);
+
+        Map<String, CommandExecutor> mobCommands = new HashMap<>();
+        mobCommands.put("spawner", gameSystems.spawnerCommand);
+        mobCommands.put("spawnmob", new SpawnMobCommand(gameSystems.mobManager));
+        mobCommands.put("mobinfo", new MobInfoCommand(gameSystems.mobManager));
+        mobCommands.put("togglespawners", new ToggleSpawnersCommand(gameSystems.mobManager));
+        mobCommands.put("boss", new BossCommand(gameSystems.mobManager));
+
+        return registerCommands(mobCommands);
+    }
+
+    private boolean registerUtilityCommands() {
+        Map<String, CommandExecutor> utilityCommands = new HashMap<>();
+        utilityCommands.put("teleport", new TeleportCommand());
+        utilityCommands.put("item", new ItemCommand(this));
+        utilityCommands.put("orb", new OrbCommand(gameSystems.orbManager));
+        utilityCommands.put("nodemap", new NodeMapCommand(this));
+
+        return registerCommands(utilityCommands);
+    }
+
+    private boolean registerStaffCommands() {
+        Map<String, CommandExecutor> staffCommands = new HashMap<>();
+        staffCommands.put("kick", new KickCommand());
+        staffCommands.put("ban", new BanCommand(coreSystems.moderationMechanics));
+        staffCommands.put("unban", new UnbanCommand(coreSystems.moderationMechanics));
+        staffCommands.put("mute", new MuteCommand(coreSystems.moderationMechanics));
+        staffCommands.put("unmute", new UnmuteCommand(coreSystems.moderationMechanics));
+        staffCommands.put("vanish", new VanishCommand(this));
+        staffCommands.put("setrank", new SetRankCommand(coreSystems.moderationMechanics));
+        staffCommands.put("shutdown", new ShutdownCommand());
+
+        return registerCommands(staffCommands);
+    }
+
+    // ========================================
+    // SHUTDOWN METHODS
+    // ========================================
+
+    private void shutdownPlugin() {
+        getLogger().info("Starting YakRealms shutdown...");
+
+        shutdownGameSystems();
+        shutdownCoreSystems();
+
+        // Cancel all named async tasks
+        AsyncUtil.cancelAllNamed();
+
+        getLogger().info("YakRealms has been disabled cleanly!");
+    }
+
+    private void shutdownGameSystems() {
+        // Shutdown in reverse order of initialization
+        if (gameSystems.merchantSystem != null) {
+            executeWithErrorHandling("Merchant System", () -> {
+                gameSystems.merchantSystem.shutdown();
+                return true;
+            });
+        }
+
+        if (gameSystems.lootChestManager != null) {
+            executeWithErrorHandling("Loot Chest System", () -> {
+                gameSystems.lootChestManager.shutdown();
+                return true;
+            });
+        }
+
+        if (gameSystems.crateManager != null) {
+            executeWithErrorHandling("Crate System", () -> {
+                gameSystems.crateManager.shutdown();
+                return true;
+            });
+        }
+
+        if (gameSystems.partyMechanics != null) {
+            executeWithErrorHandling("Party Mechanics", () -> {
+                gameSystems.partyMechanics.onDisable();
+                return true;
+            });
+        }
+
+        if (MenuSystemInitializer.isInitialized()) {
+            executeWithErrorHandling("Menu System", () -> {
+                MenuSystemInitializer.shutdown();
+                return true;
+            });
+        }
+    }
+
+    private void shutdownCoreSystems() {
+        // Shutdown trade system first
+        if (coreSystems.tradeManager != null) {
+            executeWithErrorHandling("Trade System", () -> {
+                coreSystems.tradeManager.clearAllTrades();
+                return true;
+            });
+        }
+
+        if (coreSystems.tradeListener != null) {
+            executeWithErrorHandling("Trade Listener", () -> {
+                coreSystems.tradeListener.cleanup();
+                return true;
+            });
+        }
+
+        // Shutdown moderation mechanics
+        if (coreSystems.moderationMechanics != null) {
+            executeWithErrorHandling("Moderation Mechanics", () -> {
+                coreSystems.moderationMechanics.onDisable();
+                return true;
+            });
+        }
+
+        // Shutdown player systems
+        if (coreSystems.playerMechanics != null) {
+            coreSystems.playerMechanics.onDisable();
+        }
+
+        if (coreSystems.playerManager != null) {
+            coreSystems.playerManager.onDisable();
+        }
+
+        // Disconnect database last
+        if (coreSystems.mongoDBManager != null) {
+            coreSystems.mongoDBManager.disconnect();
+        }
+    }
+
+    // ========================================
+    // UTILITY METHODS
+    // ========================================
+
     /**
-     * Safe initialization wrapper
+     * Execute a system initialization with proper error handling
      */
-    private boolean safeInitialize(String systemName, SystemInitializer initializer) {
+    private boolean executeWithErrorHandling(String systemName, SystemInitFunction function) {
         try {
             getLogger().info("Initializing " + systemName + "...");
-            boolean success = initializer.initialize();
+            boolean success = function.execute();
 
             if (success) {
                 getLogger().info(systemName + " initialized successfully!");
@@ -351,505 +661,40 @@ public class YakRealms extends JavaPlugin {
     }
 
     @FunctionalInterface
-    private interface SystemInitializer {
-        boolean initialize() throws Exception;
-    }
-
-    // Individual system initialization methods
-    private boolean initializePartyMechanics() {
-        try {
-            partyMechanics = PartyMechanics.getInstance();
-            partyMechanics.onEnable();
-            return true;
-        } catch (Exception e) {
-            getLogger().log(Level.SEVERE, "Error initializing party mechanics", e);
-            return false;
-        }
-    }
-
-    private boolean initializeAlignmentMechanics() {
-        try {
-            alignmentMechanics = AlignmentMechanics.getInstance();
-            alignmentMechanics.onEnable();
-            return true;
-        } catch (Exception e) {
-            getLogger().log(Level.SEVERE, "Error initializing alignment mechanics", e);
-            return false;
-        }
-    }
-
-    private boolean initializePlayerMovement() {
-        try {
-            dashMechanics = new DashMechanics();
-            dashMechanics.onEnable();
-
-            speedfishMechanics = new SpeedfishMechanics();
-            speedfishMechanics.onEnable();
-            return true;
-        } catch (Exception e) {
-            getLogger().log(Level.SEVERE, "Error initializing player movement", e);
-            return false;
-        }
-    }
-
-    private boolean initializeMountSystem() {
-        try {
-            mountManager = MountManager.getInstance();
-            mountManager.onEnable();
-            return true;
-        } catch (Exception e) {
-            getLogger().log(Level.SEVERE, "Error initializing mount system", e);
-            return false;
-        }
-    }
-
-    private boolean initializeItemSystems() {
-        try {
-            scrollManager = ScrollManager.getInstance();
-            scrollManager.initialize();
-
-            orbManager = OrbManager.getInstance();
-            orbManager.initialize();
-
-            journalSystem = new Journal();
-
-            // Initialize Menu Item System
-            menuItemManager = MenuItemManager.getInstance();
-            menuItemManager.initialize();
-
-            // Initialize the menu system after a small delay to ensure all dependencies are ready
-            Bukkit.getScheduler().runTaskLater(this, () -> {
-                try {
-                    MenuSystemInitializer.initialize();
-                    getLogger().info("Menu Item System initialized successfully!");
-                } catch (Exception e) {
-                    getLogger().log(Level.SEVERE, "Failed to initialize Menu Item System", e);
-                }
-            }, 20L); // 1 second delay
-
-            return true;
-        } catch (Exception e) {
-            getLogger().log(Level.SEVERE, "Error initializing item systems", e);
-            return false;
-        }
+    private interface SystemInitFunction {
+        boolean execute() throws Exception;
     }
 
     /**
-     * Initialize all item enhancement systems
+     * Register multiple commands at once
      */
-    private boolean initializeItemEnhancementSystems() {
-        try {
-            getLogger().info("Initializing item enhancement systems...");
-
-            // Initialize Awakening Stone System
-            awakeningStoneSystem = AwakeningStoneSystem.getInstance();
-            awakeningStoneSystem.initialize();
-            getLogger().info("Awakening Stone System initialized successfully!");
-
-            // Initialize Binding Rune System
-            bindingRuneSystem = BindingRuneSystem.getInstance();
-            bindingRuneSystem.initialize();
-            getLogger().info("Binding Rune System initialized successfully!");
-
-            // Initialize Corruption System
-            corruptionSystem = CorruptionSystem.getInstance();
-            corruptionSystem.initialize();
-            getLogger().info("Corruption System initialized successfully!");
-
-            // Initialize Essence Crystal System
-            essenceCrystalSystem = EssenceCrystalSystem.getInstance();
-            essenceCrystalSystem.initialize();
-            getLogger().info("Essence Crystal System initialized successfully!");
-
-            // Initialize Forge Hammer System
-            forgeHammerSystem = ForgeHammerSystem.getInstance();
-            forgeHammerSystem.initialize();
-            getLogger().info("Forge Hammer System initialized successfully!");
-
-            return true;
-        } catch (Exception e) {
-            getLogger().log(Level.SEVERE, "Error initializing item enhancement systems", e);
-            return false;
-        }
-    }
-
-    private boolean initializeChatMechanics() {
-        try {
-            chatMechanics = ChatMechanics.getInstance();
-            chatMechanics.onEnable();
-            return true;
-        } catch (Exception e) {
-            getLogger().log(Level.SEVERE, "Error initializing chat mechanics", e);
-            return false;
-        }
-    }
-
-    private boolean initializeEconomySystems() {
-        try {
-            economyManager = EconomyManager.getInstance();
-            economyManager.onEnable();
-
-            bankManager = BankManager.getInstance();
-            bankManager.onEnable();
-
-            gemPouchManager = GemPouchManager.getInstance();
-            gemPouchManager.onEnable();
-
-            vendorManager = VendorManager.getInstance(this);
-            VendorSystemInitializer.initialize(this);
-            return true;
-        } catch (Exception e) {
-            getLogger().log(Level.SEVERE, "Error initializing economy systems", e);
-            return false;
-        }
-    }
-
-    private boolean initializeMarketSystem() {
-        try {
-            marketManager = MarketManager.getInstance();
-            marketManager.onEnable();
-            return true;
-        } catch (Exception e) {
-            getLogger().log(Level.SEVERE, "Error initializing market system", e);
-            return false;
-        }
-    }
-
-    private boolean initializeCombatSystems() {
-        try {
-            combatMechanics = new CombatMechanics();
-            combatMechanics.onEnable();
-
-            magicStaff = new MagicStaff();
-            magicStaff.onEnable();
-            return true;
-        } catch (Exception e) {
-            getLogger().log(Level.SEVERE, "Error initializing combat systems", e);
-            return false;
-        }
-    }
-
-    private boolean initializeDeathSystems() {
-        try {
-            deathRemnantManager = new DeathRemnantManager(this);
-            respawnManager = new RespawnManager();
-            respawnManager.onEnable();
-            return true;
-        } catch (Exception e) {
-            getLogger().log(Level.SEVERE, "Error initializing death systems", e);
-            return false;
-        }
-    }
-
-    private boolean initializeMobSystem() {
-        try {
-            mobManager = MobManager.getInstance();
-            mobManager.initialize();
-            mobManager.setSpawnersEnabled(mobsEnabled);
-            return true;
-        } catch (Exception e) {
-            getLogger().log(Level.SEVERE, "Error initializing mob system", e);
-            return false;
-        }
-    }
-
-    private boolean initializeDropsSystem() {
-        try {
-            dropsHandler = DropsHandler.getInstance();
-            dropsHandler.initialize();
-
-            lootBuffManager = LootBuffManager.getInstance();
-            lootBuffManager.initialize();
-
-            dropsManager = DropsManager.getInstance();
-            dropsManager.initialize();
-            return true;
-        } catch (Exception e) {
-            getLogger().log(Level.SEVERE, "Error initializing drop systems", e);
-            return false;
-        }
-    }
-
-    private boolean initializeTeleportSystems() {
-        try {
-            teleportManager = TeleportManager.getInstance();
-            teleportManager.onEnable();
-
-            teleportBookSystem = TeleportBookSystem.getInstance();
-            hearthstoneSystem = HearthstoneSystem.getInstance();
-            portalSystem = PortalSystem.getInstance();
-            return true;
-        } catch (Exception e) {
-            getLogger().log(Level.SEVERE, "Error initializing teleport systems", e);
-            return false;
-        }
-    }
-
-    private boolean initializeWorldSystems() {
-        try {
-            trailSystem = new TrailSystem(this);
-            particleSystem = new ParticleSystem(this);
-
-            // Initialize path manager if possible
-            try {
-                List<World> worlds = getServer().getWorlds();
-                if (!worlds.isEmpty()) {
-                    World mainWorld = worlds.get(0);
-                    AdvancedNodeMapGenerator nodeGenerator = new AdvancedNodeMapGenerator();
-                    File nodeMapFile = new File(getDataFolder(), mainWorld.getName() + "_advanced_navgraph.dat");
-                    List<NavNode> nodes = nodeGenerator.getOrGenerateNodeMap(mainWorld, nodeMapFile);
-                    pathManager = new PathManager(this, particleSystem);
-                    getLogger().info("Path manager initialized with " + nodes.size() + " navigation nodes");
-                }
-            } catch (Exception e) {
-                getLogger().log(Level.WARNING, "Failed to initialize PathManager", e);
-            }
-
-            return true;
-        } catch (Exception e) {
-            getLogger().log(Level.SEVERE, "Error initializing world systems", e);
-            return false;
-        }
-    }
-
-    private boolean initializeCrateSystem() {
-        try {
-            getLogger().info("Initializing Enhanced Crate System...");
-            crateManager = CrateManager.getInstance();
-            crateManager.initialize();
-
-            // Log crate system status
-            var stats = crateManager.getStatistics();
-            getLogger().info("Crate System loaded successfully!");
-            getLogger().info("- Configurations: " + stats.get("configurationsLoaded"));
-            getLogger().info("- Features: " + stats.get("featuresEnabled"));
-            getLogger().info("- Factory Version: " + crateManager.getCrateFactory().getFactoryStats().get("factoryVersion"));
-
-            return true;
-        } catch (Exception e) {
-            getLogger().log(Level.SEVERE, "Error initializing crate system", e);
-            return false;
-        }
-    }
-
-    /**
-     * Initialize the loot chest system
-     */
-    private boolean initializeLootChestSystem() {
-        try {
-            getLogger().info("Initializing Loot Chest System...");
-            lootChestManager = LootChestManager.getInstance();
-            lootChestManager.initialize();
-
-            // Log loot chest system status
-            var stats = lootChestManager.getStatistics();
-            getLogger().info("Loot Chest System loaded successfully!");
-            getLogger().info("- Total Chests: " + stats.get("totalChests"));
-            getLogger().info("- Opened Chests: " + stats.get("openedChests"));
-            getLogger().info("- Viewing Players: " + stats.get("viewingPlayers"));
-
-            return true;
-        } catch (Exception e) {
-            getLogger().log(Level.SEVERE, "Error initializing loot chest system", e);
-            return false;
-        }
-    }
-
-    /**
-     * Load game settings from config
-     */
-    private void loadGameSettings() {
-        FileConfiguration config = getConfig();
-
-        t6Enabled = config.getBoolean("game.t6-enabled", false);
-        getLogger().info("T6 content is " + (t6Enabled ? "enabled" : "disabled"));
-
-        mobsEnabled = config.getBoolean("mechanics.mobs.enabled", true);
-        getLogger().info("Mob spawning is " + (mobsEnabled ? "enabled" : "disabled"));
-
-        spawnerVisibilityDefault = config.getBoolean("mechanics.mobs.spawner-default-visibility", false);
-        getLogger().info("Default spawner visibility is " + (spawnerVisibilityDefault ? "visible" : "hidden"));
-    }
-
-    /**
-     * Initialize commands - UPDATED to include logout and shutdown commands
-     */
-    private boolean initializeCommands() {
+    private boolean registerCommands(Map<String, CommandExecutor> commands) {
         boolean success = true;
-
-        try {
-            getLogger().info("Registering commands...");
-
-            // Player commands
-            success &= registerCommand("logout", new com.rednetty.server.commands.player.LogoutCommand(),
-                    new com.rednetty.server.commands.player.LogoutCommand());
-            success &= registerCommand("toggles", new TogglesCommand());
-            success &= registerCommand("alignment", new AlignmentCommand(alignmentMechanics));
-            success &= registerCommand("invsee", new InvseeCommand());
-
-            // Economy commands
-            success &= registerCommand("balance", new BalanceCommand(economyManager));
-            success &= registerCommand("pay", new PayCommand(economyManager));
-            success &= registerCommand("bank", new BankCommand(bankManager));
-            success &= registerCommand("gems", new GemsCommand(economyManager));
-            success &= registerCommand("gempouch", new GemPouchCommand(gemPouchManager));
-            success &= registerCommand("eco", new EcoCommand(economyManager));
-            success &= registerCommand("vendor", new VendorCommand(this));
-
-            // Market command
-            if (marketManager != null) {
-                MarketCommand marketCommand = new MarketCommand();
-                success &= registerCommand("market", marketCommand, marketCommand);
-            }
-
-            // Menu system command
-            if (getCommand("menu") != null) {
-                if (menuItemManager != null) {
-                    MenuCommand menuCommand = new MenuCommand();
-                    boolean menuRegistered = registerCommand("menu", menuCommand, menuCommand);
-                    success &= menuRegistered;
-
-                    if (menuRegistered) {
-                        getLogger().info("Menu command registered successfully!");
-                    } else {
-                        getLogger().warning("Failed to register menu command!");
-                    }
-                } else {
-                    getLogger().warning("Menu item manager is null - command not registered!");
-                }
-            } else {
-                getLogger().warning("Menu command not found in plugin.yml!");
-            }
-
-            // Crate commands - Enhanced with better error checking
-            if (getCommand("crate") != null) {
-                if (crateManager != null) {
-                    CrateCommand crateCommand = new CrateCommand();
-                    boolean crateRegistered = registerCommand("crate", crateCommand, crateCommand);
-                    success &= crateRegistered;
-
-                    if (crateRegistered) {
-                        getLogger().info("Crate command registered successfully!");
-                    } else {
-                        getLogger().warning("Failed to register crate command!");
-                    }
-                } else {
-                    getLogger().warning("Crate manager is null - command not registered!");
-                }
-            } else {
-                getLogger().warning("Crate command not found in plugin.yml!");
-            }
-
-            // Loot Chest commands
-            if (getCommand("lootchest") != null) {
-                if (lootChestManager != null) {
-                    LootChestCommand lootChestCommand = new LootChestCommand();
-                    boolean lootChestRegistered = registerCommand("lootchest", lootChestCommand, lootChestCommand);
-                    success &= lootChestRegistered;
-
-                    if (lootChestRegistered) {
-                        getLogger().info("Loot chest command registered successfully!");
-                    } else {
-                        getLogger().warning("Failed to register loot chest command!");
-                    }
-                } else {
-                    getLogger().warning("Loot chest manager is null - command not registered!");
-                }
-            } else {
-                getLogger().warning("Loot chest command not found in plugin.yml!");
-            }
-
-            // Mob commands
-            if (mobManager != null) {
-                spawnerCommand = new SpawnerCommand(mobManager);
-                success &= registerCommand("spawner", spawnerCommand, spawnerCommand);
-                success &= registerCommand("spawnmob", new SpawnMobCommand(mobManager));
-                success &= registerCommand("mobinfo", new MobInfoCommand(mobManager));
-                success &= registerCommand("togglespawners", new ToggleSpawnersCommand(mobManager));
-                success &= registerCommand("boss", new BossCommand(mobManager));
-            }
-
-            // Drop commands
-            if (dropsManager != null) {
-                success &= registerCommand("droprate", new DropRateCommand(dropsManager));
-                success &= registerCommand("lootbuff", new LootBuffCommand(lootBuffManager));
-                success &= registerCommand("elitedrop", new EliteDropsCommand());
-            }
-
-            // Teleport commands
-            success &= registerCommand("teleportbook", new TeleportBookCommand());
-            success &= registerCommand("teleport", new TeleportCommand());
-
-            // Mount commands
-            success &= registerCommand("mount", new MountCommand());
-
-            // Item commands - Updated with enhanced ItemCommand
-            success &= registerCommand("item", new ItemCommand(this));
-            success &= registerCommand("journal", new JournalCommand());
-            success &= registerCommand("scroll", new ScrollCommand(scrollManager));
-            success &= registerCommand("speedfish", new SpeedfishCommand(speedfishMechanics));
-            success &= registerCommand("orb", new OrbCommand(orbManager));
-
-            // Chat commands
-            success &= registerCommand("buddy", new BuddiesCommand());
-            success &= registerCommand("msg", new MessageCommand());
-            success &= registerCommand("r", new ReplyCommand());
-            success &= registerCommand("global", new GlobalChatCommand());
-            success &= registerCommand("staffchat", new StaffChatCommand());
-            success &= registerCommand("chattag", new ChatTagCommand());
-
-            // Moderation commands - Use the instance instead of static call
-            success &= registerCommand("kick", new KickCommand());
-            success &= registerCommand("ban", new BanCommand(moderationMechanics));
-            success &= registerCommand("unban", new UnbanCommand(moderationMechanics));
-            success &= registerCommand("mute", new MuteCommand(moderationMechanics));
-            success &= registerCommand("unmute", new UnmuteCommand(moderationMechanics));
-            success &= registerCommand("vanish", new VanishCommand(this));
-            success &= registerCommand("setrank", new SetRankCommand(moderationMechanics));
-
-            // Admin commands - NEW SHUTDOWN COMMAND
-            success &= registerCommand("shutdown", new com.rednetty.server.commands.staff.admin.ShutdownCommand(),
-                    new com.rednetty.server.commands.staff.admin.ShutdownCommand());
-
-            // Navigation commands
-            if (pathManager != null) {
-                success &= registerCommand("trail", new TrailCommand(this, pathManager));
-            }
-            success &= registerCommand("nodemap", new NodeMapCommand(this));
-
-            // Party commands
-            success &= registerCommand("p", new PartyCommand());
-            success &= registerCommand("paccept", new PAcceptCommand());
-            success &= registerCommand("pdecline", new PDeclineCommand());
-            success &= registerCommand("pinvite", new PInviteCommand());
-            success &= registerCommand("pkick", new PKickCommand());
-            success &= registerCommand("pquit", new PQuitCommand());
-
-            getLogger().info("Commands registered successfully!");
-            return success;
-
-        } catch (Exception e) {
-            getLogger().log(Level.SEVERE, "Error registering commands", e);
-            return false;
+        for (Map.Entry<String, CommandExecutor> entry : commands.entrySet()) {
+            success &= registerCommand(entry.getKey(), entry.getValue());
         }
+        return success;
     }
 
     /**
-     * Helper method to register commands
+     * Register command with executor and tab completer
      */
-    private boolean registerCommand(String name, org.bukkit.command.CommandExecutor executor) {
-        return registerCommand(name, executor, null);
+    private boolean registerCommandWithCompleter(String name, CommandExecutor executor, TabCompleter tabCompleter) {
+        boolean success = registerCommand(name, executor);
+        if (success && getCommand(name) != null) {
+            getCommand(name).setTabCompleter(tabCompleter);
+        }
+        return success;
     }
 
-    private boolean registerCommand(String name, org.bukkit.command.CommandExecutor executor,
-                                    org.bukkit.command.TabCompleter tabCompleter) {
+    /**
+     * Register a single command safely
+     */
+    private boolean registerCommand(String name, CommandExecutor executor) {
         try {
-            org.bukkit.command.PluginCommand command = getCommand(name);
+            var command = getCommand(name);
             if (command != null) {
                 command.setExecutor(executor);
-                if (tabCompleter != null) {
-                    command.setTabCompleter(tabCompleter);
-                }
                 return true;
             } else {
                 getLogger().warning("Command '" + name + "' not found in plugin.yml");
@@ -862,155 +707,56 @@ public class YakRealms extends JavaPlugin {
     }
 
     /**
-     * Finalize startup
+     * Log system statistics in a formatted way
+     */
+    private void logSystemStats(String systemName, Map<String, Object> stats) {
+        getLogger().info(systemName + " loaded successfully!");
+        stats.forEach((key, value) ->
+                getLogger().info("- " + StringUtil.capitalizeWords(key.replace("_", " ")) + ": " + value)
+        );
+    }
+
+    /**
+     * Finalize startup process
      */
     private void finalizeStartup() {
         // Start background tasks
-        if (spawnerCommand != null) {
+        if (gameSystems.spawnerCommand != null) {
             SpawnerHologramUpdater.startTask();
         }
 
-        // Initialize ActionBar utility
-        ActionBarUtil.init(this);
-
         // Log final system status
-        getLogger().info("=== YakRealms System Status ===");
-        getLogger().info("Session ID: " + sessionID);
-        getLogger().info("T6 Content: " + (t6Enabled ? "Enabled" : "Disabled"));
-        getLogger().info("Economy System: " + (economyManager != null ? "Active" : "Inactive"));
-        getLogger().info("Menu Item System: " + (menuItemManager != null ? "Active" : "Inactive"));
-        getLogger().info("Trade System: " + (tradeManager != null ? "Active" : "Inactive"));
-        getLogger().info("Trade Listener: " + (tradeListener != null ? "Active" : "Inactive"));
-        getLogger().info("Moderation System: " + (moderationMechanics != null ? "Active" : "Inactive"));
-        getLogger().info("Crate System: " + (crateManager != null ? "Active" : "Inactive"));
-        getLogger().info("Loot Chest System: " + (lootChestManager != null ? "Active" : "Inactive"));
-        getLogger().info("Mob System: " + (mobManager != null ? "Active" : "Inactive"));
-        getLogger().info("Market System: " + (marketManager != null ? "Active" : "Inactive"));
-        getLogger().info("Awakening Stone System: " + (awakeningStoneSystem != null ? "Active" : "Inactive"));
-        getLogger().info("Binding Rune System: " + (bindingRuneSystem != null ? "Active" : "Inactive"));
-        getLogger().info("Corruption System: " + (corruptionSystem != null ? "Active" : "Inactive"));
-        getLogger().info("Essence Crystal System: " + (essenceCrystalSystem != null ? "Active" : "Inactive"));
-        getLogger().info("Forge Hammer System: " + (forgeHammerSystem != null ? "Active" : "Inactive"));
-        getLogger().info("==============================");
+        logFinalStatus();
+    }
 
+    /**
+     * Log comprehensive system status
+     */
+    private void logFinalStatus() {
+        Map<String, Object> statusMap = new HashMap<>();
+        statusMap.put("Session ID", String.valueOf(sessionID));
+        statusMap.put("T6 Content", gameConfig.t6Enabled ? "Enabled" : "Disabled");
+        statusMap.put("Economy System", gameSystems.economyManager != null ? "Active" : "Inactive");
+        statusMap.put("Trade System", coreSystems.tradeManager != null ? "Active" : "Inactive");
+        statusMap.put("Moderation System", coreSystems.moderationMechanics != null ? "Active" : "Inactive");
+        statusMap.put("Crate System", gameSystems.crateManager != null ? "Active" : "Inactive");
+        statusMap.put("Enhancement Systems", enhancementSystems.isAllActive() ? "Active" : "Partial");
+
+        getLogger().info("=== YakRealms System Status ===");
+        statusMap.forEach((key, value) -> getLogger().info(key + ": " + value));
+        getLogger().info("==============================");
         getLogger().info("YakRealms startup completed successfully!");
     }
 
-    @Override
-    public void onDisable() {
-        try {
-            getLogger().info("Starting YakRealms shutdown...");
+    // ========================================
+    // STATIC GETTERS AND UTILITY
+    // ========================================
 
-            // Shutdown trade system first to clean up active trades
-            if (tradeManager != null) {
-                getLogger().info("Shutting down trade system...");
-                tradeManager.clearAllTrades();
-                getLogger().info("Trade system shutdown completed");
-            }
-
-            if (tradeListener != null) {
-                getLogger().info("Cleaning up trade listener...");
-                tradeListener.cleanup();
-                getLogger().info("Trade listener cleanup completed");
-            }
-
-            // Shutdown menu system first to clean up all online players
-            if (MenuSystemInitializer.isInitialized()) {
-                getLogger().info("Shutting down menu item system...");
-                MenuSystemInitializer.shutdown();
-                getLogger().info("Menu item system shutdown completed");
-            }
-
-            // Shutdown moderation mechanics
-            if (moderationMechanics != null) {
-                getLogger().info("Shutting down moderation mechanics...");
-                moderationMechanics.onDisable();
-                getLogger().info("Moderation mechanics shutdown completed");
-            }
-
-            // Shutdown in reverse order
-            if (playerMechanics != null) {
-                playerMechanics.onDisable();
-            }
-
-            if (playerManager != null) {
-                playerManager.onDisable();
-            }
-
-            // Shutdown other systems
-            shutdownGameSystems();
-
-            // Disconnect database last
-            if (mongoDBManager != null) {
-                mongoDBManager.disconnect();
-            }
-
-            getLogger().info("YakRealms has been disabled cleanly!");
-        } catch (Exception e) {
-            getLogger().log(Level.WARNING, "Error during plugin shutdown", e);
-        }
-    }
-
-    private void shutdownGameSystems() {
-        // Shutdown systems in reverse order
-        if (lootChestManager != null) {
-            try {
-                getLogger().info("Shutting down loot chest system...");
-                lootChestManager.shutdown();
-                getLogger().info("Loot chest system shutdown completed");
-            } catch (Exception e) {
-                getLogger().log(Level.WARNING, "Error shutting down loot chest system", e);
-            }
-        }
-
-        if (crateManager != null) {
-            try {
-                getLogger().info("Shutting down crate system...");
-                crateManager.shutdown();
-                getLogger().info("Crate system shutdown completed");
-            } catch (Exception e) {
-                getLogger().log(Level.WARNING, "Error shutting down crate system", e);
-            }
-        }
-
-        if (partyMechanics != null) {
-            try {
-                partyMechanics.onDisable();
-            } catch (Exception e) {
-                getLogger().log(Level.WARNING, "Error shutting down party mechanics", e);
-            }
-        }
-
-        shutdownMerchantSystem();
-
-        // Shutdown item enhancement systems
-        getLogger().info("Shutting down item enhancement systems...");
-        // These systems typically don't need explicit shutdown as they're event-based
-
-        // Add other shutdowns as needed
-    }
-
-    // Static getters
-    public static YakRealms getInstance() {
-        return instance;
-    }
-
-    public static boolean isPatchLockdown() {
-        return patchLockdown;
-    }
-
-    public static void setPatchLockdown(boolean patchLockdown) {
-        YakRealms.patchLockdown = patchLockdown;
-    }
-
-    public static int getSessionID() {
-        return sessionID;
-    }
-
-    public static boolean isT6Enabled() {
-        return t6Enabled;
-    }
-
+    public static YakRealms getInstance() { return instance; }
+    public static boolean isPatchLockdown() { return patchLockdown; }
+    public static void setPatchLockdown(boolean patchLockdown) { YakRealms.patchLockdown = patchLockdown; }
+    public static int getSessionID() { return sessionID; }
+    public static boolean isT6Enabled() { return t6Enabled; }
     public static void setT6Enabled(boolean enabled) {
         t6Enabled = enabled;
         if (instance != null) {
@@ -1019,258 +765,134 @@ public class YakRealms extends JavaPlugin {
         }
     }
 
-    // Getters for all systems
-    public MongoDBManager getMongoDBManager() { return mongoDBManager; }
-    public YakPlayerManager getPlayerManager() { return playerManager; }
-    public PlayerMechanics getPlayerMechanics() { return playerMechanics; }
-    public ModerationMechanics getModerationMechanics() { return moderationMechanics; }
-    public PartyMechanics getPartyMechanics() { return partyMechanics; }
-    public DashMechanics getDashMechanics() { return dashMechanics; }
-    public SpeedfishMechanics getSpeedfishMechanics() { return speedfishMechanics; }
-    public MountManager getMountManager() { return mountManager; }
-    public ScrollManager getScrollManager() { return scrollManager; }
-    public OrbManager getOrbManager() { return orbManager; }
-    public Journal getJournalSystem() { return journalSystem; }
-    public MenuItemManager getMenuItemManager() { return menuItemManager; }
+    // System getters - organized by category
+    public MongoDBManager getMongoDBManager() { return coreSystems.mongoDBManager; }
+    public YakPlayerManager getPlayerManager() { return coreSystems.playerManager; }
+    public PlayerMechanics getPlayerMechanics() { return coreSystems.playerMechanics; }
+    public ModerationMechanics getModerationMechanics() { return coreSystems.moderationMechanics; }
+    public TradeManager getTradeManager() { return coreSystems.tradeManager; }
+    public TradeListener getTradeListener() { return coreSystems.tradeListener; }
 
-    //  Trade system getters
-    public TradeManager getTradeManager() { return tradeManager; }
-    public TradeListener getTradeListener() { return tradeListener; }
+    public EconomyManager getEconomyManager() { return gameSystems.economyManager; }
+    public CombatMechanics getCombatMechanics() { return gameSystems.combatMechanics; }
+    public MobManager getMobManager() { return gameSystems.mobManager; }
+    public CrateManager getCrateManager() { return gameSystems.crateManager; }
 
-    // New getters for item enhancement systems
-    public AwakeningStoneSystem getAwakeningStoneSystem() { return awakeningStoneSystem; }
-    public BindingRuneSystem getBindingRuneSystem() { return bindingRuneSystem; }
-    public CorruptionSystem getCorruptionSystem() { return corruptionSystem; }
-    public EssenceCrystalSystem getEssenceCrystalSystem() { return essenceCrystalSystem; }
-    public ForgeHammerSystem getForgeHammerSystem() { return forgeHammerSystem; }
+    public AwakeningStoneSystem getAwakeningStoneSystem() { return enhancementSystems.awakeningStoneSystem; }
+    public BindingRuneSystem getBindingRuneSystem() { return enhancementSystems.bindingRuneSystem; }
+    public CorruptionSystem getCorruptionSystem() { return enhancementSystems.corruptionSystem; }
+    public EssenceCrystalSystem getEssenceCrystalSystem() { return enhancementSystems.essenceCrystalSystem; }
+    public ForgeHammerSystem getForgeHammerSystem() { return enhancementSystems.forgeHammerSystem; }
 
-    public AlignmentMechanics getAlignmentMechanics() { return alignmentMechanics; }
-    public RespawnManager getRespawnManager() { return respawnManager; }
-    public DeathRemnantManager getDeathRemnantManager() { return deathRemnantManager; }
-    public ChatMechanics getChatMechanics() { return chatMechanics; }
-    public CombatMechanics getCombatMechanics() { return combatMechanics; }
-    public MagicStaff getMagicStaff() { return magicStaff; }
-    public EconomyManager getEconomyManager() { return economyManager; }
-    public BankManager getBankManager() { return bankManager; }
-    public GemPouchManager getGemPouchManager() { return gemPouchManager; }
-    public VendorManager getVendorManager() { return vendorManager; }
-    public MarketManager getMarketManager() { return marketManager; }
-    public MobManager getMobManager() { return mobManager; }
-    public SpawnerCommand getSpawnerCommand() { return spawnerCommand; }
-    public DropsManager getDropsManager() { return dropsManager; }
-    public DropsHandler getDropsHandler() { return dropsHandler; }
-    public LootBuffManager getLootBuffManager() { return lootBuffManager; }
-    public TeleportManager getTeleportManager() { return teleportManager; }
-    public TeleportBookSystem getTeleportBookSystem() { return teleportBookSystem; }
-    public HearthstoneSystem getHearthstoneSystem() { return hearthstoneSystem; }
-    public PortalSystem getPortalSystem() { return portalSystem; }
-    public TrailSystem getTrailSystem() { return trailSystem; }
-    public ParticleSystem getParticleSystem() { return particleSystem; }
-    public PathManager getPathManager() { return pathManager; }
-    public CrateManager getCrateManager() { return crateManager; }
-    public LootChestManager getLootChestManager() { return lootChestManager; }
+    // Static utility methods
+    public static void log(String message) { if (instance != null) instance.getLogger().info(message); }
+    public static void warn(String message) { if (instance != null) instance.getLogger().warning(message); }
+    public static void error(String message, Exception e) { if (instance != null) instance.getLogger().log(Level.SEVERE, message, e); }
 
-    // Utility methods
-    public static void log(String message) {
-        if (instance != null) {
-            instance.getLogger().info(message);
-        }
-    }
+    // ========================================
+    // INNER CLASSES FOR ORGANIZATION
+    // ========================================
 
-    public static void warn(String message) {
-        if (instance != null) {
-            instance.getLogger().warning(message);
-        }
-    }
-
-    public static void error(String message, Exception e) {
-        if (instance != null) {
-            instance.getLogger().log(Level.SEVERE, message, e);
-        }
-    }
-
-    public boolean isDebugMode() {
-        return getConfig().getBoolean("debug", false);
-    }
-
-    public static void debug(String message) {
-        if (instance != null && instance.isDebugMode()) {
-        }
-    }
-
-    public boolean isMobsEnabled() {
-        return mobsEnabled;
+    /**
+     * Container for core plugin systems
+     */
+    private static class CoreSystems {
+        MongoDBManager mongoDBManager;
+        YakPlayerManager playerManager;
+        PlayerMechanics playerMechanics;
+        ModerationMechanics moderationMechanics;
+        TradeManager tradeManager;
+        TradeListener tradeListener;
     }
 
     /**
-     * Get crate manager safely
+     * Container for game-related systems
      */
-    public static CrateManager getCrateManagerSafe() {
-        if (instance == null || instance.crateManager == null) {
-            throw new IllegalStateException("Crate manager not available");
-        }
-        return instance.crateManager;
+    private static class GameSystems {
+        // Combat & PVP
+        CombatMechanics combatMechanics;
+        MagicStaff magicStaff;
+        AlignmentMechanics alignmentMechanics;
+        RespawnManager respawnManager;
+        DeathRemnantManager deathRemnantManager;
+
+        // Social & Communication
+        PartyMechanics partyMechanics;
+        ChatMechanics chatMechanics;
+
+        // Player Systems
+        DashMechanics dashMechanics;
+        SpeedfishMechanics speedfishMechanics;
+        MountManager mountManager;
+
+        // Items & Inventory
+        ScrollManager scrollManager;
+        OrbManager orbManager;
+        Journal journalSystem;
+        MenuItemManager menuItemManager;
+
+        // Economy
+        EconomyManager economyManager;
+        BankManager bankManager;
+        GemPouchManager gemPouchManager;
+        VendorManager vendorManager;
+        MarketManager marketManager;
+
+        // World Systems
+        MobManager mobManager;
+        SpawnerCommand spawnerCommand;
+        DropsManager dropsManager;
+        DropsHandler dropsHandler;
+        LootBuffManager lootBuffManager;
+
+        // Teleportation
+        TeleportManager teleportManager;
+        TeleportBookSystem teleportBookSystem;
+        HearthstoneSystem hearthstoneSystem;
+        PortalSystem portalSystem;
+
+        // World Navigation
+        TrailSystem trailSystem;
+        ParticleSystem particleSystem;
+        PathManager pathManager;
+
+        // Special Systems
+        CrateManager crateManager;
+        LootChestManager lootChestManager;
+        MerchantSystem merchantSystem;
     }
 
     /**
-     * Check if crate system is available
+     * Container for item enhancement systems
      */
-    public static boolean isCrateSystemAvailable() {
-        return instance != null && instance.crateManager != null;
-    }
+    private static class EnhancementSystems {
+        AwakeningStoneSystem awakeningStoneSystem;
+        BindingRuneSystem bindingRuneSystem;
+        CorruptionSystem corruptionSystem;
+        EssenceCrystalSystem essenceCrystalSystem;
+        ForgeHammerSystem forgeHammerSystem;
 
-    /**
-     * Get menu item manager safely
-     */
-    public static MenuItemManager getMenuItemManagerSafe() {
-        if (instance == null || instance.menuItemManager == null) {
-            throw new IllegalStateException("Menu item manager not available");
-        }
-        return instance.menuItemManager;
-    }
-
-    /**
-     * Check if menu item system is available
-     */
-    public static boolean isMenuItemSystemAvailable() {
-        return instance != null && instance.menuItemManager != null && MenuSystemInitializer.isInitialized();
-    }
-
-    /**
-     *  Get trade manager safely
-     */
-    public static TradeManager getTradeManagerSafe() {
-        if (instance == null || instance.tradeManager == null) {
-            throw new IllegalStateException("Trade manager not available");
-        }
-        return instance.tradeManager;
-    }
-
-    /**
-     *  Check if trade system is available
-     */
-    public static boolean isTradeSystemAvailable() {
-        return instance != null && instance.tradeManager != null && instance.tradeListener != null;
-    }
-
-    /**
-     * Get loot chest manager safely
-     */
-    public static LootChestManager getLootChestManagerSafe() {
-        if (instance == null || instance.lootChestManager == null) {
-            throw new IllegalStateException("Loot chest manager not available");
-        }
-        return instance.lootChestManager;
-    }
-
-    /**
-     * Initialize the merchant system
-     */
-    private boolean initializeMerchantSystem() {
-        try {
-            getLogger().info("Initializing merchant system...");
-
-            merchantSystem = MerchantSystem.getInstance();
-
-            // Validate dependencies before initialization
-            if (!merchantSystem.validateDependencies()) {
-                getLogger().warning("Merchant system dependencies not satisfied - skipping initialization");
-                return false;
-            }
-
-            // Initialize the system
-            merchantSystem.initialize();
-
-            getLogger().info("Merchant system initialized successfully");
-
-            return true;
-        } catch (Exception e) {
-            getLogger().log(Level.SEVERE, "Failed to initialize merchant system", e);
-            throw new RuntimeException("Merchant system initialization failed", e);
+        boolean isAllActive() {
+            return awakeningStoneSystem != null && bindingRuneSystem != null &&
+                    corruptionSystem != null && essenceCrystalSystem != null &&
+                    forgeHammerSystem != null;
         }
     }
 
     /**
-     * Shutdown the merchant system
+     * Container for game configuration
      */
-    private boolean shutdownMerchantSystem() {
-        if (merchantSystem != null) {
-            try {
-                merchantSystem.shutdown();
-                getLogger().info("Merchant system shutdown completed");
-                return true;
-            } catch (Exception e) {
-                getLogger().log(Level.SEVERE, "Error shutting down merchant system", e);
-            }
+    private static class GameConfig {
+        boolean mobsEnabled = true;
+        boolean spawnerVisibilityDefault = false;
+        boolean t6Enabled = false;
+
+        void loadFromConfig(org.bukkit.configuration.file.FileConfiguration config) {
+            t6Enabled = ConfigUtil.getBoolean(config, "game.t6-enabled", false);
+            mobsEnabled = ConfigUtil.getBoolean(config, "mechanics.mobs.enabled", true);
+            spawnerVisibilityDefault = ConfigUtil.getBoolean(config, "mechanics.mobs.spawner-default-visibility", false);
+
+            YakRealms.t6Enabled = this.t6Enabled;
         }
-        return false;
-    }
-
-    /**
-     * Check if loot chest system is available
-     */
-    public static boolean isLootChestSystemAvailable() {
-        return instance != null && instance.lootChestManager != null;
-    }
-
-    /**
-     * Safe getters for item enhancement systems
-     */
-    public static AwakeningStoneSystem getAwakeningStoneSystemSafe() {
-        if (instance == null || instance.awakeningStoneSystem == null) {
-            throw new IllegalStateException("Awakening Stone System not available");
-        }
-        return instance.awakeningStoneSystem;
-    }
-
-    public static BindingRuneSystem getBindingRuneSystemSafe() {
-        if (instance == null || instance.bindingRuneSystem == null) {
-            throw new IllegalStateException("Binding Rune System not available");
-        }
-        return instance.bindingRuneSystem;
-    }
-
-    public static CorruptionSystem getCorruptionSystemSafe() {
-        if (instance == null || instance.corruptionSystem == null) {
-            throw new IllegalStateException("Corruption System not available");
-        }
-        return instance.corruptionSystem;
-    }
-
-    public static EssenceCrystalSystem getEssenceCrystalSystemSafe() {
-        if (instance == null || instance.essenceCrystalSystem == null) {
-            throw new IllegalStateException("Essence Crystal System not available");
-        }
-        return instance.essenceCrystalSystem;
-    }
-
-    public static ForgeHammerSystem getForgeHammerSystemSafe() {
-        if (instance == null || instance.forgeHammerSystem == null) {
-            throw new IllegalStateException("Forge Hammer System not available");
-        }
-        return instance.forgeHammerSystem;
-    }
-
-    /**
-     * Check if item enhancement systems are available
-     */
-    public static boolean isAwakeningStoneSystemAvailable() {
-        return instance != null && instance.awakeningStoneSystem != null;
-    }
-
-    public static boolean isBindingRuneSystemAvailable() {
-        return instance != null && instance.bindingRuneSystem != null;
-    }
-
-    public static boolean isCorruptionSystemAvailable() {
-        return instance != null && instance.corruptionSystem != null;
-    }
-
-    public static boolean isEssenceCrystalSystemAvailable() {
-        return instance != null && instance.essenceCrystalSystem != null;
-    }
-
-    public static boolean isForgeHammerSystemAvailable() {
-        return instance != null && instance.forgeHammerSystem != null;
     }
 }

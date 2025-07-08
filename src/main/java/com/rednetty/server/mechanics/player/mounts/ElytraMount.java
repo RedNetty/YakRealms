@@ -28,7 +28,7 @@ public class ElytraMount implements Mount {
     private final Map<UUID, Long> launchTimes = new HashMap<>();
 
     // Configuration constants - Updated with better thresholds
-    private static final long DAMAGE_COOLDOWN_MS = 120000; // 2 minutes
+    private static final long DAMAGE_COOLDOWN_MS = 60000; // 1 minute
     private static final int LANDING_CHECK_INTERVAL = 5; // ticks
     private static final double LANDING_VELOCITY_THRESHOLD = 0.3; // Increased from 0.1
     private static final double LANDING_SPEED_THRESHOLD = 0.5; // Increased from 0.2
@@ -486,7 +486,7 @@ public class ElytraMount implements Mount {
         UUID playerUUID = player.getUniqueId();
 
         // Launch the player upward
-        player.setVelocity(new Vector(0, 3.5, 0));
+        player.setVelocity(new Vector(0, 3, 0));
 
         // Record launch time for grace period
         launchTimes.put(playerUUID, System.currentTimeMillis());
