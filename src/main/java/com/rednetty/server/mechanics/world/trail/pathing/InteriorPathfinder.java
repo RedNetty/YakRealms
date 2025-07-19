@@ -10,7 +10,7 @@ import org.bukkit.plugin.Plugin;
 import java.util.*;
 
 /**
- * Enhanced interior pathfinder that properly handles building navigation.
+ *  interior pathfinder that properly handles building navigation.
  * This version improves on the original by relaxing some conditions, adding
  * an iteration limit, and refining the move-generation and heuristic.
  */
@@ -60,7 +60,7 @@ public class InteriorPathfinder {
 
     private static final Set<Material> NON_COLLIDABLE = EnumSet.of(
             Material.AIR, Material.CAVE_AIR, Material.VOID_AIR,
-            Material.LIGHT, Material.WATER, Material.GRASS
+            Material.LIGHT, Material.WATER, Material.GRASS_BLOCK
     );
 
     public InteriorPathfinder(Plugin plugin, boolean debug) {

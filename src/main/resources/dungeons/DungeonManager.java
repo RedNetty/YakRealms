@@ -23,7 +23,7 @@ import java.util.logging.Logger;
 import java.util.stream.Collectors;
 
 /**
- * ENHANCED: Complete Dungeon System Manager
+ * : Complete Dungeon System Manager
  *
  * Core controller for the entire dungeon system, managing templates, instances,
  * and integration with existing party and mob systems.

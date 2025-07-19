@@ -20,7 +20,7 @@ import java.util.logging.Logger;
 import java.util.stream.Collectors;
 
 /**
- * ENHANCED: Complete Dungeon Reward Distribution System
+ * : Complete Dungeon Reward Distribution System
  *
  * Manages all aspects of reward distribution for dungeon completion,
  * including mob spawning rewards, item drops, experience, and currency.
@@ -659,7 +659,7 @@ public class DungeonRewards {
      * Give group bonus reward
      */
     private void giveGroupBonusReward(Player player, PlayerRewardData data) {
-        // Simple bonus - could be enhanced
+        // Simple bonus - could be 
         int bonusExp = 50 + ThreadLocalRandom.current().nextInt(100);
         player.giveExp(bonusExp);
         data.addExperience(bonusExp);

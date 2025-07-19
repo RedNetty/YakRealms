@@ -30,7 +30,7 @@ import java.util.logging.Logger;
 import java.util.stream.Collectors;
 
 /**
- * Enhanced market manager with comprehensive functionality and performance optimization
+ *  market manager with comprehensive functionality and performance optimization
  */
 public class MarketManager implements Listener {
     private static MarketManager instance;

@@ -21,7 +21,7 @@ import java.util.logging.Logger;
 import java.util.stream.Collectors;
 
 /**
- * ENHANCED: Complete Dungeon Boss System
+ * : Complete Dungeon Boss System
  *
  * Advanced boss encounter system featuring multi-phase combat, special abilities,
  * dynamic mechanics, and complex AI behaviors. Provides a framework for creating

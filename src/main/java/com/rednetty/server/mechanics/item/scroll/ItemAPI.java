@@ -1,10 +1,13 @@
 package com.rednetty.server.mechanics.item.scroll;
 
+import com.rednetty.server.YakRealms;
 import com.rednetty.server.utils.nbt.NBTAccessor;
 import org.bukkit.ChatColor;
 import org.bukkit.Material;
+import org.bukkit.NamespacedKey;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
+import org.bukkit.persistence.PersistentDataType;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -23,11 +26,22 @@ public class ItemAPI {
     private static final String WEAPON_ENHANCEMENT_KEY = "weaponEnhancement";
     private static final String PROTECTED_KEY = "protected";
 
+    // Namespaced keys for persistent data
+    private static NamespacedKey keyRarity;
+    private static NamespacedKey keyTier;
+    private static NamespacedKey keyItemType;
+
     /**
      * Initialize the ItemAPI
      */
     public static void initialize() {
         scrollGenerator = new ScrollGenerator();
+
+        // Initialize namespaced keys
+        YakRealms plugin = YakRealms.getInstance();
+        keyRarity = new NamespacedKey(plugin, "item_rarity");
+        keyTier = new NamespacedKey(plugin, "item_tier");
+        keyItemType = new NamespacedKey(plugin, "item_type");
     }
 
     /**
@@ -260,6 +274,7 @@ public class ItemAPI {
 
     /**
      * Check if an item is armor
+     * Updated to handle custom items from DropsManager
      *
      * @param item The item to check
      * @return true if the item is armor
@@ -267,6 +282,14 @@ public class ItemAPI {
     public static boolean isArmorItem(ItemStack item) {
         if (item == null) return false;
 
+        // First check if it's a custom armor item (from DropsManager)
+        if (item.hasItemMeta() && item.getItemMeta().getPersistentDataContainer().has(keyItemType, PersistentDataType.INTEGER)) {
+            int itemType = item.getItemMeta().getPersistentDataContainer().get(keyItemType, PersistentDataType.INTEGER);
+            // Item types 5-8 are armor (helmet, chestplate, leggings, boots)
+            return itemType >= 5 && itemType <= 8;
+        }
+
+        // Fallback to material-based detection
         String type = item.getType().name();
         return type.endsWith("_HELMET") ||
                 type.endsWith("_CHESTPLATE") ||
@@ -276,6 +299,7 @@ public class ItemAPI {
 
     /**
      * Check if an item is a weapon
+     * Updated to handle custom items from DropsManager
      *
      * @param item The item to check
      * @return true if the item is a weapon
@@ -283,8 +307,15 @@ public class ItemAPI {
     public static boolean isWeaponItem(ItemStack item) {
         if (item == null) return false;
 
+        // First check if it's a custom weapon item (from DropsManager)
+        if (item.hasItemMeta() && item.getItemMeta().getPersistentDataContainer().has(keyItemType, PersistentDataType.INTEGER)) {
+            int itemType = item.getItemMeta().getPersistentDataContainer().get(keyItemType, PersistentDataType.INTEGER);
+            // Item types 1-4 are weapons (staff, spear, sword, axe)
+            return itemType >= 1 && itemType <= 4;
+        }
+
+        // Fallback to material-based detection
         String type = item.getType().name();
-        // Support both old and new naming conventions
         return type.endsWith("_SWORD") ||
                 type.endsWith("_AXE") ||
                 type.endsWith("_HOE") ||
@@ -294,7 +325,7 @@ public class ItemAPI {
 
     /**
      * Gets the correct tier of an item for scroll processing
-     * Updated for Tier 6 Netherite integration
+     * Updated for Tier 6 Netherite integration and custom items
      *
      * @param item The item to check
      * @return The correct tier (1-6) or 0 if not a valid tier item
@@ -304,30 +335,40 @@ public class ItemAPI {
             return 0;
         }
 
-        // First attempt to identify tier by name color
+        // First check if it's a custom item with tier data
+        if (item.getItemMeta().getPersistentDataContainer().has(keyTier, PersistentDataType.INTEGER)) {
+            return item.getItemMeta().getPersistentDataContainer().get(keyTier, PersistentDataType.INTEGER);
+        }
+
+        // Check by display name color and content
         if (item.getItemMeta().hasDisplayName()) {
             String displayName = item.getItemMeta().getDisplayName();
+            String strippedName = ChatColor.stripColor(displayName).toLowerCase();
 
-            // Tier 6 - Netherite (Dark Purple)
+            // Tier 6 - Netherite (Gold color) - Check for netherite or special names
             if (displayName.contains(ChatColor.GOLD.toString()) ||
-                    displayName.toLowerCase().contains("netherite")) {
+                    strippedName.contains("netherite") ||
+                    strippedName.contains("nether forged") ||
+                    strippedName.contains("world ender") ||
+                    strippedName.contains("apocalypse")) {
                 return 6;
             }
 
             // Tier 5 - Legendary (Yellow)
             if (displayName.contains(ChatColor.YELLOW.toString()) ||
-                    displayName.toLowerCase().contains("legendary")) {
+                    strippedName.contains("legendary")) {
                 return 5;
             }
 
             // Tier 4 - Ancient (Light Purple)
             if (displayName.contains(ChatColor.LIGHT_PURPLE.toString()) ||
-                    displayName.toLowerCase().contains("ancient")) {
+                    strippedName.contains("ancient")) {
                 return 4;
             }
 
             // Tier 3 - Magic (Aqua)
-            if (displayName.contains(ChatColor.AQUA.toString())) {
+            if (displayName.contains(ChatColor.AQUA.toString()) ||
+                    strippedName.contains("magic")) {
                 return 3;
             }
 
@@ -428,69 +469,112 @@ public class ItemAPI {
 
     /**
      * Checks if an armor item is valid for the given scroll
+     * Updated to handle both material-based and tier-based validation
      */
     public static boolean isValidArmorForScroll(ItemStack armor, ItemStack scroll) {
         if (armor == null || !armor.hasItemMeta() || scroll == null || !scroll.hasItemMeta()) {
             return false;
         }
 
-        String armorType = armor.getType().name();
-        String scrollName = scroll.getItemMeta().getDisplayName();
-
         // Check if it's armor
         if (!isArmorItem(armor)) {
             return false;
         }
 
-        // Match by material and scroll type
+        int armorTier = getItemTier(armor);
+        int scrollTier = getScrollTier(scroll);
+
+        // First try tier-based matching
+        if (armorTier > 0 && scrollTier > 0) {
+            return armorTier == scrollTier;
+        }
+
+        // Fallback to legacy material-based matching
+        String armorType = armor.getType().name();
+        String scrollName = scroll.getItemMeta().getDisplayName();
+
         boolean isLeather = armorType.startsWith("LEATHER_");
         boolean isChainmail = armorType.startsWith("CHAINMAIL_");
         boolean isIron = armorType.startsWith("IRON_");
         boolean isDiamond = armorType.startsWith("DIAMOND_");
         boolean isGolden = armorType.startsWith("GOLDEN_") || armorType.startsWith("GOLD_");
-        boolean isNetherite = armorType.startsWith("NETHERITE_"); // Updated for Tier 6
+        boolean isNetherite = armorType.startsWith("NETHERITE_");
 
         if (isLeather && scrollName.contains("Leather")) return true;
         if (isChainmail && scrollName.contains("Chainmail")) return true;
         if (isIron && scrollName.contains("Iron")) return true;
         if (isDiamond && scrollName.contains("Diamond")) return true;
         if (isGolden && scrollName.contains("Gold")) return true;
-        if (isNetherite && scrollName.contains("Netherite")) return true; // Updated for Tier 6
-
-        return false;
+        return isNetherite && (scrollName.contains("Netherite") || scrollName.contains("Nether Forged"));
     }
 
     /**
      * Checks if a weapon item is valid for the given scroll
+     * Updated to handle both material-based and tier-based validation, plus T6 naming
      */
     public static boolean isValidWeaponForScroll(ItemStack weapon, ItemStack scroll) {
         if (weapon == null || !weapon.hasItemMeta() || scroll == null || !scroll.hasItemMeta()) {
             return false;
         }
 
-        String weaponType = weapon.getType().name();
-        String scrollName = scroll.getItemMeta().getDisplayName();
-
         // Check if it's a weapon
         if (!isWeaponItem(weapon)) {
             return false;
         }
 
-        // Match by material and scroll type
+        int weaponTier = getItemTier(weapon);
+        int scrollTier = getScrollTier(scroll);
+
+        // First try tier-based matching - this handles custom items properly
+        if (weaponTier > 0 && scrollTier > 0) {
+            return weaponTier == scrollTier;
+        }
+
+        // Fallback to legacy material-based matching
+        String weaponType = weapon.getType().name();
+        String scrollName = scroll.getItemMeta().getDisplayName();
+
         boolean isWooden = weaponType.startsWith("WOODEN_") || weaponType.startsWith("WOOD_");
         boolean isStone = weaponType.startsWith("STONE_");
         boolean isIron = weaponType.startsWith("IRON_");
         boolean isDiamond = weaponType.startsWith("DIAMOND_");
         boolean isGolden = weaponType.startsWith("GOLDEN_") || weaponType.startsWith("GOLD_");
-        boolean isNetherite = weaponType.startsWith("NETHERITE_"); // Updated for Tier 6
+        boolean isNetherite = weaponType.startsWith("NETHERITE_");
 
         if (isWooden && scrollName.contains("Wooden")) return true;
         if (isStone && scrollName.contains("Stone")) return true;
         if (isIron && scrollName.contains("Iron")) return true;
         if (isDiamond && scrollName.contains("Diamond")) return true;
         if (isGolden && scrollName.contains("Gold")) return true;
-        if (isNetherite && scrollName.contains("Netherite")) return true; // Updated for Tier 6
+        return isNetherite && (scrollName.contains("Netherite") || scrollName.contains("Nether Forged"));
+    }
 
-        return false;
+    /**
+     * Gets the tier of a scroll from its NBT data or name
+     *
+     * @param scroll The scroll to check
+     * @return The tier of the scroll, or 0 if not found
+     */
+    private static int getScrollTier(ItemStack scroll) {
+        if (scroll == null || !scroll.hasItemMeta()) {
+            return 0;
+        }
+
+        // Check NBT data first
+        NBTAccessor nbt = new NBTAccessor(scroll);
+        if (nbt.hasKey("tier")) {
+            return nbt.getInt("tier");
+        }
+
+        // Fallback to name-based detection
+        String scrollName = scroll.getItemMeta().getDisplayName();
+        if (scrollName.contains("Nether Forged") || scrollName.contains("Netherite")) return 6;
+        if (scrollName.contains("Gold")) return 5;
+        if (scrollName.contains("Diamond")) return 4;
+        if (scrollName.contains("Iron")) return 3;
+        if (scrollName.contains("Stone") || scrollName.contains("Chainmail")) return 2;
+        if (scrollName.contains("Wooden") || scrollName.contains("Leather")) return 1;
+
+        return 0;
     }
 }

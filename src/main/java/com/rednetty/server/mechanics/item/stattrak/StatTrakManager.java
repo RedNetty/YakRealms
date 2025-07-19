@@ -20,7 +20,7 @@ import java.util.logging.Logger;
 
 */
 /**
- * Enhanced StatTrak System Manager
+ *  StatTrak System Manager
  * Tracks statistics on weapons and tools with improved functionality
  *//*
 
@@ -86,7 +86,7 @@ public class StatTrakManager {
             // Start cleanup task
             startCleanupTask();
 
-            logger.info("[StatTrakManager] Enhanced StatTrak system initialized successfully");
+            logger.info("[StatTrakManager]  StatTrak system initialized successfully");
         } catch (Exception e) {
             logger.severe("[StatTrakManager] Failed to initialize: " + e.getMessage());
             e.printStackTrace();

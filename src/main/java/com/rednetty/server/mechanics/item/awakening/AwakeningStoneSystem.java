@@ -718,7 +718,7 @@ public class AwakeningStoneSystem implements Listener {
     }
 
     private boolean isPlayerInCombat(Player player) {
-        // Simple combat check - could be enhanced with actual combat tracking
+        // Simple combat check - could be  with actual combat tracking
         return player.getLastDamageCause() != null &&
                 (System.currentTimeMillis() - player.getLastDamage()) < 10000; // 10 seconds
     }

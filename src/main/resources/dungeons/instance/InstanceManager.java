@@ -17,7 +17,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Logger;
 
 /**
- * ENHANCED: Complete Instance World Management System
+ * : Complete Instance World Management System
  *
  * Manages the creation, maintenance, and cleanup of instanced worlds for dungeons.
  * Handles world copying, loading, unloading, and resource management.

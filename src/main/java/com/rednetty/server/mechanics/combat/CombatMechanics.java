@@ -3,15 +3,16 @@ package com.rednetty.server.mechanics.combat;
 import com.rednetty.server.YakRealms;
 import com.rednetty.server.mechanics.combat.holograms.CombatHologramHandler;
 import com.rednetty.server.mechanics.combat.pvp.AlignmentMechanics;
+import com.rednetty.server.mechanics.player.YakPlayer;
+import com.rednetty.server.mechanics.player.YakPlayerManager;
+import com.rednetty.server.mechanics.player.settings.Toggles;
+import com.rednetty.server.mechanics.player.social.party.PartyMechanics;
+import com.rednetty.server.mechanics.player.stamina.Energy;
 import com.rednetty.server.mechanics.world.mobs.CritManager;
 import com.rednetty.server.mechanics.world.mobs.MobManager;
 import com.rednetty.server.mechanics.world.mobs.core.CustomMob;
 import com.rednetty.server.mechanics.world.mobs.utils.MobUtils;
-import com.rednetty.server.mechanics.player.social.party.PartyMechanics;
-import com.rednetty.server.mechanics.player.YakPlayer;
-import com.rednetty.server.mechanics.player.YakPlayerManager;
-import com.rednetty.server.mechanics.player.settings.Toggles;
-import com.rednetty.server.mechanics.player.stamina.Energy;
+import com.rednetty.server.utils.sounds.SoundUtil;
 import org.bukkit.*;
 import org.bukkit.block.Block;
 import org.bukkit.boss.BarColor;
@@ -42,14 +43,15 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
 
 /**
- * UPDATED: Enhanced combat mechanics with improved hologram system
- * - Damage calculation and application with authentic legacy calculations
- * - Armor, block, and dodge mechanics
+ * UPDATED:  combat mechanics with improved hologram system and balanced stat calculations
+ * - Damage calculation and application with balanced legacy calculations
+ * - Armor, block, and dodge mechanics with proper scaling
  * - Critical hits and combat effects
  * - Advanced animated hologram system with arcing trajectories
- * - Enhanced PVP protection system
- * -  Proper mob-to-player damage calculations
- * -  Elite mob explosion damage bypass system
+ * -  PVP protection system
+ * - Proper mob-to-player damage calculations
+ * - Elite mob explosion damage bypass system
+ * - BALANCED stat calculations to prevent overpowered builds
  */
 public class CombatMechanics implements Listener {
     // Constants
@@ -88,12 +90,42 @@ public class CombatMechanics implements Listener {
         this.hologramHandler = CombatHologramHandler.getInstance();
     }
 
-    public void onEnable() {
-        Bukkit.getPluginManager().registerEvents(this, YakRealms.getInstance());
-        hologramHandler.onEnable();
-        startMovementSpeedRestoreTask();
-        startEntityDamageEffectCleanupTask();
-        YakRealms.log("Combat Mechanics have been enabled with advanced hologram system");
+    public static int getCrit(Player player) {
+        int crit = 0;
+        ItemStack weapon = player.getInventory().getItemInMainHand();
+
+        // Check for staff weapon using existing system
+        if (MagicStaff.isRecentStaffShot(player)) {
+            weapon = MagicStaff.getLastUsedStaff(player);
+        }
+
+        if (weapon != null && weapon.getType() != Material.AIR && weapon.hasItemMeta()) {
+            ItemMeta weaponMeta = weapon.getItemMeta();
+            if (weaponMeta.hasLore()) {
+                List<String> lore = weaponMeta.getLore();
+                for (String line : lore) {
+                    if (line.contains("CRITICAL HIT")) {
+                        crit = getPercent(weapon, "CRITICAL HIT");
+                    }
+                }
+                if (weapon.getType().name().contains("_AXE")) {
+                    crit += 10;
+                }
+                int intel = 0;
+                ItemStack[] armorContents = player.getInventory().getArmorContents();
+                for (ItemStack armor : armorContents) {
+                    if (armor != null && armor.getType() != Material.AIR && armor.hasItemMeta()) {
+                        int addInt = getElem(armor, "INT");
+                        intel += addInt;
+                    }
+                }
+                // CORRECTED: Matched intelligence critical hit bonus to Journal.java (+1.5% per 100 INT)
+                if (intel > 0) {
+                    crit += Math.round(intel * 0.015);
+                }
+            }
+        }
+        return crit;
     }
 
     public void onDisable() {
@@ -101,7 +133,7 @@ public class CombatMechanics implements Listener {
         YakRealms.log("Combat Mechanics have been disabled");
     }
 
-    // ============= ENHANCED PVP PROTECTION SYSTEM =============
+    // =============  PVP PROTECTION SYSTEM =============
 
     /**
      * Comprehensive PVP protection check that handles friends, party members, and settings
@@ -130,12 +162,6 @@ public class CombatMechanics implements Listener {
         if (attackerData.isToggled("Anti PVP")) {
             return new PVPResult(false, "You have PVP disabled! Use /toggle to enable it.",
                     PVPResult.ResultType.ATTACKER_PVP_DISABLED);
-        }
-
-        // Check if victim has Anti PVP enabled
-        if (victimData.isToggled("Anti PVP")) {
-            return new PVPResult(false, victim.getName() + " has PVP disabled!",
-                    PVPResult.ResultType.VICTIM_PVP_DISABLED);
         }
 
         // Check buddy protection (requires friendly fire to be enabled by ATTACKER)
@@ -231,10 +257,10 @@ public class CombatMechanics implements Listener {
     }
 
     /**
-     * Enhanced PVP damage handler with comprehensive protection
+     *  PVP damage handler with comprehensive protection
      */
     @EventHandler(priority = EventPriority.LOWEST)
-    public void onEnhancedPvpProtection(EntityDamageByEntityEvent event) {
+    public void onPvpProtection(EntityDamageByEntityEvent event) {
         // Only handle player vs player damage
         if (!(event.getEntity() instanceof Player) || !(event.getDamager() instanceof Player)) {
             return;
@@ -382,7 +408,7 @@ public class CombatMechanics implements Listener {
         return checkPVPProtection(attacker, victim);
     }
 
-    // ============= AUTHENTIC LEGACY STAT CALCULATION METHODS =============
+    // ============= BALANCED LEGACY STAT CALCULATION METHODS =============
 
     public static int getHp(ItemStack is) {
         List<String> lore;
@@ -506,44 +532,15 @@ public class CombatMechanics implements Listener {
         return damageRange;
     }
 
-    public static int getCrit(Player player) {
-        int crit = 0;
-        ItemStack weapon = player.getInventory().getItemInMainHand();
-
-        // Check for staff weapon using existing system
-        if (MagicStaff.isRecentStaffShot(player)) {
-            weapon = MagicStaff.getLastUsedStaff(player);
-        }
-
-        if (weapon != null && weapon.getType() != Material.AIR && weapon.hasItemMeta()) {
-            ItemMeta weaponMeta = weapon.getItemMeta();
-            if (weaponMeta.hasLore()) {
-                List<String> lore = weaponMeta.getLore();
-                for (String line : lore) {
-                    if (line.contains("CRITICAL HIT")) {
-                        crit = getPercent(weapon, "CRITICAL HIT");
-                    }
-                }
-                if (weapon.getType().name().contains("_AXE")) {
-                    crit += 10;
-                }
-                int intel = 0;
-                ItemStack[] armorContents = player.getInventory().getArmorContents();
-                for (ItemStack armor : armorContents) {
-                    if (armor != null && armor.getType() != Material.AIR && armor.hasItemMeta()) {
-                        int addInt = getElem(armor, "INT");
-                        intel += addInt;
-                    }
-                }
-                if (intel > 0) {
-                    crit += Math.round(intel * 0.015);
-                }
-            }
-        }
-        return crit;
+    public void onEnable() {
+        Bukkit.getPluginManager().registerEvents(this, YakRealms.getInstance());
+        hologramHandler.onEnable();
+        startMovementSpeedRestoreTask();
+        startEntityDamageEffectCleanupTask();
+        YakRealms.log("Combat Mechanics have been enabled with balanced stat calculations");
     }
 
-    // ============= AUTHENTIC LEGACY COMBAT CALCULATIONS =============
+    // ============= BALANCED LEGACY COMBAT CALCULATIONS =============
 
     private double calculateWeaponTypeBonus(double baseDamage, double statValue, double divisor) {
         return baseDamage * (1 + (statValue / divisor));
@@ -553,27 +550,38 @@ public class CombatMechanics implements Listener {
         return Math.max(1, (int) (damageDealt * (lifeStealPercentage / 125.0)));
     }
 
-    private double[] calculateStats(Player p) {
-        double dps = 0.0;
-        double vit = 0.0;
-        double str = 0.0;
+    /**
+     * Calculates all primary and secondary stats for a player based on their gear.
+     * Formulas are aligned with Journal.java for consistency.
+     *
+     * @param p The player.
+     * @return A double array containing: [dps, vit, str, intel, dex]
+     */
+    private double[] calculateAllStats(Player p) {
+        double dps = 0.0, vit = 0.0, str = 0.0, intel = 0.0, dex = 0.0;
 
         for (ItemStack is : p.getInventory().getArmorContents()) {
             if (is != null && is.getType() != Material.AIR && is.hasItemMeta() && is.getItemMeta().hasLore()) {
                 dps += getDps(is);
                 vit += getElem(is, "VIT");
                 str += getElem(is, "STR");
-                dps += getElem(is, "DEX") * 0.012; // DEX contribution to DPS
+                intel += getElem(is, "INT");
+                dex += getElem(is, "DEX");
             }
         }
 
-        return new double[]{dps, vit, str};
+        // CORRECTED: Matched DEX contribution to DPS as per Journal.java (+1.2% DPS per 100 DEX)
+        // Journal formula: dpsBonus = (int) Math.round(dexterity * 0.012);
+        dps += dex * 0.012;
+
+        return new double[]{dps, vit, str, intel, dex};
     }
+
 
     // =============  MOB-TO-PLAYER DAMAGE CALCULATION SYSTEM =============
 
     /**
-     *  Calculate proper mob damage based on mob's weapon and stats
+     * Calculate proper mob damage based on mob's weapon and stats
      */
     private double calculateMobDamage(LivingEntity mobAttacker, Player victim) {
         try {
@@ -814,7 +822,7 @@ public class CombatMechanics implements Listener {
         return Bukkit.getPlayer(attackerId);
     }
 
-    // ============= BLOCK AND DODGE CALCULATIONS =============
+    // ============= BALANCED BLOCK AND DODGE CALCULATIONS =============
 
     private int calculateBlockChance(Player player) {
         int blockChance = 0;
@@ -827,6 +835,7 @@ public class CombatMechanics implements Listener {
             }
         }
 
+        // CORRECTED: Matched strength block bonus to Journal.java (+1.5% per 100 STR)
         blockChance += Math.round(strength * 0.015f);
         return Math.min(blockChance, MAX_BLOCK_CHANCE);
     }
@@ -842,6 +851,7 @@ public class CombatMechanics implements Listener {
             }
         }
 
+        // CORRECTED: Matched dexterity dodge bonus to Journal.java (+1.5% per 100 DEX)
         dodgeChance += Math.round(dexterity * 0.015f);
         return Math.min(dodgeChance, MAX_DODGE_CHANCE);
     }
@@ -879,6 +889,7 @@ public class CombatMechanics implements Listener {
             }
         }
 
+        // CORRECTED: Matched intelligence critical hit bonus to Journal.java (+1.5% per 100 INT)
         if (intelligence > 0) {
             critChance += Math.round(intelligence * 0.015f);
         }
@@ -892,40 +903,75 @@ public class CombatMechanics implements Listener {
         return value / (1.0 + Math.pow(value / scale, power));
     }
 
+    /**
+     *  Calculate armor reduction with proper scaling and reasonable caps
+     * - Prevents over-reduction that was causing 2000+ damage to become 1 damage
+     * - Uses balanced diminishing returns formula
+     * - Caps maximum armor reduction at 75% to ensure damage always gets through
+     * - Properly handles armor penetration
+     */
     private double calculateArmorReduction(Player defender, LivingEntity attacker) {
         double armorRating = 0.0;
+        int strength = 0;
 
+        // Calculate total armor from equipment
         for (ItemStack armor : defender.getInventory().getArmorContents()) {
             if (armor != null && armor.getType() != Material.AIR && armor.hasItemMeta() && armor.getItemMeta().hasLore()) {
                 armorRating += getArmor(armor);
-                int strength = getElem(armor, "STR");
-                armorRating += strength * 0.001; // 0.1% armor per strength point
+                strength += getElem(armor, "STR");
             }
         }
 
-        // Apply diminishing returns using legacy formula (scale=400, n=1.8)
-        double effectiveArmor = armorRating / (1.0 + Math.pow(armorRating / 400, 1.8));
+        // Add strength bonus (+0.1 flat armor per STR)
+        armorRating += strength * 0.1;
+
+        //  Apply balanced diminishing returns with reasonable scaling
+        // Formula: armor / (armor + 200) gives smooth curve that caps naturally
+        // At 200 armor = 50% reduction, at 400 armor = 66.7% reduction, at 800 armor = 80% reduction
+        double effectiveArmorPercentage = (armorRating / (armorRating + 200.0)) * 100.0;
 
         // Calculate armor penetration (if attacker is player)
         double armorPenetration = 0.0;
         if (attacker instanceof Player) {
             Player playerAttacker = (Player) attacker;
             ItemStack weapon = playerAttacker.getInventory().getItemInMainHand();
-            armorPenetration = getElem(weapon, "ARMOR PEN") / 100.0;
 
+            // Get armor pen from weapon
+            if (weapon != null && weapon.hasItemMeta() && weapon.getItemMeta().hasLore()) {
+                armorPenetration = getElem(weapon, "ARMOR PEN") / 100.0;
+            }
+
+            // Add dexterity armor penetration bonus (+0.35% per 100 DEX)
             int totalDex = 0;
             for (ItemStack armor : playerAttacker.getInventory().getArmorContents()) {
                 if (armor != null && armor.getType() != Material.AIR && armor.hasItemMeta() && armor.getItemMeta().hasLore()) {
                     totalDex += getElem(armor, "DEX");
                 }
             }
-            armorPenetration += totalDex * 0.00035; // 0.035% per dexterity point
+            armorPenetration += totalDex * 0.0035; // 0.35% per 100 DEX
         }
 
-        armorPenetration = Math.max(0, Math.min(1, armorPenetration));
+        // Cap armor penetration between 0% and 90%
+        armorPenetration = Math.max(0, Math.min(0.9, armorPenetration));
 
-        double remainingArmor = effectiveArmor * (1 - armorPenetration);
-        return remainingArmor / 100.0; // Convert to percentage
+        // Apply armor penetration
+        double remainingArmorPercentage = effectiveArmorPercentage * (1 - armorPenetration);
+
+        //  Cap maximum armor reduction at 75% to ensure significant damage always gets through
+        remainingArmorPercentage = Math.min(remainingArmorPercentage, 75.0);
+
+        // Convert to decimal for damage calculation (75% = 0.75)
+        double finalArmorReduction = remainingArmorPercentage / 100.0;
+
+        // Debug output for troubleshooting
+        if (Toggles.isToggled(defender, "Debug") && attacker instanceof Player) {
+            defender.sendMessage(ChatColor.GRAY + "DEBUG ARMOR: Raw=" + (int) armorRating +
+                    " | Effective=" + String.format("%.1f", effectiveArmorPercentage) + "%" +
+                    " | Pen=" + String.format("%.1f", armorPenetration * 100) + "%" +
+                    " | Final=" + String.format("%.1f", finalArmorReduction * 100) + "%");
+        }
+
+        return finalArmorReduction;
     }
 
     // ============= ELEMENTAL DAMAGE CALCULATION =============
@@ -933,20 +979,23 @@ public class CombatMechanics implements Listener {
     private int calculateElementalDamage(Player attacker, LivingEntity target, ItemStack weapon) {
         int elementalDamage = 0;
         List<String> lore = weapon.getItemMeta().getLore();
-        int dexterity = 0;
+        int intellect = 0;
 
         for (ItemStack armor : attacker.getInventory().getArmorContents()) {
             if (armor != null && armor.getType() != Material.AIR && armor.hasItemMeta() && armor.getItemMeta().hasLore()) {
-                dexterity += getElem(armor, "DEX");
+                // CORRECTED: Elemental damage now scales with Intellect, not Dexterity, as per Journal.java
+                intellect += getElem(armor, "INT");
             }
         }
 
+        // CORRECTED: Elemental damage bonus formula matched to Journal.java (+3.33% per 100 INT)
+        double elementalBonus = 1.0 + (intellect / 3000.0);
         int tier = getWeaponTier(weapon);
 
         for (String line : lore) {
             if (line.contains("ICE DMG")) {
                 int iceDamage = getElem(weapon, "ICE DMG");
-                int iceDamageBonus = Math.round(iceDamage * (1 + Math.round(dexterity / 3000f)));
+                int iceDamageBonus = (int) Math.round(iceDamage * elementalBonus);
                 elementalDamage += iceDamageBonus;
 
                 target.getWorld().playEffect(target.getLocation().add(0, 1.3, 0), Effect.POTION_BREAK, ICE_EFFECT_ID);
@@ -960,7 +1009,7 @@ public class CombatMechanics implements Listener {
 
             if (line.contains("POISON DMG")) {
                 int poisonDamage = getElem(weapon, "POISON DMG");
-                int poisonDamageBonus = Math.round(poisonDamage * (1 + Math.round(dexterity / 3000f)));
+                int poisonDamageBonus = (int) Math.round(poisonDamage * elementalBonus);
                 elementalDamage += poisonDamageBonus;
 
                 target.getWorld().playEffect(target.getLocation().add(0, 1.3, 0), Effect.POTION_BREAK, POISON_EFFECT_ID);
@@ -975,10 +1024,9 @@ public class CombatMechanics implements Listener {
 
             if (line.contains("FIRE DMG")) {
                 int fireDamage = getElem(weapon, "FIRE DMG");
-                int fireDamageBonus = Math.round(fireDamage * (1 + Math.round(dexterity / 3000f)));
+                int fireDamageBonus = (int) Math.round(fireDamage * elementalBonus);
                 elementalDamage += fireDamageBonus;
 
-                target.getWorld().playEffect(target.getLocation().add(0, 1.3, 0), Effect.POTION_BREAK, FIRE_EFFECT_ID);
                 target.getWorld().spawnParticle(Particle.FLAME, target.getLocation().add(0, 1, 0), 10, 0.3, 0.5, 0.3, 0.05);
 
                 int fireDuration = 15 + (tier * 5);
@@ -990,7 +1038,7 @@ public class CombatMechanics implements Listener {
 
             if (line.contains("PURE DMG")) {
                 int pureDamage = getElem(weapon, "PURE DMG");
-                int pureDamageBonus = Math.round(pureDamage * (1 + Math.round(dexterity / 3000f)));
+                int pureDamageBonus = (int) Math.round(pureDamage * elementalBonus);
                 elementalDamage += pureDamageBonus;
 
                 // Show elemental damage hologram
@@ -1049,11 +1097,12 @@ public class CombatMechanics implements Listener {
         return Toggles.isToggled(player, "God Mode Disabled");
     }
 
+
     private boolean isSafeZone(Location location) {
         return AlignmentMechanics.isSafeZone(location);
     }
 
-    private String getEnhancedMobName(LivingEntity mobAttacker) {
+    private String getMobName(LivingEntity mobAttacker) {
         try {
             MobManager mobManager = MobManager.getInstance();
             if (mobManager != null) {
@@ -1088,7 +1137,7 @@ public class CombatMechanics implements Listener {
                 }
             }
         } catch (Exception e) {
-            YakRealms.getInstance().getLogger().warning("Error getting enhanced mob name: " + e.getMessage());
+            YakRealms.getInstance().getLogger().warning("Error getting  mob name: " + e.getMessage());
         }
 
         return "Unknown Mob";
@@ -1174,7 +1223,7 @@ public class CombatMechanics implements Listener {
     // =============  MOB-TO-PLAYER DAMAGE HANDLING =============
 
     /**
-     *  Handle mob-to-player damage with proper weapon-based calculations
+     * Handle mob-to-player damage with proper weapon-based calculations
      */
     @EventHandler(priority = EventPriority.LOW)
     public void onMobToPlayerDamage(EntityDamageByEntityEvent event) {
@@ -1202,7 +1251,7 @@ public class CombatMechanics implements Listener {
             hologramHandler.showCombatHologram(mobAttacker, victim, CombatHologramHandler.HologramType.DAMAGE, (int) explosionDamage);
 
             if (Toggles.isToggled(victim, "Debug")) {
-                String mobName = getEnhancedMobName(mobAttacker);
+                String mobName = getMobName(mobAttacker);
                 victim.sendMessage(ChatColor.RED + "            -" + (int) explosionDamage + ChatColor.RED + ChatColor.BOLD + "HP " +
                         ChatColor.RED + "-> " + ChatColor.RESET + mobName + " " + ChatColor.GRAY + "[EXPLOSION]");
             }
@@ -1225,7 +1274,7 @@ public class CombatMechanics implements Listener {
 
         // Debug display
         if (Toggles.isToggled(victim, "Debug")) {
-            String mobName = getEnhancedMobName(mobAttacker);
+            String mobName = getMobName(mobAttacker);
             int expectedHealth = Math.max(0, (int) (victim.getHealth() - finalDamage));
             double effectiveReduction = ((calculatedDamage - finalDamage) / calculatedDamage) * 100;
 
@@ -1252,7 +1301,7 @@ public class CombatMechanics implements Listener {
             return;
         }
 
-        // Use authentic legacy calculations
+        // Use balanced legacy calculations
         int blockChance = calculateBlockChance(defender);
         int dodgeChance = calculateDodgeChance(defender);
 
@@ -1305,7 +1354,7 @@ public class CombatMechanics implements Listener {
                 hologramHandler.showCombatHologram(event.getDamager(), defender, CombatHologramHandler.HologramType.BLOCK, 0);
 
                 if (Toggles.isToggled(defender, "Debug")) {
-                    String mobName = getEnhancedMobName((LivingEntity) event.getDamager());
+                    String mobName = getMobName((LivingEntity) event.getDamager());
                     defender.sendMessage(ChatColor.DARK_GREEN + ChatColor.BOLD.toString() + "*BLOCK* (" + mobName + ")");
                 }
             }
@@ -1336,7 +1385,7 @@ public class CombatMechanics implements Listener {
                 hologramHandler.showCombatHologram(event.getDamager(), defender, CombatHologramHandler.HologramType.DODGE, 0);
 
                 if (Toggles.isToggled(defender, "Debug")) {
-                    String mobName = getEnhancedMobName((LivingEntity) event.getDamager());
+                    String mobName = getMobName((LivingEntity) event.getDamager());
                     defender.sendMessage(ChatColor.GREEN + ChatColor.BOLD.toString() + "*DODGE* (" + mobName + ")");
                 }
             }
@@ -1364,7 +1413,7 @@ public class CombatMechanics implements Listener {
                 defender.playSound(defender.getLocation(), Sound.ENTITY_ZOMBIE_ATTACK_IRON_DOOR, 1.0f, 1.0f);
 
                 if (Toggles.isToggled(defender, "Debug")) {
-                    String mobName = getEnhancedMobName((LivingEntity) event.getDamager());
+                    String mobName = getMobName((LivingEntity) event.getDamager());
                     defender.sendMessage(ChatColor.DARK_GREEN + ChatColor.BOLD.toString() + "*PARTIAL BLOCK* (" + mobName + ")");
                 }
             }
@@ -1419,9 +1468,9 @@ public class CombatMechanics implements Listener {
         int maxDamage = damageRange.get(1);
 
         Random random = new Random();
-        int damage = random.nextInt(maxDamage - minDamage + 1) + minDamage;
+        double damage = random.nextInt(maxDamage - minDamage + 1) + minDamage;
 
-        // Add elemental damage using legacy calculations
+        // Add elemental damage using balanced calculations
         damage += calculateElementalDamage(attacker, target, weapon);
 
         // Apply VS PLAYERS/VS MONSTERS bonuses
@@ -1431,44 +1480,50 @@ public class CombatMechanics implements Listener {
             damage *= (1 + getPercent(weapon, "VS MONSTERS") / 100.0);
         }
 
-        // Calculate stats and apply weapon type bonuses (legacy formulas)
-        double[] stats = calculateStats(attacker);
+        // Calculate stats and apply CORRECTED weapon type bonuses
+        double[] stats = calculateAllStats(attacker);
         double dps = stats[0];
         double vit = stats[1];
         double str = stats[2];
+        double intel = stats[3];
 
         String weaponType = weapon.getType().name();
         if (weaponType.contains("_SWORD")) {
-            damage *= (1 + vit / 5000.0); // Legacy sword bonus
+            // CORRECTED: Matched sword vitality bonus to Journal.java (+2% DMG per 100 VIT)
+            damage *= (1 + vit / 5000.0);
         } else if (weaponType.contains("_AXE")) {
-            damage *= (1 + str / 4500.0); // Legacy axe bonus
+            // CORRECTED: Matched axe strength bonus to Journal.java (+2% DMG per 100 STR)
+            damage *= (1 + str / 5000.0);
         } else if (weaponType.contains("_HOE")) {
-            damage *= (1 + stats[2] / 100.0); // Legacy staff bonus (using intelligence from armor)
+            // CORRECTED: Matched staff intelligence bonus to Journal.java (+2% DMG per 100 INT)
+            damage *= (1 + intel / 5000.0);
         }
 
-        damage *= (1 + dps / 100.0); // Apply DPS bonus
+        // CORRECTED: Apply DPS bonus from gear and stats using corrected values
+        damage *= (1 + dps / 200.0);
 
         // Calculate critical hit using legacy method
         int critChance = getCrit(attacker);
         boolean isCritical = random.nextInt(100) < critChance;
+        int finalDamage = (int) Math.round(damage);
 
         if (isCritical) {
-            damage *= 2;
+            finalDamage *= 2;
             attacker.playSound(attacker.getLocation(), Sound.BLOCK_WOODEN_BUTTON_CLICK_ON, 1.5f, 0.5f);
             target.getWorld().spawnParticle(Particle.CRIT_MAGIC, target.getLocation(), 50, 0.5, 0.5, 0.5, 0.1);
 
             // Show critical hit hologram
-            hologramHandler.showCombatHologram(attacker, target, CombatHologramHandler.HologramType.CRITICAL_DAMAGE, damage);
+            hologramHandler.showCombatHologram(attacker, target, CombatHologramHandler.HologramType.CRITICAL_DAMAGE, finalDamage);
         } else {
             // Show normal damage hologram
-            hologramHandler.showCombatHologram(attacker, target, CombatHologramHandler.HologramType.DAMAGE, damage);
+            hologramHandler.showCombatHologram(attacker, target, CombatHologramHandler.HologramType.DAMAGE, finalDamage);
         }
 
         // Apply life steal using legacy calculation
         if (hasBonus(weapon, "LIFE STEAL") && !event.getEntityType().equals(EntityType.ARMOR_STAND)) {
             target.getWorld().playEffect(target.getEyeLocation(), Effect.STEP_SOUND, Material.REDSTONE_WIRE);
             double lifeStealPercentage = getPercent(weapon, "LIFE STEAL");
-            int lifeStolen = calculateLifeSteal(damage, lifeStealPercentage);
+            int lifeStolen = calculateLifeSteal(finalDamage, lifeStealPercentage);
 
             if (attacker.getHealth() < attacker.getMaxHealth() - (double) lifeStolen) {
                 attacker.setHealth(attacker.getHealth() + (double) lifeStolen);
@@ -1495,7 +1550,7 @@ public class CombatMechanics implements Listener {
             int thornsChance = calculateThornsChance(defender);
 
             if (thornsChance > 1 && random.nextBoolean()) {
-                int thornsDamage = (int) (damage * ((thornsChance * 0.5) / 100)) + 1;
+                int thornsDamage = (int) (finalDamage * ((thornsChance * 0.5) / 100)) + 1;
 
                 defender.getWorld().spawnParticle(Particle.BLOCK_CRACK, defender.getLocation().add(0, 1, 0), 10, 0.5, 0.5, 0.5, 0.01, new MaterialData(Material.OAK_LEAVES));
                 attacker.setHealth(attacker.getHealth() - thornsDamage);
@@ -1505,7 +1560,7 @@ public class CombatMechanics implements Listener {
             }
         }
 
-        event.setDamage(damage);
+        event.setDamage(finalDamage);
 
         if (target instanceof Player) {
             markPlayerInCombat((Player) target, attacker);
@@ -1518,7 +1573,12 @@ public class CombatMechanics implements Listener {
             return;
         }
 
-        if (!(event.getEntity() instanceof Player defender) || !(event.getDamager() instanceof Player attacker)) {
+        if (!(event.getEntity() instanceof Player defender)) {
+            return;
+        }
+
+        // Armor reduction for mobs is handled in onMobToPlayerDamage, this is for PvP
+        if (!(event.getDamager() instanceof Player attacker)) {
             return;
         }
 
@@ -1638,10 +1698,19 @@ public class CombatMechanics implements Listener {
         }
 
         if (event.getDamager() instanceof Player attacker && event.getEntity() instanceof LivingEntity target) {
+            // Play sound for the attacker
             attacker.playSound(attacker.getLocation(), Sound.ENTITY_PLAYER_HURT, 1.0f, 1.0f);
 
             if (target instanceof Player) {
+                // Play sound for player targets
                 target.getWorld().playSound(target.getLocation(), Sound.BLOCK_WOODEN_BUTTON_CLICK_ON, 1.0f, 1.6f);
+            } else {
+                // Play hurt sound for mob targets
+                if (MobManager.getInstance().getCustomMob(target) != null) {
+                    MobManager.getInstance().getCustomMob(target).updateNameVisibility();
+                }
+                Sound mobHurtSound = SoundUtil.getMobHurtSound(target);
+                target.getWorld().playSound(target.getLocation(), mobHurtSound, 1.0f, 1.0f);
             }
         }
 
@@ -1664,7 +1733,7 @@ public class CombatMechanics implements Listener {
         int damage = (int) event.getDamage();
         int remainingHealth = Math.max(0, (int) (target.getHealth() - damage));
 
-        String targetName = target instanceof Player ? target.getName() : getEnhancedMobName(target);
+        String targetName = target instanceof Player ? target.getName() : getMobName(target);
 
         if (Toggles.isToggled(attacker, "Debug")) {
             String message = String.format("%s%d%s DMG %s-> %s%s [%dHP]", ChatColor.RED, damage, ChatColor.RED.toString() + ChatColor.BOLD, ChatColor.RED, ChatColor.RESET, targetName, remainingHealth);
@@ -1699,7 +1768,7 @@ public class CombatMechanics implements Listener {
         int minDamage = damageRange.get(0);
         int maxDamage = damageRange.get(1);
 
-        int damage = ThreadLocalRandom.current().nextInt(minDamage, maxDamage + 1);
+        double damage = ThreadLocalRandom.current().nextInt(minDamage, maxDamage + 1);
 
         // Add elemental damage
         List<String> lore = weapon.getItemMeta().getLore();
@@ -1718,48 +1787,40 @@ public class CombatMechanics implements Listener {
             }
         }
 
-        // Calculate stat bonuses using legacy method
-        double[] stats = calculateStats(player);
+        // Calculate stat bonuses using CORRECTED legacy method
+        double[] stats = calculateAllStats(player);
         double dps = stats[0];
         double vit = stats[1];
         double str = stats[2];
+        double intel = stats[3];
 
-        // Apply weapon-specific bonuses (legacy formulas)
+
+        // Apply CORRECTED weapon-specific bonuses
         String weaponType = weapon.getType().name();
         if (weaponType.contains("_SWORD") && vit > 0) {
-            damage = (int) calculateWeaponTypeBonus(damage, vit, 5000.0);
+            damage = calculateWeaponTypeBonus(damage, vit, 5000.0);
         }
         if (weaponType.contains("_AXE") && str > 0) {
-            damage = (int) calculateWeaponTypeBonus(damage, str, 4500.0);
+            damage = calculateWeaponTypeBonus(damage, str, 5000.0);
         }
         if (weaponType.contains("_HOE")) {
-            // For staves, use intelligence from armor
-            double intel = 0;
-            for (ItemStack armor : player.getInventory().getArmorContents()) {
-                if (armor != null && armor.getType() != Material.AIR && armor.hasItemMeta() && armor.getItemMeta().hasLore()) {
-                    intel += getElem(armor, "INT");
-                }
-            }
-            if (intel > 0) {
-                double divide = intel / 100.0;
-                double pre = (double) damage * divide;
-                damage = (int) ((double) damage + pre);
-            }
+            damage = calculateWeaponTypeBonus(damage, intel, 5000.0);
         }
 
-        // Apply DPS bonus
+        // Apply CORRECTED DPS bonus
         if (dps > 0) {
-            double divide = dps / 100.0;
-            double pre = (double) damage * divide;
-            damage = (int) ((double) damage + pre);
+            double pre = damage * (dps / 200.0);
+            damage += pre;
         }
+
+        int finalDamage = (int) Math.round(damage);
 
         event.setCancelled(true);
-        player.sendMessage(ChatColor.RED + "            " + damage + ChatColor.RED + ChatColor.BOLD + " DMG " + ChatColor.RED + "-> " + ChatColor.RESET + "DPS DUMMY" + " [" + 99999999 + "HP]");
+        player.sendMessage(ChatColor.RED + "            " + finalDamage + ChatColor.RED + ChatColor.BOLD + " DMG " + ChatColor.RED + "-> " + ChatColor.RESET + "DPS DUMMY" + " [" + 99999999 + "HP]");
 
         // Show dummy damage hologram with animation at block location
         Location dummyLocation = block.getLocation().add(0.5, 1.5, 0.5);
-        hologramHandler.showCustomHologram(player, null, ChatColor.RED + "" + ChatColor.BOLD + "-" + damage, CombatHologramHandler.HologramType.DAMAGE);
+        hologramHandler.showCustomHologram(player, null, ChatColor.RED + "" + ChatColor.BOLD + "-" + finalDamage, CombatHologramHandler.HologramType.DAMAGE);
     }
 
     @EventHandler(priority = EventPriority.HIGH)
@@ -1791,7 +1852,6 @@ public class CombatMechanics implements Listener {
         event.setCancelled(true);
 
         entity.playEffect(EntityEffect.HURT);
-        entity.setLastDamageCause(event);
         entity.setMetadata("lastDamaged", new FixedMetadataValue(YakRealms.getInstance(), System.currentTimeMillis()));
 
         double newHealth = entity.getHealth() - damage;

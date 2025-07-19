@@ -3,6 +3,7 @@ package com.rednetty.server.mechanics.player.social.friends;
 import com.rednetty.server.YakRealms;
 import com.rednetty.server.mechanics.player.YakPlayer;
 import com.rednetty.server.mechanics.player.YakPlayerManager;
+import com.rednetty.server.mechanics.player.settings.Toggles;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.Material;
@@ -28,7 +29,7 @@ import java.util.logging.Logger;
 import java.util.stream.Collectors;
 
 /**
- * Enhanced buddy/friend system with improved UI, notifications,
+ *  buddy/friend system with improved UI, notifications,
  * status tracking, and better user experience.
  */
 public class Buddies implements Listener {
@@ -36,7 +37,7 @@ public class Buddies implements Listener {
     private final YakPlayerManager playerManager;
     private final Logger logger;
 
-    // Enhanced tracking and caching
+    //  tracking and caching
     private final Map<UUID, Set<String>> buddyCache = new ConcurrentHashMap<>();
     private final Map<UUID, Long> lastOnlineTime = new ConcurrentHashMap<>();
     private final Map<UUID, BuddyNotificationSettings> notificationSettings = new ConcurrentHashMap<>();
@@ -59,7 +60,7 @@ public class Buddies implements Listener {
     private static final long MENU_REFRESH_INTERVAL = 20L * 5; // 5 seconds
 
     /**
-     * Enhanced notification settings for buddies
+     *  notification settings for buddies
      */
     private static class BuddyNotificationSettings {
         boolean joinNotifications = true;
@@ -89,21 +90,21 @@ public class Buddies implements Listener {
 
     public void onEnable() {
         Bukkit.getServer().getPluginManager().registerEvents(this, YakRealms.getInstance());
-        startEnhancedTasks();
+        startTasks();
         loadOnlinePlayerCache();
-        YakRealms.log("Enhanced Buddies system has been enabled.");
+        YakRealms.log(" Buddies system has been enabled.");
     }
 
     public void onDisable() {
         stopTasks();
         clearCaches();
-        YakRealms.log("Enhanced Buddies system has been disabled.");
+        YakRealms.log(" Buddies system has been disabled.");
     }
 
     /**
-     * Start enhanced background tasks
+     * Start  background tasks
      */
-    private void startEnhancedTasks() {
+    private void startTasks() {
         // Cache update task
         cacheUpdateTask = new BukkitRunnable() {
             @Override
@@ -120,7 +121,7 @@ public class Buddies implements Listener {
             }
         }.runTaskTimer(YakRealms.getInstance(), 0, MENU_REFRESH_INTERVAL);
 
-        logger.info("Started enhanced buddy system tasks");
+        logger.info("Started  buddy system tasks");
     }
 
     /**
@@ -181,7 +182,7 @@ public class Buddies implements Listener {
     }
 
     /**
-     * Enhanced buddy addition with validation and feedback
+     *  buddy addition with toggle validation
      */
     public boolean addBuddy(Player player, String buddyName) {
         if (player == null || buddyName == null || buddyName.trim().isEmpty()) {
@@ -194,7 +195,7 @@ public class Buddies implements Listener {
         String normalizedBuddyName = buddyName.trim();
         UUID playerUuid = player.getUniqueId();
 
-        // Enhanced validation
+        //  validation
         if (player.getName().equalsIgnoreCase(normalizedBuddyName)) {
             player.sendMessage(ChatColor.RED + "§l⚠ §cYou cannot add yourself as a buddy!");
             return false;
@@ -218,7 +219,6 @@ public class Buddies implements Listener {
         // Validate target player exists
         Player targetPlayer = findPlayer(normalizedBuddyName);
         if (targetPlayer == null) {
-            // Check if player exists offline
             @SuppressWarnings("deprecation")
             org.bukkit.OfflinePlayer offlinePlayer = Bukkit.getOfflinePlayer(normalizedBuddyName);
             if (!offlinePlayer.hasPlayedBefore()) {
@@ -227,7 +227,15 @@ public class Buddies implements Listener {
             }
         }
 
-        // Add buddy with enhanced feedback
+        //  Check if target player has buddy requests enabled
+        if (targetPlayer != null && targetPlayer.isOnline()) {
+            if (!Toggles.isToggled(targetPlayer, "Buddy Requests")) {
+                player.sendMessage(ChatColor.RED + "§l⚠ §c" + normalizedBuddyName + " §chas disabled buddy requests!");
+                return false;
+            }
+        }
+
+        // Add buddy with  feedback
         if (yakPlayer.addBuddy(normalizedBuddyName)) {
             totalBuddyAdds.incrementAndGet();
 
@@ -237,7 +245,7 @@ public class Buddies implements Listener {
             // Save to database
             playerManager.savePlayer(yakPlayer);
 
-            // Enhanced success feedback
+            //  success feedback
             player.sendMessage("");
             player.sendMessage("§a§l✓ §a§lBUDDY ADDED!");
             player.sendMessage("§f" + normalizedBuddyName + " §7has been added to your buddy list!");
@@ -246,8 +254,8 @@ public class Buddies implements Listener {
 
             player.playSound(player.getLocation(), Sound.ENTITY_PLAYER_LEVELUP, 0.7f, 1.2f);
 
-            // Notify target player if online
-            if (targetPlayer != null && targetPlayer.isOnline()) {
+            // Notify target player if online and they have buddy requests enabled
+            if (targetPlayer != null && targetPlayer.isOnline() && Toggles.isToggled(targetPlayer, "Buddy Requests")) {
                 sendBuddyAddNotification(targetPlayer, player.getName());
             }
 
@@ -257,8 +265,9 @@ public class Buddies implements Listener {
         return false;
     }
 
+
     /**
-     * Enhanced buddy removal with confirmation
+     *  buddy removal with confirmation
      */
     public boolean removeBuddy(Player player, String buddyName) {
         if (player == null || buddyName == null) return false;
@@ -273,7 +282,7 @@ public class Buddies implements Listener {
             return false;
         }
 
-        // Remove buddy with enhanced feedback
+        // Remove buddy with  feedback
         if (yakPlayer.removeBuddy(normalizedBuddyName)) {
             totalBuddyRemoves.incrementAndGet();
 
@@ -286,7 +295,7 @@ public class Buddies implements Listener {
             // Save to database
             playerManager.savePlayer(yakPlayer);
 
-            // Enhanced removal feedback
+            //  removal feedback
             player.sendMessage("");
             player.sendMessage("§c§l✗ §c§lBUDDY REMOVED");
             player.sendMessage("§f" + normalizedBuddyName + " §7has been removed from your buddy list.");
@@ -299,9 +308,18 @@ public class Buddies implements Listener {
 
         return false;
     }
+    /**
+     *  Check if a player can receive buddy requests
+     */
+    public boolean canReceiveBuddyRequests(Player player) {
+        if (player == null || !player.isOnline()) {
+            return false;
+        }
+        return Toggles.isToggled(player, "Buddy Requests");
+    }
 
     /**
-     * Get enhanced buddy list with status information
+     * Get  buddy list with status information
      */
     public List<BuddyInfo> getBuddyInfoList(Player player) {
         YakPlayer yakPlayer = playerManager.getPlayer(player);
@@ -330,7 +348,7 @@ public class Buddies implements Listener {
     }
 
     /**
-     * Enhanced buddy menu with status and management options
+     *  buddy menu with status and management options
      */
     public void openBuddyMenu(Player player) {
         List<BuddyInfo> buddies = getBuddyInfoList(player);
@@ -370,12 +388,12 @@ public class Buddies implements Listener {
         org.bukkit.OfflinePlayer offlinePlayer = Bukkit.getOfflinePlayer(buddy.name);
         meta.setOwningPlayer(offlinePlayer);
 
-        // Enhanced display name with status
+        //  display name with status
         String status = buddy.isOnline ? "§a§lOnline" : "§7§lOffline";
         String statusIcon = buddy.isOnline ? "§a●" : "§7●";
         meta.setDisplayName(statusIcon + " §f§l" + buddy.name + " " + status);
 
-        // Enhanced lore with information
+        //  lore with information
         List<String> lore = new ArrayList<>();
         lore.add("§7Status: " + (buddy.isOnline ? "§aOnline" : "§7Offline"));
 
@@ -518,7 +536,7 @@ public class Buddies implements Listener {
     }
 
     /**
-     * Enhanced buddy notifications with better formatting
+     *  buddy notification system that respects player settings
      */
     @EventHandler(priority = EventPriority.MONITOR)
     public void onPlayerJoin(PlayerJoinEvent event) {
@@ -532,11 +550,12 @@ public class Buddies implements Listener {
         // Update cache
         lastOnlineTime.put(joiningPlayer.getUniqueId(), System.currentTimeMillis());
 
-        // Notify buddies with enhanced messages
+        // Notify buddies with  messages - but only if they have notifications enabled
         Bukkit.getScheduler().runTaskLater(YakRealms.getInstance(), () -> {
             for (Player onlinePlayer : Bukkit.getOnlinePlayers()) {
                 if (onlinePlayer.equals(joiningPlayer)) continue;
 
+                //  Check if player has buddy notifications enabled via their notification settings
                 BuddyNotificationSettings settings = notificationSettings.getOrDefault(
                         onlinePlayer.getUniqueId(), new BuddyNotificationSettings());
 
@@ -544,7 +563,7 @@ public class Buddies implements Listener {
 
                 YakPlayer onlineYakPlayer = playerManager.getPlayer(onlinePlayer);
                 if (onlineYakPlayer != null && onlineYakPlayer.isBuddy(joiningPlayerName)) {
-                    // Enhanced join notification
+                    //  join notification
                     onlinePlayer.sendMessage("§a§l✦ §a§lBuddy Online!");
                     onlinePlayer.sendMessage("§f" + joiningPlayerName + " §7has joined the server");
 
@@ -557,8 +576,9 @@ public class Buddies implements Listener {
         }, 20L); // 1 second delay
     }
 
+
     /**
-     * Enhanced buddy leave notifications
+     *  buddy leave notifications that respect settings
      */
     @EventHandler(priority = EventPriority.MONITOR)
     public void onPlayerQuit(PlayerQuitEvent event) {
@@ -576,10 +596,11 @@ public class Buddies implements Listener {
         // Clean up tracking
         openBuddyMenus.remove(leavingUuid);
 
-        // Notify buddies
+        // Notify buddies - but only if they have notifications enabled
         for (Player onlinePlayer : Bukkit.getOnlinePlayers()) {
             if (onlinePlayer.equals(leavingPlayer)) continue;
 
+            //  Check notification settings
             BuddyNotificationSettings settings = notificationSettings.getOrDefault(
                     onlinePlayer.getUniqueId(), new BuddyNotificationSettings());
 
@@ -587,7 +608,7 @@ public class Buddies implements Listener {
 
             YakPlayer onlineYakPlayer = playerManager.getPlayer(onlinePlayer);
             if (onlineYakPlayer != null && onlineYakPlayer.isBuddy(leavingPlayerName)) {
-                // Enhanced leave notification
+                //  leave notification
                 onlinePlayer.sendMessage("§c§l✦ §c§lBuddy Offline");
                 onlinePlayer.sendMessage("§f" + leavingPlayerName + " §7has left the server");
 
@@ -598,6 +619,7 @@ public class Buddies implements Listener {
             }
         }
     }
+
 
     // Utility methods and helper classes
 

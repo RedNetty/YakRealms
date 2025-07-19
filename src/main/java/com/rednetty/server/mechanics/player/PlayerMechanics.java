@@ -205,7 +205,7 @@ public class PlayerMechanics implements Listener {
     }
 
     /**
-     * Enhanced shutdown with proper cleanup ordering
+     *  shutdown with proper cleanup ordering
      */
     public void onDisable() {
         if (!shutdownInProgress.compareAndSet(false, true)) {

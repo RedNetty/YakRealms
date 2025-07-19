@@ -20,14 +20,14 @@ import java.util.*;
 import java.util.logging.Logger;
 
 /**
- * Enhanced factory class for creating crate items and keys using 1.20.4 features
+ *  factory class for creating crate items and keys using 1.20.4 features
  * Provides comprehensive item creation with modern visual effects and metadata
  */
 public class CrateFactory {
     private final YakRealms plugin;
     private final Logger logger;
 
-    // Enhanced NBT keys for comprehensive identification
+    //  NBT keys for comprehensive identification
     private static final String NBT_CRATE_TYPE = "crateType";
     private static final String NBT_CRATE_TIER = "crateTier";
     private static final String NBT_IS_HALLOWEEN = "isHalloween";
@@ -40,7 +40,7 @@ public class CrateFactory {
     private static final String NBT_SESSION_ID = "sessionId";
     private static final String NBT_CREATOR = "creator";
 
-    // Enhanced visual elements
+    //  visual elements
     private static final String FACTORY_VERSION = "2.0.0";
     private static final Map<Integer, String> TIER_SYMBOLS = Map.of(
             1, "◆", 2, "◇", 3, "★", 4, "✦", 5, "✧", 6, "❅"
@@ -50,7 +50,7 @@ public class CrateFactory {
     );
 
     /**
-     * Enhanced crate material configuration
+     *  crate material configuration
      */
     private static class CrateMaterials {
         private static final Map<Integer, List<Material>> TIER_MATERIALS = Map.of(
@@ -75,23 +75,23 @@ public class CrateFactory {
     }
 
     /**
-     * Creates an enhanced crate item with comprehensive metadata and visuals
+     * Creates an  crate item with comprehensive metadata and visuals
      *
      * @param crateType   The type of crate to create
      * @param isHalloween Whether this is a Halloween variant
-     * @return The created crate ItemStack with enhanced features
+     * @return The created crate ItemStack with  features
      */
     public ItemStack createCrate(CrateType crateType, boolean isHalloween) {
         return createCrate(crateType, isHalloween, null);
     }
 
     /**
-     * Creates an enhanced crate item with creator information
+     * Creates an  crate item with creator information
      *
      * @param crateType   The type of crate to create
      * @param isHalloween Whether this is a Halloween variant
      * @param creator     The player who created this crate (null for system)
-     * @return The created crate ItemStack with enhanced features
+     * @return The created crate ItemStack with  features
      */
     public ItemStack createCrate(CrateType crateType, boolean isHalloween, String creator) {
         if (crateType == null) {
@@ -100,8 +100,8 @@ public class CrateFactory {
         }
 
         try {
-            // Choose enhanced material based on type and season
-            Material material = determineEnhancedCrateMaterial(crateType, isHalloween);
+            // Choose  material based on type and season
+            Material material = determineCrateMaterial(crateType, isHalloween);
             ItemStack crate = new ItemStack(material);
             ItemMeta meta = crate.getItemMeta();
 
@@ -110,36 +110,36 @@ public class CrateFactory {
                 return crate;
             }
 
-            // Set enhanced display name with modern formatting
-            String displayName = createEnhancedCrateDisplayName(crateType, isHalloween);
+            // Set  display name with modern formatting
+            String displayName = createCrateDisplayName(crateType, isHalloween);
             meta.setDisplayName(displayName);
 
-            // Create comprehensive lore with enhanced information
-            List<String> lore = createEnhancedCrateLore(crateType, isHalloween);
+            // Create comprehensive lore with  information
+            List<String> lore = createCrateLore(crateType, isHalloween);
             meta.setLore(lore);
 
-            // Add enhanced visual effects
-            enhanceEnhancedCrateVisuals(meta, crateType, isHalloween);
+            // Add  visual effects
+            enhanceCrateVisuals(meta, crateType, isHalloween);
 
             // Store comprehensive NBT data
-            storeEnhancedCrateNBTData(meta, crateType, isHalloween, creator);
+            storeCrateNBTData(meta, crateType, isHalloween, creator);
 
             // Apply final meta
             crate.setItemMeta(meta);
 
-            logger.fine("Created enhanced " + (isHalloween ? "Halloween " : "") +
+            logger.fine("Created  " + (isHalloween ? "Halloween " : "") +
                     crateType + " crate" + (creator != null ? " for " + creator : ""));
             return crate;
 
         } catch (Exception e) {
-            logger.severe("Error creating enhanced crate: " + e.getMessage());
+            logger.severe("Error creating  crate: " + e.getMessage());
             e.printStackTrace();
             return createFallbackCrate(crateType);
         }
     }
 
     /**
-     * Creates an enhanced crate key with modern features
+     * Creates an  crate key with modern features
      *
      * @param keyType The type of key to create (optional, defaults to universal)
      * @return The created crate key ItemStack
@@ -150,7 +150,7 @@ public class CrateFactory {
         }
 
         try {
-            // Enhanced key material selection
+            //  key material selection
             Material keyMaterial = determineKeyMaterial(keyType);
             ItemStack key = new ItemStack(keyMaterial);
             ItemMeta meta = key.getItemMeta();
@@ -159,25 +159,25 @@ public class CrateFactory {
                 return key;
             }
 
-            // Enhanced key design with tier-specific styling
-            String displayName = createEnhancedKeyDisplayName(keyType);
+            //  key design with tier-specific styling
+            String displayName = createKeyDisplayName(keyType);
             meta.setDisplayName(displayName);
 
-            // Enhanced lore with detailed information
-            List<String> lore = createEnhancedKeyLore(keyType);
+            //  lore with detailed information
+            List<String> lore = createKeyLore(keyType);
             meta.setLore(lore);
 
-            // Enhanced visual effects
+            //  visual effects
             enhanceKeyVisuals(meta, keyType);
 
-            // Store enhanced NBT data
-            storeEnhancedKeyNBTData(meta, keyType);
+            // Store  NBT data
+            storeKeyNBTData(meta, keyType);
 
             key.setItemMeta(meta);
             return key;
 
         } catch (Exception e) {
-            logger.severe("Error creating enhanced crate key: " + e.getMessage());
+            logger.severe("Error creating  crate key: " + e.getMessage());
             return createFallbackKey();
         }
     }
@@ -190,11 +190,11 @@ public class CrateFactory {
     }
 
     /**
-     * Creates a locked crate with enhanced security features
+     * Creates a locked crate with  security features
      *
      * @param crateType   The type of crate
      * @param isHalloween Whether it's a Halloween variant
-     * @return The locked crate item with enhanced security metadata
+     * @return The locked crate item with  security metadata
      */
     public ItemStack createLockedCrate(CrateType crateType, boolean isHalloween) {
         return createLockedCrate(crateType, isHalloween, null);
@@ -206,7 +206,7 @@ public class CrateFactory {
      * @param crateType   The type of crate
      * @param isHalloween Whether it's a Halloween variant
      * @param creator     The player who created this locked crate
-     * @return The locked crate item with enhanced security metadata
+     * @return The locked crate item with  security metadata
      */
     public ItemStack createLockedCrate(CrateType crateType, boolean isHalloween, String creator) {
         ItemStack crate = createCrate(crateType, isHalloween, creator);
@@ -215,10 +215,10 @@ public class CrateFactory {
         ItemMeta meta = crate.getItemMeta();
         if (meta == null) return crate;
 
-        // Enhanced locked crate modifications
+        //  locked crate modifications
         enhanceLockedCrate(meta, crateType);
 
-        // Store enhanced locked status in NBT
+        // Store  locked status in NBT
         storeLockedNBTData(meta);
 
         crate.setItemMeta(meta);
@@ -278,7 +278,7 @@ public class CrateFactory {
     }
 
     /**
-     * Enhanced crate type determination with comprehensive validation
+     *  crate type determination with comprehensive validation
      *
      * @param item The item to analyze
      * @return The CrateType, or null if not a valid crate
@@ -289,7 +289,7 @@ public class CrateFactory {
         }
 
         try {
-            // Primary method: Check enhanced NBT data
+            // Primary method: Check  NBT data
             CrateType nbtType = getCrateTypeFromNBT(item);
             if (nbtType != null) {
                 return nbtType;
@@ -317,7 +317,7 @@ public class CrateFactory {
     }
 
     /**
-     * Enhanced validation methods
+     *  validation methods
      */
     public boolean isCrate(ItemStack item) {
         return determineCrateType(item) != null;
@@ -395,9 +395,9 @@ public class CrateFactory {
     }
 
     /**
-     * Enhanced helper methods for material determination
+     *  helper methods for material determination
      */
-    private Material determineEnhancedCrateMaterial(CrateType crateType, boolean isHalloween) {
+    private Material determineCrateMaterial(CrateType crateType, boolean isHalloween) {
         if (isHalloween) {
             return CrateMaterials.HALLOWEEN_MATERIAL;
         }
@@ -438,10 +438,10 @@ public class CrateFactory {
     }
 
     /**
-     * Enhanced display name creation methods
+     *  display name creation methods
      */
-    private String createEnhancedCrateDisplayName(CrateType crateType, boolean isHalloween) {
-        ChatColor color = getEnhancedCrateColor(crateType);
+    private String createCrateDisplayName(CrateType crateType, boolean isHalloween) {
+        ChatColor color = getCrateColor(crateType);
         String tierName = crateType.getDisplayName();
         String symbol = TIER_SYMBOLS.get(crateType.getTier());
         String quality = TIER_NAMES.get(crateType.getTier());
@@ -459,7 +459,7 @@ public class CrateFactory {
         return name.toString();
     }
 
-    private String createEnhancedKeyDisplayName(CrateKey keyType) {
+    private String createKeyDisplayName(CrateKey keyType) {
         ChatColor color = getKeyColor(keyType);
         String keySymbol = getKeySymbol(keyType);
 
@@ -468,11 +468,11 @@ public class CrateFactory {
     }
 
     /**
-     * Enhanced lore creation methods
+     *  lore creation methods
      */
-    private List<String> createEnhancedCrateLore(CrateType crateType, boolean isHalloween) {
+    private List<String> createCrateLore(CrateType crateType, boolean isHalloween) {
         List<String> lore = new ArrayList<>();
-        ChatColor color = getEnhancedCrateColor(crateType);
+        ChatColor color = getCrateColor(crateType);
         String quality = TIER_NAMES.get(crateType.getTier());
 
         // Header section
@@ -495,11 +495,11 @@ public class CrateFactory {
 
         // Contents preview
         lore.add(ChatColor.YELLOW + "" + ChatColor.BOLD + "" + ChatColor.UNDERLINE + "Mystical Contents:");
-        addEnhancedTierSpecificLore(lore, crateType, color);
+        addTierSpecificLore(lore, crateType, color);
 
         if (isHalloween) {
             lore.add(ChatColor.GOLD + "🎃 Halloween Bonus Rewards");
-            lore.add(ChatColor.GOLD + "Enhanced with spooky magic!");
+            lore.add(ChatColor.GOLD + " with spooky magic!");
         }
 
         lore.add("");
@@ -523,7 +523,7 @@ public class CrateFactory {
         return lore;
     }
 
-    private List<String> createEnhancedKeyLore(CrateKey keyType) {
+    private List<String> createKeyLore(CrateKey keyType) {
         List<String> lore = new ArrayList<>();
         ChatColor color = getKeyColor(keyType);
 
@@ -560,9 +560,9 @@ public class CrateFactory {
     }
 
     /**
-     * Enhanced visual effect methods
+     *  visual effect methods
      */
-    private void enhanceEnhancedCrateVisuals(ItemMeta meta, CrateType crateType, boolean isHalloween) {
+    private void enhanceCrateVisuals(ItemMeta meta, CrateType crateType, boolean isHalloween) {
         // Add enchantment glow for higher tier crates or Halloween variants
         if (crateType.getTier() >= 3 || isHalloween) {
             meta.addEnchant(Enchantment.DURABILITY, 1, true);
@@ -620,9 +620,9 @@ public class CrateFactory {
     }
 
     /**
-     * Enhanced NBT data storage methods
+     *  NBT data storage methods
      */
-    private void storeEnhancedCrateNBTData(ItemMeta meta, CrateType crateType, boolean isHalloween, String creator) {
+    private void storeCrateNBTData(ItemMeta meta, CrateType crateType, boolean isHalloween, String creator) {
         PersistentDataContainer container = meta.getPersistentDataContainer();
 
         // Core crate data
@@ -633,7 +633,7 @@ public class CrateFactory {
         container.set(new NamespacedKey(plugin, NBT_IS_HALLOWEEN),
                 PersistentDataType.BYTE, isHalloween ? (byte) 1 : (byte) 0);
 
-        // Enhanced metadata
+        //  metadata
         container.set(new NamespacedKey(plugin, NBT_CREATION_TIME),
                 PersistentDataType.LONG, System.currentTimeMillis());
         container.set(new NamespacedKey(plugin, NBT_CREATION_DATE),
@@ -649,7 +649,7 @@ public class CrateFactory {
         }
     }
 
-    private void storeEnhancedKeyNBTData(ItemMeta meta, CrateKey keyType) {
+    private void storeKeyNBTData(ItemMeta meta, CrateKey keyType) {
         PersistentDataContainer container = meta.getPersistentDataContainer();
 
         container.set(new NamespacedKey(plugin, NBT_CRATE_KEY),
@@ -669,7 +669,7 @@ public class CrateFactory {
     }
 
     /**
-     * Enhanced retrieval methods
+     *  retrieval methods
      */
     private CrateType getCrateTypeFromNBT(ItemStack item) {
         try {
@@ -721,9 +721,9 @@ public class CrateFactory {
     }
 
     /**
-     * Enhanced utility methods
+     *  utility methods
      */
-    private void addEnhancedTierSpecificLore(List<String> lore, CrateType crateType, ChatColor color) {
+    private void addTierSpecificLore(List<String> lore, CrateType crateType, ChatColor color) {
         switch (crateType.getTier()) {
             case 1:
                 lore.add(color + "• Basic weapons and armor");
@@ -740,7 +740,7 @@ public class CrateFactory {
                 lore.add(color + "• War-grade equipment");
                 lore.add(color + "• Rare enhancement scrolls");
                 lore.add(color + "• Valuable gem rewards");
-                lore.add(color + "• Enhanced orbs of alteration");
+                lore.add(color + "•  orbs of alteration");
                 break;
             case 4:
                 lore.add(color + "• Ancient artifacts");
@@ -769,7 +769,7 @@ public class CrateFactory {
         }
     }
 
-    private ChatColor getEnhancedCrateColor(CrateType crateType) {
+    private ChatColor getCrateColor(CrateType crateType) {
         return switch (crateType.getTier()) {
             case 1 -> ChatColor.WHITE;
             case 2 -> ChatColor.GREEN;
@@ -846,7 +846,7 @@ public class CrateFactory {
             ItemMeta meta = item.getItemMeta();
             if (meta != null) {
                 // Add missing NBT data
-                storeEnhancedCrateNBTData(meta, crateType, false, null);
+                storeCrateNBTData(meta, crateType, false, null);
                 item.setItemMeta(meta);
                 logger.fine("Upgraded old crate to new format: " + crateType);
             }
@@ -893,7 +893,7 @@ public class CrateFactory {
     }
 
     /**
-     * Enhanced statistics and debugging
+     *  statistics and debugging
      */
     public Map<String, Object> getFactoryStats() {
         Map<String, Object> stats = new HashMap<>();

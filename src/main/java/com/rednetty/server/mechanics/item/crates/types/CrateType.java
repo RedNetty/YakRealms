@@ -1,7 +1,7 @@
 package com.rednetty.server.mechanics.item.crates.types;
 
 /**
- * Enumeration of all crate types with enhanced functionality
+ * Enumeration of all crate types with  functionality
  */
 public enum CrateType {
     // Regular crate types

@@ -906,7 +906,7 @@ public class LichKingBoss extends DungeonBoss {
         broadcastToArena("§c§l" + BOSS_NAME + " enters NECROMANTIC FURY!");
         broadcastToArena("§e§lThe Lich King becomes more aggressive and dangerous!");
 
-        // Enhanced abilities
+        //  abilities
         bossEntity.addPotionEffect(new PotionEffect(PotionEffectType.SPEED, Integer.MAX_VALUE, 0));
         bossEntity.addPotionEffect(new PotionEffect(PotionEffectType.INCREASE_DAMAGE, Integer.MAX_VALUE, 0));
 

@@ -67,10 +67,10 @@ public class MobSpawner implements Listener {
         return instance;
     }
 
-    // ================ ENHANCED INITIALIZATION WITH PROPER TIMING ================
+    // ================  INITIALIZATION WITH PROPER TIMING ================
 
     /**
-     *  Enhanced initialization with proper dependency management and timing
+     *   initialization with proper dependency management and timing
      */
     public void initialize() {
         try {
@@ -338,7 +338,7 @@ public class MobSpawner implements Listener {
     }
 
     /**
-     * Enhanced spawner processing with better error handling
+     *  spawner processing with better error handling
      */
     private void processAllSpawners() {
         if (!enabled || !spawnersLoaded) return;
@@ -366,10 +366,10 @@ public class MobSpawner implements Listener {
         }
     }
 
-    // ================ ENHANCED LOADING AND SAVING ================
+    // ================  LOADING AND SAVING ================
 
     /**
-     *  Enhanced spawner loading with better error handling and validation
+     *   spawner loading with better error handling and validation
      */
     public void loadSpawners() {
         try {
@@ -650,7 +650,7 @@ public class MobSpawner implements Listener {
     // ================ SPAWNER MANAGEMENT ================
 
     /**
-     *  Enhanced spawner addition with dependency checking
+     *   spawner addition with dependency checking
      */
     public boolean addSpawner(Location location, String data) {
         if (location == null || data == null || data.trim().isEmpty()) {
@@ -867,7 +867,7 @@ public class MobSpawner implements Listener {
     }
 
     /**
-     *  Enhanced mob death registration with better validation
+     *   mob death registration with better validation
      */
     public void registerMobDeath(Location spawnerLocation, UUID entityId) {
         if (entityId == null) {

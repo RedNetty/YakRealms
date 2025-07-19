@@ -23,7 +23,8 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
- * YakPlayer repository with physical gem economy support (no virtual player balance)
+ * Complete YakPlayer repository with ALL player data fields properly saved and loaded
+ * Physical gem economy support (no virtual player balance)
  */
 public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
     private static final String COLLECTION_NAME = "players";
@@ -672,7 +673,7 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
     }
 
     /**
-     * Document conversion helper class - updated for physical gem economy
+     * COMPLETE Document conversion helper class - includes ALL YakPlayer fields
      */
     private class DocumentConverter {
 
@@ -744,8 +745,184 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
                     }
                 }
 
-                // Load all other player data
-                loadPlayerMiscData(player, doc);
+                // Load alignment data
+                player.setAlignment(doc.getString("alignment") != null ? doc.getString("alignment") : "LAWFUL");
+                player.setChaoticTime(doc.getLong("chaotic_time") != null ? doc.getLong("chaotic_time") : 0);
+                player.setNeutralTime(doc.getLong("neutral_time") != null ? doc.getLong("neutral_time") : 0);
+                player.setAlignmentChanges(doc.getInteger("alignment_changes", 0));
+
+                // Load moderation data
+                player.setRank(doc.getString("rank") != null ? doc.getString("rank") : "DEFAULT");
+                player.setBanned(doc.getBoolean("banned", false));
+                player.setBanReason(doc.getString("ban_reason") != null ? doc.getString("ban_reason") : "");
+                player.setBanExpiry(doc.getLong("ban_expiry") != null ? doc.getLong("ban_expiry") : 0);
+                player.setMuteTime(doc.getInteger("muted", 0));
+                player.setWarnings(doc.getInteger("warnings", 0));
+                player.setLastWarning(doc.getLong("last_warning") != null ? doc.getLong("last_warning") : 0);
+
+                // Load chat data
+                player.setChatTag(doc.getString("chat_tag") != null ? doc.getString("chat_tag") : "DEFAULT");
+                player.setUnlockedChatTags(doc.getList("unlocked_chat_tags", String.class, new ArrayList<>()));
+                player.setChatColor(doc.getString("chat_color") != null ? doc.getString("chat_color") : "WHITE");
+
+                // Load mount and guild data
+                player.setHorseTier(doc.getInteger("horse_tier", 0));
+                player.setHorseName(doc.getString("horse_name") != null ? doc.getString("horse_name") : "");
+                player.setGuildName(doc.getString("guild_name") != null ? doc.getString("guild_name") : "");
+                player.setGuildRank(doc.getString("guild_rank") != null ? doc.getString("guild_rank") : "");
+                player.setGuildContribution(doc.getInteger("guild_contribution", 0));
+
+                // Load player preferences
+                player.setToggleSettings(new HashSet<>(doc.getList("toggle_settings", String.class, new ArrayList<>())));
+
+                // Load notification settings
+                Document notificationSettings = doc.get("notification_settings", Document.class);
+                if (notificationSettings != null) {
+                    for (String key : notificationSettings.keySet()) {
+                        Boolean value = notificationSettings.getBoolean(key);
+                        if (value != null) {
+                            player.setNotificationSetting(key, value);
+                        }
+                    }
+                }
+
+                // Load quest system data
+                player.setCurrentQuest(doc.getString("current_quest") != null ? doc.getString("current_quest") : "");
+                player.setQuestProgress(doc.getInteger("quest_progress", 0));
+                player.setCompletedQuests(doc.getList("completed_quests", String.class, new ArrayList<>()));
+                player.setQuestPoints(doc.getInteger("quest_points", 0));
+                player.setDailyQuestsCompleted(doc.getInteger("daily_quests_completed", 0));
+                player.setLastDailyQuestReset(doc.getLong("last_daily_quest_reset") != null ? doc.getLong("last_daily_quest_reset") : 0);
+
+                // Load profession data
+                player.setPickaxeLevel(doc.getInteger("pickaxe_level", 0));
+                player.setFishingLevel(doc.getInteger("fishing_level", 0));
+                player.setMiningXp(doc.getInteger("mining_xp", 0));
+                player.setFishingXp(doc.getInteger("fishing_xp", 0));
+                player.setFarmingLevel(doc.getInteger("farming_level", 0));
+                player.setFarmingXp(doc.getInteger("farming_xp", 0));
+                player.setWoodcuttingLevel(doc.getInteger("woodcutting_level", 0));
+                player.setWoodcuttingXp(doc.getInteger("woodcutting_xp", 0));
+
+                // Load PvP stats
+                player.setT1Kills(doc.getInteger("t1_kills", 0));
+                player.setT2Kills(doc.getInteger("t2_kills", 0));
+                player.setT3Kills(doc.getInteger("t3_kills", 0));
+                player.setT4Kills(doc.getInteger("t4_kills", 0));
+                player.setT5Kills(doc.getInteger("t5_kills", 0));
+                player.setT6Kills(doc.getInteger("t6_kills", 0));
+                player.setKillStreak(doc.getInteger("kill_streak", 0));
+                player.setBestKillStreak(doc.getInteger("best_kill_streak", 0));
+                player.setPvpRating(doc.getInteger("pvp_rating", 1000));
+
+                // Load world boss tracking
+                Document worldBossDamage = doc.get("world_boss_damage", Document.class);
+                if (worldBossDamage != null) {
+                    Map<String, Integer> damageMap = new HashMap<>();
+                    for (String key : worldBossDamage.keySet()) {
+                        Integer value = worldBossDamage.getInteger(key);
+                        if (value != null) {
+                            damageMap.put(key, value);
+                        }
+                    }
+                    player.setWorldBossDamage(damageMap);
+                }
+
+                Document worldBossKills = doc.get("world_boss_kills", Document.class);
+                if (worldBossKills != null) {
+                    Map<String, Integer> killsMap = new HashMap<>();
+                    for (String key : worldBossKills.keySet()) {
+                        Integer value = worldBossKills.getInteger(key);
+                        if (value != null) {
+                            killsMap.put(key, value);
+                        }
+                    }
+                    player.getWorldBossKills().putAll(killsMap);
+                }
+
+                // Load social settings
+                player.setTradeDisabled(doc.getBoolean("trade_disabled", false));
+                player.setBuddies(doc.getList("buddies", String.class, new ArrayList<>()));
+                player.getBlockedPlayers().addAll(doc.getList("blocked_players", String.class, new ArrayList<>()));
+                player.setEnergyDisabled(doc.getBoolean("energy_disabled", false));
+
+                // Load location and state data
+                player.setWorld(doc.getString("world"));
+                player.setLocationX(doc.getDouble("location_x") != null ? doc.getDouble("location_x") : 0.0);
+                player.setLocationY(doc.getDouble("location_y") != null ? doc.getDouble("location_y") : 0.0);
+                player.setLocationZ(doc.getDouble("location_z") != null ? doc.getDouble("location_z") : 0.0);
+                player.setLocationYaw(doc.get("location_yaw") instanceof Number ? ((Number) doc.get("location_yaw")).floatValue() : 0.0f);
+                player.setLocationPitch(doc.get("location_pitch") instanceof Number ? ((Number) doc.get("location_pitch")).floatValue() : 0.0f);
+                player.setPreviousLocation(doc.getString("previous_location"));
+
+                // Load serialized inventory data
+                player.setSerializedInventory(doc.getString("inventory_contents"));
+                player.setSerializedArmor(doc.getString("armor_contents"));
+                player.setSerializedEnderChest(doc.getString("ender_chest_contents"));
+                player.setSerializedOffhand(doc.getString("offhand_item"));
+
+                // Load PERMANENT respawn items storage
+                player.setSerializedRespawnItems(doc.getString("respawn_items"));
+                player.setDeathTimestamp(doc.getLong("death_timestamp") != null ? doc.getLong("death_timestamp") : 0);
+
+                // Load player stats
+                player.setHealth(doc.getDouble("health") != null ? doc.getDouble("health") : 20.0);
+                player.setMaxHealth(doc.getDouble("max_health") != null ? doc.getDouble("max_health") : 20.0);
+                player.setFoodLevel(doc.getInteger("food_level", 20));
+                player.setSaturation(doc.get("saturation") instanceof Number ? ((Number) doc.get("saturation")).floatValue() : 5.0f);
+                player.setXpLevel(doc.getInteger("xp_level", 0));
+                player.setXpProgress(doc.get("xp_progress") instanceof Number ? ((Number) doc.get("xp_progress")).floatValue() : 0.0f);
+                player.setTotalExperience(doc.getInteger("total_experience", 0));
+                player.setBedSpawnLocation(doc.getString("bed_spawn_location"));
+                player.setGameMode(doc.getString("gamemode") != null ? doc.getString("gamemode") : "SURVIVAL");
+                player.setActivePotionEffects(doc.getList("active_potion_effects", String.class, new ArrayList<>()));
+
+                // Load achievement and reward tracking
+                player.getAchievements().addAll(doc.getList("achievements", String.class, new ArrayList<>()));
+                player.setAchievementPoints(doc.getInteger("achievement_points", 0));
+                player.getDailyRewardsClaimed().addAll(doc.getList("daily_rewards_claimed", String.class, new ArrayList<>()));
+                player.setLastDailyReward(doc.getLong("last_daily_reward") != null ? doc.getLong("last_daily_reward") : 0);
+
+                // Load event participation tracking
+                Document eventsParticipated = doc.get("events_participated", Document.class);
+                if (eventsParticipated != null) {
+                    for (String key : eventsParticipated.keySet()) {
+                        Integer value = eventsParticipated.getInteger(key);
+                        if (value != null) {
+                            player.getEventsParticipated().put(key, value);
+                        }
+                    }
+                }
+
+                Document eventWins = doc.get("event_wins", Document.class);
+                if (eventWins != null) {
+                    for (String key : eventWins.keySet()) {
+                        Integer value = eventWins.getInteger(key);
+                        if (value != null) {
+                            player.getEventWins().put(key, value);
+                        }
+                    }
+                }
+
+                // Load combat statistics
+                player.setDamageDealt(doc.getLong("damage_dealt") != null ? doc.getLong("damage_dealt") : 0);
+                player.setDamageTaken(doc.getLong("damage_taken") != null ? doc.getLong("damage_taken") : 0);
+                player.setDamageBlocked(doc.getLong("damage_blocked") != null ? doc.getLong("damage_blocked") : 0);
+                player.setDamageDodged(doc.getLong("damage_dodged") != null ? doc.getLong("damage_dodged") : 0);
+
+                // Load combat logout state management
+                String combatLogoutStateStr = doc.getString("combat_logout_state");
+                if (combatLogoutStateStr != null) {
+                    try {
+                        YakPlayer.CombatLogoutState state = YakPlayer.CombatLogoutState.valueOf(combatLogoutStateStr);
+                        player.setCombatLogoutState(state);
+                    } catch (IllegalArgumentException e) {
+                        logger.warning("Invalid combat logout state: " + combatLogoutStateStr + " for player " + player.getUsername());
+                        player.setCombatLogoutState(YakPlayer.CombatLogoutState.NONE);
+                    }
+                } else {
+                    player.setCombatLogoutState(YakPlayer.CombatLogoutState.NONE);
+                }
 
                 logger.fine("Successfully converted document to player: " + player.getUsername());
                 return player;
@@ -809,8 +986,174 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
                 }
                 doc.append("bank_inventory", bankItems);
 
-                // Save all other player data
-                savePlayerMiscData(player, doc);
+                // Alignment data
+                doc.append("alignment", player.getAlignment());
+                doc.append("chaotic_time", player.getChaoticTime());
+                doc.append("neutral_time", player.getNeutralTime());
+                doc.append("alignment_changes", player.getAlignmentChanges());
+
+                // Moderation data
+                doc.append("rank", player.getRank());
+                doc.append("banned", player.isBanned());
+                doc.append("ban_reason", player.getBanReason());
+                doc.append("ban_expiry", player.getBanExpiry());
+                doc.append("muted", player.getMuteTime());
+                doc.append("warnings", player.getWarnings());
+                doc.append("last_warning", player.getLastWarning());
+
+                // Chat data
+                doc.append("chat_tag", player.getChatTag());
+                doc.append("unlocked_chat_tags", new ArrayList<>(player.getUnlockedChatTags()));
+                doc.append("chat_color", player.getChatColor());
+
+                // Mount and Guild data
+                doc.append("horse_tier", player.getHorseTier());
+                doc.append("horse_name", player.getHorseName());
+                doc.append("guild_name", player.getGuildName());
+                doc.append("guild_rank", player.getGuildRank());
+                doc.append("guild_contribution", player.getGuildContribution());
+
+                // Player preferences
+                doc.append("toggle_settings", new ArrayList<>(player.getToggleSettings()));
+
+                // Notification settings
+                Document notificationSettings = new Document();
+                Map<String, Boolean> notificationMap = player.getNotificationSettings();
+                if (notificationMap != null) {
+                    for (Map.Entry<String, Boolean> entry : notificationMap.entrySet()) {
+                        if (entry.getKey() != null && entry.getValue() != null) {
+                            notificationSettings.append(entry.getKey(), entry.getValue());
+                        }
+                    }
+                }
+                doc.append("notification_settings", notificationSettings);
+
+                // Quest system
+                doc.append("current_quest", player.getCurrentQuest());
+                doc.append("quest_progress", player.getQuestProgress());
+                doc.append("completed_quests", new ArrayList<>(player.getCompletedQuests()));
+                doc.append("quest_points", player.getQuestPoints());
+                doc.append("daily_quests_completed", player.getDailyQuestsCompleted());
+                doc.append("last_daily_quest_reset", player.getLastDailyQuestReset());
+
+                // Profession data
+                doc.append("pickaxe_level", player.getPickaxeLevel());
+                doc.append("fishing_level", player.getFishingLevel());
+                doc.append("mining_xp", player.getMiningXp());
+                doc.append("fishing_xp", player.getFishingXp());
+                doc.append("farming_level", player.getFarmingLevel());
+                doc.append("farming_xp", player.getFarmingXp());
+                doc.append("woodcutting_level", player.getWoodcuttingLevel());
+                doc.append("woodcutting_xp", player.getWoodcuttingXp());
+
+                // PvP stats
+                doc.append("t1_kills", player.getT1Kills());
+                doc.append("t2_kills", player.getT2Kills());
+                doc.append("t3_kills", player.getT3Kills());
+                doc.append("t4_kills", player.getT4Kills());
+                doc.append("t5_kills", player.getT5Kills());
+                doc.append("t6_kills", player.getT6Kills());
+                doc.append("kill_streak", player.getKillStreak());
+                doc.append("best_kill_streak", player.getBestKillStreak());
+                doc.append("pvp_rating", player.getPvpRating());
+
+                // World Boss tracking
+                Document worldBossDamage = new Document();
+                Map<String, Integer> damageMap = player.getWorldBossDamage();
+                if (damageMap != null) {
+                    for (Map.Entry<String, Integer> entry : damageMap.entrySet()) {
+                        if (entry.getKey() != null && entry.getValue() != null) {
+                            worldBossDamage.append(entry.getKey(), entry.getValue());
+                        }
+                    }
+                }
+                doc.append("world_boss_damage", worldBossDamage);
+
+                Document worldBossKills = new Document();
+                Map<String, Integer> killsMap = player.getWorldBossKills();
+                if (killsMap != null) {
+                    for (Map.Entry<String, Integer> entry : killsMap.entrySet()) {
+                        if (entry.getKey() != null && entry.getValue() != null) {
+                            worldBossKills.append(entry.getKey(), entry.getValue());
+                        }
+                    }
+                }
+                doc.append("world_boss_kills", worldBossKills);
+
+                // Social settings
+                doc.append("trade_disabled", player.isTradeDisabled());
+                doc.append("buddies", new ArrayList<>(player.getBuddies()));
+                doc.append("blocked_players", new ArrayList<>(player.getBlockedPlayers()));
+                doc.append("energy_disabled", player.isEnergyDisabled());
+
+                // Location and state data
+                doc.append("world", player.getWorld());
+                doc.append("location_x", player.getLocationX());
+                doc.append("location_y", player.getLocationY());
+                doc.append("location_z", player.getLocationZ());
+                doc.append("location_yaw", player.getLocationYaw());
+                doc.append("location_pitch", player.getLocationPitch());
+
+                // Serialized inventory data
+                doc.append("inventory_contents", player.getSerializedInventory());
+                doc.append("armor_contents", player.getSerializedArmor());
+                doc.append("ender_chest_contents", player.getSerializedEnderChest());
+                doc.append("offhand_item", player.getSerializedOffhand());
+
+                // PERMANENT respawn items storage
+                doc.append("respawn_items", player.getSerializedRespawnItems());
+                doc.append("respawn_item_count", player.getRespawnItemCount());
+                doc.append("death_timestamp", player.getDeathTimestamp());
+
+                // Player stats
+                doc.append("health", player.getHealth());
+                doc.append("max_health", player.getMaxHealth());
+                doc.append("food_level", player.getFoodLevel());
+                doc.append("saturation", player.getSaturation());
+                doc.append("xp_level", player.getXpLevel());
+                doc.append("xp_progress", player.getXpProgress());
+                doc.append("total_experience", player.getTotalExperience());
+                doc.append("bed_spawn_location", player.getBedSpawnLocation());
+                doc.append("gamemode", player.getGameMode());
+                doc.append("active_potion_effects", player.getActivePotionEffects());
+
+                // Achievement and reward tracking
+                doc.append("achievements", new ArrayList<>(player.getAchievements()));
+                doc.append("achievement_points", player.getAchievementPoints());
+                doc.append("daily_rewards_claimed", new ArrayList<>(player.getDailyRewardsClaimed()));
+                doc.append("last_daily_reward", player.getLastDailyReward());
+
+                // Event participation tracking
+                Document eventsParticipated = new Document();
+                Map<String, Integer> eventsMap = player.getEventsParticipated();
+                if (eventsMap != null) {
+                    for (Map.Entry<String, Integer> entry : eventsMap.entrySet()) {
+                        if (entry.getKey() != null && entry.getValue() != null) {
+                            eventsParticipated.append(entry.getKey(), entry.getValue());
+                        }
+                    }
+                }
+                doc.append("events_participated", eventsParticipated);
+
+                Document eventWins = new Document();
+                Map<String, Integer> winsMap = player.getEventWins();
+                if (winsMap != null) {
+                    for (Map.Entry<String, Integer> entry : winsMap.entrySet()) {
+                        if (entry.getKey() != null && entry.getValue() != null) {
+                            eventWins.append(entry.getKey(), entry.getValue());
+                        }
+                    }
+                }
+                doc.append("event_wins", eventWins);
+
+                // Combat statistics
+                doc.append("damage_dealt", player.getDamageDealt());
+                doc.append("damage_taken", player.getDamageTaken());
+                doc.append("damage_blocked", player.getDamageBlocked());
+                doc.append("damage_dodged", player.getDamageDodged());
+
+                // Combat logout state management
+                doc.append("combat_logout_state", player.getCombatLogoutState().name());
 
                 logger.fine("Successfully converted player to document: " + player.getUsername());
                 return doc;
@@ -819,208 +1162,6 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
                 logger.log(Level.SEVERE, "Error converting player to document: " + player.getUsername(), e);
                 return null;
             }
-        }
-
-        // Helper method to load miscellaneous player data
-        private void loadPlayerMiscData(YakPlayer player, Document doc) {
-            // Alignment
-            player.setAlignment(doc.getString("alignment") != null ? doc.getString("alignment") : "LAWFUL");
-            player.setChaoticTime(doc.getLong("chaotic_time") != null ? doc.getLong("chaotic_time") : 0);
-            player.setNeutralTime(doc.getLong("neutral_time") != null ? doc.getLong("neutral_time") : 0);
-            player.setAlignmentChanges(doc.getInteger("alignment_changes", 0));
-
-            // Moderation
-            player.setRank(doc.getString("rank") != null ? doc.getString("rank") : "DEFAULT");
-            player.setBanned(doc.getBoolean("banned", false));
-            player.setBanReason(doc.getString("ban_reason") != null ? doc.getString("ban_reason") : "");
-            player.setBanExpiry(doc.getLong("ban_expiry") != null ? doc.getLong("ban_expiry") : 0);
-            player.setMuteTime(doc.getInteger("muted", 0));
-            player.setWarnings(doc.getInteger("warnings", 0));
-            player.setLastWarning(doc.getLong("last_warning") != null ? doc.getLong("last_warning") : 0);
-
-            // Chat
-            player.setChatTag(doc.getString("chat_tag") != null ? doc.getString("chat_tag") : "DEFAULT");
-            player.setUnlockedChatTags(doc.getList("unlocked_chat_tags", String.class, new ArrayList<>()));
-            player.setChatColor(doc.getString("chat_color") != null ? doc.getString("chat_color") : "WHITE");
-
-            // Mount and Guild
-            player.setHorseTier(doc.getInteger("horse_tier", 0));
-            player.setHorseName(doc.getString("horse_name") != null ? doc.getString("horse_name") : "");
-            player.setGuildName(doc.getString("guild_name") != null ? doc.getString("guild_name") : "");
-            player.setGuildRank(doc.getString("guild_rank") != null ? doc.getString("guild_rank") : "");
-            player.setGuildContribution(doc.getInteger("guild_contribution", 0));
-
-            // Toggle settings
-            player.setToggleSettings(new HashSet<>(doc.getList("toggle_settings", String.class, new ArrayList<>())));
-
-            // Location
-            player.setWorld(doc.getString("world"));
-            player.setLocationX(doc.getDouble("location_x") != null ? doc.getDouble("location_x") : 0.0);
-            player.setLocationY(doc.getDouble("location_y") != null ? doc.getDouble("location_y") : 0.0);
-            player.setLocationZ(doc.getDouble("location_z") != null ? doc.getDouble("location_z") : 0.0);
-            player.setLocationYaw(doc.get("location_yaw") instanceof Number ? ((Number) doc.get("location_yaw")).floatValue() : 0.0f);
-            player.setLocationPitch(doc.get("location_pitch") instanceof Number ? ((Number) doc.get("location_pitch")).floatValue() : 0.0f);
-
-            // Inventory
-            player.setSerializedInventory(doc.getString("inventory_contents"));
-            player.setSerializedArmor(doc.getString("armor_contents"));
-            player.setSerializedEnderChest(doc.getString("ender_chest_contents"));
-            player.setSerializedOffhand(doc.getString("offhand_item"));
-
-            // Stats
-            player.setHealth(doc.getDouble("health") != null ? doc.getDouble("health") : 20.0);
-            player.setMaxHealth(doc.getDouble("max_health") != null ? doc.getDouble("max_health") : 20.0);
-            player.setFoodLevel(doc.getInteger("food_level", 20));
-            player.setSaturation(doc.get("saturation") instanceof Number ? ((Number) doc.get("saturation")).floatValue() : 5.0f);
-            player.setXpLevel(doc.getInteger("xp_level", 0));
-            player.setXpProgress(doc.get("xp_progress") instanceof Number ? ((Number) doc.get("xp_progress")).floatValue() : 0.0f);
-            player.setTotalExperience(doc.getInteger("total_experience", 0));
-            player.setBedSpawnLocation(doc.getString("bed_spawn_location"));
-            player.setGameMode(doc.getString("gamemode") != null ? doc.getString("gamemode") : "SURVIVAL");
-            player.setActivePotionEffects(doc.getList("active_potion_effects", String.class, new ArrayList<>()));
-
-            // Social
-            player.setTradeDisabled(doc.getBoolean("trade_disabled", false));
-            player.setBuddies(doc.getList("buddies", String.class, new ArrayList<>()));
-            player.setEnergyDisabled(doc.getBoolean("energy_disabled", false));
-
-            // PvP and combat
-            player.setT1Kills(doc.getInteger("t1_kills", 0));
-            player.setT2Kills(doc.getInteger("t2_kills", 0));
-            player.setT3Kills(doc.getInteger("t3_kills", 0));
-            player.setT4Kills(doc.getInteger("t4_kills", 0));
-            player.setT5Kills(doc.getInteger("t5_kills", 0));
-            player.setT6Kills(doc.getInteger("t6_kills", 0));
-            player.setKillStreak(doc.getInteger("kill_streak", 0));
-            player.setBestKillStreak(doc.getInteger("best_kill_streak", 0));
-            player.setPvpRating(doc.getInteger("pvp_rating", 1000));
-
-            // Professions
-            player.setPickaxeLevel(doc.getInteger("pickaxe_level", 0));
-            player.setFishingLevel(doc.getInteger("fishing_level", 0));
-            player.setMiningXp(doc.getInteger("mining_xp", 0));
-            player.setFishingXp(doc.getInteger("fishing_xp", 0));
-            player.setFarmingLevel(doc.getInteger("farming_level", 0));
-            player.setFarmingXP(doc.getInteger("farming_xp", 0));
-            player.setWoodcuttingLevel(doc.getInteger("woodcutting_level", 0));
-            player.setWoodcuttingXP(doc.getInteger("woodcutting_xp", 0));
-
-            // Achievement data
-            player.setAchievementPoints(doc.getInteger("achievement_points", 0));
-            player.setLastDailyReward(doc.getLong("last_daily_reward") != null ? doc.getLong("last_daily_reward") : 0);
-            player.setDamageDealt(doc.getLong("damage_dealt") != null ? doc.getLong("damage_dealt") : 0);
-            player.setDamageTaken(doc.getLong("damage_taken") != null ? doc.getLong("damage_taken") : 0);
-            player.setDamageBlocked(doc.getLong("damage_blocked") != null ? doc.getLong("damage_blocked") : 0);
-            player.setDamageDodged(doc.getLong("damage_dodged") != null ? doc.getLong("damage_dodged") : 0);
-
-            // Quest data
-            player.setCurrentQuest(doc.getString("current_quest") != null ? doc.getString("current_quest") : "");
-            player.setQuestProgress(doc.getInteger("quest_progress", 0));
-            player.setCompletedQuests(doc.getList("completed_quests", String.class, new ArrayList<>()));
-            player.setQuestPoints(doc.getInteger("quest_points", 0));
-            player.setDailyQuestsCompleted(doc.getInteger("daily_quests_completed", 0));
-            player.setLastDailyQuestReset(doc.getLong("last_daily_quest_reset") != null ? doc.getLong("last_daily_quest_reset") : 0);
-        }
-
-        // Helper method to save miscellaneous player data
-        private void savePlayerMiscData(YakPlayer player, Document doc) {
-            // Alignment
-            doc.append("alignment", player.getAlignment());
-            doc.append("chaotic_time", player.getChaoticTime());
-            doc.append("neutral_time", player.getNeutralTime());
-            doc.append("alignment_changes", player.getAlignmentChanges());
-
-            // Moderation
-            doc.append("rank", player.getRank());
-            doc.append("banned", player.isBanned());
-            doc.append("ban_reason", player.getBanReason());
-            doc.append("ban_expiry", player.getBanExpiry());
-            doc.append("muted", player.getMuteTime());
-            doc.append("warnings", player.getWarnings());
-            doc.append("last_warning", player.getLastWarning());
-
-            // Chat
-            doc.append("chat_tag", player.getChatTag());
-            doc.append("unlocked_chat_tags", new ArrayList<>(player.getUnlockedChatTags()));
-            doc.append("chat_color", player.getChatColor());
-
-            // Mount and Guild
-            doc.append("horse_tier", player.getHorseTier());
-            doc.append("horse_name", player.getHorseName());
-            doc.append("guild_name", player.getGuildName());
-            doc.append("guild_rank", player.getGuildRank());
-            doc.append("guild_contribution", player.getGuildContribution());
-
-            // Toggle settings
-            doc.append("toggle_settings", new ArrayList<>(player.getToggleSettings()));
-
-            // Location
-            doc.append("world", player.getWorld());
-            doc.append("location_x", player.getLocationX());
-            doc.append("location_y", player.getLocationY());
-            doc.append("location_z", player.getLocationZ());
-            doc.append("location_yaw", player.getLocationYaw());
-            doc.append("location_pitch", player.getLocationPitch());
-
-            // Inventory
-            doc.append("inventory_contents", player.getSerializedInventory());
-            doc.append("armor_contents", player.getSerializedArmor());
-            doc.append("ender_chest_contents", player.getSerializedEnderChest());
-            doc.append("offhand_item", player.getSerializedOffhand());
-
-            // Stats
-            doc.append("health", player.getHealth());
-            doc.append("max_health", player.getMaxHealth());
-            doc.append("food_level", player.getFoodLevel());
-            doc.append("saturation", player.getSaturation());
-            doc.append("xp_level", player.getXpLevel());
-            doc.append("xp_progress", player.getXpProgress());
-            doc.append("total_experience", player.getTotalExperience());
-            doc.append("bed_spawn_location", player.getBedSpawnLocation());
-            doc.append("gamemode", player.getGameMode());
-            doc.append("active_potion_effects", player.getActivePotionEffects());
-
-            // Social
-            doc.append("trade_disabled", player.isTradeDisabled());
-            doc.append("buddies", new ArrayList<>(player.getBuddies()));
-            doc.append("energy_disabled", player.isEnergyDisabled());
-
-            // PvP and combat
-            doc.append("t1_kills", player.getT1Kills());
-            doc.append("t2_kills", player.getT2Kills());
-            doc.append("t3_kills", player.getT3Kills());
-            doc.append("t4_kills", player.getT4Kills());
-            doc.append("t5_kills", player.getT5Kills());
-            doc.append("t6_kills", player.getT6Kills());
-            doc.append("kill_streak", player.getKillStreak());
-            doc.append("best_kill_streak", player.getBestKillStreak());
-            doc.append("pvp_rating", player.getPvpRating());
-
-            // Professions
-            doc.append("pickaxe_level", player.getPickaxeLevel());
-            doc.append("fishing_level", player.getFishingLevel());
-            doc.append("mining_xp", player.getMiningXp());
-            doc.append("fishing_xp", player.getFishingXp());
-            doc.append("farming_level", player.getFarmingLevel());
-            doc.append("farming_xp", player.getFarmingXP());
-            doc.append("woodcutting_level", player.getWoodcuttingLevel());
-            doc.append("woodcutting_xp", player.getWoodcuttingXP());
-
-            // Achievement data
-            doc.append("achievement_points", player.getAchievementPoints());
-            doc.append("last_daily_reward", player.getLastDailyReward());
-            doc.append("damage_dealt", player.getDamageDealt());
-            doc.append("damage_taken", player.getDamageTaken());
-            doc.append("damage_blocked", player.getDamageBlocked());
-            doc.append("damage_dodged", player.getDamageDodged());
-
-            // Quest data
-            doc.append("current_quest", player.getCurrentQuest());
-            doc.append("quest_progress", player.getQuestProgress());
-            doc.append("completed_quests", new ArrayList<>(player.getCompletedQuests()));
-            doc.append("quest_points", player.getQuestPoints());
-            doc.append("daily_quests_completed", player.getDailyQuestsCompleted());
-            doc.append("last_daily_quest_reset", player.getLastDailyQuestReset());
         }
     }
 }

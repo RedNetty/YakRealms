@@ -33,7 +33,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
 
 /**
- * Enhanced menu for the Gambler vendor with proper event management and spam prevention
+ *  menu for the Gambler vendor with proper event management and spam prevention
  */
 public class GamblerMenu implements Listener {
 

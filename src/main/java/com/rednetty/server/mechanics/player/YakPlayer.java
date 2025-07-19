@@ -24,9 +24,10 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
- * Enhanced core player data model with improved thread safety,
+ *  core player data model with improved thread safety,
  * validation, performance optimizations, and comprehensive functionality.
  * Physical gem economy - no virtual gem balance, only bank balance and physical items.
+ *  with permanent respawn items storage for Spigot 1.20.4
  */
 public class YakPlayer {
     private static final Logger logger = Logger.getLogger(YakPlayer.class.getName());
@@ -309,6 +310,19 @@ public class YakPlayer {
     @Expose @SerializedName("offhand_item")
     private volatile String serializedOffhand;
 
+    // PERMANENT respawn items storage - no expiration
+    @Expose
+    @SerializedName("respawn_items")
+    private volatile String serializedRespawnItems;
+
+    @Expose
+    @SerializedName("respawn_item_count")
+    private volatile int respawnItemCount = 0;
+
+    @Expose
+    @SerializedName("death_timestamp")
+    private volatile long deathTimestamp = 0;
+
     // Player stats
     @Expose @SerializedName("health")
     private volatile double health = 20.0;
@@ -373,6 +387,11 @@ public class YakPlayer {
     @Expose @SerializedName("damage_dodged")
     private volatile long damageDodged = 0;
 
+    // Combat logout state management
+    @Expose
+    @SerializedName("combat_logout_state")
+    private volatile CombatLogoutState combatLogoutState = CombatLogoutState.NONE;
+
     // Non-serialized transient fields
     private transient volatile Player bukkitPlayer;
     private transient volatile boolean inCombat = false;
@@ -382,10 +401,17 @@ public class YakPlayer {
     private transient volatile boolean dirty = false; // Optimization flag for saves
     private transient volatile long sessionStartTime;
 
-    // Enhanced display name caching
+    //  display name caching
     private transient volatile String cachedDisplayName;
     private transient volatile long displayNameCacheTime = 0;
     private static final long DISPLAY_NAME_CACHE_DURATION = 30000; // 30 seconds
+
+    /**
+     * Get the current combat logout state
+     */
+    public CombatLogoutState getCombatLogoutState() {
+        return combatLogoutState;
+    }
 
     /**
      * Constructor for creating a new YakPlayer
@@ -463,7 +489,456 @@ public class YakPlayer {
         return cleaned;
     }
 
-    // Enhanced connection management
+    // Combat logout state management methods
+
+    public void setCombatLogoutState(CombatLogoutState state) {
+        lock.writeLock().lock();
+        try {
+            if (state == null) state = CombatLogoutState.NONE;
+
+            // Log state transitions for debugging
+            if (this.combatLogoutState != state) {
+                logger.info("Combat logout state change for " + username +
+                        ": " + this.combatLogoutState + " -> " + state);
+            }
+
+            //  Allow COMPLETED -> NONE and PROCESSING -> COMPLETED transitions
+            // These are valid for cleanup and death processing
+            this.combatLogoutState = state;
+            markDirty();
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    /**
+     * Check if player is in any combat logout state
+     */
+    public boolean isInCombatLogoutState() {
+        lock.readLock().lock();
+        try {
+            return combatLogoutState != CombatLogoutState.NONE;
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    /**
+     * Check if player needs combat logout death
+     */
+    public boolean needsCombatLogoutDeath() {
+        lock.readLock().lock();
+        try {
+            return combatLogoutState == CombatLogoutState.PROCESSED;
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    /**
+     * Reset combat logout state to NONE
+     */
+    public void resetCombatLogoutState() {
+        setCombatLogoutState(CombatLogoutState.NONE);
+    }
+
+    /**
+     * PERMANENT respawn items management - stored in database forever until processed
+     * Improved validation and error handling
+     */
+    public boolean setRespawnItems(List<ItemStack> items) {
+        lock.writeLock().lock();
+        try {
+            // Clear if null or empty
+            if (items == null || items.isEmpty()) {
+                clearRespawnItems();
+                return true;
+            }
+
+            // Filter out null and air items, create defensive copies
+            List<ItemStack> validItems = new ArrayList<>();
+            for (ItemStack item : items) {
+                if (item != null && item.getType() != Material.AIR && item.getAmount() > 0) {
+                    // Create a defensive copy to prevent external modifications
+                    ItemStack copy = item.clone();
+                    validItems.add(copy);
+                }
+            }
+
+            if (validItems.isEmpty()) {
+                clearRespawnItems();
+                return true;
+            }
+
+            try {
+                // Serialize items for permanent database storage
+                String serialized = ItemSerializer.serializeItemStacks(validItems.toArray(new ItemStack[0]));
+                if (serialized == null || serialized.isEmpty()) {
+                    logger.severe("Failed to serialize respawn items for " + username);
+                    return false;
+                }
+
+                // Validate serialization by attempting deserialization
+                ItemStack[] testDeserialize = ItemSerializer.deserializeItemStacks(serialized);
+                if (testDeserialize == null || testDeserialize.length != validItems.size()) {
+                    logger.severe("Serialization validation failed for respawn items: " + username);
+                    return false;
+                }
+
+                this.serializedRespawnItems = serialized;
+                this.respawnItemCount = validItems.size();
+                this.deathTimestamp = System.currentTimeMillis();
+                markDirty();
+
+                logger.info("Successfully stored " + validItems.size() + " respawn items permanently for " + username);
+                return true;
+
+            } catch (Exception e) {
+                logger.log(Level.SEVERE, "Failed to serialize respawn items for " + username, e);
+                return false;
+            }
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    // PERMANENT respawn items management - stored in database forever until processed
+
+    /**
+     * Get respawn items (permanent storage)
+     */
+    public List<ItemStack> getRespawnItems() {
+        lock.readLock().lock();
+        try {
+            if (serializedRespawnItems == null || serializedRespawnItems.isEmpty()) {
+                return new ArrayList<>();
+            }
+
+            try {
+                ItemStack[] items = ItemSerializer.deserializeItemStacks(serializedRespawnItems);
+                if (items == null) {
+                    logger.warning("Failed to deserialize respawn items for " + username);
+                    return new ArrayList<>();
+                }
+
+                List<ItemStack> itemList = new ArrayList<>();
+                for (ItemStack item : items) {
+                    if (item != null && item.getType() != Material.AIR && item.getAmount() > 0) {
+                        // Create defensive copy to prevent external modifications
+                        ItemStack copy = item.clone();
+                        itemList.add(copy);
+                    }
+                }
+
+                // Validate count matches
+                if (itemList.size() != respawnItemCount) {
+                    logger.warning("Respawn items count mismatch for " + username +
+                            ": expected " + respawnItemCount + ", got " + itemList.size());
+                }
+
+                logger.fine("Retrieved " + itemList.size() + " respawn items for " + username);
+                return itemList;
+
+            } catch (Exception e) {
+                logger.log(Level.WARNING, "Error deserializing respawn items for " + username, e);
+                return new ArrayList<>();
+            }
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    /**
+     * Check if player has pending respawn items (permanent)
+     */
+    public boolean hasRespawnItems() {
+        lock.readLock().lock();
+        try {
+            return serializedRespawnItems != null &&
+                    !serializedRespawnItems.isEmpty() &&
+                    respawnItemCount > 0;
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    /**
+     * Clear respawn items from permanent storage
+     */
+    public void clearRespawnItems() {
+        lock.writeLock().lock();
+        try {
+            this.serializedRespawnItems = null;
+            this.respawnItemCount = 0;
+            this.deathTimestamp = 0;
+            // Also clear transient respawn items if any
+            this.respawnItems = null;
+            markDirty();
+
+            logger.fine("Cleared all respawn items for " + username);
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    /**
+     * Get the number of pending respawn items
+     */
+    public int getRespawnItemCount() {
+        lock.readLock().lock();
+        try {
+            return respawnItemCount;
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    /**
+     * Get the timestamp when death/respawn items were stored
+     */
+    public long getDeathTimestamp() {
+        lock.readLock().lock();
+        try {
+            return deathTimestamp;
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    /**
+     * Set death timestamp
+     */
+    public void setDeathTimestamp(long timestamp) {
+        lock.writeLock().lock();
+        try {
+            this.deathTimestamp = timestamp;
+            markDirty();
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    /**
+     * Get formatted time since death (for admin commands)
+     */
+    public String getTimeSinceDeath() {
+        lock.readLock().lock();
+        try {
+            if (deathTimestamp <= 0) {
+                return "Never";
+            }
+
+            long timeDiff = System.currentTimeMillis() - deathTimestamp;
+            long seconds = timeDiff / 1000;
+            long minutes = seconds / 60;
+            long hours = minutes / 60;
+            long days = hours / 24;
+
+            if (days > 0) {
+                return days + " days, " + (hours % 24) + " hours ago";
+            } else if (hours > 0) {
+                return hours + " hours, " + (minutes % 60) + " minutes ago";
+            } else if (minutes > 0) {
+                return minutes + " minutes, " + (seconds % 60) + " seconds ago";
+            } else {
+                return seconds + " seconds ago";
+            }
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    /**
+     * Validate respawn items integrity
+     */
+    public boolean validateRespawnItems() {
+        lock.readLock().lock();
+        try {
+            if (!hasRespawnItems()) {
+                return true; // No items to validate
+            }
+
+            try {
+                // Attempt to deserialize
+                List<ItemStack> items = getRespawnItems();
+
+                // Check if we got any items
+                if (items.isEmpty() && respawnItemCount > 0) {
+                    logger.warning("Failed to deserialize any respawn items for " + username +
+                            " despite count of " + respawnItemCount);
+                    return false;
+                }
+
+                // Validate each item
+                int validCount = 0;
+                for (ItemStack item : items) {
+                    if (item != null && item.getType() != Material.AIR && item.getAmount() > 0) {
+                        validCount++;
+                    }
+                }
+
+                boolean valid = validCount > 0;
+
+                if (!valid) {
+                    logger.warning("No valid respawn items found for " + username);
+                }
+
+                return valid;
+            } catch (Exception e) {
+                logger.log(Level.WARNING, "Failed to validate respawn items for " + username, e);
+                return false;
+            }
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    /**
+     * Create backup of current respawn items
+     */
+    public String backupRespawnItems() {
+        lock.readLock().lock();
+        try {
+            if (!hasRespawnItems()) {
+                return null;
+            }
+
+            // Return a defensive copy of the serialized data for backup
+            return serializedRespawnItems;
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    /**
+     * Restore respawn items from backup
+     */
+    public boolean restoreRespawnItemsFromBackup(String backup) {
+        if (backup == null || backup.isEmpty()) {
+            return false;
+        }
+
+        lock.writeLock().lock();
+        try {
+            // Validate the backup data first
+            try {
+                ItemStack[] items = ItemSerializer.deserializeItemStacks(backup);
+                if (items == null || items.length == 0) {
+                    logger.warning("Invalid backup data for respawn items restoration: " + username);
+                    return false;
+                }
+
+                // Count valid items
+                int validCount = 0;
+                for (ItemStack item : items) {
+                    if (item != null && item.getType() != Material.AIR && item.getAmount() > 0) {
+                        validCount++;
+                    }
+                }
+
+                if (validCount == 0) {
+                    logger.warning("No valid items in backup data for: " + username);
+                    return false;
+                }
+
+                this.serializedRespawnItems = backup;
+                this.respawnItemCount = validCount;
+                this.deathTimestamp = System.currentTimeMillis(); // Update timestamp
+                markDirty();
+
+                logger.info("Successfully restored " + validCount + " respawn items from backup for " + username);
+                return true;
+
+            } catch (Exception e) {
+                logger.log(Level.SEVERE, "Failed to restore respawn items from backup for " + username, e);
+                return false;
+            }
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    /**
+     * Get detailed respawn items info for admin commands
+     */
+    public String getRespawnItemsInfo() {
+        lock.readLock().lock();
+        try {
+            if (!hasRespawnItems()) {
+                return "No pending respawn items";
+            }
+
+            StringBuilder info = new StringBuilder();
+            info.append("=== Respawn Items for ").append(username).append(" ===\n");
+            info.append("Count: ").append(respawnItemCount).append("\n");
+            info.append("Stored: ").append(getTimeSinceDeath()).append("\n");
+            info.append("Combat Logout State: ").append(combatLogoutState).append("\n");
+            info.append("Data Size: ").append(serializedRespawnItems != null ?
+                    serializedRespawnItems.length() : 0).append(" bytes\n");
+
+            try {
+                List<ItemStack> items = getRespawnItems();
+                info.append("\nItems (").append(items.size()).append(" total):\n");
+
+                int index = 1;
+                for (ItemStack item : items) {
+                    if (item != null) {
+                        String itemName = item.hasItemMeta() && item.getItemMeta().hasDisplayName() ?
+                                item.getItemMeta().getDisplayName() :
+                                item.getType().name();
+                        info.append("  ").append(index++).append(". ")
+                                .append(ChatColor.stripColor(itemName))
+                                .append(" x").append(item.getAmount());
+
+                        // Add enchantment info if present
+                        if (item.hasItemMeta() && item.getItemMeta().hasEnchants()) {
+                            info.append(" [Enchanted]");
+                        }
+
+                        info.append("\n");
+                    }
+                }
+            } catch (Exception e) {
+                info.append("\nError loading item details: ").append(e.getMessage()).append("\n");
+            }
+
+            return info.toString();
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    /**
+     * Update the disconnect() method to handle combat logout state
+     */
+    public void disconnect() {
+        lock.writeLock().lock();
+        try {
+            this.lastLogout = Instant.now().getEpochSecond();
+
+            // Update total playtime
+            if (sessionStartTime > 0) {
+                long sessionDuration = System.currentTimeMillis() - sessionStartTime;
+                this.totalPlaytime += sessionDuration / 1000; // Convert to seconds
+            }
+
+            // Don't reset combat logout state on disconnect - it needs to persist
+            // across logout/login for proper processing
+
+            this.bukkitPlayer = null;
+            markDirty();
+            logger.fine("Disconnected player: " + username);
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    // Connection and lifecycle management
+
+    /**
+     * Handle player connection with combat logout state migration
+     * Better state handling on join
+     */
     public void connect(Player player) {
         lock.writeLock().lock();
         try {
@@ -476,36 +951,102 @@ public class YakPlayer {
                 this.ipAddress = player.getAddress().getAddress().getHostAddress();
             }
 
+            // Migrate old combat logout flags if they exist
+            migrateOldCombatLogoutFlags();
+
+            //  Clear any temporary death prevention on join
+            removeTemporaryData("prevent_healing");
+
+            //  Ensure player starts with proper health/food values
+            if (health <= 0) {
+                health = 20.0; // Default health if invalid
+            }
+            if (foodLevel <= 0) {
+                foodLevel = 20; // Default food level
+            }
+
             markDirty();
 
-            // Enhanced energy level display
+            //  energy level display
             Bukkit.getScheduler().runTask(YakRealms.getInstance(), () -> {
                 player.setExp(1.0f);
                 player.setLevel(100);
             });
 
-            logger.fine("Connected player: " + player.getName());
+            logger.fine("Connected player: " + player.getName() +
+                    " (Combat State: " + combatLogoutState +
+                    ", Respawn Items: " + hasRespawnItems() + ")");
         } finally {
             lock.writeLock().unlock();
         }
     }
 
-    public void disconnect() {
-        lock.writeLock().lock();
+    /**
+     * Migrate old combat logout flags to new state system
+     */
+    private void migrateOldCombatLogoutFlags() {
         try {
-            this.lastLogout = Instant.now().getEpochSecond();
+            boolean hasOldProcessedFlag = hasTemporaryData("combat_logout_death_processed");
+            boolean hasOldNeedsDeathFlag = hasTemporaryData("combat_logout_needs_death");
+            boolean hasOldSessionFlag = hasTemporaryData("combat_logout_session");
+            boolean hasOldProcessingFlag = hasTemporaryData("combat_logout_processing");
 
-            // Update total playtime
-            if (sessionStartTime > 0) {
-                long sessionDuration = System.currentTimeMillis() - sessionStartTime;
-                this.totalPlaytime += sessionDuration / 1000; // Convert to seconds
+            // Count how many old flags exist
+            int oldFlagCount = 0;
+            if (hasOldProcessedFlag) oldFlagCount++;
+            if (hasOldNeedsDeathFlag) oldFlagCount++;
+            if (hasOldSessionFlag) oldFlagCount++;
+            if (hasOldProcessingFlag) oldFlagCount++;
+
+            // Only migrate if we have old flags and current state is NONE
+            if (oldFlagCount > 0 && combatLogoutState == CombatLogoutState.NONE) {
+                // Priority order for migration
+                if (hasOldNeedsDeathFlag) {
+                    combatLogoutState = CombatLogoutState.PROCESSED;
+                    logger.info("Migrated old combat logout flags to PROCESSED state for: " + username);
+                } else if (hasOldProcessedFlag) {
+                    combatLogoutState = CombatLogoutState.COMPLETED;
+                    logger.info("Migrated old combat logout flags to COMPLETED state for: " + username);
+                } else if (hasOldProcessingFlag) {
+                    combatLogoutState = CombatLogoutState.PROCESSING;
+                    logger.info("Migrated old combat logout flags to PROCESSING state for: " + username);
+                } else if (hasOldSessionFlag) {
+                    // Session flag alone means they were tagged but didn't logout
+                    combatLogoutState = CombatLogoutState.NONE;
+                    logger.info("Migrated old combat logout session flag to NONE state for: " + username);
+                }
+
+                markDirty();
             }
 
-            this.bukkitPlayer = null;
-            markDirty();
-            logger.fine("Disconnected player: " + username);
+            // Clean up old flags regardless
+            if (oldFlagCount > 0) {
+                removeTemporaryData("combat_logout_death_processed");
+                removeTemporaryData("combat_logout_needs_death");
+                removeTemporaryData("combat_logout_session");
+                removeTemporaryData("combat_logout_processing");
+
+                logger.info("Cleaned up " + oldFlagCount + " old combat logout flags for: " + username);
+            }
+
+        } catch (Exception e) {
+            logger.log(Level.WARNING, "Error migrating old combat logout flags for " + username, e);
+        }
+    }
+
+    public void applyInventory(Player player) {
+        if (player == null || serializedInventory == null) return;
+
+        lock.readLock().lock();
+        try {
+            ItemStack[] contents = ItemSerializer.deserializeItemStacks(serializedInventory);
+            if (contents != null && contents.length == player.getInventory().getSize()) {
+                player.getInventory().setContents(contents);
+            }
+        } catch (Exception e) {
+            logger.log(Level.SEVERE, "Error applying inventory for player " + player.getName(), e);
         } finally {
-            lock.writeLock().unlock();
+            lock.readLock().unlock();
         }
     }
 
@@ -528,7 +1069,7 @@ public class YakPlayer {
         }
     }
 
-    // Enhanced bank management with authorization and logging
+    //  bank management with authorization and logging
     public boolean addBankAuthorizedUser(UUID userUuid) {
         if (userUuid == null) return false;
 
@@ -595,7 +1136,7 @@ public class YakPlayer {
         }
     }
 
-    // Enhanced buddy management with limits and validation
+    //  buddy management with limits and validation
     public boolean addBuddy(String buddyName) {
         if (buddyName == null || buddyName.trim().isEmpty()) {
             return false;
@@ -673,7 +1214,7 @@ public class YakPlayer {
         }
     }
 
-    // Enhanced player blocking system
+    //  player blocking system
     public boolean blockPlayer(String playerName) {
         if (playerName == null || playerName.trim().isEmpty()) {
             return false;
@@ -733,7 +1274,7 @@ public class YakPlayer {
         }
     }
 
-    // Enhanced toggle system with validation and feedback
+    //  toggle system with validation and feedback
     public boolean toggleSetting(String setting) {
         if (setting == null || setting.trim().isEmpty()) {
             return false;
@@ -749,7 +1290,7 @@ public class YakPlayer {
             }
             markDirty();
 
-            // Provide enhanced feedback if player is online
+            // Provide  feedback if player is online
             if (isOnline()) {
                 Player player = getBukkitPlayer();
                 if (player != null) {
@@ -768,7 +1309,7 @@ public class YakPlayer {
         }
     }
 
-    // Enhanced notification settings
+    //  notification settings
     public boolean setNotificationSetting(String type, boolean enabled) {
         if (type == null || type.trim().isEmpty()) {
             return false;
@@ -800,7 +1341,7 @@ public class YakPlayer {
         }
     }
 
-    // Enhanced inventory management with error handling
+    //  inventory management with error handling
     public void updateInventory(Player player) {
         if (player == null) return;
 
@@ -818,46 +1359,14 @@ public class YakPlayer {
         }
     }
 
-    public void applyInventory(Player player) {
-        if (player == null) return;
-
-        lock.readLock().lock();
-        try {
-            if (serializedInventory != null) {
-                ItemStack[] contents = ItemSerializer.deserializeItemStacks(serializedInventory);
-                if (contents != null) {
-                    player.getInventory().setContents(contents);
-                }
-            }
-
-            if (serializedArmor != null) {
-                ItemStack[] armor = ItemSerializer.deserializeItemStacks(serializedArmor);
-                if (armor != null) {
-                    player.getInventory().setArmorContents(armor);
-                }
-            }
-
-            if (serializedEnderChest != null) {
-                ItemStack[] enderItems = ItemSerializer.deserializeItemStacks(serializedEnderChest);
-                if (enderItems != null) {
-                    player.getEnderChest().setContents(enderItems);
-                }
-            }
-
-            if (serializedOffhand != null) {
-                ItemStack offhand = ItemSerializer.deserializeItemStack(serializedOffhand);
-                if (offhand != null) {
-                    player.getInventory().setItemInOffHand(offhand);
-                }
-            }
-        } catch (Exception e) {
-            logger.log(Level.SEVERE, "Error applying inventory for player " + player.getName(), e);
-        } finally {
-            lock.readLock().unlock();
-        }
+    public void clearTemporaryData() {
+        // Save combat logout state before clearing
+        CombatLogoutState savedState = combatLogoutState;
+        temporaryData.clear();
+        combatLogoutState = savedState;
     }
 
-    // Enhanced stats management with validation
+    //  stats management with validation
     public void updateStats(Player player) {
         if (player == null) return;
 
@@ -956,7 +1465,7 @@ public class YakPlayer {
         }
     }
 
-    // Enhanced location management with validation
+    //  location management with validation
     public void updateLocation(Location location) {
         if (location == null || location.getWorld() == null) return;
 
@@ -993,7 +1502,7 @@ public class YakPlayer {
         }
     }
 
-    // Enhanced display name with caching and validation
+    //  display name with caching and validation
     public String getFormattedDisplayName() {
         long currentTime = System.currentTimeMillis();
 
@@ -1063,7 +1572,7 @@ public class YakPlayer {
         }
     }
 
-    // Enhanced PvP tracking
+    //  PvP tracking
     public void recordKill(String victimName, int victimTier) {
         if (victimName == null || victimTier < 1 || victimTier > 6) return;
 
@@ -1122,7 +1631,7 @@ public class YakPlayer {
         }
     }
 
-    // Enhanced combat tracking
+    //  combat tracking
     public void addDamageDealt(double damage) {
         if (damage <= 0) return;
 
@@ -1171,7 +1680,7 @@ public class YakPlayer {
         }
     }
 
-    // Enhanced achievement system
+    //  achievement system
     public boolean unlockAchievement(String achievementId) {
         if (achievementId == null || achievementId.trim().isEmpty()) {
             return false;
@@ -1214,7 +1723,7 @@ public class YakPlayer {
         }
     }
 
-    // Enhanced quest system
+    //  quest system
     public boolean startQuest(String questId) {
         if (questId == null || questId.trim().isEmpty()) {
             return false;
@@ -1284,7 +1793,7 @@ public class YakPlayer {
         }
     }
 
-    // Enhanced profession system
+    //  profession system
     public void addProfessionXP(String profession, int xp) {
         if (profession == null || xp <= 0) return;
 
@@ -1345,7 +1854,7 @@ public class YakPlayer {
         }
     }
 
-    // Enhanced moderation methods
+    //  moderation methods
     public void setBanned(boolean banned, String reason, long expiry) {
         lock.writeLock().lock();
         try {
@@ -1454,7 +1963,7 @@ public class YakPlayer {
         }
     }
 
-    // Enhanced temporary data management
+    //  temporary data management
     public void setTemporaryData(String key, Object value) {
         if (key != null && value != null) {
             temporaryData.put(key, value);
@@ -1475,8 +1984,13 @@ public class YakPlayer {
         }
     }
 
-    public void clearTemporaryData() {
-        temporaryData.clear();
+    public String getSerializedRespawnItems() {
+        lock.readLock().lock();
+        try {
+            return serializedRespawnItems;
+        } finally {
+            lock.readLock().unlock();
+        }
     }
 
     // PUBLIC ItemStack serialization methods (used by other classes)
@@ -2684,6 +3198,25 @@ public class YakPlayer {
         }
     }
 
+    public void setSerializedRespawnItems(String serializedRespawnItems) {
+        lock.writeLock().lock();
+        try {
+            this.serializedRespawnItems = serializedRespawnItems;
+            markDirty();
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    public int getFarmingXp() {
+        lock.readLock().lock();
+        try {
+            return farmingXp;
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
     public double getHealth() {
         lock.readLock().lock();
         try {
@@ -3148,22 +3681,22 @@ public class YakPlayer {
         }
     }
 
-    public int getFarmingXP() {
-        lock.readLock().lock();
-        try {
-            return farmingXp;
-        } finally {
-            lock.readLock().unlock();
-        }
-    }
-
-    public void setFarmingXP(int farmingXp) {
+    public void setFarmingXp(int farmingXp) {
         lock.writeLock().lock();
         try {
             this.farmingXp = farmingXp;
             markDirty();
         } finally {
             lock.writeLock().unlock();
+        }
+    }
+
+    public int getWoodcuttingXp() {
+        lock.readLock().lock();
+        try {
+            return woodcuttingXp;
+        } finally {
+            lock.readLock().unlock();
         }
     }
 
@@ -3186,16 +3719,7 @@ public class YakPlayer {
         }
     }
 
-    public int getWoodcuttingXP() {
-        lock.readLock().lock();
-        try {
-            return woodcuttingXp;
-        } finally {
-            lock.readLock().unlock();
-        }
-    }
-
-    public void setWoodcuttingXP(int woodcuttingXp) {
+    public void setWoodcuttingXp(int woodcuttingXp) {
         lock.writeLock().lock();
         try {
             this.woodcuttingXp = woodcuttingXp;
@@ -3203,6 +3727,10 @@ public class YakPlayer {
         } finally {
             lock.writeLock().unlock();
         }
+    }
+
+    public ItemStack[] getRespawnItemsArray() {
+        return respawnItems != null ? respawnItems.clone() : null;
     }
 
     public int getKillStreak() {
@@ -3444,10 +3972,6 @@ public class YakPlayer {
         this.respawnItems = items != null ? items.clone() : null;
     }
 
-    public ItemStack[] getRespawnItems() {
-        return respawnItems != null ? respawnItems.clone() : null;
-    }
-
     @Override
     public String toString() {
         lock.readLock().lock();
@@ -3466,10 +3990,22 @@ public class YakPlayer {
                     ", buddies=" + buddies.size() +
                     ", achievements=" + achievements.size() +
                     ", playtime=" + getTotalPlaytime() + "s" +
+                    ", combatLogoutState=" + combatLogoutState +
+                    ", respawnItems=" + hasRespawnItems() +
                     '}';
         } finally {
             lock.readLock().unlock();
         }
+    }
+
+    /**
+     * Combat logout state enum for tracking processing status
+     */
+    public enum CombatLogoutState {
+        NONE,           // No combat logout
+        PROCESSING,     // Currently processing logout
+        PROCESSED,      // Items already processed, needs death
+        COMPLETED       // Death completed, cleanup done
     }
 
     // Helper classes for serialization

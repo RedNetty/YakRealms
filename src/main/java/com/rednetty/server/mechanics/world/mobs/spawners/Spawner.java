@@ -20,9 +20,9 @@ import java.util.logging.Logger;
 import java.util.stream.Collectors;
 
 /**
- *  Complete Spawner class with enhanced reliability, error handling, and MAIN THREAD SAFETY
+ *  Complete Spawner class with  reliability, error handling, and MAIN THREAD SAFETY
  * - Fixed entity creation validation and spawn failure handling
- * - Enhanced mob type validation with comprehensive error reporting
+ * -  mob type validation with comprehensive error reporting
  * - Improved spawn success rates with better location finding
  * - Added detailed logging for debugging spawn failures
  * - Fixed respawn queue management and mob counting issues
@@ -43,27 +43,27 @@ public class Spawner {
     private final MobManager mobManager;
     private final String uniqueId;
 
-    // Enhanced timing controls
+    //  timing controls
     private long lastProcessTime = 0;
     private long lastHologramUpdate = 0;
     private boolean needsHologramUpdate = true;
     private long lastPlayerCheck = 0;
     private long lastValidationTime = 0;
 
-    // Enhanced timing constants
+    //  timing constants
     private static final long PROCESS_INTERVAL = 1000; // 1 second between processes
     private static final long HOLOGRAM_UPDATE_INTERVAL = 5000; // 5 seconds between hologram updates
     private static final long MIN_RESPAWN_TIME = 30000; // 30 seconds minimum respawn time
     private static final long PLAYER_CHECK_INTERVAL = 2000; // 2 seconds between player checks
     private static final long VALIDATION_INTERVAL = 10000; // 10 seconds between validations
 
-    // Enhanced performance tracking
+    //  performance tracking
     private int totalSpawnAttempts = 0;
     private int successfulSpawns = 0;
     private int failedSpawns = 0;
     private long lastPerformanceReset = System.currentTimeMillis();
 
-    // Enhanced failure tracking
+    //  failure tracking
     private final Map<String, Integer> mobTypeFailures = new ConcurrentHashMap<>();
     private final Map<String, Long> lastFailureTime = new ConcurrentHashMap<>();
     private final Set<String> temporarilyDisabledTypes = new HashSet<>();
@@ -142,10 +142,10 @@ public class Spawner {
                 location.getBlockZ();
     }
 
-    // ================ ENHANCED DATA PARSING ================
+    // ================  DATA PARSING ================
 
     /**
-     * Parse mob data from string format with enhanced validation
+     * Parse mob data from string format with  validation
      */
     public void parseSpawnerData(String data) {
         mobEntries.clear();
@@ -167,7 +167,7 @@ public class Spawner {
                 try {
                     MobEntry mobEntry = MobEntry.fromString(entry);
 
-                    // Enhanced validation
+                    //  validation
                     if (validateMobEntry(mobEntry)) {
                         mobEntries.add(mobEntry);
                         validEntries++;
@@ -195,7 +195,7 @@ public class Spawner {
     }
 
     /**
-     * Enhanced mob entry validation
+     *  mob entry validation
      */
     private boolean validateMobEntry(MobEntry entry) {
         if (entry == null) return false;
@@ -235,7 +235,7 @@ public class Spawner {
                 .collect(Collectors.joining(","));
     }
 
-    // ================ ENHANCED MAIN PROCESSING ================
+    // ================  MAIN PROCESSING ================
 
     /**
      *  Main tick processing method with MAIN THREAD SAFETY
@@ -288,7 +288,7 @@ public class Spawner {
     }
 
     /**
-     *  Enhanced mob validation and cleanup with MAIN THREAD SAFETY
+     *   mob validation and cleanup with MAIN THREAD SAFETY
      */
     private void validateAndCleanupMobs() {
         // CRITICAL: Verify we're on the main thread for entity operations
@@ -392,7 +392,7 @@ public class Spawner {
             if (respawnEntry == null) continue;
 
             // Check if we still need a mob of this type and are not at global capacity
-            if (!isAtCapacity() && spawnSingleMobEnhanced(respawnEntry.getMobType(), respawnEntry.getTier(), respawnEntry.isElite())) {
+            if (!isAtCapacity() && spawnSingleMob(respawnEntry.getMobType(), respawnEntry.getTier(), respawnEntry.isElite())) {
                 if (isDebugMode()) {
                     logger.info("[Spawner] Respawned: " + respawnEntry.getMobType() + " T" + respawnEntry.getTier() +
                             (respawnEntry.isElite() ? "+" : ""));
@@ -444,7 +444,7 @@ public class Spawner {
                 if (isAtCapacity()) return; // Stop if we hit capacity mid-spawn
 
                 totalSpawnAttempts++;
-                if (spawnSingleMobEnhanced(entry.getMobType(), entry.getTier(), entry.isElite())) {
+                if (spawnSingleMob(entry.getMobType(), entry.getTier(), entry.isElite())) {
                     metrics.recordSpawn(1);
                     successfulSpawns++;
                     if (isDebugMode()) {
@@ -461,12 +461,12 @@ public class Spawner {
     }
 
     /**
-     *  Enhanced mob spawning with MAIN THREAD SAFETY
+     *   mob spawning with MAIN THREAD SAFETY
      */
-    private boolean spawnSingleMobEnhanced(String mobType, int tier, boolean elite) {
+    private boolean spawnSingleMob(String mobType, int tier, boolean elite) {
         // CRITICAL: Verify we're on the main thread for entity operations
         if (!Bukkit.isPrimaryThread()) {
-            logger.severe("[Spawner] CRITICAL: spawnSingleMobEnhanced called from async thread!");
+            logger.severe("[Spawner] CRITICAL: spawnSingleMob called from async thread!");
             return false;
         }
 
@@ -481,8 +481,8 @@ public class Spawner {
                 return false;
             }
 
-            // Get a safe spawn location with enhanced validation
-            Location spawnLoc = getRandomSpawnLocationEnhanced();
+            // Get a safe spawn location with  validation
+            Location spawnLoc = getRandomSpawnLocation();
             if (spawnLoc == null) {
                 recordSpawnFailure(mobKey, "No safe spawn location found");
                 return false;
@@ -566,7 +566,7 @@ public class Spawner {
     }
 
     /**
-     * Enhanced mob type validation
+     *  mob type validation
      */
     private boolean validateMobTypeForSpawning(String mobType, int tier, boolean elite) {
         try {
@@ -614,9 +614,9 @@ public class Spawner {
     }
 
     /**
-     *  Enhanced random spawn location generation with better validation
+     *   random spawn location generation with better validation
      */
-    private Location getRandomSpawnLocationEnhanced() {
+    private Location getRandomSpawnLocation() {
         double radiusX = properties.getSpawnRadiusX();
         double radiusY = properties.getSpawnRadiusY();
         double radiusZ = properties.getSpawnRadiusZ();
@@ -632,8 +632,8 @@ public class Spawner {
 
             Location spawnLoc = location.clone().add(offsetX, offsetY, offsetZ);
 
-            // Enhanced safety check
-            if (isSafeSpawnLocationEnhanced(spawnLoc)) {
+            //  safety check
+            if (isSafeSpawnLocation(spawnLoc)) {
                 return spawnLoc;
             }
         }
@@ -647,7 +647,7 @@ public class Spawner {
         };
 
         for (Location fallback : fallbacks) {
-            if (isSafeSpawnLocationEnhanced(fallback)) {
+            if (isSafeSpawnLocation(fallback)) {
                 if (isDebugMode()) {
                     logger.info("[Spawner] Using fallback location: " + formatLocation());
                 }
@@ -660,9 +660,9 @@ public class Spawner {
     }
 
     /**
-     * Enhanced safe spawn location check with detailed validation
+     *  safe spawn location check with detailed validation
      */
-    private boolean isSafeSpawnLocationEnhanced(Location loc) {
+    private boolean isSafeSpawnLocation(Location loc) {
         try {
             if (loc == null || loc.getWorld() == null) {
                 return false;
@@ -707,7 +707,7 @@ public class Spawner {
     // ================ SPAWN CONDITIONS ================
 
     /**
-     * Enhanced spawn condition checking with caching
+     *  spawn condition checking with caching
      */
     private boolean canSpawnHere(long currentTime) {
         // Cache player checks to reduce performance impact
@@ -835,12 +835,12 @@ public class Spawner {
     }
 
     /**
-     * Enhanced respawn delay calculation
+     *  respawn delay calculation
      */
     private long calculateRespawnDelay(int tier, boolean elite) {
         long baseDelay = MIN_RESPAWN_TIME;
 
-        // Enhanced tier-based scaling
+        //  tier-based scaling
         double tierFactor = 1.0 + ((tier - 1) * 0.3);
         double eliteMultiplier = elite ? 1.8 : 1.0;
 
@@ -900,7 +900,7 @@ public class Spawner {
     }
 
     /**
-     * Enhanced hologram line generation with better formatting and information
+     *  hologram line generation with better formatting and information
      */
     private List<String> generateHologramLines() {
         List<String> lines = new ArrayList<>();
@@ -915,7 +915,7 @@ public class Spawner {
                 lines.add(ChatColor.YELLOW + "Group: " + ChatColor.WHITE + properties.getSpawnerGroup());
             }
 
-            // Status indicator with enhanced status
+            // Status indicator with  status
             String statusColor;
             String statusText;
 
@@ -946,7 +946,7 @@ public class Spawner {
                     ChatColor.GRAY + " | " + ChatColor.YELLOW + "Queued: " + ChatColor.WHITE + respawning +
                     ChatColor.GRAY + " | " + ChatColor.AQUA + "Target: " + ChatColor.WHITE + desired);
 
-            // Enhanced failure tracking info
+            //  failure tracking info
             if (displayMode >= 1) {
                 // Performance info
                 if (totalSpawnAttempts > 0) {
@@ -993,7 +993,7 @@ public class Spawner {
                             " spawned, " + metrics.getTotalKilled() + " killed");
                 }
 
-                // Enhanced failure tracking
+                //  failure tracking
                 int totalFailures = mobTypeFailures.values().stream().mapToInt(Integer::intValue).sum();
                 if (totalFailures > 0) {
                     lines.add(ChatColor.DARK_GRAY + "Failures: " + totalFailures);
@@ -1125,7 +1125,7 @@ public class Spawner {
     // ================ MANAGEMENT METHODS ================
 
     /**
-     *  Enhanced spawner reset with MAIN THREAD SAFETY
+     *   spawner reset with MAIN THREAD SAFETY
      */
     public void reset() {
         // CRITICAL: Verify we're on the main thread for entity operations
@@ -1174,7 +1174,7 @@ public class Spawner {
     }
 
     /**
-     * Enhanced spawner info display
+     *  spawner info display
      */
     public void sendInfoTo(Player player) {
         player.sendMessage(ChatColor.GOLD + "╔════ " + ChatColor.YELLOW + "Spawner Information" + ChatColor.GOLD + " ════╗");
@@ -1193,7 +1193,7 @@ public class Spawner {
 
         player.sendMessage(ChatColor.GOLD + "║ " + ChatColor.YELLOW + "Mobs: " + ChatColor.WHITE + formatSpawnerData());
 
-        // Enhanced status with more detail
+        //  status with more detail
         String status;
         if (isSpawnerDisabled()) {
             status = ChatColor.RED + "DISABLED";
@@ -1209,7 +1209,7 @@ public class Spawner {
         player.sendMessage(ChatColor.GOLD + "║ " + ChatColor.YELLOW + "Counts: " +
                 ChatColor.WHITE + getActiveMobCount() + " active, " + respawnQueue.size() + " respawning, " + getDesiredMobCount() + " target");
 
-        // Enhanced failure information
+        //  failure information
         if (!temporarilyDisabledTypes.isEmpty()) {
             player.sendMessage(ChatColor.GOLD + "║ " + ChatColor.RED + "Disabled Types: " +
                     ChatColor.WHITE + String.join(", ", temporarilyDisabledTypes));
@@ -1269,7 +1269,7 @@ public class Spawner {
                     metrics.getTotalKilled() + " killed");
         }
 
-        // Enhanced performance info
+        //  performance info
         player.sendMessage(ChatColor.GOLD + "║ " + ChatColor.YELLOW + "Performance: " +
                 ChatColor.WHITE + getPerformanceInfo());
 
@@ -1299,7 +1299,7 @@ public class Spawner {
     }
 
     /**
-     * Enhanced debug information
+     *  debug information
      */
     public String getDebugInfo() {
         StringBuilder debug = new StringBuilder();
@@ -1379,7 +1379,7 @@ public class Spawner {
         try {
             MobEntry entry = mobEntries.get(0);
             totalSpawnAttempts++;
-            boolean success = spawnSingleMobEnhanced(entry.getMobType(), entry.getTier(), entry.isElite());
+            boolean success = spawnSingleMob(entry.getMobType(), entry.getTier(), entry.isElite());
 
             if (success) {
                 successfulSpawns++;

@@ -543,7 +543,7 @@ public class SpawnerCommand implements CommandExecutor, TabCompleter, Listener {
     }
 
     /**
-     * Handle the info subcommand with enhanced display
+     * Handle the info subcommand with  display
      */
     private boolean handleInfoCommand(Player player) {
         Block target = player.getTargetBlock(null, 5);
@@ -1475,7 +1475,7 @@ public class SpawnerCommand implements CommandExecutor, TabCompleter, Listener {
     }
 
     /**
-     *  Enhanced spawner block detection that handles metadata properly
+     *   spawner block detection that handles metadata properly
      */
     private boolean isSpawnerBlock(Block block) {
         try {

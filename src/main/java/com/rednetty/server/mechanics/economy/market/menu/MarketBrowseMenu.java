@@ -23,7 +23,7 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
 /**
- * Enhanced market browse menu with advanced features and chat integration
+ *  market browse menu with advanced features and chat integration
  */
 public class MarketBrowseMenu extends Menu {
     private final MarketManager marketManager;

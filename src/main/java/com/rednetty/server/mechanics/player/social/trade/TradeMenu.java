@@ -14,10 +14,7 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.scheduler.BukkitRunnable;
 
-import java.util.Arrays;
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class TradeMenu {
@@ -30,6 +27,13 @@ public class TradeMenu {
     private static final int TARGET_HEAD_SLOT = 44;
 
     private static final Map<UUID, Boolean> playersInPrompt = new ConcurrentHashMap<>();
+
+    private static final long CLICK_COOLDOWN = 50; // 50ms cooldown between clicks
+    //  Add click processing prevention
+    private final Map<UUID, Long> lastClickTime = new ConcurrentHashMap<>();
+    //  Add processing lock to prevent concurrent modifications
+    private volatile boolean processingClick = false;
+
     private final YakRealms plugin;
     private final Trade trade;
     private final Inventory inventory;
@@ -121,17 +125,56 @@ public class TradeMenu {
         inventory.setItem(slot, new ItemUtils().createPlayerHead(player));
     }
 
+    //  Completely rewritten click handling with proper synchronization
     public void handleClick(InventoryClickEvent event) {
+        // Always cancel the event first to prevent default behavior
         event.setCancelled(true);
-        Player player = (Player) event.getWhoClicked();
-        int slot = event.getRawSlot();
 
-        handleRegularTradeClick(event);
+        Player player = (Player) event.getWhoClicked();
+        UUID playerId = player.getUniqueId();
+
+        //  Implement click cooldown to prevent spam
+        long currentTime = System.currentTimeMillis();
+        Long lastClick = lastClickTime.get(playerId);
+        if (lastClick != null && (currentTime - lastClick) < CLICK_COOLDOWN) {
+            return; // Ignore rapid clicks
+        }
+        lastClickTime.put(playerId, currentTime);
+
+        //  Prevent concurrent click processing
+        if (processingClick) {
+            return;
+        }
+
+        processingClick = true;
+
+        try {
+            // Schedule the actual handling for next tick to avoid inventory modification issues
+            new BukkitRunnable() {
+                @Override
+                public void run() {
+                    try {
+                        handleClickSafely(event);
+                    } finally {
+                        processingClick = false;
+                    }
+                }
+            }.runTask(plugin);
+        } catch (Exception e) {
+            processingClick = false;
+            plugin.getLogger().warning("Error handling trade click: " + e.getMessage());
+        }
     }
 
-    private void handleRegularTradeClick(InventoryClickEvent event) {
+    //  Safe click handling that runs on the next tick
+    private void handleClickSafely(InventoryClickEvent event) {
         Player player = (Player) event.getWhoClicked();
         int slot = event.getRawSlot();
+
+        // Validate trade is still active
+        if (trade.isCompleted()) {
+            return;
+        }
 
         // Handle confirm button clicks
         if ((slot == INITIATOR_CONFIRM_SLOT && player == trade.getInitiator()) ||
@@ -140,16 +183,21 @@ public class TradeMenu {
             return;
         }
 
-        // Handle clicks in trade slots
+        // Handle clicks in trade slots (item removal)
         if (isPlayerTradeSlot(player, slot)) {
-            handleItemRemoval(player, inventory.getItem(slot), slot);
+            ItemStack clickedItem = inventory.getItem(slot);
+            if (clickedItem != null && clickedItem.getType() != Material.AIR) {
+                handleItemRemoval(player, clickedItem, slot);
+            }
             return;
         }
 
-        // Handle clicks in player's inventory
+        // Handle clicks in player's inventory (item addition)
+        //  Better validation for player inventory clicks
         if (event.getClickedInventory() != null &&
                 event.getClickedInventory().equals(player.getInventory()) &&
-                event.getCurrentItem() != null) {
+                event.getCurrentItem() != null &&
+                event.getCurrentItem().getType() != Material.AIR) {
             handleItemAddition(player, event.getCurrentItem());
         }
     }
@@ -165,52 +213,106 @@ public class TradeMenu {
         player.playSound(player.getLocation(), Sound.UI_BUTTON_CLICK, 0.5f, 1.2f);
 
         if (trade.isConfirmed()) {
-            plugin.getTradeManager().completeTrade(trade);
-            trade.getInitiator().closeInventory();
-            trade.getTarget().closeInventory();
-            playTradeCompletionEffects();
-        }
-    }
-
-    private void handleItemRemoval(Player player, ItemStack item, int slot) {
-        if (item != null && item.getType() != Material.AIR) {
-            trade.removePlayerItem(player, item);
-            player.getInventory().addItem(item.clone());
-            inventory.setItem(slot, null);
-            trade.resetConfirmations();
-            updateConfirmButton(trade.getInitiator());
-            updateConfirmButton(trade.getTarget());
-            player.playSound(player.getLocation(), Sound.ENTITY_ITEM_PICKUP, 0.5f, 1.2f);
-            player.spawnParticle(Particle.CLOUD, player.getLocation().add(0, 1, 0),
-                    10, 0.2, 0.2, 0.2, 0.05);
-        }
-    }
-
-    private void handleItemAddition(Player player, ItemStack item) {
-        if (item != null && item.getType() != Material.AIR) {
-            int[] slots = (player == trade.getInitiator()) ? INITIATOR_SLOTS : TARGET_SLOTS;
-
-            for (int slot : slots) {
-                if (inventory.getItem(slot) == null ||
-                        inventory.getItem(slot).getType() == Material.AIR) {
-                    ItemStack tradeItem = item.clone();
-                    tradeItem.setAmount(1);
-                    trade.addPlayerItem(player, tradeItem);
-                    inventory.setItem(slot, tradeItem);
-
-                    ItemStack itemToRemove = item.clone();
-                    itemToRemove.setAmount(1);
-                    player.getInventory().removeItem(itemToRemove);
-
-                    trade.resetConfirmations();
-                    updateConfirmButton(trade.getInitiator());
-                    updateConfirmButton(trade.getTarget());
-
-                    player.playSound(player.getLocation(), Sound.ENTITY_ITEM_PICKUP, 0.5f, 0.8f);
-                    player.spawnParticle(Particle.SPELL_INSTANT, player.getLocation().add(0, 1, 0),
-                            15, 0.2, 0.2, 0.2, 0.05);
-                    break;
+            // Schedule completion for next tick
+            new BukkitRunnable() {
+                @Override
+                public void run() {
+                    plugin.getTradeManager().completeTrade(trade);
+                    trade.getInitiator().closeInventory();
+                    trade.getTarget().closeInventory();
+                    playTradeCompletionEffects();
                 }
+            }.runTask(plugin);
+        }
+    }
+
+    //  Improved item removal with better inventory management
+    private void handleItemRemoval(Player player, ItemStack item, int slot) {
+        if (item == null || item.getType() == Material.AIR) {
+            return;
+        }
+
+        // Remove from trade data
+        trade.removePlayerItem(player, item);
+
+        // Schedule inventory updates for next tick
+        new BukkitRunnable() {
+            @Override
+            public void run() {
+                // Add item back to player inventory
+                HashMap<Integer, ItemStack> leftover = player.getInventory().addItem(item.clone());
+
+                // Drop any items that don't fit
+                for (ItemStack drop : leftover.values()) {
+                    player.getWorld().dropItemNaturally(player.getLocation(), drop);
+                }
+
+                // Clear the slot in trade inventory
+                inventory.setItem(slot, null);
+
+                // Reset confirmations and update UI
+                trade.resetConfirmations();
+                updateConfirmButton(trade.getInitiator());
+                updateConfirmButton(trade.getTarget());
+
+                // Update player inventory
+                player.updateInventory();
+
+                // Play feedback
+                player.playSound(player.getLocation(), Sound.ENTITY_ITEM_PICKUP, 0.5f, 1.2f);
+                player.spawnParticle(Particle.CLOUD, player.getLocation().add(0, 1, 0),
+                        10, 0.2, 0.2, 0.2, 0.05);
+            }
+        }.runTask(plugin);
+    }
+
+    //  Improved item addition with better validation
+    private void handleItemAddition(Player player, ItemStack item) {
+        if (item == null || item.getType() == Material.AIR) {
+            return;
+        }
+
+        int[] slots = (player == trade.getInitiator()) ? INITIATOR_SLOTS : TARGET_SLOTS;
+
+        // Find first available slot
+        for (int slot : slots) {
+            if (inventory.getItem(slot) == null || inventory.getItem(slot).getType() == Material.AIR) {
+
+                // Create trade item (single quantity)
+                ItemStack tradeItem = item.clone();
+                tradeItem.setAmount(1);
+
+                // Add to trade data
+                trade.addPlayerItem(player, tradeItem);
+
+                // Schedule inventory updates for next tick
+                new BukkitRunnable() {
+                    @Override
+                    public void run() {
+                        // Remove item from player inventory
+                        ItemStack itemToRemove = item.clone();
+                        itemToRemove.setAmount(1);
+                        player.getInventory().removeItem(itemToRemove);
+
+                        // Add to trade inventory
+                        inventory.setItem(slot, tradeItem);
+
+                        // Reset confirmations and update UI
+                        trade.resetConfirmations();
+                        updateConfirmButton(trade.getInitiator());
+                        updateConfirmButton(trade.getTarget());
+
+                        // Update player inventory
+                        player.updateInventory();
+
+                        // Play feedback
+                        player.playSound(player.getLocation(), Sound.ENTITY_ITEM_PICKUP, 0.5f, 0.8f);
+                        player.spawnParticle(Particle.SPELL_INSTANT, player.getLocation().add(0, 1, 0),
+                                15, 0.2, 0.2, 0.2, 0.05);
+                    }
+                }.runTask(plugin);
+
+                break; // Only add one item
             }
         }
     }
@@ -255,12 +357,19 @@ public class TradeMenu {
         }
 
         Player closer = (Player) event.getPlayer();
-        new BukkitRunnable() {
-            @Override
-            public void run() {
-                plugin.getTradeManager().cancelTrade(closer);
-            }
-        }.runTask(plugin);
+
+        // Clean up click tracking
+        lastClickTime.remove(closer.getUniqueId());
+
+        // Only handle close if player is not in a prompt
+        if (!TradeMenu.isPlayerInPrompt(closer.getUniqueId())) {
+            new BukkitRunnable() {
+                @Override
+                public void run() {
+                    plugin.getTradeManager().cancelTrade(closer);
+                }
+            }.runTask(plugin);
+        }
     }
 
     public Inventory getInventory() {
@@ -276,6 +385,10 @@ public class TradeMenu {
         Player initiator = trade.getInitiator();
         Player target = trade.getTarget();
 
+        // Clean up click tracking
+        lastClickTime.remove(initiator.getUniqueId());
+        lastClickTime.remove(target.getUniqueId());
+
         // Send cancellation messages
         initiator.sendMessage("§c✖ Trade cancelled: " + reason);
         target.sendMessage("§c✖ Trade cancelled: " + reason);
@@ -284,9 +397,14 @@ public class TradeMenu {
         initiator.playSound(initiator.getLocation(), Sound.ENTITY_VILLAGER_NO, 0.5f, 1.0f);
         target.playSound(target.getLocation(), Sound.ENTITY_VILLAGER_NO, 0.5f, 1.0f);
 
-        // Close inventories
-        initiator.closeInventory();
-        target.closeInventory();
+        // Schedule inventory closing for next tick
+        new BukkitRunnable() {
+            @Override
+            public void run() {
+                initiator.closeInventory();
+                target.closeInventory();
+            }
+        }.runTask(plugin);
 
         // Mark trade as completed to prevent double cancellation
         trade.setCompleted(true);
@@ -312,5 +430,11 @@ public class TradeMenu {
             }
         }
         return emptySlots >= requiredSlots;
+    }
+
+    //  Add cleanup method
+    public void cleanup() {
+        lastClickTime.clear();
+        processingClick = false;
     }
 }

@@ -1,4 +1,4 @@
-# Enhanced Mount System Configuration
+#  Mount System Configuration
 # This configuration file controls all mount-related features
 
 horse:
@@ -22,7 +22,7 @@ horse:
       price: 2500
       armor: "LEATHER"
     3:
-      speed: 0.42
+      speed: 0.55
       jump: 0.75
       name: "War Horse"
       color: "AQUA"
@@ -30,7 +30,7 @@ horse:
       price: 5000
       armor: "IRON"
     4:
-      speed: 0.50
+      speed: 1
       jump: 0.85
       name: "Royal Destrier"
       color: "LIGHT_PURPLE"
@@ -38,7 +38,7 @@ horse:
       price: 10000
       armor: "GOLD"
     5:
-      speed: 0.58
+      speed: 2
       jump: 1.0
       name: "Legendary Pegasus"
       color: "YELLOW"
@@ -59,7 +59,7 @@ elytra:
   # Whether to disable damage while gliding (except fall damage)
   disable_damage: true
 
-  # Enhanced elytra features
+  #  elytra features
   transfer_chestplate_properties: true  # Copy enchantments and properties from chestplate to elytra
   enable_landing_detection: true        # Automatically dismount when player lands
   landing_check_interval: 5            # How often to check for landing (in ticks)

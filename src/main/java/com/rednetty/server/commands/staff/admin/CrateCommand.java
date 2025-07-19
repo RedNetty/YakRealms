@@ -23,7 +23,7 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 /**
- * Enhanced command system for crate management using 1.20.4 features
+ *  command system for crate management using 1.20.4 features
  * Provides comprehensive crate administration and user interaction commands
  */
 public class CrateCommand implements CommandExecutor, TabCompleter {
@@ -228,7 +228,7 @@ public class CrateCommand implements CommandExecutor, TabCompleter {
         try {
             Map<String, Object> stats = crateManager.getStatistics();
 
-            sendEnhancedStatsMessage(player, stats);
+            sendStatsMessage(player, stats);
 
             // Play info sound
             player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_PLING, 1.0f, 1.2f);
@@ -525,7 +525,7 @@ public class CrateCommand implements CommandExecutor, TabCompleter {
         }
     }
 
-    private void sendEnhancedStatsMessage(Player player, Map<String, Object> stats) {
+    private void sendStatsMessage(Player player, Map<String, Object> stats) {
         player.sendMessage("");
         player.sendMessage(TextUtil.getCenteredMessage(
                 ChatColor.AQUA + "✦ " + ChatColor.BOLD + "CRATE SYSTEM STATISTICS" + ChatColor.AQUA + " ✦"
@@ -739,7 +739,7 @@ public class CrateCommand implements CommandExecutor, TabCompleter {
     }
 
     /**
-     * Enhanced tab completion
+     *  tab completion
      */
     @Override
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {

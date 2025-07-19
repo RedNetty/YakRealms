@@ -14,7 +14,7 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 /**
- * Enhanced command for managing drop rates with improved functionality and validation
+ *  command for managing drop rates with improved functionality and validation
  */
 public class DropRateCommand implements CommandExecutor, TabCompleter {
     private final DropsManager dropsManager;

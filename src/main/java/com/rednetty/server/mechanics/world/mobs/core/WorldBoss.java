@@ -15,6 +15,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.logging.Logger;
 import java.util.stream.Collectors;
 
 /**
@@ -27,6 +28,7 @@ import java.util.stream.Collectors;
  */
 public class WorldBoss extends EliteMob {
 
+    private static final Logger LOGGER = YakRealms.getInstance().getLogger();
     // ================ BOSS STATE ================
     private int currentPhase = 1;
     private boolean berserkMode = false;
@@ -78,7 +80,7 @@ public class WorldBoss extends EliteMob {
     }
 
     /**
-     * Enhanced tick method with boss-specific logic
+     *  tick method with boss-specific logic
      */
     @Override
     public void tick() {
@@ -156,13 +158,13 @@ public class WorldBoss extends EliteMob {
         if (!isValid()) return;
         // Apply effects based on phase
         switch (phase) {
-            case 2 -> entity.addPotionEffect(new PotionEffect(PotionEffectType.SPEED, Integer.MAX_VALUE, 1, true));
+            case 2 -> entity.addPotionEffect(new PotionEffect(PotionEffectType.SPEED, Integer.MAX_VALUE, 0, true));
             case 3 -> {
-                entity.addPotionEffect(new PotionEffect(PotionEffectType.SPEED, Integer.MAX_VALUE, 2, true));
-                entity.addPotionEffect(new PotionEffect(PotionEffectType.INCREASE_DAMAGE, Integer.MAX_VALUE, 1, true));
+                entity.addPotionEffect(new PotionEffect(PotionEffectType.SPEED, Integer.MAX_VALUE, 0, true));
+                entity.addPotionEffect(new PotionEffect(PotionEffectType.INCREASE_DAMAGE, Integer.MAX_VALUE, 0, true));
             }
             case 4 -> {
-                entity.addPotionEffect(new PotionEffect(PotionEffectType.SPEED, Integer.MAX_VALUE, 3, true));
+                entity.addPotionEffect(new PotionEffect(PotionEffectType.SPEED, Integer.MAX_VALUE, 0, true));
                 entity.addPotionEffect(new PotionEffect(PotionEffectType.INCREASE_DAMAGE, Integer.MAX_VALUE, 2, true));
                 if (!berserkMode) {
                     activateBerserkMode();
@@ -410,7 +412,7 @@ public class WorldBoss extends EliteMob {
         return System.currentTimeMillis() - lastPhaseChangeTime >= PHASE_CHANGE_COOLDOWN;
     }
 
-    // ================ ENHANCED HEALTH BAR ================
+    // ================  HEALTH BAR ================
 
     @Override
     public String generateHealthBar() {
@@ -502,7 +504,7 @@ public class WorldBoss extends EliteMob {
         return info.toString();
     }
 
-    // ================ ENHANCED REMOVAL ================
+    // ================  REMOVAL ================
 
     @Override
     public void remove() {

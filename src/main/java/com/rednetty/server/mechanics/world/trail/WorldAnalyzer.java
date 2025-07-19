@@ -29,7 +29,7 @@ public class WorldAnalyzer {
         passableMaterials.add(Material.LAVA);
 
         // Vegetation
-        passableMaterials.add(Material.GRASS);
+        passableMaterials.add(Material.GRASS_BLOCK);
         passableMaterials.add(Material.TALL_GRASS);
         passableMaterials.add(Material.SEAGRASS);
         passableMaterials.add(Material.TALL_SEAGRASS);

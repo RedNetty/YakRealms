@@ -93,7 +93,7 @@ public class MerchantItemUtil {
 
         // Specific item names that cannot be traded
         BLACKLISTED_ITEMS.addAll(Arrays.asList(
-                "admin", "staff", "moderator", "owner", "console",
+                "admin", "moderator", "owner", "console",
                 "creative", "debug", "test", "gm", "gamemaster",
                 "dev", "developer", "op", "operator"
         ));
@@ -253,12 +253,12 @@ public class MerchantItemUtil {
             String displayName = item.getItemMeta().getDisplayName();
 
             // Tier based on color codes
-            if (displayName.contains(ChatColor.RED.toString())) return 60;
-            if (displayName.contains(ChatColor.YELLOW.toString())) return 50;
-            if (displayName.contains(ChatColor.LIGHT_PURPLE.toString())) return 40;
-            if (displayName.contains(ChatColor.BLUE.toString())) return 30;
-            if (displayName.contains(ChatColor.GREEN.toString())) return 20;
-            if (displayName.contains(ChatColor.WHITE.toString())) return 10;
+            if (displayName.contains(ChatColor.GOLD.toString())) return 1500;
+            if (displayName.contains(ChatColor.YELLOW.toString())) return 1000;
+            if (displayName.contains(ChatColor.LIGHT_PURPLE.toString())) return 750;
+            if (displayName.contains(ChatColor.BLUE.toString())) return 150;
+            if (displayName.contains(ChatColor.GREEN.toString())) return 80;
+            if (displayName.contains(ChatColor.WHITE.toString())) return 20;
         }
 
         // Fallback to material-based tier
@@ -274,12 +274,12 @@ public class MerchantItemUtil {
     public static int getMaterialTier(Material material) {
         String name = material.name();
 
-        if (name.contains("NETHERITE")) return 50;
-        if (name.contains("DIAMOND")) return 35;
-        if (name.contains("IRON") || name.contains("CHAINMAIL")) return 25;
-        if (name.contains("GOLD")) return 20;
-        if (name.contains("STONE")) return 15;
-        if (name.contains("WOOD") || name.contains("LEATHER")) return 10;
+        if (name.contains("NETHERITE")) return 1500;
+        if (name.contains("DIAMOND")) return 750;
+        if (name.contains("IRON")) return 155;
+        if (name.contains("GOLD")) return 1000;
+        if (name.contains("STONE") || name.contains("CHAINMAIL")) return 85;
+        if (name.contains("WOOD") || name.contains("LEATHER")) return 20;
 
         // Special cases for ores
         if (material == Material.ANCIENT_DEBRIS) return 60;
@@ -446,12 +446,9 @@ public class MerchantItemUtil {
      */
     public enum ItemRarity {
         COMMON("Common", 1.0),
-        UNCOMMON("Uncommon", 1.25),
-        RARE("Rare", 1.5),
-        EPIC("Epic", 2.0),
-        LEGENDARY("Legendary", 3.0),
-        MYTHIC("Mythic", 5.0);
-
+        UNCOMMON("Uncommon", 1.5),
+        RARE("Rare", 2),
+        UNIQUE("Unique", 2.75);
         private final String displayName;
         private final double valueMultiplier;
 
@@ -477,10 +474,10 @@ public class MerchantItemUtil {
             switch (this) {
                 case COMMON: return ChatColor.WHITE;
                 case UNCOMMON: return ChatColor.GREEN;
-                case RARE: return ChatColor.BLUE;
-                case EPIC: return ChatColor.LIGHT_PURPLE;
-                case LEGENDARY: return ChatColor.YELLOW;
-                case MYTHIC: return ChatColor.RED;
+                case RARE:
+                    return ChatColor.AQUA;
+                case UNIQUE:
+                    return ChatColor.YELLOW;
                 default: return ChatColor.WHITE;
             }
         }

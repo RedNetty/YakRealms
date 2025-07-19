@@ -17,11 +17,11 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- *  Enhanced party scoreboards with proper team handling and null safety
+ *   party scoreboards with proper team handling and null safety
  * - Fixed immutable collection clear() error
  * - Added comprehensive null checking
  * - Improved team entry management
- * - Enhanced error handling and recovery
+ * -  error handling and recovery
  */
 public class PartyScoreboards {
     private static final Map<UUID, Scoreboard> playerScoreboards = new ConcurrentHashMap<>();
@@ -32,7 +32,7 @@ public class PartyScoreboards {
     private static final Map<UUID, Set<String>> activeScoreboardEntries = new ConcurrentHashMap<>();
     private static final Map<UUID, Map<String, ChatColor>> playerLastColors = new ConcurrentHashMap<>();
 
-    // Enhanced visual system for party management
+    //  visual system for party management
     private static final Map<UUID, PartyVisualEffects> partyVisuals = new ConcurrentHashMap<>();
 
     // Update throttling to prevent spam
@@ -51,7 +51,7 @@ public class PartyScoreboards {
     private static final String DEFAULT_TEAM = "default";
 
     /**
-     * Enhanced visual effects system for party interactions
+     *  visual effects system for party interactions
      */
     private static class PartyVisualEffects {
         private final Player player;
@@ -117,7 +117,7 @@ public class PartyScoreboards {
     }
 
     /**
-     *  Get or create a player's enhanced scoreboard with proper error handling
+     *  Get or create a player's  scoreboard with proper error handling
      */
     public static Scoreboard getPlayerScoreboard(Player player) {
         if (player == null || !player.isOnline()) {
@@ -145,8 +145,8 @@ public class PartyScoreboards {
                 return null;
             }
 
-            // Enhanced team setup with modern styling
-            setupEnhancedTeams(scoreboard);
+            //  team setup with modern styling
+            setupTeams(scoreboard);
             setupHealthDisplay(scoreboard);
 
             playerScoreboards.put(playerId, scoreboard);
@@ -161,9 +161,9 @@ public class PartyScoreboards {
     }
 
     /**
-     *  Setup enhanced teams with proper error handling
+     *  Setup  teams with proper error handling
      */
-    private static void setupEnhancedTeams(Scoreboard scoreboard) {
+    private static void setupTeams(Scoreboard scoreboard) {
         if (scoreboard == null) return;
 
         try {
@@ -189,7 +189,7 @@ public class PartyScoreboards {
             createTeamSafely(scoreboard, PARTY_MEMBER_TEAM, ChatColor.AQUA,
                     ChatColor.LIGHT_PURPLE + "[P] " + ChatColor.AQUA, "");
 
-            // Admin teams with enhanced styling
+            // Admin teams with  styling
             createTeamSafely(scoreboard, "dev", ChatColor.GOLD,
                     ChatColor.GOLD + "⚡ DEV " + ChatColor.GOLD,
                     ChatColor.GOLD + " ⚡");
@@ -209,7 +209,7 @@ public class PartyScoreboards {
             createTeamSafely(scoreboard, DEFAULT_TEAM, ChatColor.WHITE, "", "");
 
         } catch (Exception e) {
-            Bukkit.getLogger().warning("Error setting up enhanced teams: " + e.getMessage());
+            Bukkit.getLogger().warning("Error setting up  teams: " + e.getMessage());
         }
     }
 
@@ -438,7 +438,7 @@ public class PartyScoreboards {
                 existing.unregister();
             }
 
-            // Create enhanced party objective
+            // Create  party objective
             Objective partyObjective = scoreboard.registerNewObjective(
                     "party_data", "dummy",
                     ChatColor.LIGHT_PURPLE + "✦ " + ChatColor.BOLD + "PARTY" + ChatColor.LIGHT_PURPLE + " ✦"
@@ -447,16 +447,17 @@ public class PartyScoreboards {
 
             List<Player> partyMembers = partyMechanics.getPartyMembers(player);
             if (partyMembers != null && !partyMembers.isEmpty()) {
+                // Add separator - make it unique with invisible characters
+                String separator = " " + ChatColor.RESET;
+                partyObjective.getScore(separator).setScore(0);
+                currentEntries.add(separator);
 
                 // Add party size indicator at the top
                 String sizeIndicator = ChatColor.GRAY + "Members: " + ChatColor.WHITE + partyMembers.size();
-                partyObjective.getScore(sizeIndicator).setScore(15);
+                partyObjective.getScore(sizeIndicator).setScore(0);
                 currentEntries.add(sizeIndicator);
 
-                // Add separator - make it unique with invisible characters
-                String separator = " " + ChatColor.RESET;
-                partyObjective.getScore(separator).setScore(14);
-                currentEntries.add(separator);
+
 
                 // Sort members: leader first, then officers, then regular members
                 partyMembers.sort((p1, p2) -> {
@@ -600,7 +601,7 @@ public class PartyScoreboards {
     }
 
     /**
-     * Enhanced party health bar system using boss bars
+     *  party health bar system using boss bars
      */
     private static void updatePartyHealthBar(Player player, PartyMechanics partyMechanics) {
         if (player == null || !player.isOnline() || partyMechanics == null) {
@@ -638,7 +639,7 @@ public class PartyScoreboards {
 
             double healthPercentage = totalHealth / maxTotalHealth;
 
-            // Create enhanced title
+            // Create  title
             String title = ChatColor.LIGHT_PURPLE + "✦ " + ChatColor.BOLD + "PARTY" +
                     ChatColor.LIGHT_PURPLE + " (" + aliveMembersCount + "/" + partyMembers.size() +
                     ") " + ChatColor.WHITE + (int)totalHealth + "/" + (int)maxTotalHealth + " ❤";
@@ -951,7 +952,7 @@ public class PartyScoreboards {
     }
 
     /**
-     * Update color teams for all players with enhanced team management
+     * Update color teams for all players with  team management
      */
     public static void updateAllPlayerColors() {
         for (Player viewer : Bukkit.getOnlinePlayers()) {

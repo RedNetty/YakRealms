@@ -1,129 +1,350 @@
 package com.rednetty.server.mechanics.item.drops.types;
 
-import org.bukkit.ChatColor;
-
-import java.util.HashMap;
-import java.util.Map;
-
+/**
+ * Configuration class for tier-specific drop settings
+ * Defines material prefixes, drop rates, and other tier-specific properties
+ */
 public class TierConfig {
-    private int tier;
-    private ChatColor color;
-    private int dropRate;
-    private int eliteDropRate;
-    private int crateDropRate;
-    private Map<String, String> materials = new HashMap<>();
 
-    // Default tier configurations with Netherite integration
-    public static TierConfig createDefaultTierConfig(int tier) {
-        TierConfig config = new TierConfig();
-        config.setTier(tier);
+    private final int tier;
+    private final String armorMaterialPrefix;
+    private final String weaponMaterialPrefix;
+    private final int dropRate;
+    private final int eliteDropRate;
+    private final int crateDropRate;
 
-        switch (tier) {
-            case 1:
-                config.setColor(ChatColor.WHITE);
-                config.setDropRate(50);
-                config.setEliteDropRate(55);
-                config.setCrateDropRate(5);
-                config.getMaterials().put("weapon", "WOODEN");
-                config.getMaterials().put("armor", "LEATHER");
-                break;
-            case 2:
-                config.setColor(ChatColor.GREEN);
-                config.setDropRate(45);
-                config.setEliteDropRate(50);
-                config.setCrateDropRate(4);
-                config.getMaterials().put("weapon", "STONE");
-                config.getMaterials().put("armor", "CHAINMAIL");
-                break;
-            case 3:
-                config.setColor(ChatColor.AQUA);
-                config.setDropRate(40);
-                config.setEliteDropRate(45);
-                config.setCrateDropRate(3);
-                config.getMaterials().put("weapon", "IRON");
-                config.getMaterials().put("armor", "IRON");
-                break;
-            case 4:
-                config.setColor(ChatColor.LIGHT_PURPLE);
-                config.setDropRate(35);
-                config.setEliteDropRate(40);
-                config.setCrateDropRate(2);
-                config.getMaterials().put("weapon", "DIAMOND");
-                config.getMaterials().put("armor", "DIAMOND");
-                break;
-            case 5:
-                config.setColor(ChatColor.YELLOW);
-                config.setDropRate(30);
-                config.setEliteDropRate(35);
-                config.setCrateDropRate(2);
-                config.getMaterials().put("weapon", "GOLDEN");
-                config.getMaterials().put("armor", "GOLDEN");
-                break;
-            case 6:
-                config.setColor(ChatColor.GOLD);
-                config.setDropRate(25);
-                config.setEliteDropRate(30);
-                config.setCrateDropRate(1);
-                config.getMaterials().put("weapon", "NETHERITE");
-                config.getMaterials().put("armor", "NETHERITE");
-                break;
-        }
-
-        return config;
+    /**
+     * Constructor for tier configuration
+     *
+     * @param tier                 The tier number (1-6)
+     * @param armorMaterialPrefix  The material prefix for armor (e.g., "LEATHER", "IRON")
+     * @param weaponMaterialPrefix The material prefix for weapons (e.g., "WOODEN", "IRON")
+     * @param dropRate             The base drop rate percentage for this tier
+     * @param eliteDropRate        The elite drop rate percentage for this tier
+     * @param crateDropRate        The crate drop rate percentage for this tier
+     */
+    public TierConfig(int tier, String armorMaterialPrefix, String weaponMaterialPrefix,
+                      int dropRate, int eliteDropRate, int crateDropRate) {
+        this.tier = tier;
+        this.armorMaterialPrefix = armorMaterialPrefix != null ? armorMaterialPrefix : "LEATHER";
+        this.weaponMaterialPrefix = weaponMaterialPrefix != null ? weaponMaterialPrefix : "WOODEN";
+        this.dropRate = Math.max(0, Math.min(100, dropRate));
+        this.eliteDropRate = Math.max(0, Math.min(100, eliteDropRate));
+        this.crateDropRate = Math.max(0, Math.min(100, crateDropRate));
     }
 
+    /**
+     * Constructor with default crate drop rate
+     */
+    public TierConfig(int tier, String armorMaterialPrefix, String weaponMaterialPrefix,
+                      int dropRate, int eliteDropRate) {
+        this(tier, armorMaterialPrefix, weaponMaterialPrefix, dropRate, eliteDropRate, 5);
+    }
+
+    // ===== GETTERS =====
+
+    /**
+     * Create a default tier configuration for the given tier
+     *
+     * @param tier The tier number (1-6)
+     * @return A default TierConfig for that tier
+     */
+    public static TierConfig createDefault(int tier) {
+        switch (tier) {
+            case 1:
+                return new TierConfig(1, "LEATHER", "WOODEN", 25, 30, 3);
+            case 2:
+                return new TierConfig(2, "CHAINMAIL", "STONE", 35, 40, 4);
+            case 3:
+                return new TierConfig(3, "IRON", "IRON", 45, 50, 5);
+            case 4:
+                return new TierConfig(4, "DIAMOND", "DIAMOND", 55, 60, 6);
+            case 5:
+                return new TierConfig(5, "GOLDEN", "GOLDEN", 65, 70, 7);
+            case 6:
+                return new TierConfig(6, "NETHERITE", "NETHERITE", 75, 80, 8);
+            default:
+                return new TierConfig(1, "LEATHER", "WOODEN", 25, 30, 3);
+        }
+    }
+
+    /**
+     * Create a tier configuration with custom drop rates
+     *
+     * @param tier          The tier number
+     * @param dropRate      The base drop rate
+     * @param eliteDropRate The elite drop rate
+     * @return A TierConfig with the specified rates
+     */
+    public static TierConfig withCustomRates(int tier, int dropRate, int eliteDropRate) {
+        TierConfig defaultConfig = createDefault(tier);
+        return new TierConfig(tier, defaultConfig.armorMaterialPrefix, defaultConfig.weaponMaterialPrefix,
+                dropRate, eliteDropRate, defaultConfig.crateDropRate);
+    }
+
+    /**
+     * Create a tier configuration with custom materials
+     *
+     * @param tier         The tier number
+     * @param armorPrefix  The armor material prefix
+     * @param weaponPrefix The weapon material prefix
+     * @return A TierConfig with the specified materials
+     */
+    public static TierConfig withCustomMaterials(int tier, String armorPrefix, String weaponPrefix) {
+        TierConfig defaultConfig = createDefault(tier);
+        return new TierConfig(tier, armorPrefix, weaponPrefix,
+                defaultConfig.dropRate, defaultConfig.eliteDropRate, defaultConfig.crateDropRate);
+    }
+
+    /**
+     * Create a new builder instance
+     */
+    public static Builder builder() {
+        return new Builder();
+    }
+
+    /**
+     * Get the tier number
+     */
     public int getTier() {
         return tier;
     }
 
-    public void setTier(int tier) {
-        this.tier = tier;
+    /**
+     * Get the armor material prefix
+     */
+    public String getArmorMaterialPrefix() {
+        return armorMaterialPrefix;
     }
 
-    public ChatColor getColor() {
-        return color;
+    /**
+     * Get the weapon material prefix
+     */
+    public String getWeaponMaterialPrefix() {
+        return weaponMaterialPrefix;
     }
 
-    public void setColor(ChatColor color) {
-        this.color = color;
+    // ===== UTILITY METHODS =====
+
+    /**
+     * Get the appropriate material prefix based on whether it's a weapon or armor
+     *
+     * @param isWeapon true if the item is a weapon, false if armor
+     * @return The appropriate material prefix
+     */
+    public String getMaterialPrefix(boolean isWeapon) {
+        return isWeapon ? weaponMaterialPrefix : armorMaterialPrefix;
     }
 
+    /**
+     * Get the base drop rate for this tier
+     */
     public int getDropRate() {
         return dropRate;
     }
 
-    public void setDropRate(int dropRate) {
-        this.dropRate = dropRate;
-    }
-
+    /**
+     * Get the elite drop rate for this tier
+     */
     public int getEliteDropRate() {
         return eliteDropRate;
     }
 
-    public void setEliteDropRate(int eliteDropRate) {
-        this.eliteDropRate = eliteDropRate;
-    }
-
+    /**
+     * Get the crate drop rate for this tier
+     */
     public int getCrateDropRate() {
         return crateDropRate;
     }
 
-    public void setCrateDropRate(int crateDropRate) {
-        this.crateDropRate = crateDropRate;
-    }
-
-    public Map<String, String> getMaterials() {
-        return materials;
-    }
-
-    public void setMaterials(Map<String, String> materials) {
-        this.materials = materials;
+    /**
+     * Check if this tier configuration is valid
+     */
+    public boolean isValid() {
+        return tier >= 1 && tier <= 6 &&
+                armorMaterialPrefix != null && !armorMaterialPrefix.trim().isEmpty() &&
+                weaponMaterialPrefix != null && !weaponMaterialPrefix.trim().isEmpty() &&
+                dropRate >= 0 && dropRate <= 100 &&
+                eliteDropRate >= 0 && eliteDropRate <= 100 &&
+                crateDropRate >= 0 && crateDropRate <= 100;
     }
 
     /**
-     * Get material prefix for weapons or armor
+     * Get the tier name as a string (useful for display)
      */
-    public String getMaterialPrefix(boolean isWeapon) {
-        return isWeapon ? materials.get("weapon") : materials.get("armor");
+    public String getTierName() {
+        switch (tier) {
+            case 1:
+                return "Novice";
+            case 2:
+                return "Apprentice";
+            case 3:
+                return "Adept";
+            case 4:
+                return "Expert";
+            case 5:
+                return "Master";
+            case 6:
+                return "Legendary";
+            default:
+                return "Unknown";
+        }
+    }
+
+    // ===== OBJECT METHODS =====
+
+    /**
+     * Get the tier color code for display
+     */
+    public String getTierColorCode() {
+        switch (tier) {
+            case 1:
+                return "§f"; // White
+            case 2:
+                return "§a"; // Green
+            case 3:
+                return "§b"; // Aqua
+            case 4:
+                return "§d"; // Light Purple
+            case 5:
+                return "§e"; // Yellow
+            case 6:
+                return "§6"; // Gold
+            default:
+                return "§7"; // Gray
+        }
+    }
+
+    /**
+     * Get the tier Roman numeral representation
+     */
+    public String getTierRoman() {
+        switch (tier) {
+            case 1:
+                return "I";
+            case 2:
+                return "II";
+            case 3:
+                return "III";
+            case 4:
+                return "IV";
+            case 5:
+                return "V";
+            case 6:
+                return "VI";
+            default:
+                return "?";
+        }
+    }
+
+    /**
+     * Calculate the effective drop rate with buffs applied
+     *
+     * @param isElite        true if calculating for elite drops
+     * @param buffPercentage the buff percentage to apply (0-100)
+     * @return the effective drop rate
+     */
+    public int getEffectiveDropRate(boolean isElite, int buffPercentage) {
+        int baseRate = isElite ? eliteDropRate : dropRate;
+        int buffedRate = baseRate + (baseRate * buffPercentage / 100);
+        return Math.min(100, buffedRate);
+    }
+
+    // ===== STATIC FACTORY METHODS =====
+
+    /**
+     * Get a description of this tier configuration
+     */
+    public String getDescription() {
+        return String.format("Tier %d (%s): Armor=%s, Weapon=%s, Drops=%d%%, Elite=%d%%, Crates=%d%%",
+                tier, getTierName(), armorMaterialPrefix, weaponMaterialPrefix,
+                dropRate, eliteDropRate, crateDropRate);
+    }
+
+    /**
+     * Get a string representation of this tier configuration
+     */
+    @Override
+    public String toString() {
+        return String.format("TierConfig{tier=%d, armor='%s', weapon='%s', drops=%d%%, elite=%d%%, crates=%d%%}",
+                tier, armorMaterialPrefix, weaponMaterialPrefix, dropRate, eliteDropRate, crateDropRate);
+    }
+
+    /**
+     * Check if two TierConfig objects are equal
+     */
+    @Override
+    public boolean equals(Object obj) {
+        if (this == obj) return true;
+        if (obj == null || getClass() != obj.getClass()) return false;
+
+        TierConfig that = (TierConfig) obj;
+        return tier == that.tier &&
+                dropRate == that.dropRate &&
+                eliteDropRate == that.eliteDropRate &&
+                crateDropRate == that.crateDropRate &&
+                armorMaterialPrefix.equals(that.armorMaterialPrefix) &&
+                weaponMaterialPrefix.equals(that.weaponMaterialPrefix);
+    }
+
+    /**
+     * Get hash code for this object
+     */
+    @Override
+    public int hashCode() {
+        int result = tier;
+        result = 31 * result + armorMaterialPrefix.hashCode();
+        result = 31 * result + weaponMaterialPrefix.hashCode();
+        result = 31 * result + dropRate;
+        result = 31 * result + eliteDropRate;
+        result = 31 * result + crateDropRate;
+        return result;
+    }
+
+    /**
+     * Builder pattern for creating TierConfig
+     */
+    public static class Builder {
+        private int tier = 1;
+        private String armorMaterialPrefix = "LEATHER";
+        private String weaponMaterialPrefix = "WOODEN";
+        private int dropRate = 25;
+        private int eliteDropRate = 30;
+        private int crateDropRate = 3;
+
+        public Builder setTier(int tier) {
+            this.tier = tier;
+            return this;
+        }
+
+        public Builder setArmorMaterialPrefix(String armorMaterialPrefix) {
+            this.armorMaterialPrefix = armorMaterialPrefix;
+            return this;
+        }
+
+        public Builder setWeaponMaterialPrefix(String weaponMaterialPrefix) {
+            this.weaponMaterialPrefix = weaponMaterialPrefix;
+            return this;
+        }
+
+        public Builder setDropRate(int dropRate) {
+            this.dropRate = dropRate;
+            return this;
+        }
+
+        public Builder setEliteDropRate(int eliteDropRate) {
+            this.eliteDropRate = eliteDropRate;
+            return this;
+        }
+
+        public Builder setCrateDropRate(int crateDropRate) {
+            this.crateDropRate = crateDropRate;
+            return this;
+        }
+
+        public TierConfig build() {
+            return new TierConfig(tier, armorMaterialPrefix, weaponMaterialPrefix,
+                    dropRate, eliteDropRate, crateDropRate);
+        }
     }
 }

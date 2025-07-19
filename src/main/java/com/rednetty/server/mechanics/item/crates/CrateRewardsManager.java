@@ -16,7 +16,7 @@ import java.util.concurrent.ThreadLocalRandom;
 import java.util.logging.Logger;
 
 /**
- *  Enhanced manager for generating deterministic crate rewards
+ *   manager for generating deterministic crate rewards
  * Ensures that the displayed item is always one of the actual rewards received
  */
 public class CrateRewardsManager {
@@ -343,7 +343,7 @@ public class CrateRewardsManager {
 
             List<String> lore = meta.hasLore() ? new ArrayList<>(meta.getLore()) : new ArrayList<>();
             lore.add("");
-            lore.add(ChatColor.GOLD + "★ Halloween Enhanced ★");
+            lore.add(ChatColor.GOLD + "★ Halloween  ★");
             meta.setLore(lore);
 
             item.setItemMeta(meta);

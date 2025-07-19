@@ -19,7 +19,7 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
- * Enhanced MongoDB repository for market items with caching and advanced querying
+ *  MongoDB repository for market items with caching and advanced querying
  */
 public class MarketRepository implements Repository<MarketItem, UUID> {
     private static final String COLLECTION_NAME = "market_items";

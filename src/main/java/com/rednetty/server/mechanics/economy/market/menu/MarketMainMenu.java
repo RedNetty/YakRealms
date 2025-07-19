@@ -19,7 +19,7 @@ import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
 /**
- * Enhanced main market menu with modern design and functionality
+ *  main market menu with modern design and functionality
  */
 public class MarketMainMenu extends Menu {
     private final MarketManager marketManager;

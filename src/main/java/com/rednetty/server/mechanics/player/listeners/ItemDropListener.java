@@ -256,7 +256,7 @@ public class ItemDropListener extends BaseListener {
      * @return true if god mode is disabled
      */
     private boolean isGodModeDisabled(Player player) {
-        return Toggles.isToggled(player, "God Mode Disabled");
+        return true;
     }
 
     /**

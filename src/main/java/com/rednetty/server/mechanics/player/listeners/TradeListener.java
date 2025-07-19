@@ -1,9 +1,11 @@
 package com.rednetty.server.mechanics.player.listeners;
 
 import com.rednetty.server.YakRealms;
+import com.rednetty.server.mechanics.player.settings.Toggles;
 import com.rednetty.server.mechanics.player.social.trade.Trade;
 import com.rednetty.server.mechanics.player.social.trade.TradeManager;
 import com.rednetty.server.mechanics.player.social.trade.TradeMenu;
+import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -13,7 +15,6 @@ import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.event.inventory.*;
 import org.bukkit.event.player.*;
-import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.InventoryView;
 import org.bukkit.scheduler.BukkitRunnable;
 
@@ -23,8 +24,7 @@ import java.util.UUID;
 import java.util.logging.Level;
 
 /**
- * Handles all trade-related events including initiation, interaction, and cancellation.
- * Enhanced with robust null checking and error handling.
+ *  Handles all trade-related events with proper synchronization and no double-handling
  */
 public class TradeListener extends BaseListener {
 
@@ -78,78 +78,11 @@ public class TradeListener extends BaseListener {
         }
         return tradeManager;
     }
+    
 
     /**
-     * Handles player interactions with other players for trade initiation/acceptance.
-     */
-    @EventHandler(priority = EventPriority.HIGH)
-    public void onPlayerInteractEntity(PlayerInteractEntityEvent event) {
-        TradeManager tm = getTradeManager();
-        if (tm == null) {
-            return; // Trade system not ready yet
-        }
-
-        Player player = event.getPlayer();
-
-        // Check if the clicked entity is a player
-        if (!(event.getRightClicked() instanceof Player)) {
-            return;
-        }
-
-        Player target = (Player) event.getRightClicked();
-
-        // Check if player is shift-right-clicking
-        if (!player.isSneaking()) {
-            return;
-        }
-
-        event.setCancelled(true);
-
-        // Check cooldown to prevent spam
-        if (isOnCooldown(player)) {
-            return;
-        }
-
-        // Don't allow self-trading
-        if (player.equals(target)) {
-            player.sendMessage(ChatColor.RED + "⚠ " + ChatColor.GRAY + "You cannot trade with yourself!");
-            return;
-        }
-
-        // Check distance
-        if (player.getLocation().distance(target.getLocation()) > MAX_TRADE_DISTANCE) {
-            player.sendMessage(ChatColor.RED + "⚠ " + ChatColor.GRAY + "You are too far away to trade!");
-            return;
-        }
-
-        // Check if either player is already trading
-        if (tm.isPlayerTrading(player)) {
-            player.sendMessage(ChatColor.RED + "⚠ " + ChatColor.GRAY + "You are already in a trade!");
-            return;
-        }
-
-        if (tm.isPlayerTrading(target)) {
-            player.sendMessage(ChatColor.RED + "⚠ " + ChatColor.GRAY + target.getDisplayName() + " is already trading!");
-            return;
-        }
-
-        updateCooldown(player);
-
-        // Check if target has a pending request from this player
-        if (tm.hasPendingTradeRequest(target, player)) {
-            // Target is accepting the trade request
-            tm.acceptTradeRequest(target, player);
-        } else if (tm.hasPendingTradeRequest(player, target)) {
-            // Player already sent a request, remind them
-            player.sendMessage(ChatColor.YELLOW + "⏳ " + ChatColor.GRAY + "You already have a pending trade request with " + target.getDisplayName());
-        } else {
-            // Send new trade request
-            tm.sendTradeRequest(player, target);
-        }
-    }
-
-    /**
-     * Handles clicks within trade inventories.
+     *  Simplified inventory click handling - only handles trade-specific logic
+     * No longer competing with TradeMenu for event handling
      */
     @EventHandler(priority = EventPriority.HIGH)
     public void onInventoryClick(InventoryClickEvent event) {
@@ -165,6 +98,7 @@ public class TradeListener extends BaseListener {
         Player player = (Player) event.getWhoClicked();
         Trade trade = tm.getPlayerTrade(player);
 
+        // Only handle if player is in a trade and clicking in trade inventory
         if (trade == null || !isTradeInventory(event.getView())) {
             return;
         }
@@ -175,32 +109,44 @@ public class TradeListener extends BaseListener {
             return;
         }
 
-        // Handle shift-clicks from player inventory to trade inventory
-        if (event.getClick() == ClickType.SHIFT_LEFT &&
-                event.getClickedInventory() != null &&
-                event.getClickedInventory().getType() == InventoryType.PLAYER) {
-            event.setCancelled(true);
-            return;
-        }
-
-        // Handle clicks in the trade menu
-        if (event.getView().getTopInventory().equals(tradeMenu.getInventory())) {
+        //  Only handle clicks in the top inventory (trade inventory)
+        // Let TradeMenu handle the actual click logic
+        if (event.getClickedInventory() != null &&
+                event.getClickedInventory().equals(event.getView().getTopInventory())) {
+            // This is a click in the trade inventory - let TradeMenu handle it
             tradeMenu.handleClick(event);
             return;
         }
 
-        // Cancel any other interactions with the trade inventory
+        //  Handle clicks in player inventory differently
+        if (event.getClickedInventory() != null &&
+                event.getClickedInventory().equals(player.getInventory())) {
+            // This is a click in player's inventory while trade is open
+            // Only allow left-clicks on items to add to trade
+            if (event.getClick() == ClickType.LEFT &&
+                    event.getCurrentItem() != null &&
+                    event.getCurrentItem().getType() != org.bukkit.Material.AIR) {
+                // Let TradeMenu handle this
+                tradeMenu.handleClick(event);
+            } else {
+                // Cancel other types of clicks in player inventory during trade
+                event.setCancelled(true);
+            }
+            return;
+        }
+
+        // Cancel any other interactions
         event.setCancelled(true);
     }
 
     /**
-     * Handles inventory drag events - prevents dragging items in trade inventories.
+     *  Simplified drag handling - just prevent all drags in trade inventories
      */
     @EventHandler(priority = EventPriority.HIGH)
     public void onInventoryDrag(InventoryDragEvent event) {
         TradeManager tm = getTradeManager();
         if (tm == null) {
-            return; // Trade system not ready yet
+            return;
         }
 
         if (!(event.getWhoClicked() instanceof Player)) {
@@ -210,43 +156,28 @@ public class TradeListener extends BaseListener {
         Player player = (Player) event.getWhoClicked();
         Trade trade = tm.getPlayerTrade(player);
 
-        if (trade == null || !isTradeInventory(event.getView())) {
-            return;
-        }
-
-        // Cancel all drag events in trade inventory
-        for (int slot : event.getRawSlots()) {
-            if (slot < event.getView().getTopInventory().getSize()) {
-                event.setCancelled(true);
-                return;
-            }
+        if (trade != null && isTradeInventory(event.getView())) {
+            // Always cancel drag events in trade inventories
+            event.setCancelled(true);
         }
     }
 
     /**
-     * Handles inventory closing - cancels trade if inventory is closed.
-     *  Added comprehensive null checking to prevent NullPointerException
+     *   inventory close handling with better error handling
      */
     @EventHandler(priority = EventPriority.MONITOR)
     public void onInventoryClose(InventoryCloseEvent event) {
-        // Enhanced null checking
         if (!(event.getPlayer() instanceof Player)) {
             return;
         }
 
         Player player = (Player) event.getPlayer();
 
-        // Get trade manager safely
         TradeManager tm = getTradeManager();
         if (tm == null) {
-            // Trade system not ready - log this for debugging
-            if (plugin != null) {
-                plugin.getLogger().finest("TradeListener.onInventoryClose: TradeManager not available for player " + player.getName());
-            }
             return;
         }
 
-        // Check if player has an active trade
         Trade trade = null;
         try {
             trade = tm.getPlayerTrade(player);
@@ -261,7 +192,6 @@ public class TradeListener extends BaseListener {
             return;
         }
 
-        // Get trade menu safely
         TradeMenu tradeMenu = null;
         try {
             tradeMenu = tm.getTradeMenu(trade);
@@ -296,16 +226,12 @@ public class TradeListener extends BaseListener {
         // Clear any prompt state
         TradeMenu.clearPromptState(player.getUniqueId());
 
-        // Get trade manager safely
         TradeManager tm = getTradeManager();
         if (tm != null) {
             try {
-                // Cancel any active trade
                 if (tm.isPlayerTrading(player)) {
                     tm.cancelTrade(player);
                 }
-
-                // Cancel any pending trade requests
                 tm.cancelTradeRequest(player);
             } catch (Exception e) {
                 if (plugin != null) {
@@ -331,7 +257,6 @@ public class TradeListener extends BaseListener {
                 if (tm.isPlayerTrading(player)) {
                     tm.cancelTrade(player);
                 }
-
                 tm.cancelTradeRequest(player);
             } catch (Exception e) {
                 if (plugin != null) {
@@ -388,7 +313,6 @@ public class TradeListener extends BaseListener {
                 if (tm.isPlayerTrading(player)) {
                     tm.cancelTrade(player);
                 }
-
                 tm.cancelTradeRequest(player);
             } catch (Exception e) {
                 if (plugin != null) {
@@ -397,54 +321,17 @@ public class TradeListener extends BaseListener {
             }
         }
     }
+    
 
     /**
-     * Cancels trades when players teleport (to prevent distance exploits).
-     */
-    @EventHandler(priority = EventPriority.HIGH)
-    public void onPlayerTeleport(PlayerTeleportEvent event) {
-        Player player = event.getPlayer();
-
-        TradeManager tm = getTradeManager();
-        if (tm != null && tm.isPlayerTrading(player)) {
-            Trade trade = tm.getPlayerTrade(player);
-            if (trade != null) {
-                Player otherPlayer = trade.getOtherPlayer(player);
-
-                // Check if teleport destination is too far from the other player
-                if (event.getTo() != null &&
-                        event.getTo().distance(otherPlayer.getLocation()) > MAX_TRADE_DISTANCE) {
-
-                    new BukkitRunnable() {
-                        @Override
-                        public void run() {
-                            try {
-                                TradeManager currentTm = getTradeManager();
-                                if (player.isOnline() && currentTm != null && currentTm.isPlayerTrading(player)) {
-                                    currentTm.cancelTrade(player);
-                                    player.sendMessage(ChatColor.RED + "✖ " + ChatColor.GRAY + "Trade cancelled due to teleporting too far away!");
-                                }
-                            } catch (Exception e) {
-                                if (plugin != null) {
-                                    plugin.getLogger().log(Level.WARNING, "Error cancelling trade on teleport for " + player.getName(), e);
-                                }
-                            }
-                        }
-                    }.runTask(plugin);
-                }
-            }
-        }
-    }
-
-    /**
-     * Cancels trades when players move too far apart.
+     *  Optimized move checking - only check occasionally to reduce lag
      */
     @EventHandler(priority = EventPriority.MONITOR)
     public void onPlayerMove(PlayerMoveEvent event) {
         Player player = event.getPlayer();
 
-        // Only check if player actually moved (not just head movement)
-        if (event.getFrom().distance(event.getTo()) < 0.1) {
+        // Only check if player actually moved significantly (not just head movement)
+        if (event.getFrom().distance(event.getTo()) < 1.0) {
             return;
         }
 
@@ -498,8 +385,180 @@ public class TradeListener extends BaseListener {
         }
     }
 
+  
+
     /**
-     * Handles chat commands during trading (for potential /trade cancel command).
+     *  Prevents hoppers and other containers from interacting with trade inventories.
+     */
+    @EventHandler(priority = EventPriority.HIGHEST)
+    public void onInventoryMoveItem(InventoryMoveItemEvent event) {
+        // Prevent hoppers and other containers from interacting with trade inventory
+        if (isTradeInventory(event.getSource()) || isTradeInventory(event.getDestination())) {
+            event.setCancelled(true);
+        }
+    }
+
+    /**
+     *  Better trade inventory detection
+     */
+    private boolean isTradeInventory(InventoryView view) {
+        return view != null && view.getTitle() != null && view.getTitle().startsWith("Trade: ");
+    }
+
+    /**
+     *  Better trade inventory detection for Inventory objects
+     */
+    private boolean isTradeInventory(org.bukkit.inventory.Inventory inventory) {
+        if (inventory == null || inventory.getViewers().isEmpty()) {
+            return false;
+        }
+
+        // Check if any viewer has a trade inventory open
+        return inventory.getViewers().stream()
+                .anyMatch(viewer -> isTradeInventory(viewer.getOpenInventory()));
+    }
+
+    /**
+     * Checks if a player is on cooldown for trade interactions.
+     */
+    private boolean isOnCooldown(Player player) {
+        Long lastTime = lastInteractionTime.get(player.getUniqueId());
+        if (lastTime == null) {
+            return false;
+        }
+
+        return (System.currentTimeMillis() - lastTime) < INTERACTION_COOLDOWN;
+    }
+
+    /**
+     * Updates the cooldown for a player.
+     */
+    private void updateCooldown(Player player) {
+        lastInteractionTime.put(player.getUniqueId(), System.currentTimeMillis());
+    }
+
+    /**
+     *   cleanup with better error handling
+     */
+    public void cleanup() {
+        lastInteractionTime.clear();
+
+        // Clean up any remaining trade menus
+        TradeManager tm = getTradeManager();
+        if (tm != null) {
+            try {
+                tm.clearAllTrades();
+            } catch (Exception e) {
+                if (plugin != null) {
+                    plugin.getLogger().log(Level.WARNING, "Error during trade listener cleanup", e);
+                }
+            }
+        }
+    }
+//NEW
+    /**
+     *  player interaction handler with trading toggle validation
+     */
+    @EventHandler(priority = EventPriority.HIGH)
+    public void onPlayerInteractEntity(PlayerInteractEntityEvent event) {
+        TradeManager tm = getTradeManager();
+        if (tm == null) {
+            return; // Trade system not ready yet
+        }
+
+        Player player = event.getPlayer();
+
+        // Check if the clicked entity is a player
+        if (!(event.getRightClicked() instanceof Player)) {
+            return;
+        }
+
+        Player target = (Player) event.getRightClicked();
+
+        // Check if player is shift-right-clicking
+        if (!player.isSneaking()) {
+            return;
+        }
+
+        event.setCancelled(true);
+
+        // Check cooldown to prevent spam
+        if (isOnCooldown(player)) {
+            return;
+        }
+
+        // Don't allow self-trading
+        if (player.equals(target)) {
+            player.sendMessage(ChatColor.RED + "⚠ " + ChatColor.GRAY + "You cannot trade with yourself!");
+            return;
+        }
+
+        //  Check if player has trading enabled
+        if (!isPlayerTradingEnabled(player)) {
+            player.sendMessage(ChatColor.RED + "⚠ " + ChatColor.GRAY + "You have trading disabled! Use /toggle to enable it.");
+            return;
+        }
+
+        //  Check if target has trading enabled
+        if (!isPlayerTradingEnabled(target)) {
+            player.sendMessage(ChatColor.RED + "⚠ " + ChatColor.GRAY + target.getDisplayName() + " has trading disabled!");
+            return;
+        }
+
+        // Check distance
+        if (player.getLocation().distance(target.getLocation()) > MAX_TRADE_DISTANCE) {
+            player.sendMessage(ChatColor.RED + "⚠ " + ChatColor.GRAY + "You are too far away to trade!");
+            return;
+        }
+
+        // Check if either player is already trading
+        if (tm.isPlayerTrading(player)) {
+            player.sendMessage(ChatColor.RED + "⚠ " + ChatColor.GRAY + "You are already in a trade!");
+            return;
+        }
+
+        if (tm.isPlayerTrading(target)) {
+            player.sendMessage(ChatColor.RED + "⚠ " + ChatColor.GRAY + target.getDisplayName() + " is already trading!");
+            return;
+        }
+
+        updateCooldown(player);
+
+        // Check if target has a pending request from this player
+        if (tm.hasPendingTradeRequest(target, player)) {
+            // Target is accepting the trade request
+            tm.acceptTradeRequest(target, player);
+        } else if (tm.hasPendingTradeRequest(player, target)) {
+            // Player already sent a request, remind them
+            player.sendMessage(ChatColor.YELLOW + "⏳ " + ChatColor.GRAY + "You already have a pending trade request with " + target.getDisplayName());
+        } else {
+            // Send new trade request
+            tm.sendTradeRequest(player, target);
+        }
+    }
+
+    /**
+     *  Check if a player has trading enabled via toggles
+     */
+    private boolean isPlayerTradingEnabled(Player player) {
+        if (player == null || !player.isOnline()) {
+            return false;
+        }
+
+        try {
+
+            return Toggles.isToggled(player, "Trading");
+        } catch (Exception e) {
+            if (plugin != null) {
+                plugin.getLogger().warning("Error checking trading toggle for " + player.getName() + ": " + e.getMessage());
+            }
+            // Default to true if there's an error checking the toggle
+            return true;
+        }
+    }
+
+    /**
+     *  command preprocessing with toggle status display
      */
     @EventHandler(priority = EventPriority.HIGH)
     public void onPlayerCommandPreprocess(PlayerCommandPreprocessEvent event) {
@@ -528,62 +587,97 @@ public class TradeListener extends BaseListener {
                 player.sendMessage(ChatColor.RED + "⚠ " + ChatColor.GRAY + "Trade system is not available!");
             }
         }
-    }
-
-    /**
-     * Prevents hoppers and other containers from interacting with trade inventories.
-     */
-    @EventHandler(priority = EventPriority.HIGHEST)
-    public void onInventoryMoveItem(InventoryMoveItemEvent event) {
-        // Prevent hoppers and other containers from interacting with trade inventory
-        if (isTradeInventory(event.getSource()) || isTradeInventory(event.getDestination())) {
+        //  Handle trade status command
+        else if (message.startsWith("/trade status") || message.startsWith("/t status")) {
             event.setCancelled(true);
+
+            boolean tradingEnabled = isPlayerTradingEnabled(player);
+            player.sendMessage("§6§l--- Trading Status ---");
+            player.sendMessage("§7Trading: " + (tradingEnabled ? "§aEnabled" : "§cDisabled"));
+            player.sendMessage("§7Use §f/toggle §7to change your trading settings.");
+
+            TradeManager tm = getTradeManager();
+            if (tm != null && tm.isPlayerTrading(player)) {
+                Trade trade = tm.getPlayerTrade(player);
+                if (trade != null) {
+                    Player otherPlayer = trade.getOtherPlayer(player);
+                    player.sendMessage("§7Currently trading with: §f" + otherPlayer.getName());
+                }
+            }
+        }
+        //  Handle toggle shortcut
+        else if (message.startsWith("/trade toggle") || message.startsWith("/t toggle")) {
+            event.setCancelled(true);
+
+            // This could redirect to the toggle command or provide a shortcut
+            player.sendMessage("§7Use §f/toggle §7to manage your trading and other settings.");
+            player.sendMessage("§7Look for the §f'Trading' §7option in the Social section.");
         }
     }
 
     /**
-     * Checks if an inventory view represents a trade inventory.
+     *  teleport handler with better feedback about trading status
      */
-    private boolean isTradeInventory(InventoryView view) {
-        return view != null && view.getTitle() != null && view.getTitle().startsWith("Trade: ");
-    }
+    @EventHandler(priority = EventPriority.HIGH)
+    public void onPlayerTeleport(PlayerTeleportEvent event) {
+        Player player = event.getPlayer();
 
-    /**
-     * Checks if an inventory is a trade inventory by checking its viewers.
-     */
-    private boolean isTradeInventory(Inventory inventory) {
-        if (inventory == null || inventory.getViewers().isEmpty()) {
-            return false;
+        TradeManager tm = getTradeManager();
+        if (tm != null && tm.isPlayerTrading(player)) {
+            Trade trade = tm.getPlayerTrade(player);
+            if (trade != null) {
+                Player otherPlayer = trade.getOtherPlayer(player);
+
+                // Check if teleport destination is too far from the other player
+                if (event.getTo() != null &&
+                        event.getTo().distance(otherPlayer.getLocation()) > MAX_TRADE_DISTANCE) {
+
+                    new BukkitRunnable() {
+                        @Override
+                        public void run() {
+                            try {
+                                TradeManager currentTm = getTradeManager();
+                                if (player.isOnline() && currentTm != null && currentTm.isPlayerTrading(player)) {
+                                    currentTm.cancelTrade(player);
+                                    player.sendMessage(ChatColor.RED + "✖ " + ChatColor.GRAY + "Trade cancelled due to teleporting too far away!");
+
+                                    // Provide helpful information about trading settings
+                                    if (!isPlayerTradingEnabled(player)) {
+                                        player.sendMessage(ChatColor.YELLOW + "💡 " + ChatColor.GRAY + "Tip: Your trading is currently disabled. Use /toggle to enable it.");
+                                    }
+                                }
+                            } catch (Exception e) {
+                                if (plugin != null) {
+                                    plugin.getLogger().log(Level.WARNING, "Error cancelling trade on teleport for " + player.getName(), e);
+                                }
+                            }
+                        }
+                    }.runTask(plugin);
+                }
+            }
         }
-        return isTradeInventory(inventory.getViewers().get(0).getOpenInventory());
     }
 
     /**
-     * Checks if a player is on cooldown for trade interactions.
+     *  Provide helpful trading tips when players first join
      */
-    private boolean isOnCooldown(Player player) {
-        Long lastTime = lastInteractionTime.get(player.getUniqueId());
-        if (lastTime == null) {
-            return false;
-        }
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onPlayerJoin(PlayerJoinEvent event) {
+        Player player = event.getPlayer();
 
-        return (System.currentTimeMillis() - lastTime) < INTERACTION_COOLDOWN;
+        // Provide a one-time tip about trading (you could track this with player data)
+        Bukkit.getScheduler().runTaskLater(plugin, () -> {
+            if (player.isOnline()) {
+                // Only show tip if trading is disabled (first-time players might have it disabled by default)
+                if (!isPlayerTradingEnabled(player)) {
+                    player.sendMessage("");
+                    player.sendMessage(ChatColor.YELLOW + "💡 " + ChatColor.GRAY + "Tip: Trading with other players is currently disabled.");
+                    player.sendMessage(ChatColor.GRAY + "Use " + ChatColor.WHITE + "/toggle" + ChatColor.GRAY + " and look for 'Trading' in the Social section to enable it.");
+                    player.sendMessage("");
+                }
+            }
+        }, 100L); // 5 second delay after join
     }
-
-    /**
-     * Updates the cooldown for a player.
-     */
-    private void updateCooldown(Player player) {
-        lastInteractionTime.put(player.getUniqueId(), System.currentTimeMillis());
-    }
-
-    /**
-     * Cleans up player data when they leave.
-     */
-    public void cleanup() {
-        lastInteractionTime.clear();
-    }
-
     /**
      * Manual initialization method for cases where the constructor initialization fails
      */

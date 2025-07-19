@@ -1,698 +1,228 @@
 package com.rednetty.server.mechanics.economy.vendors;
 
-import com.rednetty.server.mechanics.economy.vendors.utils.VendorUtils;
-import org.bukkit.Bukkit;
-import org.bukkit.ChatColor;
 import org.bukkit.Location;
 import org.bukkit.World;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
-import java.util.concurrent.locks.ReadWriteLock;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
- * Enhanced Vendor class with improved thread safety, validation, and utility methods.
- * Simple data holder for a vendor's properties with comprehensive validation,
- * thread-safe operations, and enhanced type determination.
+ * Robust vendor data class with validation and proper encapsulation
  */
 public class Vendor {
-
-    // Core vendor data
-    private final String vendorId;
+    private final String id;
     private final int npcId;
-    private volatile Location location;
-    private volatile List<String> hologramLines;
-    private volatile String behaviorClass;
-    private volatile String vendorType;
-    private volatile long lastUpdated;
-
-    // Thread safety
-    private final ReadWriteLock lock = new ReentrantReadWriteLock();
-
-    // Validation state
-    private volatile boolean isValid = false;
-    private volatile String lastValidationError = null;
-
-    // Performance tracking
-    private volatile long creationTime;
-    private volatile int accessCount = 0;
-    private volatile long lastAccessTime;
+    private final Location location;
+    private final String vendorType;
+    private final List<String> hologramLines;
 
     /**
-     * Enhanced constructor with validation
+     * Create a new vendor with full validation
      */
-    public Vendor(String vendorId, int npcId, Location location,
-                  List<String> hologramLines, String behaviorClass) {
-
+    public Vendor(String id, int npcId, Location location, String vendorType, List<String> hologramLines) {
         // Validate required parameters
-        if (VendorUtils.isNullOrEmpty(vendorId)) {
+        if (id == null || id.trim().isEmpty()) {
             throw new IllegalArgumentException("Vendor ID cannot be null or empty");
         }
 
-        if (!VendorUtils.isValidVendorId(vendorId)) {
-            throw new IllegalArgumentException("Invalid vendor ID format: " + vendorId);
-        }
-
         if (npcId <= 0) {
-            throw new IllegalArgumentException("NPC ID must be positive: " + npcId);
+            throw new IllegalArgumentException("NPC ID must be positive");
         }
 
-        // Initialize core data
-        this.vendorId = VendorUtils.sanitizeVendorId(vendorId);
+        if (location == null) {
+            throw new IllegalArgumentException("Location cannot be null");
+        }
+
+        if (location.getWorld() == null) {
+            throw new IllegalArgumentException("Location world cannot be null");
+        }
+
+        if (vendorType == null || vendorType.trim().isEmpty()) {
+            throw new IllegalArgumentException("Vendor type cannot be null or empty");
+        }
+
+        // Store validated data
+        this.id = id.trim();
         this.npcId = npcId;
-        this.creationTime = System.currentTimeMillis();
-        this.lastUpdated = this.creationTime;
-        this.lastAccessTime = this.creationTime;
-
-        // Set behavior class and determine type FIRST
-        setBehaviorClass(VendorUtils.getOrDefault(behaviorClass,
-                "com.rednetty.server.mechanics.economy.vendors.behaviors.ShopBehavior"));
-
-        // Set location with validation
-        setLocation(location);
-
-        // Set hologram lines with defaults based on determined type
-        setHologramLines(hologramLines != null && !hologramLines.isEmpty() ?
-                hologramLines : createDefaultHologramLinesForType(this.vendorType));
-
-        // Validate the vendor
-        validateVendor();
+        this.location = location.clone(); // Defensive copy
+        this.vendorType = vendorType.trim().toLowerCase();
+        this.hologramLines = hologramLines != null ? new ArrayList<>(hologramLines) : new ArrayList<>();
     }
 
     /**
-     * Thread-safe vendor ID getter
+     * Get vendor ID
      */
-    public String getVendorId() {
-        recordAccess();
-        return vendorId;
+    public String getId() {
+        return id;
     }
 
     /**
-     * Thread-safe NPC ID getter
+     * Get NPC ID
      */
     public int getNpcId() {
-        recordAccess();
         return npcId;
     }
 
     /**
-     * Thread-safe location getter with defensive copying
+     * Get vendor location (defensive copy)
      */
     public Location getLocation() {
-        recordAccess();
-        lock.readLock().lock();
-        try {
-            return VendorUtils.safeCopyLocation(location);
-        } finally {
-            lock.readLock().unlock();
-        }
+        return location.clone();
     }
 
     /**
-     * Enhanced location setter with validation
-     */
-    public void setLocation(Location location) {
-        if (location != null && !VendorUtils.isValidVendorLocation(location)) {
-            throw new IllegalArgumentException("Invalid vendor location: " + location);
-        }
-
-        lock.writeLock().lock();
-        try {
-            this.location = VendorUtils.safeCopyLocation(location);
-            this.lastUpdated = System.currentTimeMillis();
-            validateVendor();
-        } finally {
-            lock.writeLock().unlock();
-        }
-    }
-
-    /**
-     * Thread-safe hologram lines getter with defensive copying
-     */
-    public List<String> getHologramLines() {
-        recordAccess();
-        lock.readLock().lock();
-        try {
-            return hologramLines != null ? new ArrayList<>(hologramLines) : new ArrayList<>();
-        } finally {
-            lock.readLock().unlock();
-        }
-    }
-
-    /**
-     * Enhanced hologram lines setter with validation and smart defaults
-     */
-    public void setHologramLines(List<String> hologramLines) {
-        lock.writeLock().lock();
-        try {
-            if (hologramLines == null || hologramLines.isEmpty()) {
-                // Use current vendor type for defaults, fallback to "unknown"
-                String currentType = this.vendorType != null ? this.vendorType : "unknown";
-                this.hologramLines = createDefaultHologramLinesForType(currentType);
-            } else {
-                // Filter out null or empty lines
-                List<String> validLines = new ArrayList<>();
-                for (String line : hologramLines) {
-                    if (!VendorUtils.isNullOrEmpty(line)) {
-                        validLines.add(line);
-                    }
-                }
-                this.hologramLines = validLines.isEmpty() ?
-                        createDefaultHologramLinesForType(this.vendorType) : validLines;
-            }
-            this.lastUpdated = System.currentTimeMillis();
-            validateVendor();
-        } finally {
-            lock.writeLock().unlock();
-        }
-    }
-
-    /**
-     * Thread-safe behavior class getter
-     */
-    public String getBehaviorClass() {
-        recordAccess();
-        lock.readLock().lock();
-        try {
-            return behaviorClass;
-        } finally {
-            lock.readLock().unlock();
-        }
-    }
-
-    /**
-     * Enhanced behavior class setter with type determination
-     */
-    public void setBehaviorClass(String behaviorClass) {
-        if (VendorUtils.isNullOrEmpty(behaviorClass)) {
-            throw new IllegalArgumentException("Behavior class cannot be null or empty");
-        }
-
-        lock.writeLock().lock();
-        try {
-            this.behaviorClass = behaviorClass;
-            this.vendorType = determineTypeFromBehavior(behaviorClass);
-            this.lastUpdated = System.currentTimeMillis();
-
-            // Update hologram lines if they're still default/empty
-            if (this.hologramLines == null || this.hologramLines.isEmpty() ||
-                    isGenericHologramLines(this.hologramLines)) {
-                this.hologramLines = createDefaultHologramLinesForType(this.vendorType);
-            }
-
-            validateVendor();
-        } finally {
-            lock.writeLock().unlock();
-        }
-    }
-
-    /**
-     * Thread-safe vendor type getter
+     * Get vendor type
      */
     public String getVendorType() {
-        recordAccess();
-        lock.readLock().lock();
-        try {
-            return vendorType != null ? vendorType : "unknown";
-        } finally {
-            lock.readLock().unlock();
-        }
+        return vendorType;
     }
 
     /**
-     * Enhanced type checking with case-insensitive comparison
+     * Get hologram lines (defensive copy)
      */
-    public boolean isType(String type) {
-        recordAccess();
-        lock.readLock().lock();
-        try {
-            return VendorUtils.stringsEqualIgnoreCase(vendorType, type);
-        } finally {
-            lock.readLock().unlock();
-        }
+    public List<String> getHologramLines() {
+        return new ArrayList<>(hologramLines);
     }
 
     /**
-     * Thread-safe last updated getter
+     * Check if vendor is in the specified world
      */
-    public long getLastUpdated() {
-        recordAccess();
-        return lastUpdated;
+    public boolean isInWorld(World world) {
+        return world != null && world.equals(location.getWorld());
     }
 
     /**
-     * Update the last updated timestamp
+     * Check if vendor is in the specified world by name
      */
-    public void touch() {
-        lock.writeLock().lock();
-        try {
-            this.lastUpdated = System.currentTimeMillis();
-        } finally {
-            lock.writeLock().unlock();
-        }
+    public boolean isInWorld(String worldName) {
+        return worldName != null && worldName.equals(location.getWorld().getName());
     }
 
     /**
-     * Enhanced validation with detailed error tracking
+     * Get distance to a location (returns -1 if different worlds)
      */
-    public boolean isValid() {
-        recordAccess();
-        lock.readLock().lock();
-        try {
-            return isValid;
-        } finally {
-            lock.readLock().unlock();
+    public double getDistanceTo(Location other) {
+        if (other == null || !other.getWorld().equals(location.getWorld())) {
+            return -1;
         }
-    }
-
-    /**
-     * Get the last validation error if any
-     */
-    public String getLastValidationError() {
-        lock.readLock().lock();
-        try {
-            return lastValidationError;
-        } finally {
-            lock.readLock().unlock();
-        }
-    }
-
-    /**
-     * Comprehensive vendor validation
-     */
-    private void validateVendor() {
-        StringBuilder errors = new StringBuilder();
-        boolean valid = true;
-
-        // Validate vendor ID
-        if (VendorUtils.isNullOrEmpty(vendorId)) {
-            errors.append("Vendor ID is null or empty; ");
-            valid = false;
-        } else if (!VendorUtils.isValidVendorId(vendorId)) {
-            errors.append("Invalid vendor ID format; ");
-            valid = false;
-        }
-
-        // Validate NPC ID
-        if (npcId <= 0) {
-            errors.append("NPC ID must be positive; ");
-            valid = false;
-        }
-
-        // Validate location
-        if (location == null) {
-            errors.append("Location is null; ");
-            valid = false;
-        } else if (location.getWorld() == null) {
-            errors.append("Location world is null; ");
-            valid = false;
-        } else if (!VendorUtils.isValidVendorLocation(location)) {
-            errors.append("Invalid location coordinates; ");
-            valid = false;
-        }
-
-        // Validate behavior class
-        if (VendorUtils.isNullOrEmpty(behaviorClass)) {
-            errors.append("Behavior class is null or empty; ");
-            valid = false;
-        }
-
-        // Validate hologram lines
-        if (hologramLines == null || hologramLines.isEmpty()) {
-            errors.append("Hologram lines are null or empty; ");
-            valid = false;
-        }
-
-        // Validate vendor type
-        if (VendorUtils.isNullOrEmpty(vendorType)) {
-            errors.append("Vendor type is null or empty; ");
-            valid = false;
-        }
-
-        this.isValid = valid;
-        this.lastValidationError = valid ? null : errors.toString().trim();
-    }
-
-    /**
-     * Enhanced behavior class validation with caching
-     */
-    public boolean hasValidBehavior() {
-        recordAccess();
-        lock.readLock().lock();
-        try {
-            if (VendorUtils.isNullOrEmpty(behaviorClass)) {
-                return false;
-            }
-
-            try {
-                Class<?> clazz = Class.forName(behaviorClass);
-
-                // Check if it implements VendorBehavior interface
-                for (Class<?> iface : clazz.getInterfaces()) {
-                    if ("VendorBehavior".equals(iface.getSimpleName())) {
-                        return true;
-                    }
-                }
-
-                // Check if superclass implements it
-                Class<?> superClass = clazz.getSuperclass();
-                while (superClass != null) {
-                    for (Class<?> iface : superClass.getInterfaces()) {
-                        if ("VendorBehavior".equals(iface.getSimpleName())) {
-                            return true;
-                        }
-                    }
-                    superClass = superClass.getSuperclass();
-                }
-
-                return false;
-            } catch (ClassNotFoundException e) {
-                return false;
-            }
-        } finally {
-            lock.readLock().unlock();
-        }
-    }
-
-    /**
-     * Enhanced type determination with comprehensive behavior mapping
-     */
-    private String determineTypeFromBehavior(String behaviorClass) {
-        if (VendorUtils.isNullOrEmpty(behaviorClass)) {
-            return "unknown";
-        }
-
-        // Extract class name without package
-        String className = behaviorClass;
-        if (behaviorClass.contains(".")) {
-            className = behaviorClass.substring(behaviorClass.lastIndexOf('.') + 1);
-        }
-
-        // Remove "Behavior" suffix if present
-        if (className.endsWith("Behavior")) {
-            String type = className.substring(0, className.length() - 8).toLowerCase();
-
-            // Comprehensive mapping for all vendor types
-            switch (type) {
-                case "itemvendor":
-                case "item":
-                case "shop":
-                    return "item";
-                case "fisherman":
-                    return "fisherman";
-                case "bookvendor":
-                case "book":
-                    return "book";
-                case "upgradevendor":
-                case "upgrade":
-                    return "upgrade";
-                case "banker":
-                    return "banker";
-                case "medic":
-                    return "medic";
-                case "gambler":
-                    return "gambler";
-                default:
-                    // For unknown types, try to extract meaningful name
-                    return type.isEmpty() ? "unknown" : type;
-            }
-        }
-
-        // Fallback: try to extract type from full class name
-        String lowerCase = behaviorClass.toLowerCase();
-        if (lowerCase.contains("item") || lowerCase.contains("shop")) return "item";
-        if (lowerCase.contains("fisherman")) return "fisherman";
-        if (lowerCase.contains("book")) return "book";
-        if (lowerCase.contains("upgrade")) return "upgrade";
-        if (lowerCase.contains("banker")) return "banker";
-        if (lowerCase.contains("medic")) return "medic";
-        if (lowerCase.contains("gambler")) return "gambler";
-
-        return "unknown";
-    }
-
-    /**
-     * Create appropriate default hologram lines for vendor type
-     */
-    private List<String> createDefaultHologramLinesForType(String vendorType) {
-        List<String> lines = new ArrayList<>();
-
-        switch (vendorType != null ? vendorType.toLowerCase() : "unknown") {
-            case "item":
-                lines.add(ChatColor.GOLD + "" + ChatColor.ITALIC + "Item Vendor");
-                break;
-            case "fisherman":
-                lines.add(ChatColor.AQUA + "" + ChatColor.ITALIC + "Fisherman");
-                break;
-            case "book":
-                lines.add(ChatColor.LIGHT_PURPLE + "" + ChatColor.ITALIC + "Book Vendor");
-                break;
-            case "upgrade":
-                lines.add(ChatColor.YELLOW + "" + ChatColor.ITALIC + "Upgrade Vendor");
-                break;
-            case "banker":
-                lines.add(ChatColor.GREEN + "" + ChatColor.ITALIC + "Banker");
-                break;
-            case "medic":
-                lines.add(ChatColor.RED + "" + ChatColor.ITALIC + "Medic");
-                break;
-            case "gambler":
-                lines.add(ChatColor.GOLD + "" + ChatColor.ITALIC + "Gambler");
-                break;
-            default:
-                lines.add(ChatColor.GRAY + "" + ChatColor.ITALIC + "Vendor");
-                break;
-        }
-
-        return lines;
-    }
-
-    /**
-     * Check if hologram lines are generic/default
-     */
-    private boolean isGenericHologramLines(List<String> lines) {
-        if (lines == null || lines.isEmpty()) {
-            return true;
-        }
-
-        for (String line : lines) {
-            String stripped = ChatColor.stripColor(line).toLowerCase().trim();
-            if (stripped.equals("vendor") || stripped.equals("unknown") || stripped.isEmpty()) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    /**
-     * Record access for performance tracking
-     */
-    private void recordAccess() {
-        accessCount++;
-        lastAccessTime = System.currentTimeMillis();
-    }
-
-    /**
-     * Get performance metrics
-     */
-    public VendorMetrics getMetrics() {
-        lock.readLock().lock();
-        try {
-            return new VendorMetrics(
-                    vendorId,
-                    creationTime,
-                    lastUpdated,
-                    lastAccessTime,
-                    accessCount,
-                    isValid,
-                    lastValidationError
-            );
-        } finally {
-            lock.readLock().unlock();
-        }
-    }
-
-    /**
-     * Check if vendor location is in a loaded chunk
-     */
-    public boolean isLocationLoaded() {
-        lock.readLock().lock();
-        try {
-            return VendorUtils.isChunkLoaded(location);
-        } finally {
-            lock.readLock().unlock();
-        }
-    }
-
-    /**
-     * Get distance to another vendor
-     */
-    public double getDistanceTo(Vendor other) {
-        if (other == null) {
-            return Double.MAX_VALUE;
-        }
-
-        lock.readLock().lock();
-        try {
-            return VendorUtils.safeDistance(this.location, other.location);
-        } finally {
-            lock.readLock().unlock();
-        }
+        return location.distance(other);
     }
 
     /**
      * Check if vendor is within range of a location
      */
-    public boolean isWithinRange(Location target, double range) {
-        lock.readLock().lock();
+    public boolean isWithinRange(Location other, double range) {
+        double distance = getDistanceTo(other);
+        return distance >= 0 && distance <= range;
+    }
+
+    /**
+     * Get world name
+     */
+    public String getWorldName() {
+        return location.getWorld().getName();
+    }
+
+    /**
+     * Validate vendor data integrity
+     */
+    public boolean isValid() {
         try {
-            return VendorUtils.safeDistanceSquared(this.location, target) <= range * range;
-        } finally {
-            lock.readLock().unlock();
+            // Check basic data
+            if (id == null || id.trim().isEmpty()) return false;
+            if (npcId <= 0) return false;
+            if (location == null) return false;
+            if (location.getWorld() == null) return false;
+            if (vendorType == null || vendorType.trim().isEmpty()) return false;
+
+            // Check location bounds (reasonable world coordinates)
+            double x = location.getX();
+            double y = location.getY();
+            double z = location.getZ();
+
+            if (Math.abs(x) > 30000000 || Math.abs(z) > 30000000) return false;
+            return !(y < -2000) && !(y > 2000);
+
+        } catch (Exception e) {
+            return false;
         }
     }
 
     /**
-     * Get vendor age in milliseconds
+     * Get vendor type as formatted display name
      */
-    public long getAge() {
-        return System.currentTimeMillis() - creationTime;
+    public String getFormattedVendorType() {
+        return vendorType.substring(0, 1).toUpperCase() + vendorType.substring(1).toLowerCase().replace('_', ' ');
     }
 
     /**
-     * Get time since last update in milliseconds
+     * Check if this vendor has the specified type
      */
-    public long getTimeSinceLastUpdate() {
-        return System.currentTimeMillis() - lastUpdated;
+    public boolean isType(String type) {
+        return type != null && vendorType.equalsIgnoreCase(type.trim());
     }
 
     /**
-     * Get time since last access in milliseconds
+     * Get a summary string for logging/debugging
      */
-    public long getTimeSinceLastAccess() {
-        return System.currentTimeMillis() - lastAccessTime;
+    public String getSummary() {
+        return String.format("Vendor{id='%s', npcId=%d, type='%s', world='%s', x=%.1f, y=%.1f, z=%.1f}",
+                id, npcId, vendorType, getWorldName(),
+                location.getX(), location.getY(), location.getZ());
     }
 
     /**
-     * Create a safe copy of this vendor
+     * Create a copy of this vendor with a new ID
      */
-    public Vendor copy() {
-        lock.readLock().lock();
-        try {
-            return new Vendor(vendorId, npcId, location, hologramLines, behaviorClass);
-        } finally {
-            lock.readLock().unlock();
+    public Vendor copyWithNewId(String newId, int newNpcId) {
+        return new Vendor(newId, newNpcId, location, vendorType, hologramLines);
+    }
+
+    /**
+     * Check if two vendors represent the same logical vendor (same ID)
+     */
+    public boolean isSameVendor(Vendor other) {
+        return other != null && id.equals(other.id);
+    }
+
+    /**
+     * Check if two vendors are at the same location (within small tolerance)
+     */
+    public boolean isAtSameLocation(Vendor other) {
+        if (other == null || !location.getWorld().equals(other.location.getWorld())) {
+            return false;
         }
+
+        double threshold = 0.1;
+        return Math.abs(location.getX() - other.location.getX()) < threshold &&
+                Math.abs(location.getY() - other.location.getY()) < threshold &&
+                Math.abs(location.getZ() - other.location.getZ()) < threshold;
     }
 
-    /**
-     * Enhanced equals method
-     */
     @Override
     public boolean equals(Object obj) {
         if (this == obj) return true;
         if (obj == null || getClass() != obj.getClass()) return false;
 
         Vendor vendor = (Vendor) obj;
-        return npcId == vendor.npcId && Objects.equals(vendorId, vendor.vendorId);
+        return npcId == vendor.npcId &&
+                Objects.equals(id, vendor.id) &&
+                Objects.equals(vendorType, vendor.vendorType) &&
+                Objects.equals(location.getWorld(), vendor.location.getWorld()) &&
+                Math.abs(location.getX() - vendor.location.getX()) < 0.01 &&
+                Math.abs(location.getY() - vendor.location.getY()) < 0.01 &&
+                Math.abs(location.getZ() - vendor.location.getZ()) < 0.01;
     }
 
-    /**
-     * Enhanced hashCode method
-     */
     @Override
     public int hashCode() {
-        return Objects.hash(vendorId, npcId);
+        return Objects.hash(id, npcId, vendorType, location.getWorld().getName(),
+                (int) location.getX(), (int) location.getY(), (int) location.getZ());
     }
 
-    /**
-     * Enhanced toString with more information
-     */
     @Override
     public String toString() {
-        lock.readLock().lock();
-        try {
-            return String.format("Vendor{id='%s', npcId=%d, type='%s', behavior='%s', valid=%s, location=%s}",
-                    vendorId, npcId, vendorType,
-                    behaviorClass != null ? behaviorClass.substring(behaviorClass.lastIndexOf('.') + 1) : "null",
-                    isValid,
-                    location != null ? String.format("%.1f,%.1f,%.1f in %s",
-                            location.getX(), location.getY(), location.getZ(),
-                            location.getWorld().getName()) : "null");
-        } finally {
-            lock.readLock().unlock();
-        }
-    }
-
-    /**
-     * Detailed string representation for debugging
-     */
-    public String toDetailedString() {
-        lock.readLock().lock();
-        try {
-            StringBuilder sb = new StringBuilder();
-            sb.append("Vendor Details:\n");
-            sb.append("  ID: ").append(vendorId).append("\n");
-            sb.append("  NPC ID: ").append(npcId).append("\n");
-            sb.append("  Type: ").append(vendorType).append("\n");
-            sb.append("  Behavior: ").append(behaviorClass).append("\n");
-            sb.append("  Valid: ").append(isValid).append("\n");
-            if (lastValidationError != null) {
-                sb.append("  Validation Error: ").append(lastValidationError).append("\n");
-            }
-            sb.append("  Location: ").append(location).append("\n");
-            sb.append("  Hologram Lines: ").append(hologramLines.size()).append(" lines\n");
-            for (int i = 0; i < hologramLines.size(); i++) {
-                sb.append("    ").append(i + 1).append(": ").append(hologramLines.get(i)).append("\n");
-            }
-            sb.append("  Created: ").append(VendorUtils.formatTimestamp(creationTime)).append("\n");
-            sb.append("  Last Updated: ").append(VendorUtils.formatTimestamp(lastUpdated)).append("\n");
-            sb.append("  Access Count: ").append(accessCount).append("\n");
-            sb.append("  Age: ").append(VendorUtils.formatDuration(getAge())).append("\n");
-            return sb.toString();
-        } finally {
-            lock.readLock().unlock();
-        }
-    }
-
-    /**
-     * Inner class for vendor metrics
-     */
-    public static class VendorMetrics {
-        public final String vendorId;
-        public final long creationTime;
-        public final long lastUpdated;
-        public final long lastAccessTime;
-        public final int accessCount;
-        public final boolean isValid;
-        public final String lastValidationError;
-
-        public VendorMetrics(String vendorId, long creationTime, long lastUpdated,
-                             long lastAccessTime, int accessCount, boolean isValid,
-                             String lastValidationError) {
-            this.vendorId = vendorId;
-            this.creationTime = creationTime;
-            this.lastUpdated = lastUpdated;
-            this.lastAccessTime = lastAccessTime;
-            this.accessCount = accessCount;
-            this.isValid = isValid;
-            this.lastValidationError = lastValidationError;
-        }
-
-        public long getAge() {
-            return System.currentTimeMillis() - creationTime;
-        }
-
-        public long getTimeSinceLastUpdate() {
-            return System.currentTimeMillis() - lastUpdated;
-        }
-
-        public long getTimeSinceLastAccess() {
-            return System.currentTimeMillis() - lastAccessTime;
-        }
+        return getSummary();
     }
 }

@@ -80,7 +80,7 @@ public class GroundDetectionUtil {
     private static boolean isPassthrough(Material material) {
         return material.isAir() ||
                 material == Material.WATER ||
-                material == Material.GRASS ||
+                material == Material.GRASS_BLOCK ||
                 material == Material.TALL_GRASS ||
                 material.name().contains("CARPET");
     }

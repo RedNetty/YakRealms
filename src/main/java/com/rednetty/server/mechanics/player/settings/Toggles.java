@@ -1,14 +1,10 @@
 package com.rednetty.server.mechanics.player.settings;
 
 import com.rednetty.server.YakRealms;
-import com.rednetty.server.mechanics.player.social.party.PartyMechanics;
 import com.rednetty.server.mechanics.player.YakPlayer;
 import com.rednetty.server.mechanics.player.YakPlayerManager;
-import org.bukkit.Bukkit;
-import org.bukkit.ChatColor;
-import org.bukkit.Material;
-import org.bukkit.Particle;
-import org.bukkit.Sound;
+import com.rednetty.server.mechanics.player.social.party.PartyMechanics;
+import org.bukkit.*;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
@@ -26,14 +22,14 @@ import java.util.logging.Logger;
 import java.util.stream.Collectors;
 
 /**
- * UPDATED: Enhanced toggle system with proper initialization, debugging, validation, and simplified PVP handling.
+ * UPDATED:  toggle system with proper initialization, debugging, validation, and simplified PVP handling.
  */
 public class Toggles implements Listener {
     private static Toggles instance;
     private final YakPlayerManager playerManager;
     private final Logger logger;
 
-    // Enhanced confirmation system
+    //  confirmation system
     private final Map<UUID, PendingConfirmation> confirmationMap = new ConcurrentHashMap<>();
 
     
@@ -48,7 +44,7 @@ public class Toggles implements Listener {
     private boolean definitionsInitialized = false;
 
     /**
-     * Enhanced confirmation tracking
+     *  confirmation tracking
      */
     private static class PendingConfirmation {
         final String toggleName;
@@ -67,7 +63,7 @@ public class Toggles implements Listener {
     }
 
     /**
-     * Enhanced toggle definition with metadata
+     *  toggle definition with metadata
      */
     public static class ToggleDefinition {
         public final String name;
@@ -120,7 +116,7 @@ public class Toggles implements Listener {
     }
 
     /**
-     *  Initialize all toggle definitions with enhanced validation
+     *  Initialize all toggle definitions with  validation
      */
     private void initializeToggleDefinitions() {
         logger.info("Initializing toggle definitions...");
@@ -146,14 +142,13 @@ public class Toggles implements Listener {
                     "yakrealms.donator", false, false, Material.FIREWORK_ROCKET);
             addToggleDefinition("Particles", "Display", "Shows various particle effects",
                     "yakrealms.donator", false, false, Material.BLAZE_POWDER);
-
+            addToggleDefinition("Glowing Drops", "Display", "Makes dropped items glow with colors based on rarity",
+                    null, false, false, Material.GLOWSTONE_DUST);
             // System toggles
             addToggleDefinition("Drop Protection", "System", "Protects your dropped items for 5 seconds",
                     null, false, true, Material.CHEST);
             addToggleDefinition("Auto Bank", "System", "Automatically deposits gems into your bank",
                     "yakrealms.donator.tier2", false, false, Material.GOLD_INGOT);
-            addToggleDefinition("Energy System", "System", "Enables/disables the energy/stamina system",
-                    "yakrealms.admin", true, true, Material.SUGAR);
             addToggleDefinition("Disable Kit", "System", "Prevents receiving starter kits on respawn",
                     null, false, false, Material.LEATHER_CHESTPLATE);
 
@@ -162,16 +157,11 @@ public class Toggles implements Listener {
                     null, false, true, Material.EMERALD);
             addToggleDefinition("Player Messages", "Social", "Receive private messages from other players",
                     null, false, true, Material.PAPER);
-            addToggleDefinition("Guild Invites", "Social", "Receive guild invitation requests",
+            addToggleDefinition("Party Invites", "Social", "Receive party invitation requests",
                     null, false, true, Material.BLUE_BANNER);
             addToggleDefinition("Buddy Requests", "Social", "Receive buddy/friend requests",
                     null, false, true, Material.GOLDEN_APPLE);
 
-            // Audio toggles
-            addToggleDefinition("Sound Effects", "Audio", "Play UI and interaction sound effects",
-                    null, false, true, Material.NOTE_BLOCK);
-            addToggleDefinition("Combat Sounds", "Audio", "Play enhanced combat sound effects",
-                    null, false, true, Material.BELL);
 
             definitionsInitialized = true;
             logger.info("Successfully initialized " + toggleDefinitions.size() + " toggle definitions");
@@ -228,12 +218,12 @@ public class Toggles implements Listener {
             cleanupExpiredConfirmations();
         }, 20L * 30, 20L * 30); // Every 30 seconds
 
-        YakRealms.log("Enhanced Toggles system has been enabled with " + toggleDefinitions.size() + " toggles.");
+        YakRealms.log(" Toggles system has been enabled with " + toggleDefinitions.size() + " toggles.");
     }
 
     public void onDisable() {
         confirmationMap.clear();
-        YakRealms.log("Enhanced Toggles system has been disabled.");
+        YakRealms.log(" Toggles system has been disabled.");
     }
 
     /**
@@ -245,7 +235,7 @@ public class Toggles implements Listener {
     }
 
     /**
-     *  Enhanced toggle checking with better validation
+     *   toggle checking with better validation
      */
     public static boolean isToggled(Player player, String toggle) {
         if (player == null || toggle == null) {
@@ -275,7 +265,7 @@ public class Toggles implements Listener {
     }
 
     /**
-     *  Enhanced toggle setting with better validation
+     *   toggle setting with better validation
      */
     public static boolean setToggle(Player player, String toggle, boolean enabled) {
         if (player == null || toggle == null) {
@@ -306,7 +296,7 @@ public class Toggles implements Listener {
             yakPlayer.toggleSetting(toggle);
             toggles.playerManager.savePlayer(yakPlayer);
 
-            // Send feedback with enhanced formatting
+            // Send feedback with  formatting
             String status = enabled ? "§a§lEnabled" : "§c§lDisabled";
             player.sendMessage("§6§l✦ §f" + toggle + " " + status);
             player.playSound(player.getLocation(), Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 1.0f,
@@ -317,7 +307,7 @@ public class Toggles implements Listener {
     }
 
     /**
-     *  Enhanced toggle menu with improved debugging and validation
+     *   toggle menu with improved debugging and validation
      */
     public Inventory getToggleMenu(Player player) {
         Inventory inventory = Bukkit.createInventory(null, MENU_SIZE, "§6§l✦ §e§lTOGGLE SETTINGS §6§l✦");
@@ -437,7 +427,7 @@ public class Toggles implements Listener {
     }
 
     /**
-     *  Enhanced category header with better validation
+     *   category header with better validation
      */
     private void addCategoryHeader(Inventory inventory, String category, int slot) {
         if (!isValidSlot(slot)) {
@@ -486,7 +476,7 @@ public class Toggles implements Listener {
     }
 
     /**
-     *  Add enhanced toggle item with better validation and debugging
+     *  Add  toggle item with better validation and debugging
      */
     private void addToggleItem(Inventory inventory, ToggleDefinition def, YakPlayer yakPlayer, int slot) {
         if (!isValidSlot(slot)) {
@@ -505,12 +495,12 @@ public class Toggles implements Listener {
         ItemStack item = new ItemStack(material);
         ItemMeta meta = item.getItemMeta();
 
-        // Enhanced naming with status
+        //  naming with status
         String status = isEnabled ? "§a§lEnabled" : "§c§lDisabled";
         String icon = isEnabled ? "§a✓" : "§c✗";
         meta.setDisplayName(icon + " §f§l" + def.name + " " + status);
 
-        // Enhanced lore
+        //  lore
         List<String> lore = new ArrayList<>();
         lore.add("§7" + def.description);
         lore.add("");
@@ -581,7 +571,7 @@ public class Toggles implements Listener {
     }
 
     /**
-     *  Add enhanced info button with bounds checking
+     *  Add  info button with bounds checking
      */
     private void addInfoButton(Inventory inventory, int slot) {
         if (slot < 0 || slot >= MENU_SIZE) {
@@ -628,7 +618,7 @@ public class Toggles implements Listener {
     }
 
     /**
-     *  Enhanced toggle change with better validation
+     *   toggle change with better validation
      */
     public boolean changeToggle(Player player, String toggle) {
         if (player == null || toggle == null) {
@@ -688,7 +678,7 @@ public class Toggles implements Listener {
     }
 
     /**
-     * Send enhanced confirmation request
+     * Send  confirmation request
      */
     private void sendConfirmationRequest(Player player, String toggle, boolean currentState) {
         ToggleDefinition def = toggleDefinitions.get(toggle);
@@ -706,7 +696,7 @@ public class Toggles implements Listener {
     }
 
     /**
-     * Execute the actual toggle change with enhanced feedback
+     * Execute the actual toggle change with  feedback
      */
     private void executeToggleChange(Player player, YakPlayer yakPlayer, String toggle, boolean newState) {
         yakPlayer.toggleSetting(toggle);
@@ -764,7 +754,7 @@ public class Toggles implements Listener {
     }
 
     /**
-     *  Enhanced inventory click handler with better debugging
+     *   inventory click handler with better debugging
      */
     @EventHandler(priority = EventPriority.NORMAL)
     public void onToggleClick(InventoryClickEvent event) {
@@ -884,7 +874,7 @@ public class Toggles implements Listener {
             return;
         }
 
-        // The main PVP protection logic is now handled in CombatMechanics.onEnhancedPvpProtection
+        // The main PVP protection logic is now handled in CombatMechanics.onPvpProtection
         // This handler only deals with toggle-specific effects and feedback
 
         // Check if this is a successful PVP hit (not cancelled by protection)
@@ -1003,7 +993,7 @@ public class Toggles implements Listener {
     }
 
     /**
-     *  Enhanced player join handler with better initialization
+     *   player join handler with better initialization
      */
     @EventHandler(priority = EventPriority.MONITOR)
     public void onPlayerJoin(PlayerJoinEvent event) {
@@ -1042,7 +1032,7 @@ public class Toggles implements Listener {
             setDefaultToggles(yakPlayer);
             playerManager.savePlayer(yakPlayer);
 
-            // Send enhanced welcome message
+            // Send  welcome message
             Bukkit.getScheduler().runTaskLater(YakRealms.getInstance(), () -> {
                 if (player.isOnline()) {
                     sendWelcomeMessage(player);
@@ -1070,7 +1060,7 @@ public class Toggles implements Listener {
     }
 
     /**
-     * Send enhanced welcome message
+     * Send  welcome message
      */
     private void sendWelcomeMessage(Player player) {
         player.sendMessage("");
@@ -1088,7 +1078,7 @@ public class Toggles implements Listener {
     }
 
     /**
-     * Open enhanced toggle menu with validation
+     * Open  toggle menu with validation
      */
     public void openToggleMenu(Player player) {
         if (!definitionsInitialized) {

@@ -31,7 +31,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Logger;
 
 /**
- * Enhanced dash movement system with improved balance, visual effects,
+ *  dash movement system with improved balance, visual effects,
  * energy integration, and advanced mechanics.
  */
 public class DashMechanics implements Listener {
@@ -40,7 +40,7 @@ public class DashMechanics implements Listener {
     private final Energy energySystem;
     private final Logger logger;
 
-    // Enhanced configuration with balance improvements
+    //  configuration with balance improvements
     private static final double BASE_DASH_SPEED = 1.35;
     private static final double MAX_DASH_SPEED = 2.5;
     private static final int BASE_DASH_DURATION = 3; // ticks
@@ -55,7 +55,7 @@ public class DashMechanics implements Listener {
     private static final String DASH_ACTIVE_META = "dashActive";
     private static final String LAST_DASH_META = "lastDash";
 
-    // Enhanced tracking and caching
+    //  tracking and caching
     private final Map<UUID, DashData> activeDashes = new ConcurrentHashMap<>();
     private final Map<UUID, Long> dashCooldowns = new ConcurrentHashMap<>();
     private final Map<UUID, DashStats> playerStats = new ConcurrentHashMap<>();
@@ -72,7 +72,7 @@ public class DashMechanics implements Listener {
     private BukkitTask performanceTask;
 
     /**
-     * Enhanced dash data tracking
+     *  dash data tracking
      */
     private static class DashData {
         final Vector direction;
@@ -121,20 +121,20 @@ public class DashMechanics implements Listener {
 
     public void onEnable() {
         Bukkit.getServer().getPluginManager().registerEvents(this, YakRealms.getInstance());
-        startEnhancedTasks();
-        YakRealms.log("Enhanced Dash mechanics have been enabled.");
+        startTasks();
+        YakRealms.log(" Dash mechanics have been enabled.");
     }
 
     public void onDisable() {
         stopTasks();
         clearAllData();
-        YakRealms.log("Enhanced Dash mechanics have been disabled.");
+        YakRealms.log(" Dash mechanics have been disabled.");
     }
 
     /**
-     * Start enhanced background tasks
+     * Start  background tasks
      */
-    private void startEnhancedTasks() {
+    private void startTasks() {
         // Cooldown management task
         cooldownTask = new BukkitRunnable() {
             @Override
@@ -159,7 +159,7 @@ public class DashMechanics implements Listener {
             }
         }.runTaskTimerAsynchronously(YakRealms.getInstance(), 0, 20L * 300); // Every 5 minutes
 
-        logger.info("Started enhanced dash system tasks");
+        logger.info("Started  dash system tasks");
     }
 
     /**
@@ -216,7 +216,7 @@ public class DashMechanics implements Listener {
                 continue;
             }
 
-            // Create enhanced trail effects
+            // Create  trail effects
             createTrailEffects(player, dashData);
 
             // Update dash progression
@@ -229,7 +229,7 @@ public class DashMechanics implements Listener {
     }
 
     /**
-     * Enhanced dash interaction handler
+     *  dash interaction handler
      */
     @EventHandler(priority = EventPriority.NORMAL)
     public void onPlayerInteract(PlayerInteractEvent event) {
@@ -261,7 +261,7 @@ public class DashMechanics implements Listener {
     }
 
     /**
-     * Enhanced dash attempt with validation and effects
+     *  dash attempt with validation and effects
      */
     private void attemptDash(Player player) {
         UUID uuid = player.getUniqueId();
@@ -294,7 +294,7 @@ public class DashMechanics implements Listener {
     }
 
     /**
-     * Execute enhanced dash with improved mechanics
+     * Execute  dash with improved mechanics
      */
     private void executeDash(Player player) {
         UUID uuid = player.getUniqueId();
@@ -331,7 +331,7 @@ public class DashMechanics implements Listener {
     }
 
     /**
-     * Enhanced dash parameter calculation
+     *  dash parameter calculation
      */
     private DashParameters calculateDashParameters(Player player) {
         // Base parameters
@@ -368,7 +368,7 @@ public class DashMechanics implements Listener {
     }
 
     /**
-     * Apply enhanced dash movement with collision detection
+     * Apply  dash movement with collision detection
      */
     private void applyDashMovement(Player player, DashData dashData) {
         new BukkitRunnable() {
@@ -398,7 +398,7 @@ public class DashMechanics implements Listener {
     }
 
     /**
-     * Enhanced collision detection
+     *  collision detection
      */
     private boolean checkDashCollision(Player player, Vector direction) {
         Location playerLoc = player.getLocation();
@@ -426,7 +426,7 @@ public class DashMechanics implements Listener {
     }
 
     /**
-     * Create enhanced trail effects
+     * Create  trail effects
      */
     private void createTrailEffects(Player player, DashData dashData) {
         Location loc = player.getLocation();
@@ -454,7 +454,7 @@ public class DashMechanics implements Listener {
                 5, 0.2, 0.2, 0.2, 0.05
         );
 
-        // Enhanced effects for weapons
+        //  effects for weapons
         ItemStack weapon = player.getInventory().getItemInMainHand();
         if (weapon != null && isWeapon(weapon)) {
             createWeaponTrailEffect(player, weapon);
@@ -510,7 +510,7 @@ public class DashMechanics implements Listener {
     }
 
     /**
-     * Enhanced dash effects
+     *  dash effects
      */
     private void playDashEffects(Player player) {
         // Sound effects
@@ -535,7 +535,7 @@ public class DashMechanics implements Listener {
     }
 
     /**
-     * Enhanced cooldown management
+     *  cooldown management
      */
     private void setCooldown(Player player, int cooldownSeconds) {
         UUID uuid = player.getUniqueId();

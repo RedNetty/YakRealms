@@ -12,7 +12,7 @@ import java.util.*;
 /**
  * AdvancedNodeMapGenerator precomputes a sparse 3D navigation graph for Minecraft.
  * <p>
- * This enhanced version scans each (x,z) column for candidate floor levels (e.g. in buildings,
+ * This  version scans each (x,z) column for candidate floor levels (e.g. in buildings,
  * city streets, forests, etc.) rather than only using the top “ground” block.
  */
 public class AdvancedNodeMapGenerator {
@@ -20,7 +20,7 @@ public class AdvancedNodeMapGenerator {
     public static final int NODE_SPACING = 2;
 
     // Preferred and penalized material sets
-    private static final Set<Material> PREFERRED_MATERIALS = EnumSet.of(Material.DIRT_PATH, Material.SAND, Material.GRASS, Material.COARSE_DIRT);
+    private static final Set<Material> PREFERRED_MATERIALS = EnumSet.of(Material.DIRT_PATH, Material.SAND, Material.GRASS_BLOCK, Material.COARSE_DIRT);
     // BUILT_PATH_MATERIALS now includes COARSE_DIRT as well.
     private static final Set<Material> BUILT_PATH_MATERIALS = EnumSet.of(Material.ROOTED_DIRT, Material.DIRT, Material.COARSE_DIRT);
     private static final Set<Material> HAZARD_MATERIALS = EnumSet.of(Material.LAVA, Material.WATER, Material.CACTUS, Material.FIRE, Material.MAGMA_BLOCK);

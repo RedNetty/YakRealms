@@ -7,7 +7,7 @@ import org.bukkit.entity.Player;
 import org.bukkit.Particle;
 
 /**
- * Behavior for Gambler vendors that offer gambling games with enhanced effects
+ * Behavior for Gambler vendors that offer gambling games with  effects
  */
 public class GamblerBehavior implements VendorBehavior {
 
@@ -19,7 +19,7 @@ public class GamblerBehavior implements VendorBehavior {
         player.sendMessage(ChatColor.GOLD + "Gambler: " + ChatColor.WHITE +
                 "Feeling lucky today? I've got games of chance that could double your fortunes... or leave you with nothing!");
 
-        // Open the enhanced gambler menu
+        // Open the  gambler menu
         new GamblerMenu(player).open();
 
         // Play engaging sounds

@@ -20,7 +20,7 @@ import java.util.logging.Logger;
  *  Creates purely decorative death remnants with robust entity management
  * - All remnants are visual-only decorative skeletons
  * - No item storage or display - items always drop separately on ground
- * - Enhanced entity tracking and cleanup integration
+ * -  entity tracking and cleanup integration
  * - Improved location validation and placement
  */
 public class DeathRemnant {
@@ -54,7 +54,7 @@ public class DeathRemnant {
     private final long creationTime;
 
     /**
-     *  Creates a purely decorative death remnant with enhanced validation
+     *  Creates a purely decorative death remnant with  validation
      * @param location The location to create the remnant
      * @param items The items list (ignored - always decorative only)
      * @param playerUuid The UUID of the deceased player
@@ -104,7 +104,7 @@ public class DeathRemnant {
     }
 
     /**
-     *  Enhanced location validation with better ground detection
+     *   location validation with better ground detection
      */
     private Location findValidLocation(Location initialLoc) {
         if (initialLoc == null || initialLoc.getWorld() == null) {
@@ -179,7 +179,7 @@ public class DeathRemnant {
     }
 
     /**
-     * Enhanced ground validation
+     *  ground validation
      */
     private boolean isValidGround(Block block) {
         if (block == null || block.getType().isAir()) return false;
@@ -196,7 +196,7 @@ public class DeathRemnant {
     }
 
     /**
-     *  Enhanced skeleton construction with better error handling
+     *   skeleton construction with better error handling
      */
     private boolean constructSkeleton() {
         try {
@@ -322,7 +322,7 @@ public class DeathRemnant {
     }
 
     /**
-     *  Enhanced bone stand creation with better error handling
+     *   bone stand creation with better error handling
      */
     private ArmorStand createBoneStand(Location loc, BonePart part, EulerAngle angle) {
         if (loc == null || loc.getWorld() == null) {
@@ -383,7 +383,7 @@ public class DeathRemnant {
     }
 
     /**
-     *  Enhanced removal with comprehensive cleanup
+     *   removal with comprehensive cleanup
      */
     public void remove() {
         if (!isValid) return;
@@ -439,7 +439,7 @@ public class DeathRemnant {
     }
 
     /**
-     *  Enhanced structure validation
+     *   structure validation
      */
     private boolean validateStructure() {
         // Check essential parts

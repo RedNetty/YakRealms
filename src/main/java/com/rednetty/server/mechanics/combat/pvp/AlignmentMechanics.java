@@ -1,12 +1,13 @@
 package com.rednetty.server.mechanics.combat.pvp;
 
 import com.rednetty.server.YakRealms;
+import com.rednetty.server.mechanics.combat.logout.CombatLogoutMechanics;
 import com.rednetty.server.mechanics.moderation.ModerationMechanics;
 import com.rednetty.server.mechanics.moderation.Rank;
-import com.rednetty.server.mechanics.player.social.party.PartyScoreboards;
 import com.rednetty.server.mechanics.player.YakPlayer;
 import com.rednetty.server.mechanics.player.YakPlayerManager;
 import com.rednetty.server.mechanics.player.settings.Toggles;
+import com.rednetty.server.mechanics.player.social.party.PartyScoreboards;
 import com.rednetty.server.mechanics.player.stats.PlayerStatsCalculator;
 import com.rednetty.server.mechanics.world.WorldGuardManager;
 import com.rednetty.server.utils.text.TextUtil;
@@ -14,45 +15,43 @@ import org.bukkit.*;
 import org.bukkit.boss.BarColor;
 import org.bukkit.boss.BarStyle;
 import org.bukkit.boss.BossBar;
-import org.bukkit.entity.Entity;
-import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
 import org.bukkit.entity.Projectile;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
-import org.bukkit.event.entity.EntityDamageEvent;
-import org.bukkit.event.entity.PlayerDeathEvent;
-import org.bukkit.event.player.*;
-import org.bukkit.inventory.ItemStack;
+import org.bukkit.event.player.PlayerJoinEvent;
+import org.bukkit.event.player.PlayerMoveEvent;
+import org.bukkit.event.player.PlayerPortalEvent;
+import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.scheduler.BukkitRunnable;
 
-import java.util.*;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Random;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- *  Manages player alignment system with proper combat logout handling
- * - Removed static logout field to prevent race conditions
- * - Proper combat logout detection and punishment
- * - Enhanced boss bar management and health regeneration
- * - Fixed scoreboard integration with proper synchronization
+ *  AlignmentMechanics for Spigot 1.20.4
+ * Focused on alignment management, PvP tagging, and safe zone enforcement
+ * - Integrated with separated DeathMechanics and CombatLogoutMechanics
+ * -  alignment timer management
+ * - Improved safe zone handling
+ * - Comprehensive health bar and healing system
+ * - Streamlined PvP processing
+ * - FIXED logging methods to use YakRealms.log(), YakRealms.warn(), YakRealms.error() properly
  */
 public class AlignmentMechanics implements Listener {
 
-    // Alignment timer constants
+    // Alignment timer constants from GDD
     private static final int NEUTRAL_SECONDS = 120;
     private static final int CHAOTIC_SECONDS = 300;
-    private static final long COMBAT_TAG_DURATION = 10000; // 10 seconds in milliseconds
 
-    // Combat tracking maps
-    private final ConcurrentHashMap<String, Long> taggedPlayers = new ConcurrentHashMap<>();
+    // Health and UI management
     private final Map<UUID, BossBar> playerBossBars = new ConcurrentHashMap<>();
     private final Map<UUID, Location> lastSafeLocations = new HashMap<>();
-    private final Map<String, Player> lastAttackers = new HashMap<>();
-
-    //  Combat logout tracking - no more static field
-    private final Map<UUID, CombatLogoutData> combatLogouts = new ConcurrentHashMap<>();
 
     // Synchronization
     private final Object bossBarLock = new Object();
@@ -60,24 +59,10 @@ public class AlignmentMechanics implements Listener {
     // Dependencies
     private final YakPlayerManager playerManager;
     private final WorldGuardManager worldGuardManager;
+    private final CombatLogoutMechanics combatLogoutMechanics;
 
     // Singleton instance
     private static AlignmentMechanics instance;
-
-    /**
-     * Combat logout data tracking
-     */
-    private static class CombatLogoutData {
-        final long timestamp;
-        final Player attacker;
-        final boolean processed;
-
-        CombatLogoutData(Player attacker) {
-            this.timestamp = System.currentTimeMillis();
-            this.attacker = attacker;
-            this.processed = false;
-        }
-    }
 
     /**
      * Get the singleton instance
@@ -95,6 +80,150 @@ public class AlignmentMechanics implements Listener {
     private AlignmentMechanics() {
         this.playerManager = YakPlayerManager.getInstance();
         this.worldGuardManager = WorldGuardManager.getInstance();
+        this.combatLogoutMechanics = CombatLogoutMechanics.getInstance();
+    }
+
+    /**
+     * Generate a random spawn point for chaotic players
+     */
+    public static Location generateRandomSpawnPoint(String playerName) {
+        World world = Bukkit.getWorlds().get(0);
+
+        Random random = new Random(playerName.hashCode() + System.currentTimeMillis());
+        double x = (random.nextDouble() - 0.5) * 2000;
+        double z = (random.nextDouble() - 0.5) * 2000;
+
+        int maxAttempts = 10;
+        for (int i = 0; i < maxAttempts; i++) {
+            int y = world.getHighestBlockYAt((int) x, (int) z) + 1;
+            Location loc = new Location(world, x, y, z);
+
+            if (!isSafeZone(loc)) {
+                return loc;
+            }
+
+            x = (random.nextDouble() - 0.5) * 2000;
+            z = (random.nextDouble() - 0.5) * 2000;
+        }
+
+        return new Location(world, x, world.getHighestBlockYAt((int) x, (int) z) + 1, z);
+    }
+
+    /**
+     * Set a player to lawful alignment with scoreboard updates
+     */
+    public static void setLawfulAlignment(Player player) {
+        YakPlayer yakPlayer = YakPlayerManager.getInstance().getPlayer(player);
+        if (yakPlayer == null) return;
+
+        String oldAlignment = yakPlayer.getAlignment();
+        yakPlayer.setAlignment("LAWFUL");
+        YakPlayerManager.getInstance().savePlayer(yakPlayer);
+        updatePlayerAlignment(player);
+
+        TextUtil.sendCenteredMessage(player, ChatColor.GREEN + "* YOU ARE NOW " + ChatColor.BOLD + "LAWFUL" + ChatColor.GREEN + " ALIGNMENT *");
+        TextUtil.sendCenteredMessage(player, ChatColor.GRAY + "While lawful, you will not lose any equipped armor on death.");
+        TextUtil.sendCenteredMessage(player, ChatColor.GRAY + "Instead, all armor will lose 30% of its durability when you die. ");
+        TextUtil.sendCenteredMessage(player, ChatColor.GRAY + "Any players who kill you while you're lawfully aligned will become chaotic.");
+        TextUtil.sendCenteredMessage(player, ChatColor.GREEN + "* YOU ARE NOW " + ChatColor.BOLD + "LAWFUL" + ChatColor.GREEN + " ALIGNMENT *");
+
+        if (!oldAlignment.equals("LAWFUL")) {
+            PartyScoreboards.handleAlignmentChange(player);
+        }
+    }
+
+    /**
+     * Set a player to neutral alignment with scoreboard updates
+     */
+    public static void setNeutralAlignment(Player player) {
+        YakPlayer yakPlayer = YakPlayerManager.getInstance().getPlayer(player);
+        if (yakPlayer == null) return;
+
+        String oldAlignment = yakPlayer.getAlignment();
+        yakPlayer.setAlignment("NEUTRAL");
+        yakPlayer.setNeutralTime(System.currentTimeMillis() / 1000 + NEUTRAL_SECONDS);
+        YakPlayerManager.getInstance().savePlayer(yakPlayer);
+        updatePlayerAlignment(player);
+
+        TextUtil.sendCenteredMessage(player, ChatColor.YELLOW + "* YOU ARE NOW " + ChatColor.BOLD + "NEUTRAL" + ChatColor.YELLOW + " ALIGNMENT *");
+        TextUtil.sendCenteredMessage(player, ChatColor.GRAY + "While neutral, players who kill you will not become chaotic.");
+        TextUtil.sendCenteredMessage(player, ChatColor.GRAY + "You have a 50% chance of dropping your weapon, and a 25% chance of dropping each piece of equipped armor on death.");
+        TextUtil.sendCenteredMessage(player, ChatColor.GRAY + "Neutral alignment will expire 2 minutes after last hit on player.");
+        TextUtil.sendCenteredMessage(player, ChatColor.YELLOW + "* YOU ARE NOW " + ChatColor.BOLD + "NEUTRAL" + ChatColor.YELLOW + " ALIGNMENT *");
+
+        if (!oldAlignment.equals("NEUTRAL")) {
+            PartyScoreboards.handleAlignmentChange(player);
+        }
+    }
+
+    /**
+     * Set a player to chaotic alignment with scoreboard updates
+     */
+    public static void setChaoticAlignment(Player player, int time) {
+        YakPlayer yakPlayer = YakPlayerManager.getInstance().getPlayer(player);
+        if (yakPlayer == null) return;
+
+        String oldAlignment = yakPlayer.getAlignment();
+        yakPlayer.setAlignment("CHAOTIC");
+        yakPlayer.setChaoticTime(System.currentTimeMillis() / 1000 + time);
+        YakPlayerManager.getInstance().savePlayer(yakPlayer);
+
+        TextUtil.sendCenteredMessage(player, ChatColor.RED + "* YOU ARE NOW " + ChatColor.BOLD + "CHAOTIC" + ChatColor.RED + " ALIGNMENT *");
+        TextUtil.sendCenteredMessage(player, ChatColor.GRAY + "While chaotic, you cannot enter any major cities or safe zones. If you are killed while chaotic, you will lose everything in your inventory. Chaotic alignment will expire 5 minutes after your last player kill.");
+        TextUtil.sendCenteredMessage(player, ChatColor.RED + "* YOU ARE NOW " + ChatColor.BOLD + "CHAOTIC" + ChatColor.RED + " ALIGNMENT *");
+
+        updatePlayerAlignment(player);
+
+        if (!oldAlignment.equals("CHAOTIC")) {
+            PartyScoreboards.handleAlignmentChange(player);
+        }
+    }
+
+    /**
+     * Update player display name based on alignment with  scoreboard integration
+     */
+    public static void updatePlayerAlignment(Player player) {
+        try {
+            YakPlayer yakPlayer = YakPlayerManager.getInstance().getPlayer(player);
+            if (yakPlayer == null) return;
+
+            ChatColor cc = ChatColor.GRAY;
+            Rank rank = ModerationMechanics.getRank(player);
+
+            if (rank == Rank.DEV) {
+                cc = ChatColor.GOLD;
+            } else if (rank == Rank.MANAGER) {
+                cc = ChatColor.YELLOW;
+            } else if (rank == Rank.GM) {
+                cc = ChatColor.AQUA;
+            } else if ("NEUTRAL".equals(yakPlayer.getAlignment())) {
+                cc = ChatColor.YELLOW;
+            } else if ("CHAOTIC".equals(yakPlayer.getAlignment())) {
+                cc = ChatColor.RED;
+            }
+
+            player.setDisplayName(cc + player.getName());
+
+            Bukkit.getScheduler().runTaskLater(YakRealms.getInstance(), () -> {
+                try {
+                    PartyScoreboards.handleAlignmentChange(player);
+                } catch (Exception e) {
+                    YakRealms.warn("Error updating scoreboards after alignment change for " + player.getName() + ": " + e.getMessage());
+                }
+            }, 1L);
+
+            Bukkit.getScheduler().runTask(YakRealms.getInstance(), () -> {
+                try {
+                    player.playSound(player.getLocation(), Sound.ENTITY_ZOMBIE_INFECT, 10.0f, 1.0f);
+                } catch (Exception e) {
+                    YakRealms.warn("Failed to play alignment update sound for " + player.getName());
+                }
+            });
+
+            YakRealms.log("Updated alignment for player " + player.getName() + " to " + cc.name());
+        } catch (Exception e) {
+            YakRealms.error("Error updating alignment for player " + player.getName(), e);
+        }
     }
 
     /**
@@ -110,10 +239,10 @@ public class AlignmentMechanics implements Listener {
         // Initialize force field manager
         ForceFieldManager.getInstance().onEnable();
 
-        // Start alignment task
+        // Start alignment and health management task
         startAlignmentTask();
 
-        YakRealms.log("Alignment mechanics have been enabled.");
+        YakRealms.log("AlignmentMechanics enabled with integrated combat systems for Spigot 1.20.4");
     }
 
     /**
@@ -133,19 +262,16 @@ public class AlignmentMechanics implements Listener {
         }
 
         // Clean up tracking maps
-        combatLogouts.clear();
-        taggedPlayers.clear();
         lastSafeLocations.clear();
-        lastAttackers.clear();
 
-        // Disable force field manager
+        // Disable subsystems
         ForceFieldManager.getInstance().onDisable();
 
-        YakRealms.log("Alignment mechanics have been disabled.");
+        YakRealms.log("AlignmentMechanics disabled");
     }
 
     /**
-     * Start the main alignment update task
+     * Start the main alignment and health management task
      */
     private void startAlignmentTask() {
         new BukkitRunnable() {
@@ -157,206 +283,29 @@ public class AlignmentMechanics implements Listener {
                     YakPlayer yakPlayer = playerManager.getPlayer(player);
                     if (yakPlayer == null) continue;
 
-                    // Handle chaotic players in safe zones
-                    if (isSafeZone(player.getLocation()) && isPlayerChaotic(yakPlayer)) {
-                        kickFromSafeZone(player);
-                        continue;
-                    }
+                    try {
+                        // Handle chaotic players in safe zones
+                        if (isSafeZone(player.getLocation()) && isPlayerChaotic(yakPlayer)) {
+                            kickFromSafeZone(player);
+                            continue;
+                        }
 
-                    // Update alignment timers
-                    updateTimers(player, yakPlayer);
+                        // Update alignment timers
+                        updateAlignmentTimers(player, yakPlayer);
 
-                    // Update health display
-                    updateHealthBar(player);
+                        // Update health display
+                        updateHealthBar(player);
 
-                    // Heal players not in combat
-                    if (!isPlayerTagged(player)) {
-                        healPlayer(player);
+                        // Heal players not in combat
+                        if (!combatLogoutMechanics.isPlayerTagged(player)) {
+                            healPlayer(player);
+                        }
+                    } catch (Exception e) {
+                        YakRealms.warn("Error in alignment task for " + player.getName() + ": " + e.getMessage());
                     }
                 }
             }
         }.runTaskTimer(YakRealms.getInstance(), 20L, 20L); // Run every second
-    }
-
-    private void updateTimers(Player player, YakPlayer yakPlayer) {
-        String oldAlignment = yakPlayer.getAlignment();
-
-        // Update chaotic timer
-        if ("CHAOTIC".equals(yakPlayer.getAlignment())) {
-            int timeLeft = yakPlayer.getChaoticTime() > 0 ?
-                    (int) (yakPlayer.getChaoticTime() - (System.currentTimeMillis() / 1000)) : 0;
-
-            if (timeLeft <= 0) {
-                // Convert to neutral
-                yakPlayer.setAlignment("NEUTRAL");
-                yakPlayer.setNeutralTime(System.currentTimeMillis() / 1000 + NEUTRAL_SECONDS);
-                playerManager.savePlayer(yakPlayer);
-                updatePlayerAlignment(player);
-                setNeutralAlignment(player);
-
-                handleAlignmentChanged(player, oldAlignment, "NEUTRAL");
-            }
-        }
-
-        // Update neutral timer
-        else if ("NEUTRAL".equals(yakPlayer.getAlignment())) {
-            int timeLeft = yakPlayer.getNeutralTime() > 0 ?
-                    (int) (yakPlayer.getNeutralTime() - (System.currentTimeMillis() / 1000)) : 0;
-
-            if (timeLeft <= 0) {
-                // Convert to lawful
-                yakPlayer.setAlignment("LAWFUL");
-                playerManager.savePlayer(yakPlayer);
-                updatePlayerAlignment(player);
-                setLawfulAlignment(player);
-
-                handleAlignmentChanged(player, oldAlignment, "LAWFUL");
-            }
-        }
-    }
-
-    /**
-     *  Handle alignment changes and update all relevant scoreboards
-     */
-    private void handleAlignmentChanged(Player player, String oldAlignment, String newAlignment) {
-        // Update the player's display name immediately
-        updatePlayerAlignment(player);
-
-        PartyScoreboards.handleAlignmentChange(player);
-
-        // Log the change
-        YakRealms.log("Player " + player.getName() + " alignment changed from " + oldAlignment + " to " + newAlignment);
-    }
-
-    /**
-     * Check if a player is currently combat tagged
-     */
-    public boolean isPlayerTagged(Player player) {
-        return taggedPlayers.containsKey(player.getName()) &&
-                System.currentTimeMillis() - taggedPlayers.get(player.getName()) <= COMBAT_TAG_DURATION;
-    }
-
-    /**
-     * Get time since player was last tagged
-     */
-    public long getTimeSinceLastTag(Player player) {
-        if (taggedPlayers.containsKey(player.getName())) {
-            return System.currentTimeMillis() - taggedPlayers.get(player.getName());
-        }
-        return Long.MAX_VALUE;
-    }
-
-    /**
-     * Mark a player as combat tagged
-     */
-    public void markCombatTagged(Player player) {
-        taggedPlayers.put(player.getName(), System.currentTimeMillis());
-    }
-
-    /**
-     * Clear a player's combat tag
-     */
-    public void clearCombatTag(Player player) {
-        taggedPlayers.remove(player.getName());
-    }
-
-    /**
-     *  Check if a player is combat logging
-     */
-    public boolean isCombatLoggingOut(Player player) {
-        return combatLogouts.containsKey(player.getUniqueId());
-    }
-
-    /**
-     * Apply passive healing to players not in combat using PlayerStatsCalculator
-     */
-    private void healPlayer(Player player) {
-        try {
-            // Skip if player is dead or at full health
-            if (player.isDead() || player.getHealth() >= player.getMaxHealth()) {
-                return;
-            }
-
-            // Use PlayerStatsCalculator for HP regen calculation
-            int healAmount = PlayerStatsCalculator.calculateTotalHealthRegen(player);
-
-            // Apply healing (capped at max health)
-            double newHealth = Math.min(player.getMaxHealth(), player.getHealth() + healAmount);
-            player.setHealth(newHealth);
-
-        } catch (Exception e) {
-            YakRealms.warn("Error healing player " + player.getName() + ": " + e.getMessage());
-        }
-    }
-
-    /**
-     *  Update a player's health bar display with proper synchronization
-     */
-    private void updateHealthBar(Player player) {
-        if (player == null || !player.isOnline() || player.isDead()) {
-            return;
-        }
-
-        UUID playerId = player.getUniqueId();
-
-        try {
-            // Calculate health percentage
-            double healthPercentage = player.getHealth() / player.getMaxHealth();
-            float progress = Math.max(0.0f, Math.min(1.0f, (float) healthPercentage));
-
-            // Determine bar color based on health
-            BarColor barColor = getHealthBarColor(player);
-            ChatColor titleColor = getHealthTextColor(player);
-
-            // Create bar title with formatting
-            String safeZoneText = isSafeZone(player.getLocation()) ?
-                    ChatColor.GRAY + " - " + ChatColor.GREEN + ChatColor.BOLD + "SAFE-ZONE" : "";
-
-            String title = titleColor + "" + ChatColor.BOLD + "HP " +
-                    titleColor + (int) player.getHealth() + ChatColor.BOLD + " / " +
-                    titleColor + (int) player.getMaxHealth() + safeZoneText;
-
-            synchronized (bossBarLock) {
-                BossBar bossBar = playerBossBars.get(playerId);
-
-                if (bossBar == null) {
-                    // Create new boss bar
-                    bossBar = Bukkit.createBossBar(title, barColor, BarStyle.SOLID);
-                    bossBar.addPlayer(player);
-                    playerBossBars.put(playerId, bossBar);
-                } else {
-                    // Update existing boss bar
-                    bossBar.setTitle(title);
-                    bossBar.setColor(barColor);
-
-                    if (!bossBar.getPlayers().contains(player)) {
-                        bossBar.addPlayer(player);
-                    }
-                }
-
-                // Update progress
-                bossBar.setProgress(progress);
-            }
-
-        } catch (Exception e) {
-            YakRealms.warn("Error updating health bar for " + player.getName() + ": " + e.getMessage());
-        }
-    }
-
-    /**
-     *  Safely remove boss bar for a player
-     */
-    private void removeBossBar(UUID playerId) {
-        synchronized (bossBarLock) {
-            BossBar existingBar = playerBossBars.remove(playerId);
-            if (existingBar != null) {
-                try {
-                    existingBar.removeAll();
-                } catch (Exception e) {
-                    YakRealms.warn("Error removing boss bar for player " + playerId + ": " + e.getMessage());
-                }
-            }
-        }
     }
 
     /**
@@ -397,39 +346,48 @@ public class AlignmentMechanics implements Listener {
                 ChatColor.UNDERLINE + "protected area" + ChatColor.RED +
                 " due to your chaotic alignment.");
 
-        // Teleport to random spawn point
         Location spawnPoint = generateRandomSpawnPoint(player.getName());
         player.teleport(spawnPoint);
     }
 
     /**
-     * Generate a random spawn point for chaotic players
+     * Update alignment timers based on GDD specifications
      */
-    public static Location generateRandomSpawnPoint(String playerName) {
-        World world = Bukkit.getWorlds().get(0); // Main world
+    private void updateAlignmentTimers(Player player, YakPlayer yakPlayer) {
+        String oldAlignment = yakPlayer.getAlignment();
 
-        // Get random coordinates in the wilderness
-        Random random = new Random(playerName.hashCode() + System.currentTimeMillis());
-        double x = (random.nextDouble() - 0.5) * 2000;
-        double z = (random.nextDouble() - 0.5) * 2000;
+        // Update chaotic timer
+        if ("CHAOTIC".equals(yakPlayer.getAlignment())) {
+            int timeLeft = yakPlayer.getChaoticTime() > 0 ?
+                    (int) (yakPlayer.getChaoticTime() - (System.currentTimeMillis() / 1000)) : 0;
 
-        // Ensure spawn is not in a safe zone
-        int maxAttempts = 10;
-        for (int i = 0; i < maxAttempts; i++) {
-            int y = world.getHighestBlockYAt((int) x, (int) z) + 1;
-            Location loc = new Location(world, x, y, z);
+            if (timeLeft <= 0) {
+                // Convert to neutral
+                yakPlayer.setAlignment("NEUTRAL");
+                yakPlayer.setNeutralTime(System.currentTimeMillis() / 1000 + NEUTRAL_SECONDS);
+                playerManager.savePlayer(yakPlayer);
+                updatePlayerAlignment(player);
+                setNeutralAlignment(player);
 
-            if (!isSafeZone(loc)) {
-                return loc;
+                handleAlignmentChanged(player, oldAlignment, "NEUTRAL");
             }
-
-            // Try different coordinates
-            x = (random.nextDouble() - 0.5) * 2000;
-            z = (random.nextDouble() - 0.5) * 2000;
         }
 
-        // Fallback to a reasonable spawn
-        return new Location(world, x, world.getHighestBlockYAt((int) x, (int) z) + 1, z);
+        // Update neutral timer
+        else if ("NEUTRAL".equals(yakPlayer.getAlignment())) {
+            int timeLeft = yakPlayer.getNeutralTime() > 0 ?
+                    (int) (yakPlayer.getNeutralTime() - (System.currentTimeMillis() / 1000)) : 0;
+
+            if (timeLeft <= 0) {
+                // Convert to lawful
+                yakPlayer.setAlignment("LAWFUL");
+                playerManager.savePlayer(yakPlayer);
+                updatePlayerAlignment(player);
+                setLawfulAlignment(player);
+
+                handleAlignmentChanged(player, oldAlignment, "LAWFUL");
+            }
+        }
     }
 
     /**
@@ -440,123 +398,110 @@ public class AlignmentMechanics implements Listener {
     }
 
     /**
-     *  Set a player to lawful alignment with scoreboard updates
+     * Handle alignment changes and update all relevant scoreboards
      */
-    public static void setLawfulAlignment(Player player) {
-        YakPlayer yakPlayer = YakPlayerManager.getInstance().getPlayer(player);
-        if (yakPlayer == null) return;
-
-        String oldAlignment = yakPlayer.getAlignment();
-        yakPlayer.setAlignment("LAWFUL");
-        YakPlayerManager.getInstance().savePlayer(yakPlayer);
+    private void handleAlignmentChanged(Player player, String oldAlignment, String newAlignment) {
         updatePlayerAlignment(player);
-
-        TextUtil.sendCenteredMessage(player, ChatColor.GREEN + "* YOU ARE NOW " + ChatColor.BOLD + "LAWFUL" + ChatColor.GREEN + " ALIGNMENT *");
-        TextUtil.sendCenteredMessage(player, ChatColor.GRAY + "While lawful, you will not lose any equipped armor on death.");
-        TextUtil.sendCenteredMessage(player, ChatColor.GRAY + "Instead, all armor will lose 30% of its durability when you die. ");
-        TextUtil.sendCenteredMessage(player, ChatColor.GRAY + "Any players who kill you while you're lawfully aligned will become chaotic.");
-        TextUtil.sendCenteredMessage(player, ChatColor.GREEN + "* YOU ARE NOW " + ChatColor.BOLD + "LAWFUL" + ChatColor.GREEN + " ALIGNMENT *");
-
-        if (!oldAlignment.equals("LAWFUL")) {
-            PartyScoreboards.handleAlignmentChange(player);
-        }
+        PartyScoreboards.handleAlignmentChange(player);
+        YakRealms.log("Player " + player.getName() + " alignment changed from " + oldAlignment + " to " + newAlignment);
     }
 
     /**
-     *  Set a player to neutral alignment with scoreboard updates
+     * Apply passive healing to players not in combat using PlayerStatsCalculator
      */
-    public static void setNeutralAlignment(Player player) {
-        YakPlayer yakPlayer = YakPlayerManager.getInstance().getPlayer(player);
-        if (yakPlayer == null) return;
-
-        String oldAlignment = yakPlayer.getAlignment();
-        yakPlayer.setAlignment("NEUTRAL");
-        yakPlayer.setNeutralTime(System.currentTimeMillis() / 1000 + NEUTRAL_SECONDS);
-        YakPlayerManager.getInstance().savePlayer(yakPlayer);
-        updatePlayerAlignment(player);
-
-        TextUtil.sendCenteredMessage(player, ChatColor.YELLOW + "* YOU ARE NOW " + ChatColor.BOLD + "NEUTRAL" + ChatColor.YELLOW + " ALIGNMENT *");
-        TextUtil.sendCenteredMessage(player, ChatColor.GRAY + "While neutral, players who kill you will not become chaotic.");
-        TextUtil.sendCenteredMessage(player, ChatColor.GRAY + "You have a 50% chance of dropping your weapon, and a 25% chance of dropping each piece of equipped armor on death.");
-        TextUtil.sendCenteredMessage(player, ChatColor.GRAY + "Neutral alignment will expire 2 minutes after last hit on player.");
-        TextUtil.sendCenteredMessage(player, ChatColor.YELLOW + "* YOU ARE NOW " + ChatColor.BOLD + "NEUTRAL" + ChatColor.YELLOW + " ALIGNMENT *");
-
-        if (!oldAlignment.equals("NEUTRAL")) {
-            PartyScoreboards.handleAlignmentChange(player);
-        }
-    }
-
-    /**
-     *  Set a player to chaotic alignment with scoreboard updates
-     */
-    public static void setChaoticAlignment(Player player, int time) {
-        YakPlayer yakPlayer = YakPlayerManager.getInstance().getPlayer(player);
-        if (yakPlayer == null) return;
-
-        String oldAlignment = yakPlayer.getAlignment();
-        yakPlayer.setAlignment("CHAOTIC");
-        yakPlayer.setChaoticTime(System.currentTimeMillis() / 1000 + time);
-        YakPlayerManager.getInstance().savePlayer(yakPlayer);
-
-        TextUtil.sendCenteredMessage(player, ChatColor.RED + "* YOU ARE NOW " + ChatColor.BOLD + "CHAOTIC" + ChatColor.RED + " ALIGNMENT *");
-        TextUtil.sendCenteredMessage(player, ChatColor.GRAY + "While chaotic, you cannot enter any major cities or safe zones. If you are killed while chaotic, you will lose everything in your inventory. Chaotic alignment will expire 5 minutes after your last player kill.");
-        TextUtil.sendCenteredMessage(player, ChatColor.RED + "* YOU ARE NOW " + ChatColor.BOLD + "CHAOTIC" + ChatColor.RED + " ALIGNMENT *");
-
-        updatePlayerAlignment(player);
-
-        if (!oldAlignment.equals("CHAOTIC")) {
-            PartyScoreboards.handleAlignmentChange(player);
-        }
-    }
-
-    /**
-     *  Update player display name based on alignment with enhanced scoreboard integration
-     */
-    public static void updatePlayerAlignment(Player player) {
+    private void healPlayer(Player player) {
         try {
-            YakPlayer yakPlayer = YakPlayerManager.getInstance().getPlayer(player);
-            if (yakPlayer == null) return;
-
-            ChatColor cc = ChatColor.GRAY; // Default lawful color
-            Rank rank = ModerationMechanics.getRank(player);
-
-            // Set color based on rank and alignment
-            if (rank == Rank.DEV) {
-                cc = ChatColor.GOLD;
-            } else if (rank == Rank.MANAGER) {
-                cc = ChatColor.YELLOW;
-            } else if (rank == Rank.GM) {
-                cc = ChatColor.AQUA;
-            } else if ("NEUTRAL".equals(yakPlayer.getAlignment())) {
-                cc = ChatColor.YELLOW;
-            } else if ("CHAOTIC".equals(yakPlayer.getAlignment())) {
-                cc = ChatColor.RED;
+            if (player.isDead() || player.getHealth() >= player.getMaxHealth()) {
+                return;
             }
 
-            // Update player display name
-            player.setDisplayName(cc + player.getName());
-
-            // Update team assignments for all players to see the correct color
-            Bukkit.getScheduler().runTaskLater(YakRealms.getInstance(), () -> {
-                try {
-                    PartyScoreboards.handleAlignmentChange(player);
-                } catch (Exception e) {
-                    YakRealms.warn("Error updating scoreboards after alignment change for " + player.getName() + ": " + e.getMessage());
+            YakPlayer yakPlayer = playerManager.getPlayer(player);
+            if (yakPlayer != null && yakPlayer.hasTemporaryData("prevent_healing")) {
+                long preventUntil = (long) yakPlayer.getTemporaryData("prevent_healing");
+                if (System.currentTimeMillis() < preventUntil) {
+                    return;
+                } else {
+                    yakPlayer.removeTemporaryData("prevent_healing");
                 }
-            }, 1L); // Small delay to ensure display name is set first
+            }
 
-            // Play sound effect
-            Bukkit.getScheduler().runTask(YakRealms.getInstance(), () -> {
-                try {
-                    player.playSound(player.getLocation(), Sound.ENTITY_ZOMBIE_INFECT, 10.0f, 1.0f);
-                } catch (Exception e) {
-                    YakRealms.warn("Failed to play alignment update sound for " + player.getName());
-                }
-            });
+            int healAmount = PlayerStatsCalculator.calculateTotalHealthRegen(player);
+            double newHealth = Math.min(player.getMaxHealth(), player.getHealth() + healAmount);
+            player.setHealth(newHealth);
 
-            YakRealms.log("Updated alignment for player " + player.getName() + " to " + cc.name());
         } catch (Exception e) {
-            YakRealms.error("Error updating alignment for player " + player.getName(), e);
+            YakRealms.warn("Error healing player " + player.getName() + ": " + e.getMessage());
+        }
+    }
+
+    /**
+     * Update a player's health bar display with proper synchronization
+     */
+    private void updateHealthBar(Player player) {
+        if (player == null || !player.isOnline() || player.isDead()) {
+            return;
+        }
+
+        UUID playerId = player.getUniqueId();
+
+        try {
+            double healthPercentage = player.getHealth() / player.getMaxHealth();
+            float progress = Math.max(0.0f, Math.min(1.0f, (float) healthPercentage));
+
+            BarColor barColor = getHealthBarColor(player);
+            ChatColor titleColor = getHealthTextColor(player);
+
+            String safeZoneText = isSafeZone(player.getLocation()) ?
+                    ChatColor.GRAY + " - " + ChatColor.GREEN + ChatColor.BOLD + "SAFE-ZONE" : "";
+
+            // Add combat timer if in combat
+            String combatText = "";
+            if (combatLogoutMechanics.isPlayerTagged(player)) {
+                int combatTime = combatLogoutMechanics.getCombatTimeRemaining(player);
+                combatText = ChatColor.GRAY + " - " + ChatColor.RED + ChatColor.BOLD + "COMBAT " + combatTime + "s";
+            }
+
+            String title = titleColor + "" + ChatColor.BOLD + "HP " +
+                    titleColor + (int) player.getHealth() + ChatColor.BOLD + " / " +
+                    titleColor + (int) player.getMaxHealth() + safeZoneText + combatText;
+
+            synchronized (bossBarLock) {
+                BossBar bossBar = playerBossBars.get(playerId);
+
+                if (bossBar == null) {
+                    bossBar = Bukkit.createBossBar(title, barColor, BarStyle.SOLID);
+                    bossBar.addPlayer(player);
+                    playerBossBars.put(playerId, bossBar);
+                } else {
+                    bossBar.setTitle(title);
+                    bossBar.setColor(barColor);
+
+                    if (!bossBar.getPlayers().contains(player)) {
+                        bossBar.addPlayer(player);
+                    }
+                }
+
+                bossBar.setProgress(progress);
+            }
+
+        } catch (Exception e) {
+            YakRealms.warn("Error updating health bar for " + player.getName() + ": " + e.getMessage());
+        }
+    }
+
+    /**
+     * Safely remove boss bar for a player
+     */
+    private void removeBossBar(UUID playerId) {
+        synchronized (bossBarLock) {
+            BossBar existingBar = playerBossBars.remove(playerId);
+            if (existingBar != null) {
+                try {
+                    existingBar.removeAll();
+                } catch (Exception e) {
+                    YakRealms.warn("Error removing boss bar for player " + playerId + ": " + e.getMessage());
+                }
+            }
         }
     }
 
@@ -614,75 +559,36 @@ public class AlignmentMechanics implements Listener {
     }
 
     /**
-     * Handle player respawn based on alignment
-     */
-    @EventHandler(priority = EventPriority.HIGHEST)
-    public void onPlayerRespawn(PlayerRespawnEvent event) {
-        Player player = event.getPlayer();
-        YakPlayer yakPlayer = playerManager.getPlayer(player);
-        if (yakPlayer == null) return;
-
-        if ("CHAOTIC".equals(yakPlayer.getAlignment())) {
-            // Chaotic players get random spawn
-            TextUtil.sendCenteredMessage(player, ChatColor.RED + "You have been sent to a random location due to your chaotic alignment.");
-            event.setRespawnLocation(generateRandomSpawnPoint(player.getName()));
-        } else {
-            // Lawful/neutral players get safe spawn
-            World world = Bukkit.getWorlds().get(0);
-            event.setRespawnLocation(world.getSpawnLocation());
-        }
-    }
-
-    /**
-     * Prevent portal teleportation
-     */
-    @EventHandler
-    public void onPortalUse(PlayerPortalEvent event) {
-        event.setCancelled(true);
-    }
-
-    /**
      * Handle zone notifications when moving
      */
     @EventHandler(priority = EventPriority.HIGH)
     public void onZoneChange(PlayerMoveEvent event) {
-        // Skip if not actually changing blocks to avoid unnecessary processing
         if (event.getFrom().getBlock().equals(event.getTo().getBlock())) return;
 
         Player player = event.getPlayer();
         YakPlayer yakPlayer = playerManager.getPlayer(player);
         if (yakPlayer == null) return;
 
-        // Check for entering safe zone
         boolean fromSafe = isSafeZone(event.getFrom());
         boolean toSafe = isSafeZone(event.getTo());
 
         if (!fromSafe && toSafe) {
-            // Prevent chaotic players from entering
             if ("CHAOTIC".equals(yakPlayer.getAlignment())) {
                 handleChaoticEnteringSafeZone(player, event);
                 return;
             }
 
-            // Prevent players in combat from entering
-            if (isPlayerTagged(player)) {
+            if (combatLogoutMechanics.isPlayerTagged(player)) {
                 handleCombatTaggedEnteringSafeZone(player, event);
                 return;
             }
 
-            // Update last safe location
             lastSafeLocations.put(player.getUniqueId(), event.getTo().clone());
-
-            // Notify player they've entered a safe zone
             notifyPlayerEnteredSafeZone(player);
         }
 
-        // Check for exiting safe zone
         if (fromSafe && !toSafe) {
-            // Save last safe location
             lastSafeLocations.put(player.getUniqueId(), event.getFrom().clone());
-
-            // Notify player they've exited the safe zone
             notifyPlayerExitedSafeZone(player);
         }
     }
@@ -691,21 +597,17 @@ public class AlignmentMechanics implements Listener {
      * Handle player attempting to enter safe zone with chaotic alignment
      */
     private void handleChaoticEnteringSafeZone(Player player, PlayerMoveEvent event) {
-        // Cancel the movement
         event.setCancelled(true);
 
-        // Get last safe non-safe zone location or use current location
         Location fallbackLocation = lastSafeLocations.getOrDefault(
                 player.getUniqueId(),
                 event.getFrom().clone()
         );
 
-        // Teleport back if the event cancellation doesn't work
         if (!event.getFrom().getBlock().equals(event.getTo().getBlock())) {
             player.teleport(fallbackLocation);
         }
 
-        // Notify the player
         TextUtil.sendCenteredMessage(player, ChatColor.RED + "You " +
                 ChatColor.UNDERLINE + "cannot" +
                 ChatColor.RED + " enter " +
@@ -717,26 +619,18 @@ public class AlignmentMechanics implements Listener {
      * Handle player attempting to enter safe zone while combat tagged
      */
     private void handleCombatTaggedEnteringSafeZone(Player player, PlayerMoveEvent event) {
-        // Cancel the movement
         event.setCancelled(true);
 
-        // Get last safe non-safe zone location or use current location
         Location fallbackLocation = lastSafeLocations.getOrDefault(
                 player.getUniqueId(),
                 event.getFrom().clone()
         );
 
-        // Teleport back if the event cancellation doesn't work
         if (!event.getFrom().getBlock().equals(event.getTo().getBlock())) {
             player.teleport(fallbackLocation);
         }
 
-        // Calculate remaining combat time
-        long combatTime = getTimeSinceLastTag(player);
-        int timeLeft = (int) ((COMBAT_TAG_DURATION - combatTime) / 1000);
-        timeLeft = Math.max(0, timeLeft);
-
-        // Notify the player
+        int timeLeft = combatLogoutMechanics.getCombatTimeRemaining(player);
         TextUtil.sendCenteredMessage(player, ChatColor.RED + "You " +
                 ChatColor.UNDERLINE + "cannot" +
                 ChatColor.RED + " enter a safe zone while in combat.");
@@ -763,36 +657,139 @@ public class AlignmentMechanics implements Listener {
     }
 
     /**
-     *  Handle player death and alignment changes with scoreboard updates
+     * Handle player join/login with proper scoreboard setup
      */
-    @EventHandler(priority = EventPriority.LOW)
-    public void onPlayerDeath(PlayerDeathEvent event) {
+    @EventHandler
+    public void onPlayerJoin(PlayerJoinEvent event) {
+        Player player = event.getPlayer();
+
+        new BukkitRunnable() {
+            @Override
+            public void run() {
+                if (!player.isOnline() || player.isDead()) return;
+
+                updatePlayerAlignment(player);
+                PartyScoreboards.updatePlayerTeamAssignments(player);
+                PartyScoreboards.handleAlignmentChange(player);
+            }
+        }.runTaskLater(YakRealms.getInstance(), 3L);
+    }
+
+    /**
+     * Handle player quit with cleanup
+     */
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onPlayerQuit(PlayerQuitEvent event) {
+        Player player = event.getPlayer();
+        UUID playerId = player.getUniqueId();
+
+        // Clean up UI elements
+        removeBossBar(playerId);
+        lastSafeLocations.remove(playerId);
+        ForceFieldManager.getInstance().removePlayerForceField(player);
+        PartyScoreboards.cleanupPlayer(player);
+    }
+
+    /**
+     * Handle player PvP and alignment changes with integrated combat logout system
+     */
+    @EventHandler(priority = EventPriority.NORMAL)
+    public void onPlayerDamage(EntityDamageByEntityEvent event) {
+        if (event.isCancelled() || event.getDamage() <= 0.0) {
+            return;
+        }
+
+        Player attacker = null;
+        Player victim = null;
+
+        // Handle projectile damage
+        if (event.getDamager() instanceof Projectile && event.getEntity() instanceof Player) {
+            Projectile projectile = (Projectile) event.getDamager();
+            if (projectile.getShooter() instanceof Player) {
+                attacker = (Player) projectile.getShooter();
+                victim = (Player) event.getEntity();
+            }
+        }
+
+        // Handle direct damage
+        if (event.getDamager() instanceof Player && event.getEntity() instanceof Player) {
+            attacker = (Player) event.getDamager();
+            victim = (Player) event.getEntity();
+        }
+
+        if (attacker != null && victim != null) {
+            handlePvPAttack(attacker, victim);
+        }
+    }
+
+    /**
+     * Process a PvP attack between players with alignment updates and combat tagging
+     */
+    private void handlePvPAttack(Player attacker, Player victim) {
+        YakPlayer yakAttacker = playerManager.getPlayer(attacker);
+        YakPlayer yakVictim = playerManager.getPlayer(victim);
+
+        if (yakAttacker == null || yakVictim == null) return;
+
+        if (Toggles.isToggled(attacker, "Anti PVP")) return;
+
+        // Cancel any logout commands
+        try {
+            Class<?> logoutCommandClass = Class.forName("com.rednetty.server.commands.player.LogoutCommand");
+            java.lang.reflect.Method forceCancelMethod = logoutCommandClass.getMethod("forceCancelLogout", Player.class, String.class);
+
+            forceCancelMethod.invoke(null, attacker, "You entered combat!");
+            forceCancelMethod.invoke(null, victim, "You were attacked!");
+
+        } catch (Exception e) {
+            YakRealms.getInstance().getLogger().fine("Could not cancel logout (command not available): " + e.getMessage());
+        }
+
+        // Handle alignment changes
+        String oldAlignment = yakAttacker.getAlignment();
+
+        if ("CHAOTIC".equals(yakAttacker.getAlignment())) {
+            // Already chaotic - do nothing
+        } else if ("NEUTRAL".equals(yakAttacker.getAlignment())) {
+            yakAttacker.setNeutralTime(System.currentTimeMillis() / 1000 + NEUTRAL_SECONDS);
+            playerManager.savePlayer(yakAttacker);
+        } else {
+            setNeutralAlignment(attacker);
+
+            if (!oldAlignment.equals("NEUTRAL")) {
+                PartyScoreboards.handleAlignmentChange(attacker);
+            }
+        }
+
+        // Tag both players for combat using the combat logout system
+        combatLogoutMechanics.markCombatTagged(attacker);
+        combatLogoutMechanics.markCombatTagged(victim);
+        combatLogoutMechanics.setLastAttacker(victim, attacker);
+
+        YakRealms.log("PvP attack processed: " + attacker.getName() + " -> " + victim.getName());
+    }
+
+    /**
+     * Handle player death and alignment changes with scoreboard updates
+     * This integrates with the new DeathMechanics system
+     */
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onPlayerDeathForAlignment(org.bukkit.event.entity.PlayerDeathEvent event) {
         Player victim = event.getEntity();
         YakPlayer yakVictim = playerManager.getPlayer(victim);
         if (yakVictim == null) return;
 
-        //  Check if this is a combat logout death
-        UUID victimId = victim.getUniqueId();
-        if (combatLogouts.containsKey(victimId)) {
-            YakRealms.log("Processing combat logout death for " + victim.getName());
-            combatLogouts.remove(victimId); // Remove the tracking
-            return; // Let RespawnManager handle the rest
-        }
-
-        // Get the killer
         Player killer = victim.getKiller();
         if (killer == null) return;
 
         YakPlayer yakKiller = playerManager.getPlayer(killer);
         if (yakKiller == null) return;
 
-        // Skip neutral/chaotic victims (don't make killer chaotic)
-        if ("NEUTRAL".equals(yakVictim.getAlignment()) ||
-                "CHAOTIC".equals(yakVictim.getAlignment())) {
+        // Only handle alignment changes for lawful victims being killed
+        if (!"LAWFUL".equals(yakVictim.getAlignment())) {
             return;
         }
 
-        // Handle killer alignment change
         String oldKillerAlignment = yakKiller.getAlignment();
         if ("CHAOTIC".equals(yakKiller.getAlignment())) {
             // Reset chaotic timer
@@ -807,313 +804,22 @@ public class AlignmentMechanics implements Listener {
                 PartyScoreboards.handleAlignmentChange(killer);
             }
         }
+
+        YakRealms.log("Alignment change processed for kill: " + killer.getName() + " killed lawful " + victim.getName());
     }
 
     /**
-     * Handle custom death messages
-     */
-    @EventHandler(priority = EventPriority.HIGH)
-    public void onDeathMessage(PlayerDeathEvent event) {
-        Player victim = event.getEntity();
-        if (victim == null) return;
-
-        // Clear default death message
-        event.setDeathMessage(null);
-
-        // Build custom death message
-        String deathReason = " has died";
-        EntityDamageEvent lastDamage = victim.getLastDamageCause();
-
-        if (lastDamage != null) {
-            EntityDamageEvent.DamageCause cause = lastDamage.getCause();
-
-            // Determine death reason by cause
-            if (cause == EntityDamageEvent.DamageCause.LAVA ||
-                    cause == EntityDamageEvent.DamageCause.FIRE ||
-                    cause == EntityDamageEvent.DamageCause.FIRE_TICK) {
-                deathReason = " burned to death";
-            } else if (cause == EntityDamageEvent.DamageCause.SUICIDE) {
-                deathReason = " ended their own life";
-            } else if (cause == EntityDamageEvent.DamageCause.FALL) {
-                deathReason = " fell to their death";
-            } else if (cause == EntityDamageEvent.DamageCause.SUFFOCATION) {
-                deathReason = " was crushed to death";
-            } else if (cause == EntityDamageEvent.DamageCause.DROWNING) {
-                deathReason = " drowned to death";
-            }
-
-            // Handle entity damage
-            if (lastDamage instanceof EntityDamageByEntityEvent) {
-                EntityDamageByEntityEvent entityDamage = (EntityDamageByEntityEvent) lastDamage;
-                Entity damager = entityDamage.getDamager();
-
-                if (damager instanceof Player) {
-                    Player killer = (Player) damager;
-                    deathReason = " was killed by " + ChatColor.RESET + killer.getDisplayName();
-
-                    // Include weapon if available
-                    ItemStack weapon = killer.getInventory().getItemInMainHand();
-                    if (weapon != null && weapon.getType() != Material.AIR) {
-                        deathReason = " was killed by " + killer.getDisplayName() + ChatColor.WHITE + " with a(n) ";
-
-                        // Add weapon name
-                        if (weapon.hasItemMeta() && weapon.getItemMeta().hasDisplayName()) {
-                            deathReason += weapon.getItemMeta().getDisplayName();
-                        } else {
-                            deathReason += TextUtil.formatItemName(weapon.getType().name());
-                        }
-                    }
-
-                    // Track kill statistics
-                    YakPlayer yakKiller = playerManager.getPlayer(killer);
-                    if (yakKiller != null) {
-                        yakKiller.addPlayerKill();
-                        playerManager.savePlayer(yakKiller);
-                    }
-
-                } else if (damager instanceof LivingEntity) {
-                    LivingEntity livingDamager = (LivingEntity) damager;
-                    String mobName = livingDamager.getType().name();
-
-                    // Get custom mob name if available
-                    if (livingDamager.hasMetadata("name")) {
-                        mobName = livingDamager.getMetadata("name").get(0).asString();
-                    } else if (livingDamager.getCustomName() != null) {
-                        mobName = livingDamager.getCustomName();
-                    }
-
-                    deathReason = " was killed by a(n) " + ChatColor.UNDERLINE + mobName;
-                }
-            }
-        }
-
-        // Update victim's death count
-        YakPlayer yakVictim = playerManager.getPlayer(victim);
-        if (yakVictim != null) {
-            yakVictim.addDeath();
-            playerManager.savePlayer(yakVictim);
-        }
-
-        // Build final death message
-        String finalMessage = victim.getDisplayName() + ChatColor.RESET + deathReason;
-
-        // Send to nearby players
-        for (Entity entity : victim.getNearbyEntities(50, 50, 50)) {
-            if (entity instanceof Player) {
-                ((Player) entity).sendMessage(finalMessage);
-            }
-        }
-
-        // Always send to the victim
-        victim.sendMessage(finalMessage);
-    }
-
-    /**
-     *  Handle player join/login with proper scoreboard setup
+     * Prevent portal teleportation
      */
     @EventHandler
-    public void onPlayerJoin(PlayerJoinEvent event) {
-        Player player = event.getPlayer();
-
-        // Schedule update of alignment display and scoreboards
-        new BukkitRunnable() {
-            @Override
-            public void run() {
-                if (!player.isOnline() || player.isDead()) return;
-
-                updatePlayerAlignment(player);
-
-                PartyScoreboards.updatePlayerTeamAssignments(player);
-                PartyScoreboards.handleAlignmentChange(player);
-            }
-        }.runTaskLater(YakRealms.getInstance(), 3L); // Increased delay to ensure proper loading
+    public void onPortalUse(PlayerPortalEvent event) {
+        event.setCancelled(true);
     }
 
-    /**
-     *  Handle player PvP and alignment changes with scoreboard updates
-     */
-    @EventHandler(priority = EventPriority.NORMAL)
-    public void onPlayerDamage(EntityDamageByEntityEvent event) {
-        if (event.isCancelled() || event.getDamage() <= 0.0) {
-            return;
-        }
-
-        // Handle projectile damage
-        if (event.getDamager() instanceof Projectile && event.getEntity() instanceof Player) {
-            Projectile projectile = (Projectile) event.getDamager();
-            if (projectile.getShooter() instanceof Player) {
-                Player attacker = (Player) projectile.getShooter();
-                Player victim = (Player) event.getEntity();
-
-                handlePvPAttack(attacker, victim);
-            }
-        }
-
-        // Handle direct player attacks
-        if (event.getDamager() instanceof Player && event.getEntity() instanceof Player) {
-            Player attacker = (Player) event.getDamager();
-            Player victim = (Player) event.getEntity();
-
-            handlePvPAttack(attacker, victim);
-        }
-    }
+    // Public API methods for integration
 
     /**
-     *  Process a PvP attack between players with alignment updates and logout cancellation
-     */
-    private void handlePvPAttack(Player attacker, Player victim) {
-        YakPlayer yakAttacker = playerManager.getPlayer(attacker);
-        YakPlayer yakVictim = playerManager.getPlayer(victim);
-
-        if (yakAttacker == null || yakVictim == null) return;
-
-        // Skip for anti-PvP
-        if (Toggles.isToggled(attacker, "Anti PVP")) return;
-
-        // Cancel any active logout processes for both players
-        try {
-            Class<?> logoutCommandClass = Class.forName("com.rednetty.server.commands.player.LogoutCommand");
-            java.lang.reflect.Method forceCancelMethod = logoutCommandClass.getMethod("forceCancelLogout", Player.class, String.class);
-
-            // Cancel logout for attacker
-            forceCancelMethod.invoke(null, attacker, "You entered combat!");
-
-            // Cancel logout for victim
-            forceCancelMethod.invoke(null, victim, "You were attacked!");
-
-        } catch (Exception e) {
-            // LogoutCommand might not be available yet during startup, so we ignore this
-            YakRealms.getInstance().getLogger().fine("Could not cancel logout (command not available): " + e.getMessage());
-        }
-
-        String oldAlignment = yakAttacker.getAlignment();
-
-        // Set neutral alignment for the attacker
-        if ("CHAOTIC".equals(yakAttacker.getAlignment())) {
-            // Already chaotic - do nothing
-        } else if ("NEUTRAL".equals(yakAttacker.getAlignment())) {
-            // Reset neutral timer
-            yakAttacker.setNeutralTime(System.currentTimeMillis() / 1000 + NEUTRAL_SECONDS);
-            playerManager.savePlayer(yakAttacker);
-        } else {
-            // Change to neutral
-            setNeutralAlignment(attacker);
-
-            if (!oldAlignment.equals("NEUTRAL")) {
-                PartyScoreboards.handleAlignmentChange(attacker);
-            }
-        }
-
-        // Combat tag both players
-        taggedPlayers.put(attacker.getName(), System.currentTimeMillis());
-        taggedPlayers.put(victim.getName(), System.currentTimeMillis());
-
-        // Track last attacker for combat logging prevention
-        lastAttackers.put(victim.getName(), attacker);
-    }
-
-    /**
-     *  Handle combat logout punishment with proper tracking
-     */
-    @EventHandler(priority = EventPriority.HIGHEST)
-    public void onCombatLogout(PlayerQuitEvent event) {
-        Player player = event.getPlayer();
-        UUID playerId = player.getUniqueId();
-
-        // Check if player is combat tagged and not in a safe zone
-        if (!isSafeZone(player.getLocation()) &&
-                isPlayerTagged(player) &&
-                getTimeSinceLastTag(player) < COMBAT_TAG_DURATION) {
-
-            // Mark as combat logout and track attacker
-            Player attacker = lastAttackers.get(player.getName());
-            combatLogouts.put(playerId, new CombatLogoutData(attacker));
-
-            YakRealms.log("COMBAT LOGOUT detected for " + player.getName() +
-                    " - will process death on rejoin or after timeout");
-
-            // Schedule death processing
-            Bukkit.getScheduler().runTaskLater(YakRealms.getInstance(), () -> {
-                processCombatLogoutDeath(player);
-            }, 1L); // Process on next tick to avoid conflicts
-        }
-
-        // Clean up boss bar
-        removeBossBar(playerId);
-
-        // Clean up location cache
-        lastSafeLocations.remove(playerId);
-
-        // Clean up combat tracking
-        taggedPlayers.remove(player.getName());
-        lastAttackers.remove(player.getName());
-
-        // Remove force field
-        ForceFieldManager.getInstance().removePlayerForceField(player);
-
-        PartyScoreboards.cleanupPlayer(player);
-    }
-
-    /**
-     *  Process combat logout death properly
-     */
-    private void processCombatLogoutDeath(Player player) {
-        if (player == null || !player.isOnline()) {
-            return;
-        }
-
-        try {
-            YakRealms.log("Processing combat logout death for " + player.getName());
-
-            // Ensure the player is actually killed
-            player.setHealth(0.0);
-
-            // If setting health to 0 doesn't work, use damage
-            if (player.getHealth() > 0) {
-                player.damage(player.getMaxHealth() * 2);
-            }
-
-            // If still alive, force the death event
-            if (!player.isDead() && player.getHealth() > 0) {
-                YakRealms.warn("Failed to kill combat logging player normally, using fallback method");
-
-                // Create a fake death event as last resort
-                PlayerDeathEvent deathEvent = new PlayerDeathEvent(
-                        player,
-                        new ArrayList<>(),
-                        0,
-                        player.getName() + " died from combat logging"
-                );
-
-                Bukkit.getPluginManager().callEvent(deathEvent);
-            }
-
-        } catch (Exception e) {
-            YakRealms.error("Error processing combat logout death for " + player.getName(), e);
-        }
-    }
-
-    /**
-     * Handle player rejoin after combat logout
-     */
-    @EventHandler(priority = EventPriority.LOWEST)
-    public void onPlayerRejoinAfterCombatLogout(PlayerJoinEvent event) {
-        Player player = event.getPlayer();
-        UUID playerId = player.getUniqueId();
-
-        // Check if this player combat logged
-        if (combatLogouts.containsKey(playerId)) {
-            YakRealms.log("Player " + player.getName() + " rejoined after combat logout, processing death");
-
-            // Process the death on next tick
-            Bukkit.getScheduler().runTaskLater(YakRealms.getInstance(), () -> {
-                processCombatLogoutDeath(player);
-            }, 2L);
-        }
-    }
-
-    /**
-     *  Public method to force cleanup of a player's boss bar
+     * Public method to force cleanup of a player's boss bar
      */
     public void cleanupPlayerBossBar(Player player) {
         if (player != null) {
@@ -1122,11 +828,32 @@ public class AlignmentMechanics implements Listener {
     }
 
     /**
-     *  Public method to force update of a player's health bar
+     * Public method to force update of a player's health bar
      */
     public void forceUpdateHealthBar(Player player) {
         if (player != null && player.isOnline() && !player.isDead()) {
             updateHealthBar(player);
         }
+    }
+
+    /**
+     * Check if a player is combat logging out (delegates to CombatLogoutMechanics)
+     */
+    public boolean isCombatLoggingOut(Player player) {
+        return combatLogoutMechanics.isCombatLoggingOut(player);
+    }
+
+    /**
+     * Check if player is combat tagged (delegates to CombatLogoutMechanics)
+     */
+    public boolean isPlayerTagged(Player player) {
+        return combatLogoutMechanics.isPlayerTagged(player);
+    }
+
+    /**
+     * Get combat time remaining (delegates to CombatLogoutMechanics)
+     */
+    public int getCombatTimeRemaining(Player player) {
+        return combatLogoutMechanics.getCombatTimeRemaining(player);
     }
 }

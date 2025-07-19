@@ -1,6 +1,7 @@
 package com.rednetty.server.mechanics.player.social.trade;
 
 import com.rednetty.server.YakRealms;
+import com.rednetty.server.mechanics.player.settings.Toggles;
 import org.bukkit.ChatColor;
 import org.bukkit.Material;
 import org.bukkit.Particle;
@@ -37,32 +38,7 @@ public class TradeManager {
         this.tradeMenus = new HashMap<>();
     }
 
-    /**
-     * Sends a trade request from one player to another.
-     *
-     * @param sender    The player sending the trade request.
-     * @param recipient The player receiving the trade request.
-     */
-    public void sendTradeRequest(Player sender, Player recipient) {
-        plugin.getLogger().info("Sending trade request from " + sender.getDisplayName() + " to " + recipient.getDisplayName());
 
-        if (isPlayerTrading(sender) || isPlayerTrading(recipient)) {
-            sender.sendMessage(ChatColor.RED + "⚠ " + ChatColor.GRAY + "One of the players is already in a trade.");
-            return;
-        }
-
-        if (hasPendingTradeRequest(recipient)) {
-            sender.sendMessage(ChatColor.RED + "⚠ " + ChatColor.GRAY + "The player already has a pending trade request.");
-            return;
-        }
-
-        pendingTradeRequests.put(sender.getUniqueId(), recipient.getUniqueId());
-        sender.sendMessage(ChatColor.GREEN + "✉ " + ChatColor.GRAY + "Trade request sent to " + ChatColor.YELLOW + recipient.getDisplayName());
-        recipient.sendMessage(ChatColor.GREEN + "✉ " + ChatColor.YELLOW + sender.getDisplayName() + ChatColor.GRAY + " has sent you a trade request. Open their interaction menu to accept.");
-
-        // Play sounds and spawn particles for both players
-        playSoundAndParticles(sender, recipient, Sound.BLOCK_NOTE_BLOCK_CHIME, Particle.END_ROD, 1.2f, 1.0f);
-    }
 
     /**
      * Checks if a player has any pending trade requests.
@@ -87,27 +63,6 @@ public class TradeManager {
     }
 
     /**
-     * Accepts a pending trade request.
-     *
-     * @param recipient The player accepting the trade request.
-     * @param sender    The player who sent the trade request.
-     */
-    public void acceptTradeRequest(Player recipient, Player sender) {
-        plugin.getLogger().info("Accepting trade request from " + sender.getDisplayName() + " by " + recipient.getDisplayName());
-
-        if (!hasPendingTradeRequest(recipient, sender)) {
-            recipient.sendMessage(ChatColor.RED + "⚠ " + ChatColor.GRAY + "No pending trade request from " + ChatColor.YELLOW + sender.getDisplayName());
-            return;
-        }
-
-        pendingTradeRequests.remove(sender.getUniqueId());
-        initiateTrade(sender, recipient);
-
-        // Play sounds and spawn particles for both players
-        playSoundAndParticles(sender, recipient, Sound.BLOCK_ENCHANTMENT_TABLE_USE, Particle.SPELL_INSTANT, 1.0f, 1.0f);
-    }
-
-    /**
      * Cancels a pending trade request.
      *
      * @param sender The player cancelling the trade request.
@@ -126,41 +81,7 @@ public class TradeManager {
         }
     }
 
-    /**
-     * Initiates a trade between two players.
-     *
-     * @param initiator The player initiating the trade.
-     * @param target    The player being invited to trade.
-     */
-    public void initiateTrade(Player initiator, Player target) {
-        plugin.getLogger().info("Initiating trade between " + initiator.getDisplayName() + " and " + target.getDisplayName());
 
-        if (isPlayerTrading(initiator) || isPlayerTrading(target)) {
-            initiator.sendMessage(ChatColor.RED + "⚠ " + ChatColor.GRAY + "One of the players is already in a trade.");
-            plugin.getLogger().warning("Trade initiation failed: One of the players is already in a trade.");
-            return;
-        }
-
-        Trade trade = new Trade(initiator, target);
-        activeTrades.put(initiator.getUniqueId(), trade);
-        activeTrades.put(target.getUniqueId(), trade);
-
-        new BukkitRunnable() {
-            @Override
-            public void run() {
-                try {
-                    TradeMenu tradeMenu = new TradeMenu(plugin, trade);
-                    tradeMenus.put(trade, tradeMenu);
-                    tradeMenu.openMenu();
-                    plugin.getLogger().info("Trade menu opened for " + initiator.getDisplayName() + " and " + target.getDisplayName());
-                } catch (Exception e) {
-                    plugin.getLogger().severe("Error opening trade menu: " + e.getMessage());
-                    e.printStackTrace();
-                    cancelTrade(initiator);
-                }
-            }
-        }.runTask(plugin);
-    }
 
     /**
      * Checks if a player is currently involved in a trade.
@@ -327,6 +248,193 @@ public class TradeManager {
         plugin.getLogger().info("Exchanged " + items.size() + " items from " + from.getDisplayName() + " to " + to.getDisplayName());
     }
 
+    //NEW
+    /**
+     *  trade request sending with proper toggle validation
+     */
+    public void sendTradeRequest(Player sender, Player recipient) {
+        plugin.getLogger().info("Sending trade request from " + sender.getDisplayName() + " to " + recipient.getDisplayName());
+
+        //  Check if sender has trading enabled
+        if (!isPlayerTradingEnabled(sender)) {
+            sender.sendMessage(ChatColor.RED + "⚠ " + ChatColor.GRAY + "You have trading disabled! Use /toggle to enable it.");
+            return;
+        }
+
+        //  Check if recipient has trading enabled
+        if (!isPlayerTradingEnabled(recipient)) {
+            sender.sendMessage(ChatColor.RED + "⚠ " + ChatColor.GRAY + recipient.getDisplayName() + " has trading disabled!");
+            return;
+        }
+
+        if (isPlayerTrading(sender) || isPlayerTrading(recipient)) {
+            sender.sendMessage(ChatColor.RED + "⚠ " + ChatColor.GRAY + "One of the players is already in a trade.");
+            return;
+        }
+
+        if (hasPendingTradeRequest(recipient)) {
+            sender.sendMessage(ChatColor.RED + "⚠ " + ChatColor.GRAY + "The player already has a pending trade request.");
+            return;
+        }
+
+        pendingTradeRequests.put(sender.getUniqueId(), recipient.getUniqueId());
+        sender.sendMessage(ChatColor.GREEN + "✉ " + ChatColor.GRAY + "Trade request sent to " + ChatColor.YELLOW + recipient.getDisplayName());
+        recipient.sendMessage(ChatColor.GREEN + "✉ " + ChatColor.YELLOW + sender.getDisplayName() + ChatColor.GRAY + " has sent you a trade request. Open their interaction menu to accept.");
+
+        // Play sounds and spawn particles for both players
+        playSoundAndParticles(sender, recipient, Sound.BLOCK_NOTE_BLOCK_CHIME, Particle.END_ROD, 1.2f, 1.0f);
+    }
+
+    /**
+     *  trade request acceptance with toggle validation
+     */
+    public void acceptTradeRequest(Player recipient, Player sender) {
+        plugin.getLogger().info("Accepting trade request from " + sender.getDisplayName() + " by " + recipient.getDisplayName());
+
+        //  Double-check trading toggles before accepting
+        if (!isPlayerTradingEnabled(recipient)) {
+            recipient.sendMessage(ChatColor.RED + "⚠ " + ChatColor.GRAY + "You have trading disabled! Use /toggle to enable it.");
+            return;
+        }
+
+        if (!isPlayerTradingEnabled(sender)) {
+            recipient.sendMessage(ChatColor.RED + "⚠ " + ChatColor.GRAY + sender.getDisplayName() + " has trading disabled!");
+            return;
+        }
+
+        if (!hasPendingTradeRequest(recipient, sender)) {
+            recipient.sendMessage(ChatColor.RED + "⚠ " + ChatColor.GRAY + "No pending trade request from " + ChatColor.YELLOW + sender.getDisplayName());
+            return;
+        }
+
+        pendingTradeRequests.remove(sender.getUniqueId());
+        initiateTrade(sender, recipient);
+
+        // Play sounds and spawn particles for both players
+        playSoundAndParticles(sender, recipient, Sound.BLOCK_ENCHANTMENT_TABLE_USE, Particle.SPELL_INSTANT, 1.0f, 1.0f);
+    }
+
+    /**
+     *  trade initiation with final toggle validation
+     */
+    public void initiateTrade(Player initiator, Player target) {
+        plugin.getLogger().info("Initiating trade between " + initiator.getDisplayName() + " and " + target.getDisplayName());
+
+        //  Final check for trading toggles
+        if (!isPlayerTradingEnabled(initiator)) {
+            initiator.sendMessage(ChatColor.RED + "⚠ " + ChatColor.GRAY + "You have trading disabled! Use /toggle to enable it.");
+            return;
+        }
+
+        if (!isPlayerTradingEnabled(target)) {
+            initiator.sendMessage(ChatColor.RED + "⚠ " + ChatColor.GRAY + target.getDisplayName() + " has trading disabled!");
+            target.sendMessage(ChatColor.RED + "⚠ " + ChatColor.GRAY + "You have trading disabled! Use /toggle to enable it.");
+            return;
+        }
+
+        if (isPlayerTrading(initiator) || isPlayerTrading(target)) {
+            initiator.sendMessage(ChatColor.RED + "⚠ " + ChatColor.GRAY + "One of the players is already in a trade.");
+            plugin.getLogger().warning("Trade initiation failed: One of the players is already in a trade.");
+            return;
+        }
+
+        Trade trade = new Trade(initiator, target);
+        activeTrades.put(initiator.getUniqueId(), trade);
+        activeTrades.put(target.getUniqueId(), trade);
+
+        new BukkitRunnable() {
+            @Override
+            public void run() {
+                try {
+                    TradeMenu tradeMenu = new TradeMenu(plugin, trade);
+                    tradeMenus.put(trade, tradeMenu);
+                    tradeMenu.openMenu();
+                    plugin.getLogger().info("Trade menu opened for " + initiator.getDisplayName() + " and " + target.getDisplayName());
+                } catch (Exception e) {
+                    plugin.getLogger().severe("Error opening trade menu: " + e.getMessage());
+                    e.printStackTrace();
+                    cancelTrade(initiator);
+                }
+            }
+        }.runTask(plugin);
+    }
+
+    /**
+     *  Check if a player has trading enabled via toggles
+     */
+    private boolean isPlayerTradingEnabled(Player player) {
+        if (player == null || !player.isOnline()) {
+            return false;
+        }
+
+        try {
+            // Use the Toggles system to check if trading is enabled
+            return Toggles.isToggled(player, "Trading");
+        } catch (Exception e) {
+            plugin.getLogger().warning("Error checking trading toggle for " + player.getName() + ": " + e.getMessage());
+            // Default to true if there's an error checking the toggle
+            return true;
+        }
+    }
+
+    /**
+     *  Get a player's trading status for display/debugging
+     */
+    public String getPlayerTradingStatus(Player player) {
+        if (player == null) {
+            return "Unknown";
+        }
+
+        boolean tradingEnabled = isPlayerTradingEnabled(player);
+        boolean currentlyTrading = isPlayerTrading(player);
+        boolean hasPendingRequest = hasPendingTradeRequest(player);
+
+        StringBuilder status = new StringBuilder();
+        status.append("Trading: ").append(tradingEnabled ? "§aEnabled" : "§cDisabled");
+
+        if (currentlyTrading) {
+            status.append(" (§eCurrently Trading§r)");
+        } else if (hasPendingRequest) {
+            status.append(" (§yPending Request§r)");
+        }
+
+        return status.toString();
+    }
+
+    /**
+     *  Validate trade eligibility including toggle checks
+     */
+    public boolean canPlayersTradeTogether(Player player1, Player player2) {
+        if (player1 == null || player2 == null) {
+            return false;
+        }
+
+        if (!player1.isOnline() || !player2.isOnline()) {
+            return false;
+        }
+
+        if (player1.equals(player2)) {
+            return false;
+        }
+
+        // Check trading toggles
+        if (!isPlayerTradingEnabled(player1) || !isPlayerTradingEnabled(player2)) {
+            return false;
+        }
+
+        // Check if already trading
+        if (isPlayerTrading(player1) || isPlayerTrading(player2)) {
+            return false;
+        }
+
+        // Check distance (within same world and reasonable distance)
+        if (!player1.getWorld().equals(player2.getWorld())) {
+            return false;
+        }
+
+        double distance = player1.getLocation().distance(player2.getLocation());
+        return distance <= 10.0; // Maximum trade distance of 10 blocks
+    }
     /**
      * Plays sound and spawns particles for two players.
      *

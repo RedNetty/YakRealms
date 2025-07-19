@@ -3,6 +3,7 @@ package com.rednetty.server.mechanics.world.mobs;
 import com.rednetty.server.mechanics.world.mobs.core.CustomMob;
 import com.rednetty.server.mechanics.world.mobs.core.MobType;
 import com.rednetty.server.mechanics.world.mobs.utils.MobUtils;
+import com.rednetty.server.mechanics.world.holograms.HologramManager;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.Particle;
@@ -13,6 +14,7 @@ import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.potion.PotionEffect;
 import org.bukkit.potion.PotionEffectType;
+import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.util.Vector;
 
 import java.util.Iterator;
@@ -33,6 +35,7 @@ import java.util.stream.Collectors;
  * - Normal mobs consume crit state on attack
  * - Accurate timing and effect management
  * -  Elite mob explosions now properly damage players
+ * - Enhanced hologram integration - critical state updates holograms instead of entity names
  */
 public class CritManager {
 
@@ -113,7 +116,7 @@ public class CritManager {
         if (instance == null) {
             instance = new CritManager(plugin);
             instance.startMasterTask();
-            instance.logger.info("§a[CritManager] §7Initialized with legacy-matching crit system");
+            instance.logger.info("§a[CritManager] §7Initialized with legacy-matching crit system and hologram integration");
         }
     }
 
@@ -195,6 +198,10 @@ public class CritManager {
             if (state.getCountdown() > 0) {
                 // Continue countdown (4→3→2→1)
                 handleCountdownStep(entity, state);
+
+                // Update hologram to reflect critical state change
+                updateMobHologramForCritState(mob);
+
                 return false; // Continue processing
             } else {
                 // Countdown reached 0 - execute final effect
@@ -204,6 +211,20 @@ public class CritManager {
         }
 
         return false; // Continue processing
+    }
+
+    /**
+     * Update mob hologram to reflect critical state changes
+     */
+    private void updateMobHologramForCritState(CustomMob mob) {
+        try {
+            if (mob != null && mob.isValid()) {
+                // Force hologram update to show current critical state
+                mob.updateHologramOverlay();
+            }
+        } catch (Exception e) {
+            logger.warning("[CritManager] Failed to update hologram for crit state: " + e.getMessage());
+        }
     }
 
     /**
@@ -234,8 +255,8 @@ public class CritManager {
             // Apply initial effects
             applyInitialCritEffects(mob, newState);
 
-            // Update health bar to show crit state
-            mob.updateHealthBar();
+            // Update hologram to show crit state (instead of updating entity name)
+            updateMobHologramForCritState(mob);
 
             logger.info(String.format("[CritManager] %s T%d crit triggered! Roll: %d <= %d (%.1f%%)",
                     mob.getType().getId(), tier, roll, chance, (chance * 100.0 / CRIT_CHANCE_RANGE)));
@@ -369,7 +390,7 @@ public class CritManager {
     }
 
     /**
-     * Handle countdown finish (countdown = 0) - with proper cleanup
+     * Handle countdown finish (countdown = 0) - with proper cleanup and hologram updates
      */
     private void handleCountdownFinish(CustomMob mob, CritState state) {
         LivingEntity entity = mob.getEntity();
@@ -391,6 +412,9 @@ public class CritManager {
                 entity.getWorld().spawnParticle(Particle.SPELL_WITCH,
                         entity.getLocation().add(0, 1.5, 0), 30, 0.5, 0.5, 0.5, 0.1);
                 // Normal mobs stay in crit state until they attack
+
+                // Update hologram to show charged state
+                updateMobHologramForCritState(mob);
             }
         } catch (Exception e) {
             logger.warning("[CritManager] Countdown finish error: " + e.getMessage());
@@ -430,7 +454,7 @@ public class CritManager {
     }
 
     /**
-     * Clean up after explosion - CRITICAL for preventing endless ticking
+     * Clean up after explosion - CRITICAL for preventing endless ticking, now includes hologram updates
      */
     private void cleanupAfterExplosion(CustomMob mob) {
         try {
@@ -455,16 +479,19 @@ public class CritManager {
                 entity.removePotionEffect(PotionEffectType.GLOWING);
             }
 
-            // Restore normal health bar color (GREEN - legacy behavior)
-            mob.updateHealthBar();
+            // Update hologram to reflect normal state (not critical anymore)
+            updateMobHologramForCritState(mob);
 
             // Reapply normal elite effects after small delay
             Bukkit.getScheduler().runTaskLater(plugin, () -> {
                 if (entity.isValid() && !entity.isDead()) {
                     // Reapply normal elite speed
                     if (mob.isElite() && !MobUtils.isFrozenBoss(entity)) {
-                        entity.addPotionEffect(new PotionEffect(PotionEffectType.SPEED, Integer.MAX_VALUE, 1), true);
+                        entity.addPotionEffect(new PotionEffect(PotionEffectType.SPEED, Integer.MAX_VALUE, 0), true);
                     }
+
+                    // Final hologram update after effects are restored
+                    updateMobHologramForCritState(mob);
                 }
             }, 20L);
 
@@ -492,6 +519,9 @@ public class CritManager {
                     if (mob.isValid() && mob.getEntity().getHealth() < threshold) {
                         CritState restartState = new CritState(mob, true); // 3-step restart
                         activeCrits.put(mob.getEntity().getUniqueId(), restartState);
+
+                        // Update hologram for new crit state
+                        updateMobHologramForCritState(mob);
 
                         logger.info("[CritManager] Frozen Boss low health - restarting 3-step crit cycle");
                     }
@@ -529,7 +559,7 @@ public class CritManager {
      */
     private boolean applyWhirlwindDamageAndKnockback(Player player, LivingEntity mob, double damage) {
         try {
-            
+
             // This ensures the explosion damage actually hits the player
             applyRawDamageToPlayer(player, damage, mob);
 
@@ -688,19 +718,19 @@ public class CritManager {
     }
 
     /**
-     * Public method to manually remove a crit state.
+     * Public method to manually remove a crit state with hologram updates.
      */
     public void removeCrit(UUID uuid) {
         CritState removedState = activeCrits.remove(uuid);
         if (removedState != null) {
             cleanupCritState(uuid);
 
-            // Update health bar to remove purple color
+            // Update hologram to remove critical state display
             Entity entity = Bukkit.getEntity(uuid);
             if (entity instanceof LivingEntity) {
                 CustomMob mob = MobManager.getInstance().getCustomMob((LivingEntity) entity);
                 if (mob != null) {
-                    mob.updateHealthBar();
+                    updateMobHologramForCritState(mob);
                 }
             }
         }

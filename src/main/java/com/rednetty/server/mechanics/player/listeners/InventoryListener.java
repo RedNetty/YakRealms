@@ -2,7 +2,10 @@ package com.rednetty.server.mechanics.player.listeners;
 
 import com.rednetty.server.YakRealms;
 import com.rednetty.server.mechanics.economy.BankManager;
+import com.rednetty.server.mechanics.economy.EconomyManager;
+import com.rednetty.server.mechanics.economy.TransactionResult;
 import com.rednetty.server.mechanics.player.YakPlayerManager;
+import com.rednetty.server.mechanics.player.settings.Toggles;
 import com.rednetty.server.utils.nbt.NBTAccessor;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
@@ -28,7 +31,7 @@ import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.scheduler.BukkitRunnable;
 
 /**
- * Enhanced inventory listener focused on armor changes, health recalculation,
+ *  inventory listener focused on armor changes, health recalculation,
  * and general inventory operations. Menu items are handled by MenuItemListener.
  * UPDATED: Removed all menu item handling code - now handled by MenuItemListener
  */
@@ -45,30 +48,9 @@ public class InventoryListener extends BaseListener {
 
     @Override
     public void initialize() {
-        logger.info("Enhanced inventory listener initialized - menu items handled by MenuItemListener");
+        logger.info(" inventory listener initialized - menu items handled by MenuItemListener");
     }
 
-    /**
-     * Handle inventory opening for bank chests and other special inventories
-     */
-    @EventHandler(priority = EventPriority.LOW)
-    public void onInventoryOpen(InventoryOpenEvent event) {
-        if (!(event.getPlayer() instanceof Player)) {
-            return;
-        }
-
-        Player player = (Player) event.getPlayer();
-
-        // Handle bank chest opening
-        if (event.getInventory().getType() == InventoryType.CHEST) {
-            String title = event.getView().getTitle();
-            if (title.contains("Bank Chest")) {
-                player.playSound(player.getLocation(), Sound.BLOCK_CHEST_OPEN, 1.0f, 1.0f);
-            }
-        }
-
-        // Menu items are now handled by MenuItemListener - no code needed here
-    }
 
     /**
      *  Prevent armor from taking any durability damage ever
@@ -108,7 +90,7 @@ public class InventoryListener extends BaseListener {
     }
 
     /**
-     * UPDATED: Enhanced inventory click handler focused on armor changes and special items
+     * UPDATED:  inventory click handler focused on armor changes and special items
      * Menu item handling removed - now handled by MenuItemListener
      */
     @EventHandler(priority = EventPriority.HIGH)
@@ -135,7 +117,7 @@ public class InventoryListener extends BaseListener {
                 currentItem.hasItemMeta() && currentItem.getItemMeta().hasDisplayName()) {
 
             handleSpectralKnightGear(player, currentItem);
-            handleHighLevelEnhancedItems(currentItem);
+            handleHighLevelItems(currentItem);
         }
 
         // Handle armor changes for health recalculation with comprehensive detection
@@ -338,9 +320,9 @@ public class InventoryListener extends BaseListener {
     }
 
     /**
-     * Handle high level enhanced items
+     * Handle high level  items
      */
-    private void handleHighLevelEnhancedItems(ItemStack item) {
+    private void handleHighLevelItems(ItemStack item) {
         // Add glow effect to items with high enhancement level
         int plusLevel = getEnhancementLevel(item);
         if (plusLevel > 3) {
@@ -475,7 +457,179 @@ public class InventoryListener extends BaseListener {
             event.setCancelled(true);
         }
     }
+//NEW
+    /**
+     * NEW: Enhanced gem pickup handling with Auto Bank toggle support
+     */
+    @EventHandler(priority = EventPriority.HIGH)
+    public void onGemPickup(PlayerPickupItemEvent event) {
+        Player player = event.getPlayer();
+        ItemStack itemStack = event.getItem().getItemStack();
 
+        // Handle gem pickups specially
+        if (itemStack.getType() == Material.EMERALD) {
+            event.setCancelled(true);
+            event.getItem().remove();
+
+            // Add to inventory first
+            player.getInventory().addItem(itemStack);
+
+            // Check if Auto Bank is enabled
+            if (Toggles.isToggled(player, "Auto Bank")) {
+                handleAutoBankDeposit(player, itemStack.getAmount());
+            } else {
+                // Regular gem pickup message
+                player.sendMessage(ChatColor.GREEN.toString() + ChatColor.BOLD + "                    +" +
+                        ChatColor.GREEN + itemStack.getAmount() + ChatColor.GREEN + ChatColor.BOLD + "G");
+            }
+
+            // Play sound
+            player.playSound(player.getLocation(), Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 1.0f, 1.0f);
+        }
+    }
+
+    /**
+     * NEW: Handle automatic banking of gems
+     */
+    private void handleAutoBankDeposit(Player player, int gemAmount) {
+        try {
+            // Remove gems from inventory and add to bank
+            ItemStack gemsToRemove = new ItemStack(Material.EMERALD, gemAmount);
+            player.getInventory().removeItem(gemsToRemove);
+
+            // Add to bank using BankManager
+            TransactionResult deposited = EconomyManager.getInstance().depositGems(player, gemAmount);
+
+            if (deposited.isSuccess()) {
+                // Enhanced auto-bank message
+                player.sendMessage(ChatColor.GOLD.toString() + ChatColor.BOLD + "                    +" +
+                        ChatColor.GOLD + gemAmount + ChatColor.GOLD + ChatColor.BOLD + "G " +
+                        ChatColor.GRAY + "(Auto-Banked)");
+
+                // Show bank balance if debug is enabled
+                if (Toggles.isToggled(player, "Debug")) {
+                    int bankBalance = EconomyManager.getInstance().getBankGems(player);
+                    player.sendMessage(ChatColor.GRAY + "Bank Balance: " + ChatColor.GOLD + bankBalance + "G");
+                }
+            } else {
+                // Fallback to regular inventory if banking fails
+                player.getInventory().addItem(new ItemStack(Material.EMERALD, gemAmount));
+                player.sendMessage(ChatColor.GREEN.toString() + ChatColor.BOLD + "                    +" +
+                        ChatColor.GREEN + gemAmount + ChatColor.GREEN + ChatColor.BOLD + "G " +
+                        ChatColor.RED + "(Bank Full)");
+            }
+        } catch (Exception e) {
+            logger.warning("Error with auto-bank for " + player.getName() + ": " + e.getMessage());
+            // Fallback to regular pickup
+            player.sendMessage(ChatColor.GREEN.toString() + ChatColor.BOLD + "                    +" +
+                    ChatColor.GREEN + gemAmount + ChatColor.GREEN + ChatColor.BOLD + "G");
+        }
+    }
+
+    /**
+     * Enhanced inventory interaction with toggle-aware messaging
+     */
+    @EventHandler(priority = EventPriority.HIGH)
+    public void onEnhancedInventoryInteract(PlayerInteractEvent event) {
+        if (isPatchLockdown()) {
+            event.setCancelled(true);
+            return;
+        }
+
+        Player player = event.getPlayer();
+        ItemStack item = player.getInventory().getItemInMainHand();
+
+        // Enhanced gem-related messaging based on Auto Bank toggle
+        if (item != null && item.getType() == Material.EMERALD &&
+                (event.getAction() == Action.RIGHT_CLICK_AIR || event.getAction() == Action.RIGHT_CLICK_BLOCK)) {
+
+            boolean autoBankEnabled = Toggles.isToggled(player, "Auto Bank");
+            int gemCount = 0;
+
+            // Count total gems in inventory
+            for (ItemStack invItem : player.getInventory().getContents()) {
+                if (invItem != null && invItem.getType() == Material.EMERALD) {
+                    gemCount += invItem.getAmount();
+                }
+            }
+
+            player.sendMessage("§6§l--- Gem Status ---");
+            player.sendMessage("§7Inventory Gems: §6" + gemCount + "G");
+
+            if (autoBankEnabled) {
+                player.sendMessage("§7Auto Bank: §aEnabled");
+                player.sendMessage("§7Your gems will automatically go to your bank when picked up.");
+
+                // Show bank balance
+                try {
+                    int bankBalance = EconomyManager.getInstance().getBankGems(player);
+                    player.sendMessage("§7Bank Balance: §6" + bankBalance + "G");
+                } catch (Exception e) {
+                    player.sendMessage("§7Bank Balance: §cError retrieving");
+                }
+            } else {
+                player.sendMessage("§7Auto Bank: §cDisabled");
+                player.sendMessage("§7Use §f/toggle §7to enable automatic banking.");
+            }
+
+            event.setCancelled(true);
+        }
+    }
+
+
+    /**
+     * Enhanced inventory opening with toggle-aware features
+     */
+    @EventHandler(priority = EventPriority.LOW)
+    public void onInventoryOpen(InventoryOpenEvent event) {
+        if (!(event.getPlayer() instanceof Player)) {
+            return;
+        }
+
+        Player player = (Player) event.getPlayer();
+
+        // Handle bank chest opening
+        if (event.getInventory().getType() == InventoryType.CHEST) {
+            String title = event.getView().getTitle();
+            if (title.contains("Bank Chest")) {
+                player.playSound(player.getLocation(), Sound.BLOCK_CHEST_OPEN, 1.0f, 1.0f);
+
+                // Show auto-bank status when opening bank
+                if (Toggles.isToggled(player, "Auto Bank")) {
+                    player.sendMessage("§7💡 Auto Bank is §aenabled§7 - gems go here automatically!");
+                } else {
+                    player.sendMessage("§7💡 Auto Bank is §cdisabled§7 - use /toggle to enable automatic deposits!");
+                }
+            }
+        }
+    }
+
+    /**
+     * Enhanced player interaction with contextual toggle information
+     */
+    @EventHandler(priority = EventPriority.HIGH)
+    public void onPlayerInteractWithToggles(PlayerInteractEvent event) {
+        if (isPatchLockdown()) {
+            event.setCancelled(true);
+            return;
+        }
+
+        Player player = event.getPlayer();
+
+        // Show contextual toggle information for various interactions
+        if (event.getAction() == Action.RIGHT_CLICK_AIR && player.isSneaking()) {
+            // Sneaking + right click air = show relevant toggle status
+            StringBuilder status = new StringBuilder();
+            status.append("§6§l--- Quick Toggle Status ---\n");
+            status.append("§7Auto Bank: ").append(Toggles.isToggled(player, "Auto Bank") ? "§aEnabled" : "§cDisabled").append("\n");
+            status.append("§7Drop Protection: ").append(Toggles.isToggled(player, "Drop Protection") ? "§aEnabled" : "§cDisabled").append("\n");
+            status.append("§7Trading: ").append(Toggles.isToggled(player, "Trading") ? "§aEnabled" : "§cDisabled").append("\n");
+            status.append("§7Use §f/toggle §7for all settings");
+
+            player.sendMessage(status.toString());
+            event.setCancelled(true);
+        }
+    }
     /**
      * Handle general block interactions
      * Menu item block interactions are handled by MenuItemListener

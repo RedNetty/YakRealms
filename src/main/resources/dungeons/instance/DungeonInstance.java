@@ -20,7 +20,7 @@ import java.util.logging.Logger;
 import java.util.stream.Collectors;
 
 /**
- * ENHANCED: Complete Dungeon Instance Management
+ * : Complete Dungeon Instance Management
  *
  * Represents an active dungeon with players, managing the entire lifecycle
  * from initialization to completion. Handles player management, room progression,
@@ -1026,7 +1026,7 @@ public class DungeonInstance {
      * Check if player is in combat
      */
     private boolean isPlayerInCombat(Player player) {
-        // Simple implementation - can be enhanced with damage tracking
+        // Simple implementation - can be  with damage tracking
         return player.getLastDamage() > 0 &&
                 (System.currentTimeMillis() - player.getLastDamageCause().getEntity().getTicksLived() * 50) < 10000;
     }

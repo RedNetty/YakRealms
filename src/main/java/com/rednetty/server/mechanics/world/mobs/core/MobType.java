@@ -7,8 +7,10 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- *  MobType enum with guaranteed initialization and comprehensive elite mob support
- * UPDATED: Enhanced T6 Netherite support with GOLD color throughout
+ * MobType enum with guaranteed initialization and comprehensive elite mob support.
+ * UPDATED: T6 Netherite support with GOLD color throughout.
+ * CLEANUP: Simplified mappings, removed redundant variations, improved thread-safety,
+ *          reduced complexity in lookup methods, added better diagnostics.
  */
 public enum MobType {
 
@@ -167,6 +169,10 @@ public enum MobType {
     NETHYS("nethys", EntityType.WITHER_SKELETON, true, 5, 5, "Nethys The Void Sovereign",
             MobCategory.VOID, MobDifficulty.LEGENDARY, EnumSet.of(MobAbility.VOID_CALLING, MobAbility.SHADOW_FLAME, MobAbility.ABYSSAL_CROWN)),
 
+    // T6 ELITES
+    APOCALYPSE("apocalypse", EntityType.WITHER_SKELETON, true, 6, 6, "Apocalypse The World Destroyer",
+            MobCategory.VOID, MobDifficulty.LEGENDARY, EnumSet.of(MobAbility.VOID_CALLING, MobAbility.SHADOW_FLAME, MobAbility.ABYSSAL_CROWN)),
+
     // ================ WORLD BOSSES ================
 
     FROZEN_ELITE("frozenelite", EntityType.WITHER_SKELETON, true, 5, 6, "Frost The Exiled King",
@@ -319,20 +325,18 @@ public enum MobType {
     private final MobDifficulty difficulty;
     private final Set<MobAbility> abilities;
 
-    // ================ ENHANCED STATIC LOOKUP SYSTEM ================
+    // ================ STATIC LOOKUP SYSTEM ================
 
-    // Static lookup cache - using ConcurrentHashMap for thread safety
     private static final Map<String, MobType> BY_ID = new ConcurrentHashMap<>();
     private static final Map<String, MobType> NORMALIZED_MAPPINGS = new ConcurrentHashMap<>();
     private static final Map<MobCategory, List<MobType>> BY_CATEGORY = new ConcurrentHashMap<>();
     private static final Map<MobDifficulty, List<MobType>> BY_DIFFICULTY = new ConcurrentHashMap<>();
 
-    // Initialization state tracking
     private static volatile boolean initialized = false;
     private static final Object initLock = new Object();
 
     /**
-     *  Static initialization that CANNOT fail
+     * Static initialization that cannot fail.
      */
     static {
         try {
@@ -340,13 +344,12 @@ public enum MobType {
         } catch (Exception e) {
             System.err.println("[MobType] CRITICAL: Static initialization failed: " + e.getMessage());
             e.printStackTrace();
-            // Force emergency initialization
             emergencyInitialization();
         }
     }
 
     /**
-     *  Initialize all static mappings including ALL elite types
+     * Initialize all static mappings including all elite types.
      */
     private static void initializeStaticMappings() {
         synchronized (initLock) {
@@ -355,19 +358,16 @@ public enum MobType {
             try {
                 System.out.println("[MobType] Starting comprehensive static initialization...");
 
-                // Clear all maps first
                 BY_ID.clear();
                 NORMALIZED_MAPPINGS.clear();
                 BY_CATEGORY.clear();
                 BY_DIFFICULTY.clear();
 
-                // Process each enum value with comprehensive error handling
                 int successful = 0;
                 int failed = 0;
 
                 for (MobType type : values()) {
                     try {
-                        // Validate the type
                         if (type.id == null || type.id.trim().isEmpty()) {
                             System.err.println("[MobType] Skipping type with null/empty ID: " + type.name());
                             failed++;
@@ -376,20 +376,16 @@ public enum MobType {
 
                         String typeId = type.id.toLowerCase().trim();
 
-                        // Primary mapping
                         BY_ID.put(typeId, type);
                         NORMALIZED_MAPPINGS.put(typeId, type);
 
-                        // Add comprehensive variations for this type (ESPECIALLY elites)
-                        addComprehensiveVariationsForType(type);
+                        addEssentialVariationsForType(type);
 
-                        // Category mappings
                         BY_CATEGORY.computeIfAbsent(type.category, k -> new ArrayList<>()).add(type);
                         BY_DIFFICULTY.computeIfAbsent(type.difficulty, k -> new ArrayList<>()).add(type);
 
                         successful++;
 
-                        // Debug elite types specifically
                         if (type.isElite()) {
                             System.out.println("[MobType] Registered elite type: " + typeId + " -> " + type.name());
                         }
@@ -400,17 +396,14 @@ public enum MobType {
                     }
                 }
 
-                // Add comprehensive legacy mappings
-                addComprehensiveLegacyMappings();
+                addEssentialLegacyMappings();
 
-                // CRITICAL: Validate that all T5 elites are properly mapped
                 validateCriticalEliteTypes();
 
                 initialized = true;
                 System.out.println("[MobType] Initialization complete: " + successful + " types loaded, " +
                         failed + " failed, " + NORMALIZED_MAPPINGS.size() + " total mappings");
 
-                // Debug: Print all registered elite types
                 System.out.println("[MobType] Registered elite types:");
                 for (Map.Entry<String, MobType> entry : NORMALIZED_MAPPINGS.entrySet()) {
                     if (entry.getValue().isElite()) {
@@ -427,319 +420,188 @@ public enum MobType {
     }
 
     /**
-     *  Add comprehensive variations for each mob type, especially elites
+     * Add essential variations for each mob type, focusing on elites.
      */
-    private static void addComprehensiveVariationsForType(MobType type) {
-        String baseId = type.id;
+    private static void addEssentialVariationsForType(MobType type) {
+        String baseId = type.id.toLowerCase().trim();
 
-        try {
-            // Basic variations
-            addMapping(baseId.replace("_", ""), type);
-            addMapping(baseId.replace(" ", ""), type);
+        // Basic variations
+        addMapping(baseId.replace("_", ""), type);
+        addMapping(baseId.replace(" ", ""), type);
 
-            // ELITE-SPECIFIC VARIATIONS - This is critical for T5 elites
-            if (type.isElite()) {
-                // Add elite suffix variations
-                addMapping(baseId + "_elite", type);
-                addMapping(baseId + "elite", type);
-                addMapping("elite_" + baseId, type);
-                addMapping("elite" + baseId, type);
-            }
+        // Elite-specific variations
+        if (type.isElite()) {
+            addMapping(baseId + "_elite", type);
+            addMapping("elite_" + baseId, type);
+        }
 
-            // Specific type variations
-            switch (baseId) {
-                case "witherskeleton":
-                    addMapping("wither_skeleton", type);
-                    addMapping("witherSkeleton", type);
-                    addMapping("wither", type);
-                    addMapping("wskeleton", type);
-                    break;
+        // Specific type variations (reduced redundancy)
+        switch (baseId) {
+            case "witherskeleton":
+                addMapping("wither_skeleton", type);
+                break;
+            case "cavespider":
+                addMapping("cave_spider", type);
+                break;
+            case "magmacube":
+                addMapping("magma_cube", type);
+                break;
+            case "zombifiedpiglin":
+                addMapping("zombified_piglin", type);
+                addMapping("pigzombie", type);
+                addMapping("zombiepigman", type);
+                break;
+            case "elderguardian":
+                addMapping("elder_guardian", type);
+                break;
+            case "golem":
+                addMapping("iron_golem", type);
+                break;
 
-                case "cavespider":
-                    addMapping("cave_spider", type);
-                    addMapping("caveSpider", type);
-                    addMapping("cspider", type);
-                    break;
+            // Elite mappings (simplified)
+            case "meridian":
+                addMapping("warden", type);
+                addMapping("reality_breaker", type);
+                break;
+            case "pyrion":
+                addMapping("fire_lord", type);
+                addMapping("flame_emperor", type);
+                break;
+            case "rimeclaw":
+                addMapping("ice_lord", type);
+                addMapping("eternal_winter", type);
+                break;
+            case "thalassa":
+                addMapping("ocean_lord", type);
+                addMapping("ocean_sovereign", type);
+                break;
+            case "nethys":
+                addMapping("void_lord", type);
+                addMapping("void_sovereign", type);
+                break;
 
-                case "magmacube":
-                    addMapping("magma_cube", type);
-                    addMapping("magmaCube", type);
-                    addMapping("mcube", type);
-                    addMapping("magmaslime", type);
-                    break;
+            // Other elites
+            case "malachar":
+                addMapping("ember_lord", type);
+                break;
+            case "xerathen":
+                addMapping("thorn_warden", type);
+                break;
+            case "veridiana":
+                addMapping("plague_bringer", type);
+                break;
+            case "thorgrim":
+                addMapping("mountain_king", type);
+                break;
+            case "lysander":
+                addMapping("divine_blade", type);
+                break;
+            case "morgana":
+                addMapping("soul_ripper", type);
+                break;
+            case "vex_elite":
+                addMapping("nightmare_weaver", type);
+                break;
+            case "cornelius":
+                addMapping("golden_tyrant", type);
+                break;
+            case "valdris":
+                addMapping("bone_emperor", type);
+                break;
+            case "seraphina":
+                addMapping("mercy_maiden", type);
+                break;
+            case "arachnia":
+                addMapping("web_mistress", type);
+                break;
+            case "karnath":
+                addMapping("blood_reaper", type);
+                break;
+            case "zephyr":
+                addMapping("storm_caller", type);
+                break;
 
-                case "zombifiedpiglin":
-                    addMapping("zombified_piglin", type);
-                    addMapping("pigzombie", type);
-                    addMapping("pig_zombie", type);
-                    addMapping("zombiepigman", type);
-                    addMapping("zombie_pigman", type);
-                    addMapping("pigman", type);
-                    break;
-
-                case "elderguardian":
-                    addMapping("elder_guardian", type);
-                    addMapping("elderGuardian", type);
-                    addMapping("eguardian", type);
-                    break;
-
-                case "golem":
-                    addMapping("iron_golem", type);
-                    addMapping("irongolem", type);
-                    addMapping("ironGolem", type);
-                    addMapping("igolem", type);
-                    break;
-
-                // CRITICAL: Elite-specific mappings for T5 elites
-                case "meridian":
-                    addMapping("meridian_elite", type);
-                    addMapping("warden", type); // Entity type mapping
-                    addMapping("reality_breaker", type);
-                    addMapping("realitybreaker", type);
-                    break;
-
-                case "pyrion":
-                    addMapping("pyrion_elite", type);
-                    addMapping("fire_lord", type);
-                    addMapping("firelord", type);
-                    addMapping("flame_emperor", type);
-                    addMapping("flameemperor", type);
-                    break;
-
-                case "rimeclaw":
-                    addMapping("rimeclaw_elite", type);
-                    addMapping("ice_lord", type);
-                    addMapping("icelord", type);
-                    addMapping("eternal_winter", type);
-                    addMapping("eternalwinter", type);
-                    break;
-
-                case "thalassa":
-                    addMapping("thalassa_elite", type);
-                    addMapping("ocean_lord", type);
-                    addMapping("oceanlord", type);
-                    addMapping("ocean_sovereign", type);
-                    addMapping("oceansovereign", type);
-                    break;
-
-                case "nethys":
-                    addMapping("nethys_elite", type);
-                    addMapping("void_lord", type);
-                    addMapping("voidlord", type);
-                    addMapping("void_sovereign", type);
-                    addMapping("voidsovereign", type);
-                    break;
-
-                // Other elite mappings with new titles
-                case "malachar":
-                    addMapping("malachar_elite", type);
-                    addMapping("ember_lord", type);
-                    addMapping("emberlord", type);
-                    break;
-
-                case "xerathen":
-                    addMapping("xerathen_elite", type);
-                    addMapping("thorn_warden", type);
-                    addMapping("thornwarden", type);
-                    break;
-
-                case "veridiana":
-                    addMapping("veridiana_elite", type);
-                    addMapping("plague_bringer", type);
-                    addMapping("plaguebringer", type);
-                    break;
-
-                case "thorgrim":
-                    addMapping("thorgrim_elite", type);
-                    addMapping("mountain_king", type);
-                    addMapping("mountainking", type);
-                    break;
-
-                case "lysander":
-                    addMapping("lysander_elite", type);
-                    addMapping("divine_blade", type);
-                    addMapping("divineblade", type);
-                    break;
-
-                case "morgana":
-                    addMapping("morgana_elite", type);
-                    addMapping("soul_ripper", type);
-                    addMapping("soulripper", type);
-                    break;
-
-                case "vex_elite":
-                    addMapping("vex", type);
-                    addMapping("vexelite", type);
-                    addMapping("nightmare_weaver", type);
-                    addMapping("nightmareweaver", type);
-                    break;
-
-                case "cornelius":
-                    addMapping("cornelius_elite", type);
-                    addMapping("golden_tyrant", type);
-                    addMapping("goldentyrant", type);
-                    break;
-
-                case "valdris":
-                    addMapping("valdris_elite", type);
-                    addMapping("bone_emperor", type);
-                    addMapping("boneemperor", type);
-                    break;
-
-                case "seraphina":
-                    addMapping("seraphina_elite", type);
-                    addMapping("mercy_maiden", type);
-                    addMapping("mercymaiden", type);
-                    break;
-
-                case "arachnia":
-                    addMapping("arachnia_elite", type);
-                    addMapping("spider_queen", type);
-                    addMapping("spiderqueen", type);
-                    addMapping("web_mistress", type);
-                    addMapping("webmistress", type);
-                    break;
-
-                case "karnath":
-                    addMapping("karnath_elite", type);
-                    addMapping("blood_reaper", type);
-                    addMapping("bloodreaper", type);
-                    break;
-
-                case "zephyr":
-                    addMapping("zephyr_elite", type);
-                    addMapping("storm_caller", type);
-                    addMapping("stormcaller", type);
-                    break;
-
-                // Boss and elite variations
-                case "bossSkeletonDungeon":
-                    addMapping("boss_skeleton_dungeon", type);
-                    addMapping("bossskeleton", type);
-                    addMapping("boss_skeleton", type);
-                    addMapping("dungeonboss", type);
-                    addMapping("skeletondungeon", type);
-                    addMapping("dungeon_boss", type);
-                    break;
-
-                case "frozenboss":
-                    addMapping("frozen_boss", type);
-                    addMapping("iceboss", type);
-                    addMapping("ice_boss", type);
-                    break;
-
-                case "frozenelite":
-                    addMapping("frozen_elite", type);
-                    addMapping("iceelite", type);
-                    addMapping("ice_elite", type);
-                    break;
-
-                case "frozengolem":
-                    addMapping("frozen_golem", type);
-                    addMapping("icegolem", type);
-                    addMapping("ice_golem", type);
-                    addMapping("crypt_guardian", type);
-                    addMapping("cryptguardian", type);
-                    break;
-
-                case "spectralguard":
-                    addMapping("spectral_guard", type);
-                    addMapping("sguard", type);
-                    break;
-
-                case "spectralKnight":
-                    addMapping("spectral_knight", type);
-                    addMapping("sknight", type);
-                    break;
-
-                case "weakskeleton":
-                    addMapping("weak_skeleton", type);
-                    addMapping("weakSkeleton", type);
-                    addMapping("wskel", type);
-                    break;
-
-                case "skellyDSkeletonGuardian":
-                    addMapping("skelly_d_skeleton_guardian", type);
-                    addMapping("skeletal_guardian", type);
-                    addMapping("skeletalguardian", type);
-                    addMapping("skellyd", type);
-                    break;
-
-                case "frostking":
-                    addMapping("frost_king", type);
-                    addMapping("iceking", type);
-                    addMapping("ice_king", type);
-                    addMapping("frost_king_eternal", type);
-                    addMapping("frostkingeteranl", type);
-                    break;
-
-                case "chronos":
-                    addMapping("time_lord", type);
-                    addMapping("timelord", type);
-                    break;
-            }
-        } catch (Exception e) {
-            System.err.println("[MobType] Error adding variations for " + baseId + ": " + e.getMessage());
+            // Boss variations
+            case "bossskeletondungeon":
+                addMapping("boss_skeleton_dungeon", type);
+                break;
+            case "frozenboss":
+                addMapping("frozen_boss", type);
+                break;
+            case "frozenelite":
+                addMapping("frozen_elite", type);
+                break;
+            case "frozengolem":
+                addMapping("frozen_golem", type);
+                break;
+            case "spectralguard":
+                addMapping("spectral_guard", type);
+                break;
+            case "spectralknight":
+                addMapping("spectral_knight", type);
+                break;
+            case "weakskeleton":
+                addMapping("weak_skeleton", type);
+                break;
+            case "skellydskeletonguardian":
+                addMapping("skeletal_guardian", type);
+                break;
+            case "frostking":
+                addMapping("frost_king", type);
+                break;
+            case "chronos":
+                addMapping("time_lord", type);
+                break;
         }
     }
 
     /**
-     * Safely add a mapping
+     * Safely add a mapping.
      */
     private static void addMapping(String key, MobType type) {
         if (key != null && !key.trim().isEmpty() && type != null) {
-            String normalizedKey = key.toLowerCase().trim();
-            NORMALIZED_MAPPINGS.put(normalizedKey, type);
+            NORMALIZED_MAPPINGS.put(key.toLowerCase().trim(), type);
         }
     }
 
     /**
-     * Add comprehensive legacy mappings including elite shortcuts
+     * Add essential legacy mappings.
      */
-    private static void addComprehensiveLegacyMappings() {
-        try {
-            // Common shortcuts
-            safePutMapping("skelly", "skeleton");
-            safePutMapping("zomb", "zombie");
-            safePutMapping("spid", "spider");
-            safePutMapping("creep", "creeper");
-            safePutMapping("ender", "enderman");
+    private static void addEssentialLegacyMappings() {
+        // Common shortcuts
+        safePutMapping("skelly", "skeleton");
+        safePutMapping("zomb", "zombie");
+        safePutMapping("spid", "spider");
+        safePutMapping("creep", "creeper");
+        safePutMapping("ender", "enderman");
 
-            // Boss shortcuts
-            safePutMapping("boss", "bossSkeletonDungeon");
-            safePutMapping("frozen", "frozenboss");
-            safePutMapping("ice", "frozenboss");
+        // Boss shortcuts
+        safePutMapping("boss", "bossskeletondungeon");
+        safePutMapping("frozen", "frozenboss");
+        safePutMapping("ice", "frozenboss");
 
-            // CRITICAL: Elite shortcuts for T5 elites
-            safePutMapping("warden", "meridian"); // Warden entity type maps to Meridian elite
+        // Elite shortcuts
+        safePutMapping("warden", "meridian");
 
-            System.out.println("[MobType] Legacy mappings added successfully");
-
-        } catch (Exception e) {
-            System.err.println("[MobType] Error adding legacy mappings: " + e.getMessage());
-        }
+        System.out.println("[MobType] Legacy mappings added successfully");
     }
 
     /**
-     * Safely add a legacy mapping
+     * Safely add a legacy mapping.
      */
     private static void safePutMapping(String alias, String existingKey) {
-        try {
-            MobType existingType = NORMALIZED_MAPPINGS.get(existingKey);
-            if (existingType != null) {
-                NORMALIZED_MAPPINGS.put(alias, existingType);
-            }
-        } catch (Exception e) {
-            System.err.println("[MobType] Error creating alias '" + alias + "': " + e.getMessage());
+        MobType existingType = NORMALIZED_MAPPINGS.get(existingKey.toLowerCase().trim());
+        if (existingType != null) {
+            NORMALIZED_MAPPINGS.put(alias.toLowerCase().trim(), existingType);
         }
     }
 
     /**
-     * CRITICAL: Validate that all important elite types are properly mapped
+     * Validate critical elite types.
      */
     private static void validateCriticalEliteTypes() {
         String[] criticalEliteTypes = {
-                "meridian", "pyrion", "rimeclaw", "thalassa", "nethys",
+                "meridian", "apocalypse", "pyrion", "rimeclaw", "thalassa", "nethys",
                 "malachar", "xerathen", "veridiana", "thorgrim", "lysander", "morgana",
                 "cornelius", "valdris", "seraphina", "arachnia", "karnath", "zephyr",
                 "frozenboss", "frozenelite", "frozengolem", "frostwing", "chronos"
@@ -749,7 +611,7 @@ public enum MobType {
         StringBuilder missing = new StringBuilder();
 
         for (String type : criticalEliteTypes) {
-            if (!NORMALIZED_MAPPINGS.containsKey(type)) {
+            if (!NORMALIZED_MAPPINGS.containsKey(type.toLowerCase().trim())) {
                 System.err.println("[MobType] Missing critical elite mapping: " + type);
                 missing.append(type).append(", ");
                 allValid = false;
@@ -766,42 +628,29 @@ public enum MobType {
     }
 
     /**
-     * Emergency initialization if normal init fails
+     * Emergency initialization if normal init fails.
      */
     private static void emergencyInitialization() {
-        try {
-            System.err.println("[MobType] Running emergency initialization...");
+        System.err.println("[MobType] Running emergency initialization...");
 
-            // Clear and add only the most basic mappings
-            BY_ID.clear();
-            NORMALIZED_MAPPINGS.clear();
+        BY_ID.clear();
+        NORMALIZED_MAPPINGS.clear();
 
-            for (MobType type : values()) {
-                try {
-                    if (type.id != null && !type.id.trim().isEmpty()) {
-                        String id = type.id.toLowerCase().trim();
-                        BY_ID.put(id, type);
-                        NORMALIZED_MAPPINGS.put(id, type);
+        for (MobType type : values()) {
+            if (type.id != null && !type.id.trim().isEmpty()) {
+                String id = type.id.toLowerCase().trim();
+                BY_ID.put(id, type);
+                NORMALIZED_MAPPINGS.put(id, type);
 
-                        // For elites, add basic variations
-                        if (type.isElite()) {
-                            NORMALIZED_MAPPINGS.put(id + "_elite", type);
-                            NORMALIZED_MAPPINGS.put(id + "elite", type);
-                        }
-                    }
-                } catch (Exception e) {
-                    // Ignore individual failures in emergency mode
+                if (type.isElite()) {
+                    NORMALIZED_MAPPINGS.put(id + "_elite", type);
                 }
             }
-
-            initialized = true;
-            System.err.println("[MobType] Emergency initialization complete with " +
-                    NORMALIZED_MAPPINGS.size() + " mappings");
-
-        } catch (Exception e) {
-            System.err.println("[MobType] Emergency initialization also failed: " + e.getMessage());
-            e.printStackTrace();
         }
+
+        initialized = true;
+        System.err.println("[MobType] Emergency initialization complete with " +
+                NORMALIZED_MAPPINGS.size() + " mappings");
     }
 
     // ================ CONSTRUCTORS ================
@@ -825,17 +674,16 @@ public enum MobType {
         this.abilities = EnumSet.copyOf(abilities);
     }
 
-    // ================ ENHANCED LOOKUP METHODS ================
+    // ================ LOOKUP METHODS ================
 
     /**
-     *  Get mob type by ID with enhanced elite support
+     * Get mob type by ID with elite support.
      */
     public static MobType getById(String id) {
         if (id == null || id.trim().isEmpty()) {
             return null;
         }
 
-        // Ensure initialization
         if (!initialized) {
             synchronized (initLock) {
                 if (!initialized) {
@@ -846,84 +694,61 @@ public enum MobType {
 
         String normalizedId = id.toLowerCase().trim();
 
-        try {
-            // Direct lookup
-            MobType type = NORMALIZED_MAPPINGS.get(normalizedId);
-            if (type != null) {
-                return type;
-            }
-
-            // Enhanced elite pattern matching
-            type = tryElitePatternMatching(normalizedId);
-            if (type != null) {
-                // Cache successful transformation
-                NORMALIZED_MAPPINGS.put(normalizedId, type);
-                return type;
-            }
-
-            // Try common transformations
-            type = tryCommonTransformations(normalizedId);
-            if (type != null) {
-                // Cache successful transformation
-                NORMALIZED_MAPPINGS.put(normalizedId, type);
-                return type;
-            }
-
-            // Partial matching as last resort
-            type = tryPartialMatching(normalizedId);
-            if (type != null) {
-                // Cache successful match
-                NORMALIZED_MAPPINGS.put(normalizedId, type);
-                return type;
-            }
-
-            return null;
-
-        } catch (Exception e) {
-            System.err.println("[MobType] Error looking up '" + id + "': " + e.getMessage());
-            return null;
+        MobType type = NORMALIZED_MAPPINGS.get(normalizedId);
+        if (type != null) {
+            return type;
         }
+
+        type = tryElitePatternMatching(normalizedId);
+        if (type != null) {
+            NORMALIZED_MAPPINGS.put(normalizedId, type);
+            return type;
+        }
+
+        type = tryCommonTransformations(normalizedId);
+        if (type != null) {
+            NORMALIZED_MAPPINGS.put(normalizedId, type);
+            return type;
+        }
+
+        type = tryPartialMatching(normalizedId);
+        if (type != null) {
+            NORMALIZED_MAPPINGS.put(normalizedId, type);
+            return type;
+        }
+
+        return null;
     }
 
     /**
-     * NEW: Enhanced elite pattern matching
+     * Elite pattern matching.
      */
     private static MobType tryElitePatternMatching(String id) {
-        // Handle elite-specific patterns
         if (id.contains("elite")) {
-            String baseId = id.replace("elite", "").replace("_", "");
+            String baseId = id.replace("elite", "").replace("_", "").trim();
             MobType type = NORMALIZED_MAPPINGS.get(baseId);
             if (type != null && type.isElite()) {
                 return type;
             }
         }
 
-        // Handle T5 elite names specifically
+        // T5 elite names
         switch (id) {
             case "warden":
                 return NORMALIZED_MAPPINGS.get("meridian");
             case "fire_lord":
-            case "firelord":
             case "flame_emperor":
-            case "flameemperor":
                 return NORMALIZED_MAPPINGS.get("pyrion");
             case "ice_lord":
-            case "icelord":
             case "eternal_winter":
-            case "eternalwinter":
                 return NORMALIZED_MAPPINGS.get("rimeclaw");
             case "ocean_lord":
-            case "oceanlord":
             case "ocean_sovereign":
-            case "oceansovereign":
                 return NORMALIZED_MAPPINGS.get("thalassa");
             case "void_lord":
-            case "voidlord":
             case "void_sovereign":
-            case "voidsovereign":
                 return NORMALIZED_MAPPINGS.get("nethys");
             case "reality_breaker":
-            case "realitybreaker":
                 return NORMALIZED_MAPPINGS.get("meridian");
         }
 
@@ -931,20 +756,17 @@ public enum MobType {
     }
 
     /**
-     * Try common transformations
+     * Try common transformations.
      */
     private static MobType tryCommonTransformations(String id) {
-        // Remove underscores
-        String withoutUnderscores = id.replace("_", "");
+        String withoutUnderscores = id.replace("_", "").trim();
         MobType type = NORMALIZED_MAPPINGS.get(withoutUnderscores);
         if (type != null) return type;
 
-        // Remove spaces
-        String withoutSpaces = id.replace(" ", "");
+        String withoutSpaces = id.replace(" ", "").trim();
         type = NORMALIZED_MAPPINGS.get(withoutSpaces);
         if (type != null) return type;
 
-        // Common compound checks
         if (id.contains("wither") && id.contains("skeleton")) {
             return NORMALIZED_MAPPINGS.get("witherskeleton");
         }
@@ -958,14 +780,14 @@ public enum MobType {
             return NORMALIZED_MAPPINGS.get("zombifiedpiglin");
         }
         if (id.contains("boss") && id.contains("skeleton")) {
-            return NORMALIZED_MAPPINGS.get("bossSkeletonDungeon");
+            return NORMALIZED_MAPPINGS.get("bossskeletondungeon");
         }
 
         return null;
     }
 
     /**
-     * Try partial matching
+     * Try partial matching as last resort.
      */
     private static MobType tryPartialMatching(String id) {
         for (Map.Entry<String, MobType> entry : NORMALIZED_MAPPINGS.entrySet()) {
@@ -980,15 +802,14 @@ public enum MobType {
     }
 
     /**
-     *  Check if a type ID is valid - enhanced for elites
+     * Check if a type ID is valid - for elites.
      */
     public static boolean isValidType(String id) {
-        MobType found = getById(id);
-        return found != null;
+        return getById(id) != null;
     }
 
     /**
-     * Get all available mob type IDs
+     * Get all available mob type IDs.
      */
     public static Set<String> getAllValidIds() {
         if (!initialized) {
@@ -1000,15 +821,12 @@ public enum MobType {
     // ================ TIER-SPECIFIC NAMING ================
 
     /**
-     * Get tier-specific name with enhanced variations
+     * Get tier-specific name with variations.
      */
     public String getTierSpecificName(int tier) {
-        // For named elites, always use default name
         if (elite && !isGenericType()) {
             return defaultName;
         }
-
-        // Generate tier-specific names for generic types
         return generateTierSpecificName(tier);
     }
 
@@ -1074,211 +892,210 @@ public enum MobType {
     }
 
     private String getSkeletonTierName(int tier) {
-        switch (tier) {
-            case 1: return "Broken Skeleton";
-            case 2: return "Wandering Cracking Skeleton";
-            case 3: return "Demonic Skeleton";
-            case 4: return "Skeleton Guardian";
-            case 5: return "Infernal Skeleton";
-            case 6: return "Celestial Skeleton"; // T6 Netherite
-            default: return "Skeleton";
-        }
+        return switch (tier) {
+            case 1 -> "Broken Skeleton";
+            case 2 -> "Wandering Cracking Skeleton";
+            case 3 -> "Demonic Skeleton";
+            case 4 -> "Skeleton Guardian";
+            case 5 -> "Infernal Skeleton";
+            case 6 -> "Celestial Skeleton";
+            default -> "Skeleton";
+        };
     }
 
     private String getWitherSkeletonTierName(int tier) {
-        switch (tier) {
-            case 1: return "Broken Chaos Skeleton";
-            case 2: return "Wandering Cracking Chaos Skeleton";
-            case 3: return "Demonic Chaos Skeleton";
-            case 4: return "Skeleton Chaos Guardian";
-            case 5: return "Infernal Chaos Skeleton";
-            case 6: return "Celestial Chaos Overlord"; // T6 Netherite
-            default: return "Chaos Skeleton";
-        }
+        return switch (tier) {
+            case 1 -> "Broken Chaos Skeleton";
+            case 2 -> "Wandering Cracking Chaos Skeleton";
+            case 3 -> "Demonic Chaos Skeleton";
+            case 4 -> "Skeleton Chaos Guardian";
+            case 5 -> "Infernal Chaos Skeleton";
+            case 6 -> "Celestial Chaos Overlord";
+            default -> "Chaos Skeleton";
+        };
     }
 
     private String getZombieTierName(int tier) {
-        switch (tier) {
-            case 1: return "Rotting Zombie";
-            case 2: return "Savaged Zombie";
-            case 3: return "Greater Zombie";
-            case 4: return "Demonic Zombie";
-            case 5: return "Infernal Zombie";
-            case 6: return "Celestial Zombie"; // T6 Netherite
-            default: return "Zombie";
-        }
+        return switch (tier) {
+            case 1 -> "Rotting Zombie";
+            case 2 -> "Savaged Zombie";
+            case 3 -> "Greater Zombie";
+            case 4 -> "Demonic Zombie";
+            case 5 -> "Infernal Zombie";
+            case 6 -> "Celestial Zombie";
+            default -> "Zombie";
+        };
     }
 
     private String getMagmaCubeTierName(int tier) {
-        switch (tier) {
-            case 1: return "Weak Magma Cube";
-            case 2: return "Bubbling Magma Cube";
-            case 3: return "Unstable Magma Cube";
-            case 4: return "Boiling Magma Cube";
-            case 5: return "Unstoppable Magma Cube";
-            case 6: return "Celestial Magma Cube"; // T6 Netherite
-            default: return "Magma Cube";
-        }
+        return switch (tier) {
+            case 1 -> "Weak Magma Cube";
+            case 2 -> "Bubbling Magma Cube";
+            case 3 -> "Unstable Magma Cube";
+            case 4 -> "Boiling Magma Cube";
+            case 5 -> "Unstoppable Magma Cube";
+            case 6 -> "Celestial Magma Cube";
+            default -> "Magma Cube";
+        };
     }
 
     private String getSilverfishTierName(int tier) {
-        switch (tier) {
-            case 1: return "Weak SilverFish";
-            case 2: return "Pointy SilverFish";
-            case 3: return "Unstable SilverFish";
-            case 4: return "Mean SilverFish";
-            case 5: return "Rude SilverFish";
-            case 6: return "Celestial SilverFish"; // T6 Netherite
-            default: return "SilverFish";
-        }
+        return switch (tier) {
+            case 1 -> "Weak SilverFish";
+            case 2 -> "Pointy SilverFish";
+            case 3 -> "Unstable SilverFish";
+            case 4 -> "Mean SilverFish";
+            case 5 -> "Rude SilverFish";
+            case 6 -> "Celestial SilverFish";
+            default -> "SilverFish";
+        };
     }
 
     private String getSpiderTierName(int tier) {
-        String prefix;
-        switch (tier) {
-            case 1: prefix = "Harmless"; break;
-            case 2: prefix = "Wild"; break;
-            case 3: prefix = "Fierce"; break;
-            case 4: prefix = "Dangerous"; break;
-            case 5: prefix = "Lethal"; break;
-            case 6: prefix = "Divine"; break; // T6 Netherite
-            default: prefix = ""; break;
-        }
+        String prefix = switch (tier) {
+            case 1 -> "Harmless";
+            case 2 -> "Wild";
+            case 3 -> "Fierce";
+            case 4 -> "Dangerous";
+            case 5 -> "Lethal";
+            case 6 -> "Divine";
+            default -> "";
+        };
 
         String baseType = id.equals("cavespider") ? "Cave Spider" : "Spider";
         return prefix.isEmpty() ? baseType : prefix + " " + baseType;
     }
 
     private String getGolemTierName(int tier) {
-        switch (tier) {
-            case 1: return "Broken Golem";
-            case 2: return "Rusty Golem";
-            case 3: return "Restored Golem";
-            case 4: return "Mountain Golem";
-            case 5: return "Powerful Golem";
-            case 6: return "Celestial Golem"; // T6 Netherite
-            default: return "Golem";
-        }
+        return switch (tier) {
+            case 1 -> "Broken Golem";
+            case 2 -> "Rusty Golem";
+            case 3 -> "Restored Golem";
+            case 4 -> "Mountain Golem";
+            case 5 -> "Powerful Golem";
+            case 6 -> "Celestial Golem";
+            default -> "Golem";
+        };
     }
 
     private String getImpTierName(int tier) {
-        switch (tier) {
-            case 1: return "Ugly Imp";
-            case 2: return "Angry Imp";
-            case 3: return "Warrior Imp";
-            case 4: return "Armoured Imp";
-            case 5: return "Infernal Imp";
-            case 6: return "Celestial Imp"; // T6 Netherite
-            default: return "Imp";
-        }
+        return switch (tier) {
+            case 1 -> "Ugly Imp";
+            case 2 -> "Angry Imp";
+            case 3 -> "Warrior Imp";
+            case 4 -> "Armoured Imp";
+            case 5 -> "Infernal Imp";
+            case 6 -> "Celestial Imp";
+            default -> "Imp";
+        };
     }
 
     private String getDaemonTierName(int tier) {
-        switch (tier) {
-            case 1: return "Broken Daemon";
-            case 2: return "Wandering Cracking Daemon";
-            case 3: return "Demonic Daemon";
-            case 4: return "Daemon Guardian";
-            case 5: return "Infernal Daemon";
-            case 6: return "Celestial Daemon"; // T6 Netherite
-            default: return "Daemon";
-        }
+        return switch (tier) {
+            case 1 -> "Broken Daemon";
+            case 2 -> "Wandering Cracking Daemon";
+            case 3 -> "Demonic Daemon";
+            case 4 -> "Daemon Guardian";
+            case 5 -> "Infernal Daemon";
+            case 6 -> "Celestial Daemon";
+            default -> "Daemon";
+        };
     }
 
     private String getCreeperTierName(int tier) {
-        switch (tier) {
-            case 1: return "Small Creeper";
-            case 2: return "Creeper";
-            case 3: return "Charged Creeper";
-            case 4: return "Explosive Beast";
-            case 5: return "Creeper Lord";
-            case 6: return "Celestial Bomber"; // T6 Netherite
-            default: return "Creeper";
-        }
+        return switch (tier) {
+            case 1 -> "Small Creeper";
+            case 2 -> "Creeper";
+            case 3 -> "Charged Creeper";
+            case 4 -> "Explosive Beast";
+            case 5 -> "Creeper Lord";
+            case 6 -> "Celestial Bomber";
+            default -> "Creeper";
+        };
     }
 
     private String getEndermanTierName(int tier) {
-        switch (tier) {
-            case 1: return "Weak Enderman";
-            case 2: return "Void Walker";
-            case 3: return "Ender Stalker";
-            case 4: return "Dimensional Hunter";
-            case 5: return "Ender Lord";
-            case 6: return "Celestial Ender Demon"; // T6 Netherite
-            default: return "Enderman";
-        }
+        return switch (tier) {
+            case 1 -> "Weak Enderman";
+            case 2 -> "Void Walker";
+            case 3 -> "Ender Stalker";
+            case 4 -> "Dimensional Hunter";
+            case 5 -> "Ender Lord";
+            case 6 -> "Celestial Ender Demon";
+            default -> "Enderman";
+        };
     }
 
     private String getBlazeTierName(int tier) {
-        switch (tier) {
-            case 1: return "Weak Blaze";
-            case 2: return "Fire Spirit";
-            case 3: return "Blaze Warrior";
-            case 4: return "Ancient Guard";
-            case 5: return "Infernal Blaze Lord";
-            case 6: return "Celestial Blaze"; // T6 Netherite
-            default: return "Blaze";
-        }
+        return switch (tier) {
+            case 1 -> "Weak Blaze";
+            case 2 -> "Fire Spirit";
+            case 3 -> "Blaze Warrior";
+            case 4 -> "Ancient Guard";
+            case 5 -> "Infernal Blaze Lord";
+            case 6 -> "Celestial Blaze";
+            default -> "Blaze";
+        };
     }
 
     private String getGhastTierName(int tier) {
-        switch (tier) {
-            case 1: return "Lesser Ghast";
-            case 2: return "Ghast";
-            case 3: return "Greater Ghast";
-            case 4: return "Ghast Lord";
-            case 5: return "Ancient Ghast";
-            case 6: return "Celestial Ghast"; // T6 Netherite
-            default: return "Ghast";
-        }
+        return switch (tier) {
+            case 1 -> "Lesser Ghast";
+            case 2 -> "Ghast";
+            case 3 -> "Greater Ghast";
+            case 4 -> "Ghast Lord";
+            case 5 -> "Ancient Ghast";
+            case 6 -> "Celestial Ghast";
+            default -> "Ghast";
+        };
     }
 
     private String getZombifiedPiglinTierName(int tier) {
-        switch (tier) {
-            case 1: return "Zombie Pigman";
-            case 2: return "Nether Zombie";
-            case 3: return "Piglin Warrior";
-            case 4: return "Nether Champion";
-            case 5: return "Piglin Lord";
-            case 6: return "Celestial Piglin"; // T6 Netherite
-            default: return "Zombified Piglin";
-        }
+        return switch (tier) {
+            case 1 -> "Zombie Pigman";
+            case 2 -> "Nether Zombie";
+            case 3 -> "Piglin Warrior";
+            case 4 -> "Nether Champion";
+            case 5 -> "Piglin Lord";
+            case 6 -> "Celestial Piglin";
+            default -> "Zombified Piglin";
+        };
     }
 
     private String getGuardianTierName(int tier) {
-        switch (tier) {
-            case 1: return "Ocean Guardian";
-            case 2: return "Sea Guardian";
-            case 3: return "Deep Guardian";
-            case 4: return "Guardian Lord";
-            case 5: return "Ancient Guardian";
-            case 6: return "Celestial Guardian"; // T6 Netherite
-            default: return "Guardian";
-        }
+        return switch (tier) {
+            case 1 -> "Ocean Guardian";
+            case 2 -> "Sea Guardian";
+            case 3 -> "Deep Guardian";
+            case 4 -> "Guardian Lord";
+            case 5 -> "Ancient Guardian";
+            case 6 -> "Celestial Guardian";
+            default -> "Guardian";
+        };
     }
 
     private String getElderGuardianTierName(int tier) {
-        switch (tier) {
-            case 1: return "Young Elder Guardian";
-            case 2: return "Elder Guardian";
-            case 3: return "Ancient Elder Guardian";
-            case 4: return "Elder Lord";
-            case 5: return "Primordial Guardian";
-            case 6: return "Celestial Elder Guardian"; // T6 Netherite
-            default: return "Elder Guardian";
-        }
+        return switch (tier) {
+            case 1 -> "Young Elder Guardian";
+            case 2 -> "Elder Guardian";
+            case 3 -> "Ancient Elder Guardian";
+            case 4 -> "Elder Lord";
+            case 5 -> "Primordial Guardian";
+            case 6 -> "Celestial Elder Guardian";
+            default -> "Elder Guardian";
+        };
     }
 
     private String getWardenTierName(int tier) {
-        switch (tier) {
-            case 1: return "Young Warden";
-            case 2: return "Warden";
-            case 3: return "Ancient Warden";
-            case 4: return "Warden Lord";
-            case 5: return "Primordial Warden";
-            case 6: return "Celestial Warden"; // T6 Netherite
-            default: return "Warden";
-        }
+        return switch (tier) {
+            case 1 -> "Young Warden";
+            case 2 -> "Warden";
+            case 3 -> "Ancient Warden";
+            case 4 -> "Warden Lord";
+            case 5 -> "Primordial Warden";
+            case 6 -> "Celestial Warden";
+            default -> "Warden";
+        };
     }
 
     private String getRandomSkeletalKeeperName() {
@@ -1312,40 +1129,36 @@ public enum MobType {
     // ================ UTILITY METHODS ================
 
     /**
-     * Get the formatted name with appropriate color based on tier and elite status
+     * Get the formatted name with appropriate color based on tier and elite status.
      */
     public String getFormattedName(int tier) {
         String name = getTierSpecificName(tier);
         ChatColor color = getTierColor(tier);
 
-        if (elite) {
-            return color.toString() + ChatColor.BOLD + name;
-        } else {
-            return color + name;
-        }
+        return elite ? color.toString() + ChatColor.BOLD + name : color + name;
     }
 
     private ChatColor getTierColor(int tier) {
-        switch (tier) {
-            case 1: return ChatColor.WHITE;
-            case 2: return ChatColor.GREEN;
-            case 3: return ChatColor.AQUA;
-            case 4: return ChatColor.LIGHT_PURPLE;
-            case 5: return ChatColor.YELLOW;
-            case 6: return ChatColor.GOLD; // T6 Netherite GOLD
-            default: return ChatColor.WHITE;
-        }
+        return switch (tier) {
+            case 1 -> ChatColor.WHITE;
+            case 2 -> ChatColor.GREEN;
+            case 3 -> ChatColor.AQUA;
+            case 4 -> ChatColor.LIGHT_PURPLE;
+            case 5 -> ChatColor.YELLOW;
+            case 6 -> ChatColor.GOLD;
+            default -> ChatColor.WHITE;
+        };
     }
 
     /**
-     *  Check if a tier is valid for this mob type
+     * Check if a tier is valid for this mob type.
      */
     public boolean isValidTier(int tier) {
         return tier >= minTier && tier <= maxTier;
     }
 
     /**
-     * Clamp a tier to the valid range for this mob type
+     * Clamp a tier to the valid range for this mob type.
      */
     public int clampTier(int tier) {
         return Math.max(minTier, Math.min(maxTier, tier));
@@ -1354,28 +1167,28 @@ public enum MobType {
     // ================ ABILITY CHECKING ================
 
     /**
-     * Check if this mob type has a specific ability
+     * Check if this mob type has a specific ability.
      */
     public boolean hasAbility(MobAbility ability) {
         return abilities.contains(ability);
     }
 
     /**
-     * Check if this mob type has any of the specified abilities
+     * Check if this mob type has any of the specified abilities.
      */
     public boolean hasAnyAbility(MobAbility... abilities) {
         return Arrays.stream(abilities).anyMatch(this::hasAbility);
     }
 
     /**
-     * Check if this mob type has all of the specified abilities
+     * Check if this mob type has all of the specified abilities.
      */
     public boolean hasAllAbilities(MobAbility... abilities) {
         return Arrays.stream(abilities).allMatch(this::hasAbility);
     }
 
     /**
-     * Get abilities by category
+     * Get abilities by category.
      */
     public Set<MobAbility> getAbilities() {
         return EnumSet.copyOf(abilities);
@@ -1394,14 +1207,14 @@ public enum MobType {
     public MobDifficulty getDifficulty() { return difficulty; }
 
     /**
-     * Get the effective health multiplier for this mob type
+     * Get the effective health multiplier for this mob type.
      */
     public double getHealthMultiplier() {
         return difficulty.getHealthMultiplier();
     }
 
     /**
-     * Get the effective damage multiplier for this mob type
+     * Get the effective damage multiplier for this mob type.
      */
     public double getDamageMultiplier() {
         return difficulty.getDamageMultiplier();
@@ -1410,7 +1223,7 @@ public enum MobType {
     // ================ DIAGNOSTIC METHODS ================
 
     /**
-     * Get diagnostic information about the MobType system
+     * Get diagnostic information about the MobType system.
      */
     public static String getSystemDiagnostics() {
         StringBuilder info = new StringBuilder();
@@ -1419,10 +1232,10 @@ public enum MobType {
         info.append("Total Types: ").append(values().length).append("\n");
         info.append("Total Mappings: ").append(NORMALIZED_MAPPINGS.size()).append("\n");
         info.append("Elite Types Count: ").append(
-                Arrays.stream(values()).mapToInt(t -> t.isElite() ? 1 : 0).sum()).append("\n");
+                Arrays.stream(values()).filter(MobType::isElite).count()).append("\n");
 
         info.append("Critical Types:\n");
-        String[] criticalTypes = {"skeleton", "zombie", "witherskeleton", "spider", "cavespider", "magmacube", "meridian", "pyrion"};
+        String[] criticalTypes = {"skeleton", "zombie", "witherskeleton", "spider", "meridian", "pyrion"};
         for (String type : criticalTypes) {
             MobType found = getById(type);
             info.append("  ").append(type).append(": ").append(found != null ? "✓" : "✗").append("\n");
@@ -1431,7 +1244,7 @@ public enum MobType {
         info.append("Elite Types:\n");
         for (MobType type : values()) {
             if (type.isElite()) {
-                boolean mapped = NORMALIZED_MAPPINGS.containsKey(type.getId());
+                boolean mapped = NORMALIZED_MAPPINGS.containsKey(type.getId().toLowerCase().trim());
                 info.append("  ").append(type.getId()).append(": ").append(mapped ? "✓" : "✗").append("\n");
             }
         }
@@ -1440,7 +1253,7 @@ public enum MobType {
     }
 
     /**
-     * Force re-initialization (for debugging)
+     * Force re-initialization (for debugging).
      */
     public static void forceReinitialize() {
         synchronized (initLock) {

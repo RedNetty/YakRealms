@@ -3,7 +3,6 @@ package com.rednetty.server.mechanics.chat;
 import net.md_5.bungee.api.chat.*;
 import net.md_5.bungee.api.chat.hover.content.Text;
 import org.bukkit.Bukkit;
-import org.bukkit.ChatColor;
 import org.bukkit.entity.Player;
 
 import java.util.ArrayList;
@@ -47,7 +46,6 @@ public class JsonChatComponent {
      */
     public JsonChatComponent addHoverItem(String text, List<String> hoverText) {
         TextComponent component = new TextComponent(text);
-        component.setBold(true);
         component.setUnderlined(true);
 
         // Create hover text

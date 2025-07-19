@@ -25,7 +25,7 @@ import java.util.logging.Logger;
 import java.util.stream.Collectors;
 
 /**
- *  Enhanced party system mechanics implementation with improved stability
+ *   party system mechanics implementation with improved stability
  * - Added comprehensive null checking
  * - Improved error handling and recovery
  * - Reduced complexity in critical paths
@@ -36,12 +36,12 @@ public class PartyMechanics implements Listener {
     private final Logger logger;
     private final YakPlayerManager playerManager;
 
-    // Core data structures with enhanced thread safety
+    // Core data structures with  thread safety
     private final Map<UUID, Party> parties = new ConcurrentHashMap<>();
     private final Map<UUID, PartyInvite> invites = new ConcurrentHashMap<>();
     private final Map<UUID, UUID> playerToPartyMap = new ConcurrentHashMap<>();
 
-    // Enhanced configuration
+    //  configuration
     private int maxPartySize = 8;
     private int inviteExpiryTimeSeconds = 30;
     private boolean experienceSharing = true;
@@ -51,7 +51,7 @@ public class PartyMechanics implements Listener {
     private int partyWarpCooldown = 300; // 5 minutes
     private boolean allowCrossWorldParties = true;
 
-    // Tasks with enhanced functionality
+    // Tasks with  functionality
     private BukkitTask scoreboardRefreshTask;
     private BukkitTask inviteCleanupTask;
     private BukkitTask partyMaintenanceTask;
@@ -66,7 +66,7 @@ public class PartyMechanics implements Listener {
     private final Map<UUID, PartyStatistics> partyStats = new ConcurrentHashMap<>();
 
     /**
-     * Enhanced Party class with roles and advanced features
+     *  Party class with roles and advanced features
      */
     public static class Party {
         private final UUID id;
@@ -199,7 +199,7 @@ public class PartyMechanics implements Listener {
     }
 
     /**
-     * Party invite class with enhanced information
+     * Party invite class with  information
      */
     public static class PartyInvite {
         private final UUID partyId;
@@ -312,19 +312,19 @@ public class PartyMechanics implements Listener {
     }
 
     /**
-     * Initialize the enhanced party system
+     * Initialize the  party system
      */
     public void onEnable() {
         try {
             // Register events
             Bukkit.getServer().getPluginManager().registerEvents(this, YakRealms.getInstance());
 
-            // Start enhanced tasks
+            // Start  tasks
             startScoreboardRefreshTask();
             startInviteCleanupTask();
             startPartyMaintenanceTask();
 
-            logger.info("Enhanced party mechanics have been enabled.");
+            logger.info(" party mechanics have been enabled.");
         } catch (Exception e) {
             logger.severe("Failed to enable party mechanics: " + e.getMessage());
         }
@@ -351,14 +351,14 @@ public class PartyMechanics implements Listener {
             partyStats.clear();
             eventListeners.clear();
 
-            logger.info("Enhanced party mechanics have been disabled.");
+            logger.info(" party mechanics have been disabled.");
         } catch (Exception e) {
             logger.warning("Error disabling party mechanics: " + e.getMessage());
         }
     }
 
     /**
-     *  Start the enhanced scoreboard refresh task with better error handling
+     *  Start the  scoreboard refresh task with better error handling
      */
     private void startScoreboardRefreshTask() {
         scoreboardRefreshTask = new BukkitRunnable() {
@@ -412,7 +412,7 @@ public class PartyMechanics implements Listener {
     }
 
     /**
-     * Start the enhanced invite cleanup task
+     * Start the  invite cleanup task
      */
     private void startInviteCleanupTask() {
         inviteCleanupTask = new BukkitRunnable() {
@@ -501,7 +501,7 @@ public class PartyMechanics implements Listener {
         }
     }
 
-    // Enhanced party management methods
+    //  party management methods
 
     /**
      * Check if a player is a party leader
@@ -632,7 +632,7 @@ public class PartyMechanics implements Listener {
     }
 
     /**
-     * ENHANCED: Check if two players are in the same party with comprehensive validation
+     * : Check if two players are in the same party with comprehensive validation
      */
     public boolean arePartyMembers(Player player1, Player player2) {
         if (player1 == null || player2 == null) {
@@ -648,7 +648,7 @@ public class PartyMechanics implements Listener {
     }
 
     /**
-     * ENHANCED: Check if two player UUIDs are in the same party with comprehensive validation
+     * : Check if two player UUIDs are in the same party with comprehensive validation
      */
     public boolean arePartyMembers(UUID player1Id, UUID player2Id) {
         if (player1Id == null || player2Id == null) {
@@ -856,7 +856,7 @@ public class PartyMechanics implements Listener {
         }
     }
     /**
-     * Create a new party with enhanced features
+     * Create a new party with  features
      */
     public boolean createParty(Player player) {
         return player != null && createParty(player.getUniqueId());
@@ -910,7 +910,7 @@ public class PartyMechanics implements Listener {
     }
 
     /**
-     *  Add a player to a party with enhanced validation and safer visual updates
+     *  Add a player to a party with  validation and safer visual updates
      */
     public boolean addPlayerToParty(Player player, UUID partyId) {
         return player != null && addPlayerToParty(player.getUniqueId(), partyId);
@@ -982,7 +982,7 @@ public class PartyMechanics implements Listener {
     }
 
     /**
-     *  Remove a player from their party with enhanced handling and safer updates
+     *  Remove a player from their party with  handling and safer updates
      */
     public boolean removePlayerFromParty(Player player) {
         return player != null && removePlayerFromParty(player.getUniqueId());
@@ -1124,7 +1124,7 @@ public class PartyMechanics implements Listener {
     }
 
     /**
-     * Enhanced party invitation system
+     *  party invitation system
      */
     public boolean invitePlayerToParty(Player invited, Player inviter, String message) {
         if (invited == null || inviter == null) return false;
@@ -1221,7 +1221,7 @@ public class PartyMechanics implements Listener {
     }
 
     /**
-     * Accept a party invitation with enhanced feedback
+     * Accept a party invitation with  feedback
      */
     public boolean acceptPartyInvite(Player player) {
         return player != null && acceptPartyInvite(player.getUniqueId());
@@ -1268,7 +1268,7 @@ public class PartyMechanics implements Listener {
     }
 
     /**
-     * Decline a party invitation with enhanced feedback
+     * Decline a party invitation with  feedback
      */
     public boolean declinePartyInvite(Player player) {
         return player != null && declinePartyInvite(player.getUniqueId());
@@ -1304,7 +1304,7 @@ public class PartyMechanics implements Listener {
     }
 
     /**
-     * Enhanced party messaging with formatting
+     *  party messaging with formatting
      */
     public boolean sendPartyMessage(Player sender, String message) {
         return sender != null && sendPartyMessage(sender.getUniqueId(), message);
@@ -1373,7 +1373,7 @@ public class PartyMechanics implements Listener {
         }
     }
 
-    // Enhanced utility methods
+    //  utility methods
 
     /**
      * Update party statistics
@@ -1453,7 +1453,7 @@ public class PartyMechanics implements Listener {
     }
 
     /**
-     * Format party message with enhanced styling
+     * Format party message with  styling
      */
     private String formatPartyMessage(Party party, UUID senderId, String senderName, String message) {
         if (party == null || senderId == null || senderName == null || message == null) {

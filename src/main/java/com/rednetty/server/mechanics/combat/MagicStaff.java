@@ -4,8 +4,8 @@ import com.rednetty.server.YakRealms;
 import com.rednetty.server.mechanics.combat.pvp.AlignmentMechanics;
 import com.rednetty.server.mechanics.player.YakPlayer;
 import com.rednetty.server.mechanics.player.YakPlayerManager;
-import com.rednetty.server.mechanics.player.social.friends.Buddies;
 import com.rednetty.server.mechanics.player.settings.Toggles;
+import com.rednetty.server.mechanics.player.social.friends.Buddies;
 import com.rednetty.server.mechanics.player.stamina.Energy;
 import com.rednetty.server.utils.math.BoundingBox;
 import com.rednetty.server.utils.math.RayTrace;
@@ -34,19 +34,26 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Handles magical staff weapons and their projectile mechanics
+ * Handles magical staff weapons and their projectile mechanics with LIMITED RANGE
  * <p>
  * This class manages:
- * - Staff projectile casting and travel
+ * - Staff projectile casting and travel with proper range limits
  * - Hit detection against entities and blocks
  * - Damage calculation and application
  * - Visual and sound effects
+ * - UPDATED: Projectiles now have limited range and won't travel infinitely
  */
 public class MagicStaff implements Listener {
     // Constants
     private static final String STAFF_COOLDOWN_META = "staffCooldown";
     private static final long STAFF_COOLDOWN_DURATION = 350L; // Cooldown between staff shots in milliseconds
-    private static final int MAX_PROJECTILE_TICKS = 70; // Maximum lifetime of a projectile in ticks
+
+    // BALANCED: Reduced projectile lifetime from 70 ticks to 35 ticks for reasonable range
+    private static final int MAX_PROJECTILE_TICKS = 35; // Maximum lifetime of a projectile in ticks
+
+    // BALANCED: Maximum distance a projectile can travel before disappearing
+    private static final double MAX_PROJECTILE_DISTANCE = 25.0; // Maximum distance in blocks
+
     private static final double PROJECTILE_COLLISION_RADIUS = 0.8; // Radius for entity collision detection
     private static final float IMPACT_SOUND_VOLUME = 0.5f;
     private static final float IMPACT_SOUND_PITCH = 1.2f;
@@ -80,11 +87,163 @@ public class MagicStaff implements Listener {
     }
 
     /**
-     * Registers this listener and initializes the system
+     * Creates and launches a magical projectile from a staff with LIMITED RANGE
+     *
+     * @param shooter The living entity shooting the projectile
+     * @param type    The type of staff being used
      */
-    public void onEnable() {
-        Bukkit.getServer().getPluginManager().registerEvents(this, YakRealms.getInstance());
-        YakRealms.log("Magic Staff system has been enabled");
+    public static void shootMagicProjectile(LivingEntity shooter, StaffType type) {
+        if (shooter == null || type == null) {
+            YakRealms.error("Attempted to shoot magic projectile with null shooter or type", null);
+            return;
+        }
+
+        if (shooter.getLocation() == null || shooter.getLocation().getWorld() == null) {
+            YakRealms.error("Shooter has invalid location", null);
+            return;
+        }
+
+        // Play shoot sound
+        shooter.getWorld().playSound(shooter.getLocation(), Sound.ENTITY_BLAZE_SHOOT, 1.0f, 1.5f);
+
+        // Create ray trace for projectile path with LIMITED RANGE
+        new BukkitRunnable() {
+            Location eyeLocation = shooter.getEyeLocation();
+            final Location startLocation = eyeLocation != null ? eyeLocation.clone() : shooter.getLocation().clone();
+            final RayTrace magic;
+            final int distanceSpeed;
+            final double precision;
+            final Iterator<Vector> trail;
+            Location lastKnownLocation = startLocation.clone();
+
+            int ticks = 0;
+            boolean hasHit = false;
+            double totalDistance = 0.0;
+
+            {
+                if (eyeLocation != null) {
+                    magic = new RayTrace(
+                            eyeLocation.add(0, -0.25, 0).toVector(),
+                            eyeLocation.getDirection()
+                    );
+                    // BALANCED: Reduced distance speed from 150 to 100 for players to limit range
+                    distanceSpeed = shooter instanceof Player ? 100 : 60;
+                    precision = shooter instanceof Player ? 0.8 : 0.3;
+                    trail = magic.traverse(distanceSpeed, precision).iterator();
+                } else {
+                    magic = null;
+                    distanceSpeed = 0;
+                    precision = 0;
+                    trail = null;
+                    eyeLocation = shooter.getLocation();
+                }
+            }
+
+            @Override
+            public void run() {
+                try {
+                    // Validate state
+                    if (magic == null || trail == null || !trail.hasNext() ||
+                            ticks > MAX_PROJECTILE_TICKS || hasHit || totalDistance > MAX_PROJECTILE_DISTANCE) {
+
+                        // Show dissipation effect when projectile reaches max range
+                        if (totalDistance > MAX_PROJECTILE_DISTANCE && !hasHit && lastKnownLocation != null) {
+                            createDissipationEffect(lastKnownLocation, type);
+                        }
+
+                        this.cancel();
+                        return;
+                    }
+
+                    // Check if shooter or world is invalid
+                    if (shooter.isDead() || !shooter.isValid() ||
+                            shooter.getLocation() == null || shooter.getLocation().getWorld() == null) {
+                        this.cancel();
+                        return;
+                    }
+
+                    // Process multiple positions per tick for smoother movement
+                    for (int i = 0; i < 4 && trail.hasNext() && !hasHit && totalDistance <= MAX_PROJECTILE_DISTANCE; i++) {
+                        Vector pos = trail.next();
+                        if (pos == null) {
+                            continue;
+                        }
+
+                        Location currentLocation = pos.toLocation(shooter.getWorld());
+                        if (currentLocation == null) {
+                            continue;
+                        }
+
+                        // Update last known location and total distance traveled
+                        lastKnownLocation = currentLocation.clone();
+                        totalDistance = startLocation.distance(currentLocation);
+
+                        // Check if we've exceeded maximum range
+                        if (totalDistance > MAX_PROJECTILE_DISTANCE) {
+                            createDissipationEffect(currentLocation, type);
+                            hasHit = true;
+                            this.cancel();
+                            return;
+                        }
+
+                        // Check for block collision
+                        Block block = currentLocation.getBlock();
+                        if (block != null && block.getType().isSolid() &&
+                                magic.intersectsBox(pos, new BoundingBox(block))) {
+                            createImpactEffect(currentLocation, type);
+                            hasHit = true;
+                            this.cancel();
+                            return;
+                        }
+
+                        // Check for entity collision
+                        try {
+                            for (Entity entity : shooter.getWorld().getNearbyEntities(currentLocation, 1.5f, 1.5f, 1.5f)) {
+                                if (!(entity instanceof LivingEntity target) || entity == shooter || hasHit) {
+                                    continue;
+                                }
+
+                                // Skip if we should ignore damage
+                                if (shouldIgnoreDamage(shooter, target)) {
+                                    continue;
+                                }
+
+                                // Check if projectile intersects with entity
+                                if (magic.intersectsBox(pos, PROJECTILE_COLLISION_RADIUS, new BoundingBox(target))) {
+                                    hasHit = true;
+
+                                    // Handle different target types
+                                    if (target instanceof Horse && target.getPassenger() != null) {
+                                        handleHorsePassengerDamage(shooter, target);
+                                    } else if (shooter instanceof Player &&
+                                            shooter.getEquipment() != null &&
+                                            shooter.getEquipment().getItemInMainHand() != null &&
+                                            shooter.getEquipment().getItemInMainHand().getType().name().contains("_HOE")) {
+                                        handlePlayerStaffDamage(shooter, target);
+                                    } else {
+                                        handleDefaultDamage(shooter, target);
+                                    }
+
+                                    createImpactEffect(currentLocation, type);
+                                    this.cancel();
+                                    return;
+                                }
+                            }
+                        } catch (Exception e) {
+                            YakRealms.getInstance().getLogger().warning("Error checking entity collision: " + e.getMessage());
+                        }
+
+                        // Create projectile trail effect
+                        createTrailEffect(currentLocation, type);
+                    }
+                    ticks++;
+                } catch (Exception e) {
+                    // Log and cancel on error
+                    YakRealms.error("Error in magic projectile task", e);
+                    this.cancel();
+                }
+            }
+        }.runTaskTimer(YakRealms.getInstance(), 0L, 1L);
     }
 
     /**
@@ -305,142 +464,35 @@ public class MagicStaff implements Listener {
     }
 
     /**
-     * Creates and launches a magical projectile from a staff
+     * Creates dissipation effect when projectile reaches maximum range
      *
-     * @param shooter The living entity shooting the projectile
-     * @param type    The type of staff being used
+     * @param location The dissipation location
+     * @param type     The staff type for effect color
      */
-    public static void shootMagicProjectile(LivingEntity shooter, StaffType type) {
-        if (shooter == null || type == null) {
-            YakRealms.error("Attempted to shoot magic projectile with null shooter or type", null);
+    private static void createDissipationEffect(Location location, StaffType type) {
+        if (location == null || location.getWorld() == null || type == null) {
             return;
         }
 
-        if (shooter.getLocation() == null || shooter.getLocation().getWorld() == null) {
-            YakRealms.error("Shooter has invalid location", null);
-            return;
+        try {
+            // Create dust options for colored particles
+            Color dustColor = Color.fromRGB(
+                    (int) (type.getRed() * 255),
+                    (int) (type.getGreen() * 255),
+                    (int) (type.getBlue() * 255)
+            );
+            DustOptions dustOptions = new DustOptions(dustColor, 0.5f);
+
+            // Spawn smaller, more dispersed particles for dissipation
+            location.getWorld().spawnParticle(Particle.SPELL_WITCH, location, 8, 0.4, 0.4, 0.4, 0.02);
+            location.getWorld().spawnParticle(Particle.REDSTONE, location, 5, 0.5, 0.5, 0.5, 0, dustOptions);
+
+            // Play a softer dissipation sound
+            location.getWorld().playSound(location, Sound.BLOCK_FIRE_EXTINGUISH, 0.3f, 1.5f);
+        } catch (Exception e) {
+            // Log error but continue
+            YakRealms.getInstance().getLogger().info("Error creating dissipation effect: " + e.getMessage());
         }
-
-        // Play shoot sound
-        shooter.getWorld().playSound(shooter.getLocation(), Sound.ENTITY_BLAZE_SHOOT, 1.0f, 1.5f);
-
-        // Create ray trace for projectile path
-        new BukkitRunnable() {
-            final Location eyeLocation = shooter.getEyeLocation();
-            final RayTrace magic;
-            final int distanceSpeed;
-            final double precision;
-            final Iterator<Vector> trail;
-
-            {
-                if (eyeLocation != null) {
-                    magic = new RayTrace(
-                            eyeLocation.add(0, -0.25, 0).toVector(),
-                            eyeLocation.getDirection()
-                    );
-                    distanceSpeed = shooter instanceof Player ? 150 : 60;
-                    precision = shooter instanceof Player ? 0.8 : 0.3;
-                    trail = magic.traverse(distanceSpeed, precision).iterator();
-                } else {
-                    magic = null;
-                    distanceSpeed = 0;
-                    precision = 0;
-                    trail = null;
-                }
-            }
-
-            int ticks = 0;
-            boolean hasHit = false;
-
-            @Override
-            public void run() {
-                try {
-                    // Validate state
-                    if (magic == null || trail == null || !trail.hasNext() ||
-                            ticks > MAX_PROJECTILE_TICKS || hasHit) {
-                        this.cancel();
-                        return;
-                    }
-
-                    // Check if shooter or world is invalid
-                    if (shooter.isDead() || !shooter.isValid() ||
-                            shooter.getLocation() == null || shooter.getLocation().getWorld() == null) {
-                        this.cancel();
-                        return;
-                    }
-
-                    // Process multiple positions per tick for smoother movement
-                    for (int i = 0; i < 4 && trail.hasNext() && !hasHit; i++) {
-                        Vector pos = trail.next();
-                        if (pos == null) {
-                            continue;
-                        }
-
-                        Location currentLocation = pos.toLocation(shooter.getWorld());
-                        if (currentLocation == null) {
-                            continue;
-                        }
-
-                        // Check for block collision
-                        Block block = currentLocation.getBlock();
-                        if (block != null && block.getType().isSolid() &&
-                                magic.intersectsBox(pos, new BoundingBox(block))) {
-                            createImpactEffect(currentLocation, type);
-                            hasHit = true;
-                            this.cancel();
-                            return;
-                        }
-
-                        // Check for entity collision
-                        try {
-                            for (Entity entity : shooter.getWorld().getNearbyEntities(currentLocation, 1.5f, 1.5f, 1.5f)) {
-                                if (!(entity instanceof LivingEntity) || entity == shooter || hasHit) {
-                                    continue;
-                                }
-
-                                LivingEntity target = (LivingEntity) entity;
-
-                                // Skip if we should ignore damage
-                                if (shouldIgnoreDamage(shooter, target)) {
-                                    continue;
-                                }
-
-                                // Check if projectile intersects with entity
-                                if (magic.intersectsBox(pos, PROJECTILE_COLLISION_RADIUS, new BoundingBox(target))) {
-                                    hasHit = true;
-
-                                    // Handle different target types
-                                    if (target instanceof Horse && target.getPassenger() != null) {
-                                        handleHorsePassengerDamage(shooter, target);
-                                    } else if (shooter instanceof Player &&
-                                            shooter.getEquipment() != null &&
-                                            shooter.getEquipment().getItemInMainHand() != null &&
-                                            shooter.getEquipment().getItemInMainHand().getType().name().contains("_HOE")) {
-                                        handlePlayerStaffDamage(shooter, target);
-                                    } else {
-                                        handleDefaultDamage(shooter, target);
-                                    }
-
-                                    createImpactEffect(currentLocation, type);
-                                    this.cancel();
-                                    return;
-                                }
-                            }
-                        } catch (Exception e) {
-                            YakRealms.getInstance().getLogger().warning("Error checking entity collision: " + e.getMessage());
-                        }
-
-                        // Create projectile trail effect
-                        createTrailEffect(currentLocation, type);
-                    }
-                    ticks++;
-                } catch (Exception e) {
-                    // Log and cancel on error
-                    YakRealms.error("Error in magic projectile task", e);
-                    this.cancel();
-                }
-            }
-        }.runTaskTimer(YakRealms.getInstance(), 0L, 1L);
     }
 
     /**
@@ -502,6 +554,14 @@ public class MagicStaff implements Listener {
             // Log error but continue
             YakRealms.getInstance().getLogger().info("Error creating impact effect: " + e.getMessage());
         }
+    }
+
+    /**
+     * Registers this listener and initializes the system
+     */
+    public void onEnable() {
+        Bukkit.getServer().getPluginManager().registerEvents(this, YakRealms.getInstance());
+        YakRealms.log("Magic Staff system has been enabled with limited projectile range");
     }
 
     /**
@@ -751,7 +811,7 @@ public class MagicStaff implements Listener {
     }
 
     /**
-     * Represents different types of magical staves
+     * Represents different types of magical staves with balanced energy costs
      */
     public enum StaffType {
         WOOD(Material.WOODEN_HOE, 7, 1.0f, 1.0f, 1.0f),    // White
@@ -759,7 +819,7 @@ public class MagicStaff implements Listener {
         IRON(Material.IRON_HOE, 9, 0.0f, 1.0f, 1.0f),      // Aqua
         DIAMOND(Material.DIAMOND_HOE, 10, 0.0f, 0.0f, 0.5f), // Navy
         GOLD(Material.GOLDEN_HOE, 11, 1.0f, 1.0f, 0.0f),   // Yellow
-        NETHERITE(Material.NETHERITE_HOE, 15, .855f, .647f, 0.125f);   // Yellow
+        NETHERITE(Material.NETHERITE_HOE, 15, .855f, .647f, 0.125f);   // Orange
 
         private final Material material;
         private final int energyCost;

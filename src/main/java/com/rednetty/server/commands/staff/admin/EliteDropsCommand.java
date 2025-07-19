@@ -20,7 +20,8 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
- * Enhanced command for generating elite mob drops with improved functionality and error handling
+ *  command for generating elite mob drops with improved functionality and error handling
+ *  Updated to work with the new drop system and proper Tier 6 Netherite support
  */
 public class EliteDropsCommand implements CommandExecutor, TabCompleter {
     private final DropsManager dropsManager;
@@ -84,6 +85,14 @@ public class EliteDropsCommand implements CommandExecutor, TabCompleter {
                 reloadEliteConfigs(player);
                 return true;
 
+            case "validate":
+                validateEliteConfigs(player);
+                return true;
+
+            case "stats":
+                showConfigStats(player);
+                return true;
+
             default:
                 showHelp(player);
                 return true;
@@ -143,13 +152,16 @@ public class EliteDropsCommand implements CommandExecutor, TabCompleter {
         player.sendMessage(ChatColor.YELLOW + "/elitedrop info <mobName> " + ChatColor.WHITE + "- Show detailed info about an elite");
         player.sendMessage(ChatColor.YELLOW + "/elitedrop debug " + ChatColor.WHITE + "- Show debug information about elite configs");
         player.sendMessage(ChatColor.YELLOW + "/elitedrop reload " + ChatColor.WHITE + "- Reload elite configurations");
+        player.sendMessage(ChatColor.YELLOW + "/elitedrop validate " + ChatColor.WHITE + "- Validate all elite configurations");
+        player.sendMessage(ChatColor.YELLOW + "/elitedrop stats " + ChatColor.WHITE + "- Show configuration statistics");
         player.sendMessage("");
         player.sendMessage(ChatColor.GRAY + "Item types: 1-4 = Weapons, 5-8 = Armor");
         player.sendMessage(ChatColor.GRAY + "Tiers: 1-6 (optional override)");
+        player.sendMessage(ChatColor.GRAY + "Note: Tier 6 content requires special access");
     }
 
     /**
-     * Lists all available elite mob types with enhanced formatting
+     * Lists all available elite mob types with  formatting
      *
      * @param player The player to show the list to
      */
@@ -193,8 +205,10 @@ public class EliteDropsCommand implements CommandExecutor, TabCompleter {
                 for (String elite : elites) {
                     EliteDropConfig config = eliteConfigs.get(elite);
                     String rarityDisplay = getRarityDisplay(config.getRarity());
+                    int itemCount = config.getItemDetailsCount();
+
                     player.sendMessage(ChatColor.GRAY + "  • " + ChatColor.WHITE + elite +
-                            " " + rarityDisplay);
+                            " " + rarityDisplay + ChatColor.GRAY + " (" + itemCount + " items)");
                 }
             }
         }
@@ -202,6 +216,11 @@ public class EliteDropsCommand implements CommandExecutor, TabCompleter {
         if (elitesByTier.isEmpty()) {
             player.sendMessage(ChatColor.YELLOW + "No elites found for enabled tiers.");
         }
+
+        // Show summary
+        player.sendMessage("");
+        player.sendMessage(ChatColor.AQUA + "Total: " + ChatColor.WHITE + eliteConfigs.size() +
+                ChatColor.AQUA + " elite configurations loaded");
     }
 
     /**
@@ -221,22 +240,38 @@ public class EliteDropsCommand implements CommandExecutor, TabCompleter {
         player.sendMessage(ChatColor.GOLD + "======== Elite Info: " + mobName + " ========");
         player.sendMessage(tierColor + "Tier: " + config.getTier() + " (" + getTierName(config.getTier()) + ")");
         player.sendMessage("Rarity: " + rarityDisplay);
-        player.sendMessage(ChatColor.YELLOW + "Available Items: " + ChatColor.WHITE + config.getItemDetails().size());
+        player.sendMessage(ChatColor.YELLOW + "Available Items: " + ChatColor.WHITE + config.getItemDetailsCount());
 
-        if (!config.getItemDetails().isEmpty()) {
+        if (!config.getAllItemDetails().isEmpty()) {
             player.sendMessage(ChatColor.YELLOW + "Item Types:");
-            config.getItemDetails().forEach((itemType, details) -> {
+            config.getAllItemDetails().forEach((itemType, details) -> {
                 String typeName = getItemTypeName(itemType);
+                String itemName = details.getName();
                 player.sendMessage(ChatColor.GRAY + "  " + itemType + ": " + ChatColor.WHITE +
-                        typeName + " - " + details.getName());
+                        typeName + " - " + ChatColor.RESET + itemName);
             });
         }
 
         // Show stat information if available
-        if (!config.getStatRanges().isEmpty()) {
-            player.sendMessage(ChatColor.YELLOW + "Special Stats: " +
-                    ChatColor.WHITE + config.getStatRanges().size() + " defined");
+        if (config.hasCommonStats()) {
+            player.sendMessage(ChatColor.YELLOW + "Common Stats: " +
+                    ChatColor.WHITE + config.getCommonStats().size() + " defined");
         }
+
+        if (config.hasWeaponStats()) {
+            player.sendMessage(ChatColor.YELLOW + "Weapon Stats: " +
+                    ChatColor.WHITE + config.getWeaponStats().size() + " defined");
+        }
+
+        if (config.hasArmorStats()) {
+            player.sendMessage(ChatColor.YELLOW + "Armor Stats: " +
+                    ChatColor.WHITE + config.getArmorStats().size() + " defined");
+        }
+
+        // Show validity
+        boolean isValid = config.isValid();
+        player.sendMessage(ChatColor.YELLOW + "Configuration Status: " +
+                (isValid ? ChatColor.GREEN + "Valid" : ChatColor.RED + "Invalid"));
     }
 
     /**
@@ -277,16 +312,87 @@ public class EliteDropsCommand implements CommandExecutor, TabCompleter {
         player.sendMessage(ChatColor.YELLOW + "Sample configurations:");
         int count = 0;
         for (Map.Entry<String, EliteDropConfig> entry : eliteConfigs.entrySet()) {
-            if (count >= 3) break;
+            if (count >= 5) break;
 
             EliteDropConfig config = entry.getValue();
             ChatColor tierColor = getTierColor(config.getTier());
+            String validStatus = config.isValid() ? ChatColor.GREEN + "✓" : ChatColor.RED + "✗";
+
             player.sendMessage(ChatColor.GRAY + "  " + entry.getKey() + ": " +
                     tierColor + "T" + config.getTier() + " " +
                     getRarityDisplay(config.getRarity()) + " " +
-                    ChatColor.WHITE + "(" + config.getItemDetails().size() + " items)");
+                    ChatColor.WHITE + "(" + config.getItemDetailsCount() + " items) " + validStatus);
             count++;
         }
+
+        // Show configuration file status
+        player.sendMessage(ChatColor.YELLOW + "Configuration Files:");
+        player.sendMessage(ChatColor.GRAY + "  elite_drops.yml: " +
+                (plugin.getDataFolder().toPath().resolve("elite_drops.yml").toFile().exists() ?
+                        ChatColor.GREEN + "Found" : ChatColor.RED + "Missing"));
+    }
+
+    /**
+     * Validate elite configurations
+     */
+    private void validateEliteConfigs(Player player) {
+        Map<String, EliteDropConfig> eliteConfigs = DropConfig.getEliteDropConfigs();
+
+        if (eliteConfigs == null || eliteConfigs.isEmpty()) {
+            player.sendMessage(ChatColor.RED + "No elite configurations to validate.");
+            return;
+        }
+
+        player.sendMessage(ChatColor.YELLOW + "Validating " + eliteConfigs.size() + " elite configurations...");
+
+        int validCount = 0;
+        int invalidCount = 0;
+        List<String> invalidElites = new ArrayList<>();
+
+        for (Map.Entry<String, EliteDropConfig> entry : eliteConfigs.entrySet()) {
+            if (entry.getValue().isValid()) {
+                validCount++;
+            } else {
+                invalidCount++;
+                invalidElites.add(entry.getKey());
+            }
+        }
+
+        player.sendMessage(ChatColor.GREEN + "Valid configurations: " + validCount);
+        player.sendMessage(ChatColor.RED + "Invalid configurations: " + invalidCount);
+
+        if (!invalidElites.isEmpty()) {
+            player.sendMessage(ChatColor.RED + "Invalid elites:");
+            for (String eliteName : invalidElites) {
+                player.sendMessage(ChatColor.GRAY + "  • " + ChatColor.RED + eliteName);
+            }
+        }
+
+        if (invalidCount == 0) {
+            player.sendMessage(ChatColor.GREEN + "All elite configurations are valid!");
+        }
+    }
+
+    /**
+     * Show configuration statistics
+     */
+    private void showConfigStats(Player player) {
+        Map<String, Integer> stats = DropConfig.getConfigurationStats();
+
+        player.sendMessage(ChatColor.GOLD + "Configuration Statistics:");
+        player.sendMessage(ChatColor.YELLOW + "Item Types: " + ChatColor.WHITE + stats.getOrDefault("itemTypes", 0));
+        player.sendMessage(ChatColor.YELLOW + "Elite Drops: " + ChatColor.WHITE + stats.getOrDefault("eliteDrops", 0));
+        player.sendMessage(ChatColor.YELLOW + "Tiers: " + ChatColor.WHITE + stats.getOrDefault("tiers", 0));
+        player.sendMessage(ChatColor.YELLOW + "Rarities: " + ChatColor.WHITE + stats.getOrDefault("rarities", 0));
+        player.sendMessage(ChatColor.YELLOW + "Cache Size: " + ChatColor.WHITE + stats.getOrDefault("cacheSize", 0));
+
+        // Show memory usage
+        long totalMemory = Runtime.getRuntime().totalMemory() / 1024 / 1024;
+        long freeMemory = Runtime.getRuntime().freeMemory() / 1024 / 1024;
+        long usedMemory = totalMemory - freeMemory;
+
+        player.sendMessage(ChatColor.YELLOW + "Memory Usage: " + ChatColor.WHITE + usedMemory +
+                ChatColor.GRAY + "/" + ChatColor.WHITE + totalMemory + " MB");
     }
 
     /**
@@ -294,15 +400,31 @@ public class EliteDropsCommand implements CommandExecutor, TabCompleter {
      */
     private void reloadEliteConfigs(Player player) {
         try {
-            // This would typically reload from config files
-            // For now, just show current status
+            player.sendMessage(ChatColor.YELLOW + "Reloading elite configurations...");
+
+            // Use DropConfig's reload method
+            DropConfig.reloadEliteDrops();
+
             Map<String, EliteDropConfig> eliteConfigs = DropConfig.getEliteDropConfigs();
 
-            player.sendMessage(ChatColor.GREEN + "Elite configurations reloaded!");
+            player.sendMessage(ChatColor.GREEN + "Elite configurations reloaded successfully!");
             player.sendMessage(ChatColor.YELLOW + "Loaded " + ChatColor.WHITE + eliteConfigs.size() +
                     ChatColor.YELLOW + " elite configurations.");
+
+            // Validate after reload
+            int validCount = 0;
+            for (EliteDropConfig config : eliteConfigs.values()) {
+                if (config.isValid()) {
+                    validCount++;
+                }
+            }
+
+            player.sendMessage(ChatColor.YELLOW + "Valid configurations: " + ChatColor.WHITE + validCount +
+                    ChatColor.GRAY + "/" + ChatColor.WHITE + eliteConfigs.size());
+
         } catch (Exception e) {
             player.sendMessage(ChatColor.RED + "Failed to reload elite configurations: " + e.getMessage());
+            plugin.getLogger().warning("Elite config reload failed: " + e.getMessage());
         }
     }
 
@@ -330,12 +452,23 @@ public class EliteDropsCommand implements CommandExecutor, TabCompleter {
             return;
         }
 
-        // Create the elite drop with the fixed method call
+        // Check if the elite has the requested item type
+        if (!config.hasItemDetailsForType(itemType)) {
+            player.sendMessage(ChatColor.RED + "Elite '" + mobName + "' doesn't have item type " + itemType + " configured.");
+            player.sendMessage(ChatColor.GRAY + "Available item types for this elite:");
+            config.getAllItemDetails().keySet().forEach(type -> {
+                String typeName = getItemTypeName(type);
+                player.sendMessage(ChatColor.GRAY + "  " + type + ": " + typeName);
+            });
+            return;
+        }
+
+        // Create the elite drop
         ItemStack item = dropsManager.createEliteDrop(mobName, itemType, tier);
 
         if (item == null) {
             player.sendMessage(ChatColor.RED + "Failed to create elite drop. Check console for errors.");
-            player.sendMessage(ChatColor.GRAY + "This might happen if the elite doesn't have the requested item type.");
+            player.sendMessage(ChatColor.GRAY + "This might happen if there's an issue with the configuration.");
             return;
         }
 
@@ -349,8 +482,8 @@ public class EliteDropsCommand implements CommandExecutor, TabCompleter {
 
             player.sendMessage(ChatColor.GREEN + "You received " + itemName + ChatColor.GREEN + "!");
 
-            if (overrideTier != null) {
-                player.sendMessage(ChatColor.GRAY + "Note: Tier overridden to " + tier);
+            if (overrideTier != null && overrideTier != config.getTier()) {
+                player.sendMessage(ChatColor.GRAY + "Note: Tier overridden from " + config.getTier() + " to " + tier);
             }
         } else {
             player.getWorld().dropItemNaturally(player.getLocation(), item);
@@ -359,7 +492,7 @@ public class EliteDropsCommand implements CommandExecutor, TabCompleter {
     }
 
     /**
-     * Get tier color for display
+     * Get tier color for display -  Tier 6 now uses GOLD for Netherite
      */
     private ChatColor getTierColor(int tier) {
         return switch (tier) {
@@ -368,7 +501,7 @@ public class EliteDropsCommand implements CommandExecutor, TabCompleter {
             case 3 -> ChatColor.AQUA;
             case 4 -> ChatColor.LIGHT_PURPLE;
             case 5 -> ChatColor.YELLOW;
-            case 6 -> ChatColor.BLUE;
+            case 6 -> ChatColor.GOLD; //  Changed from BLUE to GOLD for Netherite
             default -> ChatColor.GRAY;
         };
     }
@@ -383,7 +516,7 @@ public class EliteDropsCommand implements CommandExecutor, TabCompleter {
             case 3 -> "Journeyman";
             case 4 -> "Expert";
             case 5 -> "Master";
-            case 6 -> "Legendary";
+            case 6 -> "Legendary"; // Netherite tier
             default -> "Unknown";
         };
     }
@@ -425,7 +558,7 @@ public class EliteDropsCommand implements CommandExecutor, TabCompleter {
         }
 
         if (args.length == 1) {
-            List<String> subCommands = Arrays.asList("list", "get", "debug", "info", "reload");
+            List<String> subCommands = Arrays.asList("list", "get", "debug", "info", "reload", "validate", "stats");
             return subCommands.stream()
                     .filter(subCmd -> subCmd.startsWith(args[0].toLowerCase()))
                     .collect(Collectors.toList());
@@ -437,6 +570,7 @@ public class EliteDropsCommand implements CommandExecutor, TabCompleter {
             if (eliteConfigs != null) {
                 return eliteConfigs.keySet().stream()
                         .filter(mobType -> mobType.startsWith(args[1].toLowerCase()))
+                        .sorted()
                         .collect(Collectors.toList());
             }
         }

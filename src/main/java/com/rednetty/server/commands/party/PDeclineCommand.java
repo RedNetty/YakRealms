@@ -13,7 +13,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Enhanced Party Decline Command with comprehensive error handling and user feedback
+ *  Party Decline Command with comprehensive error handling and user feedback
  * Integrates fully with the advanced PartyMechanics system
  */
 public class PDeclineCommand implements CommandExecutor, TabCompleter {
@@ -60,7 +60,7 @@ public class PDeclineCommand implements CommandExecutor, TabCompleter {
     }
 
     /**
-     * Send enhanced usage message with context-aware help
+     * Send  usage message with context-aware help
      */
     private void sendUsageMessage(Player player) {
         player.sendMessage(ChatColor.RED + "❌ " + ChatColor.BOLD + "Invalid Syntax");

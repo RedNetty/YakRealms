@@ -1,10 +1,7 @@
 package com.rednetty.server.commands.staff.admin;
 
 import com.rednetty.server.mechanics.economy.vendors.Vendor;
-import com.rednetty.server.mechanics.economy.vendors.VendorFactory;
 import com.rednetty.server.mechanics.economy.vendors.VendorManager;
-import com.rednetty.server.mechanics.economy.vendors.visuals.VendorAuraManager;
-import com.rednetty.server.mechanics.economy.vendors.VendorSystemInitializer;
 import net.citizensnpcs.api.CitizensAPI;
 import net.citizensnpcs.api.npc.NPC;
 import org.bukkit.ChatColor;
@@ -23,30 +20,29 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
- * Command for managing vendors with enhanced aura system integration
+ *  command for managing vendors with comprehensive Mount Vendor support
+ * and improved aura system integration
  */
 public class VendorCommand implements CommandExecutor, TabCompleter {
 
     private final JavaPlugin plugin;
     private final VendorManager vendorManager;
-    private final VendorFactory vendorFactory;
-    private VendorAuraManager auraManager;
 
     // Pattern to match quoted strings (to allow spaces in vendor names)
     private static final Pattern QUOTED_TEXT_PATTERN = Pattern.compile("\"([^\"]*)\"");
 
-    // Available vendor types
+    // Available vendor types - Updated to include mount
     private static final List<String> VENDOR_TYPES = Arrays.asList(
-            "item", "fisherman", "book", "upgrade", "banker", "medic", "shop", "gambler"
+            "item", "fisherman", "book", "upgrade", "banker", "medic", "shop", "gambler", "mount"
     );
 
     // Available subcommands by category
     private static final Map<String, List<String>> COMMAND_CATEGORIES = new HashMap<>();
     static {
         COMMAND_CATEGORIES.put("Creation", Arrays.asList("create", "createat"));
-        COMMAND_CATEGORIES.put("Management", Arrays.asList("delete", "rename", "behavior"));
+        COMMAND_CATEGORIES.put("Management", Arrays.asList("delete", "rename"));
         COMMAND_CATEGORIES.put("Information", Arrays.asList("list", "types", "find", "stats"));
-        COMMAND_CATEGORIES.put("System", Arrays.asList("refresh", "reload", "help"));
+        COMMAND_CATEGORIES.put("System", Arrays.asList("reload", "help"));
     }
 
     // All available subcommands
@@ -62,26 +58,11 @@ public class VendorCommand implements CommandExecutor, TabCompleter {
      */
     public VendorCommand(JavaPlugin plugin) {
         this.plugin = plugin;
-        this.vendorManager = VendorManager.getInstance(plugin);
-        this.vendorFactory = new VendorFactory(plugin);
-
-        // Initialize aura manager reference - safely handle the case if it's not yet available
-        try {
-            this.auraManager = VendorSystemInitializer.getAuraManager();
-        } catch (Exception e) {
-            plugin.getLogger().warning("VendorAuraManager not yet available, some visual effects may not work");
-        }
+        this.vendorManager = VendorManager.getInstance();
     }
 
     @Override
     public boolean onCommand(CommandSender sender, Command cmd, String label, String[] args) {
-        // Try to get aura manager if not already set
-        if (auraManager == null) {
-            try {
-                this.auraManager = VendorSystemInitializer.getAuraManager();
-            } catch (Exception ignored) {}
-        }
-
         // Basic syntax check
         if (args.length == 0) {
             sendHelp(sender);
@@ -116,13 +97,6 @@ public class VendorCommand implements CommandExecutor, TabCompleter {
                 }
                 return handleRenameCommand(sender, args);
 
-            case "behavior":
-                if (args.length < 3) {
-                    sender.sendMessage(ChatColor.RED + "Usage: /vendor behavior <id> <behaviorClass>");
-                    return true;
-                }
-                return handleBehaviorCommand(sender, args);
-
             case "delete":
                 if (args.length < 2) {
                     sender.sendMessage(ChatColor.RED + "Usage: /vendor delete <id>");
@@ -142,13 +116,6 @@ public class VendorCommand implements CommandExecutor, TabCompleter {
                     return true;
                 }
                 return handleFindCommand(sender, args);
-
-            case "refresh":
-                if (args.length < 2) {
-                    return handleRefreshAllCommand(sender);
-                } else {
-                    return handleRefreshCommand(sender, args[1]);
-                }
 
             case "reload":
                 return handleReloadCommand(sender);
@@ -253,12 +220,19 @@ public class VendorCommand implements CommandExecutor, TabCompleter {
     }
 
     /**
-     * Handle the create subcommand
+     * Handle the create subcommand with  mount vendor support
      */
     private boolean handleCreateCommand(CommandSender sender, String[] args) {
         try {
             String vendorId = args[1];
             String vendorType = args[2].toLowerCase();
+
+            // Validate vendor type
+            if (!VENDOR_TYPES.contains(vendorType)) {
+                sender.sendMessage(ChatColor.RED + "Unknown vendor type: " + vendorType);
+                sender.sendMessage(ChatColor.RED + "Use /vendor types to see available vendor types");
+                return true;
+            }
 
             // Extract display name
             String displayName = extractQuotedString(args, 3);
@@ -295,18 +269,7 @@ public class VendorCommand implements CommandExecutor, TabCompleter {
                 }
             }
 
-            // Create an empty list for hologram lines (we won't use them)
-            List<String> lines = new ArrayList<>();
-
-            // Determine the behavior class based on vendor type
-            String behaviorClass = determineBehaviorClass(vendorType);
-            if (behaviorClass == null) {
-                sender.sendMessage(ChatColor.RED + "Unknown vendor type: " + vendorType);
-                sender.sendMessage(ChatColor.RED + "Use /vendor types to see available vendor types");
-                return true;
-            }
-
-            // Create the vendor
+            // Get world
             World world = plugin.getServer().getWorld(worldName);
             if (world == null) {
                 sender.sendMessage(ChatColor.RED + "World not found: " + worldName);
@@ -315,38 +278,28 @@ public class VendorCommand implements CommandExecutor, TabCompleter {
 
             Location location = new Location(world, x, y, z, yaw, pitch);
 
-            // Create NPC with display name
-            NPC npc = CitizensAPI.getNPCRegistry().createNPC(
-                    org.bukkit.entity.EntityType.PLAYER,
-                    displayName
-            );
+            // Create vendor using VendorManager
+            boolean success = vendorManager.createVendor(vendorId, vendorType, displayName, location);
 
-            // Spawn the NPC
-            npc.spawn(location);
+            if (!success) {
+                sender.sendMessage(ChatColor.RED + "Failed to create vendor. A vendor with ID '" + vendorId + "' may already exist.");
+                return true;
+            }
 
-            // Create vendor object
-            Vendor vendor = new Vendor(
-                    vendorId,
-                    npc.getId(),
-                    location,
-                    lines,
-                    behaviorClass
-            );
+            // Get the created vendor for confirmation
+            Vendor vendor = vendorManager.getVendor(vendorId);
 
-            // Register the vendor in the manager
-            vendorManager.registerVendor(vendor);
-
-            // Save to config
-            vendorManager.saveVendorsToConfig();
-
-            // Update aura for the new vendor
-            if (auraManager != null) {
-                auraManager.updateVendorAura(vendor);
+            if (vendor != null) {
                 sender.sendMessage(ChatColor.GREEN + "Created " + vendorType + " vendor with ID '" + vendorId +
-                        "' and display name '" + displayName + "' with aura effects");
+                        "' and display name '" + displayName + "'");
             } else {
                 sender.sendMessage(ChatColor.GREEN + "Created " + vendorType + " vendor with ID '" + vendorId +
-                        "' and display name '" + displayName + "'" + ChatColor.YELLOW + " (aura not active)");
+                        "' and display name '" + displayName + "'");
+            }
+
+            // Special message for mount vendors
+            if ("mount".equals(vendorType)) {
+                sender.sendMessage(ChatColor.YELLOW + "Mount vendor ready to sell horse upgrades and elytra!");
             }
 
         } catch (NumberFormatException ex) {
@@ -368,6 +321,13 @@ public class VendorCommand implements CommandExecutor, TabCompleter {
             String vendorId = args[1];
             String vendorType = args[2].toLowerCase();
 
+            // Validate vendor type
+            if (!VENDOR_TYPES.contains(vendorType)) {
+                player.sendMessage(ChatColor.RED + "Unknown vendor type: " + vendorType);
+                player.sendMessage(ChatColor.RED + "Use /vendor types to see available vendor types");
+                return true;
+            }
+
             // Extract display name
             String displayName = extractQuotedString(args, 3);
             if (displayName == null) {
@@ -375,52 +335,31 @@ public class VendorCommand implements CommandExecutor, TabCompleter {
                 return true;
             }
 
-            // Create an empty list for hologram lines (we won't use them)
-            List<String> lines = new ArrayList<>();
-
             // Get player's location
             Location location = player.getLocation();
 
-            // Determine the behavior class based on vendor type
-            String behaviorClass = determineBehaviorClass(vendorType);
-            if (behaviorClass == null) {
-                player.sendMessage(ChatColor.RED + "Unknown vendor type: " + vendorType);
-                player.sendMessage(ChatColor.RED + "Use /vendor types to see available vendor types");
+            // Create vendor using VendorManager
+            boolean success = vendorManager.createVendor(vendorId, vendorType, displayName, location);
+
+            if (!success) {
+                player.sendMessage(ChatColor.RED + "Failed to create vendor. A vendor with ID '" + vendorId + "' may already exist.");
                 return true;
             }
 
-            // Create NPC with display name
-            NPC npc = CitizensAPI.getNPCRegistry().createNPC(
-                    org.bukkit.entity.EntityType.PLAYER,
-                    displayName
-            );
+            // Get the created vendor for confirmation
+            Vendor vendor = vendorManager.getVendor(vendorId);
 
-            // Spawn the NPC at player's location
-            npc.spawn(location);
-
-            // Create vendor object
-            Vendor vendor = new Vendor(
-                    vendorId,
-                    npc.getId(),
-                    location,
-                    lines,
-                    behaviorClass
-            );
-
-            // Register the vendor in the manager
-            vendorManager.registerVendor(vendor);
-
-            // Save to config
-            vendorManager.saveVendorsToConfig();
-
-            // Update aura for the new vendor
-            if (auraManager != null) {
-                auraManager.updateVendorAura(vendor);
+            if (vendor != null) {
                 player.sendMessage(ChatColor.GREEN + "Created " + vendorType + " vendor with ID '" + vendorId +
-                        "' and display name '" + displayName + "' at your location with aura effects");
+                        "' and display name '" + displayName + "' at your location");
             } else {
                 player.sendMessage(ChatColor.GREEN + "Created " + vendorType + " vendor with ID '" + vendorId +
-                        "' and display name '" + displayName + "' at your location" + ChatColor.YELLOW + " (aura not active)");
+                        "' and display name '" + displayName + "' at your location");
+            }
+
+            // Special message for mount vendors
+            if ("mount".equals(vendorType)) {
+                player.sendMessage(ChatColor.YELLOW + "Mount vendor ready to sell horse upgrades and elytra!");
             }
 
         } catch (Exception e) {
@@ -437,9 +376,9 @@ public class VendorCommand implements CommandExecutor, TabCompleter {
      */
     private boolean handleRenameCommand(CommandSender sender, String[] args) {
         String vendorId = args[1];
-        Vendor v = vendorManager.getVendor(vendorId);
+        Vendor vendor = vendorManager.getVendor(vendorId);
 
-        if (v == null) {
+        if (vendor == null) {
             sender.sendMessage(ChatColor.RED + "No vendor found with ID " + vendorId);
             return true;
         }
@@ -452,50 +391,12 @@ public class VendorCommand implements CommandExecutor, TabCompleter {
         }
 
         // Update the NPC name
-        NPC npc = CitizensAPI.getNPCRegistry().getById(v.getNpcId());
+        NPC npc = CitizensAPI.getNPCRegistry().getById(vendor.getNpcId());
         if (npc != null) {
             npc.setName(newName);
-
-            // Update aura if needed
-            if (auraManager != null) {
-                auraManager.updateVendorAura(v);
-                sender.sendMessage(ChatColor.GREEN + "Renamed vendor " + vendorId + " to '" + newName + "' and refreshed aura");
-            } else {
-                sender.sendMessage(ChatColor.GREEN + "Renamed vendor " + vendorId + " to '" + newName + "'");
-            }
+            sender.sendMessage(ChatColor.GREEN + "Renamed vendor " + vendorId + " to '" + newName + "'");
         } else {
             sender.sendMessage(ChatColor.RED + "Failed to find the NPC for vendor " + vendorId);
-        }
-
-        return true;
-    }
-
-    /**
-     * Handle the behavior subcommand
-     */
-    private boolean handleBehaviorCommand(CommandSender sender, String[] args) {
-        String vendorId = args[1];
-        Vendor v = vendorManager.getVendor(vendorId);
-
-        if (v == null) {
-            sender.sendMessage(ChatColor.RED + "No vendor found with ID " + vendorId);
-            return true;
-        }
-
-        String oldType = v.getVendorType();
-        String behaviorClass = args[2];
-        v.setBehaviorClass(behaviorClass);
-        vendorManager.saveVendorsToConfig();
-
-        String newType = v.getVendorType();
-
-        // If vendor type changed, update the aura
-        if (!oldType.equals(newType) && auraManager != null) {
-            auraManager.updateVendorAura(v);
-            sender.sendMessage(ChatColor.GREEN + "Set vendor " + vendorId +
-                    " to use behavior '" + behaviorClass + "' and updated aura from " + oldType + " to " + newType);
-        } else {
-            sender.sendMessage(ChatColor.GREEN + "Set vendor " + vendorId + " to use behavior '" + behaviorClass + "'");
         }
 
         return true;
@@ -521,7 +422,11 @@ public class VendorCommand implements CommandExecutor, TabCompleter {
      * Handle the list subcommand
      */
     private boolean handleListCommand(CommandSender sender, String[] args) {
-        Map<String, Vendor> vendors = vendorManager.getVendors();
+        Collection<Vendor> allVendors = vendorManager.getAllVendors();
+
+        // Convert to map for easier filtering
+        Map<String, Vendor> vendors = allVendors.stream()
+                .collect(Collectors.toMap(Vendor::getId, v -> v));
 
         // Filter by type if specified
         if (args.length > 1) {
@@ -544,10 +449,9 @@ public class VendorCommand implements CommandExecutor, TabCompleter {
 
             // Sort vendors by ID for consistent display
             List<Vendor> sortedVendors = new ArrayList<>(vendors.values());
-            sortedVendors.sort(Comparator.comparing(Vendor::getVendorId));
+            sortedVendors.sort(Comparator.comparing(Vendor::getId));
 
             for (Vendor v : sortedVendors) {
-                String behaviorName = v.getBehaviorClass().substring(v.getBehaviorClass().lastIndexOf('.') + 1);
                 String locationInfo = String.format("(%.1f, %.1f, %.1f, %s)",
                         v.getLocation().getX(),
                         v.getLocation().getY(),
@@ -558,11 +462,10 @@ public class VendorCommand implements CommandExecutor, TabCompleter {
                 NPC npc = CitizensAPI.getNPCRegistry().getById(v.getNpcId());
                 String displayName = npc != null ? npc.getName() : "Unknown";
 
-                sender.sendMessage(ChatColor.AQUA + " - " + v.getVendorId() + ChatColor.GRAY
+                sender.sendMessage(ChatColor.AQUA + " - " + v.getId() + ChatColor.GRAY
                         + " [" + v.getVendorType() + "] "
                         + "'" + displayName + "' "
-                        + locationInfo + " "
-                        + ChatColor.DARK_GRAY + behaviorName);
+                        + locationInfo);
             }
         }
 
@@ -570,7 +473,7 @@ public class VendorCommand implements CommandExecutor, TabCompleter {
     }
 
     /**
-     * Handle the types subcommand
+     * Handle the types subcommand -  with mount vendor description
      */
     private boolean handleTypesCommand(CommandSender sender) {
         sender.sendMessage(ChatColor.GREEN + "Available vendor types:");
@@ -582,6 +485,7 @@ public class VendorCommand implements CommandExecutor, TabCompleter {
         sender.sendMessage(ChatColor.AQUA + " - medic: " + ChatColor.GRAY + "Heals players");
         sender.sendMessage(ChatColor.AQUA + " - shop: " + ChatColor.GRAY + "Generic shop (custom behavior)");
         sender.sendMessage(ChatColor.AQUA + " - gambler: " + ChatColor.GRAY + "Runs gambling games");
+        sender.sendMessage(ChatColor.AQUA + " - mount: " + ChatColor.GRAY + "Sells horse tier upgrades and elytra mounts");
 
         return true;
     }
@@ -620,66 +524,11 @@ public class VendorCommand implements CommandExecutor, TabCompleter {
     }
 
     /**
-     * Handle the refresh command for a single vendor
-     */
-    private boolean handleRefreshCommand(CommandSender sender, String vendorId) {
-        Vendor vendor = vendorManager.getVendor(vendorId);
-
-        if (vendor == null) {
-            sender.sendMessage(ChatColor.RED + "No vendor found with ID " + vendorId);
-            return true;
-        }
-
-        if (auraManager != null) {
-            auraManager.updateVendorAura(vendor);
-            sender.sendMessage(ChatColor.GREEN + "Refreshed aura effects for vendor " + vendorId);
-        } else {
-            sender.sendMessage(ChatColor.RED + "Aura manager is not available. Cannot refresh aura effects.");
-        }
-
-        return true;
-    }
-
-    /**
-     * Handle the refresh command for all vendors
-     */
-    private boolean handleRefreshAllCommand(CommandSender sender) {
-        if (auraManager == null) {
-            sender.sendMessage(ChatColor.RED + "Aura manager is not available. Cannot refresh aura effects.");
-            return true;
-        }
-
-        try {
-            auraManager.stopAllAuras();
-            auraManager.startAllAuras();
-            sender.sendMessage(ChatColor.GREEN + "Refreshed aura effects for all vendors");
-        } catch (Exception e) {
-            sender.sendMessage(ChatColor.RED + "Error refreshing aura effects: " + e.getMessage());
-        }
-
-        return true;
-    }
-
-    /**
      * Handle the reload command to reload the vendor system
      */
     private boolean handleReloadCommand(CommandSender sender) {
         try {
-            // Stop auras first
-            if (auraManager != null) {
-                auraManager.stopAllAuras();
-            }
 
-            // Reload vendor manager
-            vendorManager.reload();
-
-            // Restart auras
-            if (auraManager != null) {
-                auraManager.startAllAuras();
-                sender.sendMessage(ChatColor.GREEN + "Vendor system reloaded successfully with aura effects");
-            } else {
-                sender.sendMessage(ChatColor.GREEN + "Vendor system reloaded successfully, but aura effects are not available");
-            }
         } catch (Exception e) {
             sender.sendMessage(ChatColor.RED + "Error reloading vendor system: " + e.getMessage());
             plugin.getLogger().severe("Error reloading vendor system: " + e.getMessage());
@@ -690,15 +539,17 @@ public class VendorCommand implements CommandExecutor, TabCompleter {
     }
 
     /**
-     * Handle the stats command to show system statistics
+     * Handle the stats command to show system statistics with mount data
      */
     private boolean handleStatsCommand(CommandSender sender) {
         sender.sendMessage(ChatColor.GOLD + "==== Vendor System Statistics ====");
-        sender.sendMessage(ChatColor.YELLOW + "Total vendors: " + ChatColor.WHITE + vendorManager.getVendors().size());
+
+        Collection<Vendor> allVendors = vendorManager.getAllVendors();
+        sender.sendMessage(ChatColor.YELLOW + "Total vendors: " + ChatColor.WHITE + allVendors.size());
 
         // Count vendors by type
         Map<String, Integer> vendorsByType = new HashMap<>();
-        for (Vendor vendor : vendorManager.getVendors().values()) {
+        for (Vendor vendor : allVendors) {
             String type = vendor.getVendorType().toLowerCase();
             vendorsByType.put(type, vendorsByType.getOrDefault(type, 0) + 1);
         }
@@ -708,69 +559,9 @@ public class VendorCommand implements CommandExecutor, TabCompleter {
             sender.sendMessage(ChatColor.GRAY + " - " + entry.getKey() + ": " + ChatColor.WHITE + entry.getValue());
         }
 
-        // Aura system stats if available
-        if (auraManager != null) {
-            Map<String, Object> auraStats = auraManager.getAuraStats();
-
-            sender.sendMessage(ChatColor.YELLOW + "Aura system: " + ChatColor.GREEN + "ACTIVE");
-            sender.sendMessage(ChatColor.YELLOW + "Active auras: " + ChatColor.WHITE + auraStats.get("activeVendorAuras"));
-            sender.sendMessage(ChatColor.YELLOW + "Display entities: " + ChatColor.WHITE + auraStats.get("totalDisplayEntities"));
-            sender.sendMessage(ChatColor.YELLOW + "Render distance: " + ChatColor.WHITE + auraStats.get("renderDistance"));
-            sender.sendMessage(ChatColor.YELLOW + "Effect density: " + ChatColor.WHITE + auraStats.get("effectDensity"));
-
-            boolean particlesEnabled = (boolean) auraStats.get("particlesEnabled");
-            boolean displaysEnabled = (boolean) auraStats.get("displayEntitiesEnabled");
-            boolean soundsEnabled = (boolean) auraStats.get("soundsEnabled");
-
-            sender.sendMessage(ChatColor.YELLOW + "Particles: " + (particlesEnabled ? ChatColor.GREEN + "ENABLED" : ChatColor.RED + "DISABLED"));
-            sender.sendMessage(ChatColor.YELLOW + "Displays: " + (displaysEnabled ? ChatColor.GREEN + "ENABLED" : ChatColor.RED + "DISABLED"));
-            sender.sendMessage(ChatColor.YELLOW + "Sounds: " + (soundsEnabled ? ChatColor.GREEN + "ENABLED" : ChatColor.RED + "DISABLED"));
-        } else {
-            sender.sendMessage(ChatColor.YELLOW + "Aura system: " + ChatColor.RED + "INACTIVE");
-        }
-
-        // Get vendor manager metrics if available
-        try {
-            Map<String, Object> metrics = vendorManager.getMetrics();
-            if (metrics != null && !metrics.isEmpty()) {
-                sender.sendMessage(ChatColor.YELLOW + "Metrics:");
-                for (Map.Entry<String, Object> entry : metrics.entrySet()) {
-                    if (!entry.getKey().startsWith("aura")) { // Skip aura stats, we already showed those
-                        sender.sendMessage(ChatColor.GRAY + " - " + entry.getKey() + ": " + ChatColor.WHITE + entry.getValue());
-                    }
-                }
-            }
-        } catch (Exception ignored) {}
+        sender.sendMessage(ChatColor.YELLOW + "Aura system: " + ChatColor.RED + "INACTIVE");
 
         return true;
-    }
-
-    /**
-     * Determine the behavior class based on vendor type
-     */
-    private String determineBehaviorClass(String vendorType) {
-        String basePackage = "com.rednetty.server.mechanics.economy.vendors.behaviors.";
-
-        switch (vendorType.toLowerCase()) {
-            case "item":
-                return basePackage + "ItemVendorBehavior";
-            case "fisherman":
-                return basePackage + "FishermanBehavior";
-            case "book":
-                return basePackage + "BookVendorBehavior";
-            case "upgrade":
-                return basePackage + "UpgradeVendorBehavior";
-            case "banker":
-                return basePackage + "BankerBehavior";
-            case "medic":
-                return basePackage + "MedicBehavior";
-            case "shop":
-                return basePackage + "ShopBehavior";
-            case "gambler":
-                return basePackage + "GamblerBehavior";
-            default:
-                return null;
-        }
     }
 
     /**
@@ -793,9 +584,6 @@ public class VendorCommand implements CommandExecutor, TabCompleter {
                         break;
                     case "rename":
                         sender.sendMessage(ChatColor.AQUA + "/vendor rename <id> <\"new name\">");
-                        break;
-                    case "behavior":
-                        sender.sendMessage(ChatColor.AQUA + "/vendor behavior <id> <behaviorClass>");
                         break;
                     case "delete":
                         sender.sendMessage(ChatColor.AQUA + "/vendor delete <id>");
@@ -824,6 +612,12 @@ public class VendorCommand implements CommandExecutor, TabCompleter {
                 }
             }
         }
+
+        sender.sendMessage("");
+        sender.sendMessage(ChatColor.YELLOW + "Examples:");
+        sender.sendMessage(ChatColor.GRAY + "/vendor createat mount_vendor mount \"Stable Master\"");
+        sender.sendMessage(ChatColor.GRAY + "/vendor list mount");
+        sender.sendMessage(ChatColor.GRAY + "/vendor create horse_stable mount \"Horse Trainer\" world 100 64 200");
     }
 
     @Override
@@ -838,13 +632,16 @@ public class VendorCommand implements CommandExecutor, TabCompleter {
 
             switch (subCommand) {
                 case "delete":
-                case "behavior":
                 case "find":
                 case "rename":
                 case "refresh":
                     // Suggest vendor IDs
                     if (args.length == 2) {
-                        StringUtil.copyPartialMatches(args[1], vendorManager.getVendors().keySet(), completions);
+                        Collection<Vendor> vendors = vendorManager.getAllVendors();
+                        List<String> vendorIds = vendors.stream()
+                                .map(Vendor::getId)
+                                .collect(Collectors.toList());
+                        StringUtil.copyPartialMatches(args[1], vendorIds, completions);
                     }
                     break;
 

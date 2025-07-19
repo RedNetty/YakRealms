@@ -1,65 +1,50 @@
 package com.rednetty.server.mechanics.economy.vendors.utils;
 
 import org.bukkit.ChatColor;
-import org.bukkit.Location;
 import org.bukkit.Material;
-import org.bukkit.World;
-import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
-import org.bukkit.plugin.java.JavaPlugin;
 
 import java.text.DecimalFormat;
-import java.text.SimpleDateFormat;
-import java.util.*;
-import java.util.concurrent.TimeUnit;
-import java.util.logging.Level;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Centralized utility class for vendor system operations.
- * Reduces code duplication and provides common functionality across all vendor components.
+ * FIXED vendor utilities with proper item cleaning that removes ALL vendor-added content
+ * Players receive the exact same items that the original item classes generate
  */
 public class VendorUtils {
+    //  price patterns to catch various formats
+    private static final Pattern PRICE_PATTERN = Pattern.compile("Price:\\s*([\\d,]+)\\s*g?", Pattern.CASE_INSENSITIVE);
+    private static final Pattern COST_PATTERN = Pattern.compile("Cost:\\s*([\\d,]+)\\s*g?", Pattern.CASE_INSENSITIVE);
+    private static final Pattern GEMS_PATTERN = Pattern.compile("([\\d,]+)\\s*gems?", Pattern.CASE_INSENSITIVE);
 
-    // Constants for price handling
-    public static final String PRICE_PREFIX = "Price: ";
-    public static final String PRICE_SUFFIX = "g";
-    // Enhanced regex patterns for comprehensive lore cleaning
-    public static final Pattern PRICE_PATTERN = Pattern.compile("Price:\\s*([\\d,]+)g?", Pattern.CASE_INSENSITIVE);
-    public static final Pattern COST_PATTERN = Pattern.compile("Cost:\\s*([\\d,]+)g?", Pattern.CASE_INSENSITIVE);
+    //  number formatting
+    private static final DecimalFormat NUMBER_FORMAT = new DecimalFormat("#,###");
+    private static final DecimalFormat LARGE_NUMBER_FORMAT = new DecimalFormat("#,###.#");
 
-    // Vendor lore markers and separators
-    private static final String VENDOR_SEPARATOR = "▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬";
-    private static final List<String> VENDOR_KEYWORDS = Arrays.asList(
-            "click to purchase", "left-click", "right-click", "shift-click",
-            "quick buy", "shop info", "description:", "price:", "cost:",
-            "gems", "currency", "purchase", "buy", "vendor",
-            "click to purchase!", "shift-click for quick buy"
-    );
-
-    // Formatters (thread-safe)
-    private static final DecimalFormat DECIMAL_FORMAT = new DecimalFormat("#,###.##");
-    private static final SimpleDateFormat DATE_FORMAT = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
-    private static final SimpleDateFormat TIME_FORMAT = new SimpleDateFormat("HH:mm:ss");
-
-    // Color schemes for different vendor types
-    private static final Map<String, ChatColor> VENDOR_TYPE_COLORS = new HashMap<>();
-
-    static {
-        VENDOR_TYPE_COLORS.put("item", ChatColor.YELLOW);
-        VENDOR_TYPE_COLORS.put("fisherman", ChatColor.AQUA);
-        VENDOR_TYPE_COLORS.put("book", ChatColor.LIGHT_PURPLE);
-        VENDOR_TYPE_COLORS.put("upgrade", ChatColor.GREEN);
-        VENDOR_TYPE_COLORS.put("banker", ChatColor.GOLD);
-        VENDOR_TYPE_COLORS.put("medic", ChatColor.RED);
-        VENDOR_TYPE_COLORS.put("gambler", ChatColor.GOLD);
-        VENDOR_TYPE_COLORS.put("default", ChatColor.GRAY);
-    }
+    //  More comprehensive vendor-specific lore patterns to remove
+    private static final String[] VENDOR_LORE_PATTERNS = {
+            "click to purchase",
+            "click to buy",
+            "price:",
+            "cost:",
+            "gems",
+            "available for purchase",
+            "buy now",
+            "purchase this item",
+            "vendor item",
+            "for sale",
+            "description:", // ADDED: Remove vendor-added descriptions
+            "click on a", // ADDED: Remove vendor instruction text
+            "▶", "▷", "►", // ADDED: Remove vendor arrows/symbols
+            "💰", "🛒", "📦", "✨", "🌟", "⚠", "📖", "📚" // ADDED: Remove vendor emojis
+    };
 
     /**
-     * Extract price from an item's lore with enhanced parsing that handles comma-formatted numbers
+     * Extract price from item lore with multiple pattern support
      */
     public static int extractPriceFromLore(ItemStack item) {
         if (item == null || !item.hasItemMeta() || !item.getItemMeta().hasLore()) {
@@ -67,26 +52,38 @@ public class VendorUtils {
         }
 
         List<String> lore = item.getItemMeta().getLore();
+
+        // Try multiple patterns in order of preference
         for (String line : lore) {
-            String cleanLine = ChatColor.stripColor(line).trim();
+            String cleaned = ChatColor.stripColor(line).trim();
 
-            // Check both price and cost patterns
-            Matcher priceMatcher = PRICE_PATTERN.matcher(cleanLine);
-            Matcher costMatcher = COST_PATTERN.matcher(cleanLine);
-
+            // Try primary price pattern
+            Matcher priceMatcher = PRICE_PATTERN.matcher(cleaned);
             if (priceMatcher.find()) {
                 try {
-                    String numberStr = priceMatcher.group(1).replace(",", "");
-                    return Integer.parseInt(numberStr);
+                    return Integer.parseInt(priceMatcher.group(1).replace(",", ""));
                 } catch (NumberFormatException e) {
-                    // Continue searching other lines
+                    // Continue to next pattern
                 }
-            } else if (costMatcher.find()) {
+            }
+
+            // Try cost pattern
+            Matcher costMatcher = COST_PATTERN.matcher(cleaned);
+            if (costMatcher.find()) {
                 try {
-                    String numberStr = costMatcher.group(1).replace(",", "");
-                    return Integer.parseInt(numberStr);
+                    return Integer.parseInt(costMatcher.group(1).replace(",", ""));
                 } catch (NumberFormatException e) {
-                    // Continue searching other lines
+                    // Continue to next pattern
+                }
+            }
+
+            // Try gems pattern (for mount vendor, etc.)
+            Matcher gemsMatcher = GEMS_PATTERN.matcher(cleaned);
+            if (gemsMatcher.find()) {
+                try {
+                    return Integer.parseInt(gemsMatcher.group(1).replace(",", ""));
+                } catch (NumberFormatException e) {
+                    // Continue searching
                 }
             }
         }
@@ -95,756 +92,315 @@ public class VendorUtils {
     }
 
     /**
-     * Add or update price in item lore with consistent formatting
+     * Add price to item with consistent, beautiful formatting
      */
     public static ItemStack addPriceToItem(ItemStack item, int price) {
         if (item == null) return null;
 
-        ItemStack newItem = item.clone();
-        ItemMeta meta = newItem.getItemMeta();
-        if (meta == null) return newItem;
+        ItemStack priced = item.clone();
+        ItemMeta meta = priced.getItemMeta();
+        if (meta == null) return priced;
 
         List<String> lore = meta.hasLore() ? new ArrayList<>(meta.getLore()) : new ArrayList<>();
 
-        // Remove any existing vendor lore first to prevent duplicates
+        // Remove any existing price lore first (in case of re-pricing)
         lore = cleanVendorLoreFromList(lore);
 
-        // Add vendor section with proper formatting
+        // Add beautiful price section with consistent formatting
         lore.add("");
-        lore.add(ChatColor.GRAY + VENDOR_SEPARATOR);
-        lore.add(ChatColor.GREEN + PRICE_PREFIX + ChatColor.WHITE + formatNumber(price) + PRICE_SUFFIX);
-        lore.add(ChatColor.YELLOW + "⚡ Left-click to purchase");
-        lore.add(ChatColor.GRAY + "⚡ Shift-click for quick buy");
-        lore.add(ChatColor.GRAY + VENDOR_SEPARATOR);
+        lore.add(ChatColor.GOLD + "▶ " + ChatColor.GREEN + "Price: " + ChatColor.WHITE + formatCurrency(price));
+        lore.add(ChatColor.YELLOW + "▶ " + ChatColor.GRAY + "Click to purchase!");
 
         meta.setLore(lore);
-        newItem.setItemMeta(meta);
-        return newItem;
+        priced.setItemMeta(meta);
+        return priced;
     }
 
     /**
-     * Comprehensively remove all vendor-added lore from an item
-     * This is the main method that should be used when purchasing items
+     *  Create vendor display item with description (for display only)
+     * This should ONLY be used for vendor menu display, never for the actual item given to players
      */
-    public static ItemStack removePriceFromItem(ItemStack item) {
-        if (item == null) return null;
+    public static ItemStack createVendorDisplayItem(ItemStack originalItem, int price, String description) {
+        if (originalItem == null) return null;
 
-        ItemStack cleanItem = item.clone();
-        ItemMeta meta = cleanItem.getItemMeta();
+        ItemStack displayItem = originalItem.clone();
+        ItemMeta meta = displayItem.getItemMeta();
 
-        if (meta == null || !meta.hasLore()) {
-            return cleanItem;
+        if (meta != null && description != null && !description.trim().isEmpty()) {
+            List<String> lore = meta.hasLore() ? new ArrayList<>(meta.getLore()) : new ArrayList<>();
+
+            // Add description section for display
+            lore.add("");
+            lore.add(ChatColor.YELLOW + "Description:");
+
+            // Handle multi-line descriptions
+            String[] descLines = description.split("\n");
+            for (String line : descLines) {
+                lore.add(ChatColor.GRAY + line.trim());
+            }
+
+            meta.setLore(lore);
+            displayItem.setItemMeta(meta);
+        }
+
+        // Add price using the  method
+        return addPriceToItem(displayItem, price);
+    }
+
+    /**
+     * Get the original clean item - this should return the exact item from the original generators
+     * This method should be used to get the item that players actually receive
+     */
+    public static ItemStack getOriginalCleanItem(ItemStack vendorDisplayItem) {
+        // For vendor items, we should not try to "clean" them, but rather return the original
+        // The vendor menus should store references to the original clean items
+        // This method is a fallback that tries to clean as much as possible
+        return removeAllVendorContent(vendorDisplayItem);
+    }
+
+    /**
+     * Completely remove ALL vendor-added content
+     */
+    private static ItemStack removeAllVendorContent(ItemStack item) {
+        if (item == null || !item.hasItemMeta()) {
+            return item;
+        }
+
+        ItemStack clean = item.clone();
+        ItemMeta meta = clean.getItemMeta();
+
+        if (!meta.hasLore()) {
+            return clean;
         }
 
         List<String> originalLore = meta.getLore();
-        List<String> cleanedLore = cleanVendorLoreFromList(originalLore);
+        List<String> cleanedLore = completelyCleanVendorLore(originalLore);
 
-        // Update item meta with cleaned lore
-        if (cleanedLore.isEmpty()) {
-            meta.setLore(null);
-        } else {
-            meta.setLore(cleanedLore);
-        }
-
-        cleanItem.setItemMeta(meta);
-        return cleanItem;
+        // Set cleaned lore (null if empty to prevent empty lore sections)
+        meta.setLore(cleanedLore.isEmpty() ? null : cleanedLore);
+        clean.setItemMeta(meta);
+        return clean;
     }
 
     /**
-     * Clean vendor lore from a lore list with comprehensive vendor content detection
+     *  Completely clean vendor-specific lore from a lore list
+     * This removes ALL vendor-added content including descriptions, prices, instructions, etc.
      */
-    private static List<String> cleanVendorLoreFromList(List<String> originalLore) {
-        if (originalLore == null || originalLore.isEmpty()) {
+    private static List<String> completelyCleanVendorLore(List<String> lore) {
+        if (lore == null || lore.isEmpty()) {
             return new ArrayList<>();
         }
 
         List<String> cleanedLore = new ArrayList<>();
         boolean inVendorSection = false;
-        boolean inDescriptionSection = false;
-        int vendorSectionStart = -1;
+        boolean skipNextEmpty = false;
 
-        for (int i = 0; i < originalLore.size(); i++) {
-            String line = originalLore.get(i);
-            String strippedLine = ChatColor.stripColor(line).trim().toLowerCase();
+        for (int i = 0; i < lore.size(); i++) {
+            String line = lore.get(i);
+            String stripped = ChatColor.stripColor(line).toLowerCase().trim();
 
-            // Check for vendor section markers (separators)
-            if (line.contains(VENDOR_SEPARATOR)) {
-                if (!inVendorSection) {
-                    // Start of vendor section found
+            // Check if this line is vendor-related
+            boolean isVendorLine = false;
+            for (String pattern : VENDOR_LORE_PATTERNS) {
+                if (stripped.contains(pattern)) {
+                    isVendorLine = true;
                     inVendorSection = true;
-                    vendorSectionStart = i;
-
-                    // Check if there's an empty line immediately before this separator
-                    // that was added by the vendor system
-                    if (vendorSectionStart > 0) {
-                        int previousLineIndex = vendorSectionStart - 1;
-                        String previousLine = originalLore.get(previousLineIndex);
-
-                        // If the previous line is empty and we haven't already added it to cleaned lore,
-                        // or if it's the last thing we added and it's empty, it's likely vendor-added
-                        if (isEmptyLine(previousLine)) {
-                            // Remove the empty line if it was the last thing added to cleanedLore
-                            if (!cleanedLore.isEmpty() &&
-                                    isEmptyLine(cleanedLore.get(cleanedLore.size() - 1))) {
-                                cleanedLore.remove(cleanedLore.size() - 1);
-                            }
-                        }
-                    }
-                } else {
-                    // End of vendor section
-                    inVendorSection = false;
-                    vendorSectionStart = -1;
+                    skipNextEmpty = true;
+                    break;
                 }
-                continue; // Skip the separator line itself
             }
 
-            // Check for ItemVendorMenu description section start
-            if (strippedLine.equals("description:") &&
-                    line.startsWith(ChatColor.YELLOW.toString())) {
-                inDescriptionSection = true;
-
-                // Remove empty line before description if it exists
-                if (!cleanedLore.isEmpty() && isEmptyLine(cleanedLore.get(cleanedLore.size() - 1))) {
-                    cleanedLore.remove(cleanedLore.size() - 1);
+            // Check for vendor-specific formatting patterns
+            if (!isVendorLine) {
+                // Check for lines that start with vendor symbols
+                if (stripped.startsWith("▶") || stripped.startsWith("▷") || stripped.startsWith("►")) {
+                    isVendorLine = true;
+                    inVendorSection = true;
+                    skipNextEmpty = true;
                 }
-                continue; // Skip the "Description:" line
+
+                // Check for lines with vendor emojis
+                if (line.contains("💰") || line.contains("🛒") || line.contains("📦") ||
+                        line.contains("✨") || line.contains("🌟") || line.contains("⚠") ||
+                        line.contains("📖") || line.contains("📚")) {
+                    isVendorLine = true;
+                    inVendorSection = true;
+                    skipNextEmpty = true;
+                }
             }
 
-            // Skip content inside vendor separator sections
-            if (inVendorSection) {
+            // Skip vendor lines
+            if (isVendorLine) {
                 continue;
             }
 
-            // Handle description section content
-            if (inDescriptionSection) {
-                // Check if this line ends the description section
-                if (strippedLine.contains("click to purchase") ||
-                        strippedLine.contains("shift-click") ||
-                        strippedLine.contains("quick buy") ||
-                        isEmptyLine(line)) {
-
-                    // If it's an empty line, check what comes next
-                    if (isEmptyLine(line)) {
-                        // Look ahead to see if vendor content follows
-                        if (i + 1 < originalLore.size()) {
-                            String nextLine = ChatColor.stripColor(originalLore.get(i + 1)).trim().toLowerCase();
-                            if (nextLine.contains("click to purchase") ||
-                                    nextLine.contains("shift-click") ||
-                                    nextLine.contains("quick buy")) {
-                                // This empty line is part of vendor section, skip it
-                                continue;
-                            }
-                        }
-                        // If no vendor content follows, this might be original lore
-                        inDescriptionSection = false;
-                        cleanedLore.add(line);
-                        continue;
-                    }
-
-                    // This is a vendor action line, skip it but check if description section continues
-                    if (strippedLine.contains("click to purchase")) {
-                        // Look ahead for more vendor lines
-                        continue;
-                    } else if (strippedLine.contains("shift-click") || strippedLine.contains("quick buy")) {
-                        // End of description section
-                        inDescriptionSection = false;
-                        continue;
-                    }
-                } else {
-                    // This is the description text itself, skip it
+            // Handle empty lines
+            if (stripped.isEmpty() || line.trim().isEmpty()) {
+                if (skipNextEmpty || inVendorSection) {
+                    skipNextEmpty = false;
+                    inVendorSection = false;
                     continue;
+                } else {
+                    // Keep empty lines that are part of original item lore
+                    cleanedLore.add(line);
                 }
+                continue;
             }
 
-            // Check for standalone vendor-related lines outside of separator sections
-            boolean isVendorLine = isVendorRelatedLine(strippedLine, line);
-
-            // If this is a vendor line outside of a separator section,
-            // also check if we should remove a preceding empty line
-            if (isVendorLine && !cleanedLore.isEmpty()) {
-                String lastAddedLine = cleanedLore.get(cleanedLore.size() - 1);
-                if (isEmptyLine(lastAddedLine)) {
-                    // Check if this empty line is likely vendor-added by looking ahead
-                    // If the next few lines are also vendor-related, the empty line was probably vendor-added
-                    if (isFollowedByVendorContent(originalLore, i)) {
-                        cleanedLore.remove(cleanedLore.size() - 1);
-                    }
-                }
+            // If we hit a non-vendor, non-empty line, we're out of vendor section
+            if (inVendorSection) {
+                inVendorSection = false;
+                skipNextEmpty = false;
             }
 
             // Keep non-vendor lines
-            if (!isVendorLine) {
-                cleanedLore.add(line);
-            }
+            cleanedLore.add(line);
         }
 
-        // Final cleanup: remove trailing empty lines that might be vendor-added
-        // But be conservative - only remove if there are multiple trailing empty lines
-        cleanTrailingVendorEmptyLines(cleanedLore);
+        // Remove trailing empty lines
+        while (!cleanedLore.isEmpty() &&
+                (cleanedLore.get(cleanedLore.size() - 1).trim().isEmpty() ||
+                        ChatColor.stripColor(cleanedLore.get(cleanedLore.size() - 1)).trim().isEmpty())) {
+            cleanedLore.remove(cleanedLore.size() - 1);
+        }
 
         return cleanedLore;
     }
 
     /**
-     * Check if a line is empty (null, empty string, or only whitespace)
+     * LEGACY: Clean vendor lore (kept for backward compatibility)
      */
-    private static boolean isEmptyLine(String line) {
-        return line == null || line.trim().isEmpty() || line.equals("");
+    private static List<String> cleanVendorLoreFromList(List<String> lore) {
+        return completelyCleanVendorLore(lore);
     }
 
     /**
-     * Check if a line is vendor-related (enhanced detection)
+     *  Create completely clean item copy for giving to players
+     * This should ideally be replaced with direct references to original items
      */
-    private static boolean isVendorRelatedLine(String strippedLine, String originalLine) {
-        // Check against patterns
-        if (PRICE_PATTERN.matcher(strippedLine).find() ||
-                COST_PATTERN.matcher(strippedLine).find()) {
-            return true;
-        }
-
-        // Check against vendor keywords
-        for (String keyword : VENDOR_KEYWORDS) {
-            if (strippedLine.contains(keyword)) {
-                return true;
-            }
-        }
-
-        // Check for common vendor lore patterns
-        if (strippedLine.startsWith("⚡") ||
-                strippedLine.contains("click") ||
-                strippedLine.contains("purchase") ||
-                strippedLine.matches(".*\\d+g.*") ||  // Lines containing number + g
-                originalLine.startsWith(ChatColor.YELLOW.toString()) && strippedLine.contains("click")) {
-            return true;
-        }
-
-        // Check for ItemVendorMenu specific patterns
-        if (strippedLine.equals("description:") && originalLine.startsWith(ChatColor.YELLOW.toString())) {
-            return true;
-        }
-
-        // Check for purchase action lines
-        if (strippedLine.contains("click to purchase") ||
-                strippedLine.contains("left-click to purchase") ||
-                strippedLine.contains("shift-click for quick buy") ||
-                strippedLine.contains("quick buy")) {
-            return true;
-        }
-
-        // Check for lines that start with action symbols
-        if (originalLine.startsWith(ChatColor.GREEN.toString()) && strippedLine.contains("click") ||
-                originalLine.startsWith(ChatColor.GRAY.toString()) && strippedLine.contains("shift-click")) {
-            return true;
-        }
-
-        return false;
+    public static ItemStack createCleanItemCopy(ItemStack vendorItem) {
+        if (vendorItem == null) return null;
+        return getOriginalCleanItem(vendorItem);
     }
 
     /**
-     * Check if the current position is followed by vendor content (enhanced detection)
-     */
-    private static boolean isFollowedByVendorContent(List<String> lore, int currentIndex) {
-        int vendorLineCount = 0;
-        int totalLinesChecked = 0;
-        int maxLinesToCheck = Math.min(5, lore.size() - currentIndex);
-
-        for (int i = currentIndex; i < currentIndex + maxLinesToCheck && i < lore.size(); i++) {
-            String line = lore.get(i);
-            String strippedLine = ChatColor.stripColor(line).trim().toLowerCase();
-
-            if (isVendorRelatedLine(strippedLine, line) ||
-                    line.contains(VENDOR_SEPARATOR) ||
-                    strippedLine.equals("description:") ||
-                    strippedLine.contains("click to purchase") ||
-                    strippedLine.contains("shift-click")) {
-                vendorLineCount++;
-            }
-            totalLinesChecked++;
-        }
-
-        // If more than half of the following lines are vendor-related,
-        // the empty line was probably vendor-added
-        return totalLinesChecked > 0 && (vendorLineCount * 2) > totalLinesChecked;
-    }
-
-    /**
-     * Conservatively clean trailing empty lines that appear to be vendor-added
-     */
-    private static void cleanTrailingVendorEmptyLines(List<String> lore) {
-        if (lore.isEmpty()) return;
-
-        // Only remove trailing empty lines if there are multiple consecutive ones
-        // This helps preserve intentional single trailing empty lines
-        int trailingEmptyCount = 0;
-        int size = lore.size();
-
-        // Count trailing empty lines
-        for (int i = size - 1; i >= 0; i--) {
-            if (isEmptyLine(lore.get(i))) {
-                trailingEmptyCount++;
-            } else {
-                break;
-            }
-        }
-
-        // Only remove if there are 2+ trailing empty lines (likely vendor-added)
-        if (trailingEmptyCount >= 2) {
-            // Remove all but one trailing empty line
-            for (int i = 0; i < trailingEmptyCount - 1; i++) {
-                if (!lore.isEmpty()) {
-                    lore.remove(lore.size() - 1);
-                }
-            }
-        }
-    }
-
-    /**
-     * Create a standardized separator item for inventories
-     */
-    public static ItemStack createSeparator(Material material, String name) {
-        ItemStack separator = new ItemStack(material);
-        ItemMeta meta = separator.getItemMeta();
-        if (meta != null) {
-            meta.setDisplayName(name != null ? name : " ");
-            separator.setItemMeta(meta);
-        }
-        return separator;
-    }
-
-    /**
-     * Create colored glass pane separator
-     */
-    public static ItemStack createColoredSeparator(ChatColor color, String name) {
-        Material glassType = getGlassPaneForColor(color);
-        ItemStack separator = new ItemStack(glassType);
-        ItemMeta meta = separator.getItemMeta();
-        if (meta != null) {
-            meta.setDisplayName(color + (name != null ? name : " "));
-            separator.setItemMeta(meta);
-        }
-        return separator;
-    }
-
-    /**
-     * Get appropriate glass pane material for color
-     */
-    private static Material getGlassPaneForColor(ChatColor color) {
-        switch (color) {
-            case RED: return Material.RED_STAINED_GLASS_PANE;
-            case BLUE: return Material.BLUE_STAINED_GLASS_PANE;
-            case GREEN: return Material.GREEN_STAINED_GLASS_PANE;
-            case YELLOW: return Material.YELLOW_STAINED_GLASS_PANE;
-            case LIGHT_PURPLE: return Material.MAGENTA_STAINED_GLASS_PANE;
-            case AQUA: return Material.LIGHT_BLUE_STAINED_GLASS_PANE;
-            case GOLD: return Material.ORANGE_STAINED_GLASS_PANE;
-            case DARK_PURPLE: return Material.PURPLE_STAINED_GLASS_PANE;
-            default: return Material.GRAY_STAINED_GLASS_PANE;
-        }
-    }
-
-    /**
-     * Get color for vendor type
-     */
-    public static ChatColor getVendorTypeColor(String vendorType) {
-        return VENDOR_TYPE_COLORS.getOrDefault(vendorType.toLowerCase(), ChatColor.GRAY);
-    }
-
-    /**
-     * Format numbers with commas for better readability
+     * : Format numbers with proper comma separation and size handling
      */
     public static String formatNumber(long number) {
-        return DECIMAL_FORMAT.format(number);
+        if (number >= 1000000) {
+            return LARGE_NUMBER_FORMAT.format(number / 1000000.0) + "M";
+        } else if (number >= 1000) {
+            return NUMBER_FORMAT.format(number);
+        } else {
+            return String.valueOf(number);
+        }
     }
 
     /**
-     * Format currency amounts
+     * : Format currency with proper styling
      */
     public static String formatCurrency(long amount) {
         return formatNumber(amount) + "g";
     }
 
     /**
-     * Format time duration in a human-readable way
+     * Format currency with color coding based on amount
      */
-    public static String formatDuration(long milliseconds) {
-        long seconds = TimeUnit.MILLISECONDS.toSeconds(milliseconds);
-        long minutes = TimeUnit.MILLISECONDS.toMinutes(milliseconds);
-        long hours = TimeUnit.MILLISECONDS.toHours(milliseconds);
-        long days = TimeUnit.MILLISECONDS.toDays(milliseconds);
+    public static String formatColoredCurrency(long amount) {
+        String formatted = formatCurrency(amount);
 
-        if (days > 0) {
-            return days + "d " + (hours % 24) + "h";
-        } else if (hours > 0) {
-            return hours + "h " + (minutes % 60) + "m";
-        } else if (minutes > 0) {
-            return minutes + "m " + (seconds % 60) + "s";
+        if (amount >= 1000000) {
+            return ChatColor.GOLD + formatted;
+        } else if (amount >= 100000) {
+            return ChatColor.YELLOW + formatted;
+        } else if (amount >= 10000) {
+            return ChatColor.GREEN + formatted;
+        } else if (amount >= 1000) {
+            return ChatColor.AQUA + formatted;
         } else {
-            return seconds + "s";
+            return ChatColor.WHITE + formatted;
         }
     }
 
     /**
-     * Format timestamp for logging
+     * Create a separator item for menus
      */
-    public static String formatTimestamp(long timestamp) {
-        return DATE_FORMAT.format(new Date(timestamp));
+    public static ItemStack createSeparator(Material material, String name) {
+        ItemStack separator = new ItemStack(material);
+        ItemMeta meta = separator.getItemMeta();
+        if (meta != null) {
+            meta.setDisplayName(name);
+            separator.setItemMeta(meta);
+        }
+        return separator;
     }
 
     /**
-     * Format time for display
+     * Capitalize first letter of each word
      */
-    public static String formatTime(long timestamp) {
-        return TIME_FORMAT.format(new Date(timestamp));
-    }
+    public static String capitalizeFirst(String str) {
+        if (str == null || str.isEmpty()) return str;
 
-    /**
-     * Validate location for vendor placement
-     */
-    public static boolean isValidVendorLocation(Location location) {
-        if (location == null || location.getWorld() == null) {
-            return false;
-        }
+        String[] words = str.toLowerCase().split("\\s+");
+        StringBuilder result = new StringBuilder();
 
-        // Check for reasonable coordinates
-        double x = location.getX();
-        double y = location.getY();
-        double z = location.getZ();
-
-        // Prevent extreme coordinates
-        if (Math.abs(x) > 30000000 || Math.abs(z) > 30000000) {
-            return false;
-        }
-
-        // Prevent placing vendors too high or too low
-        if (y < -100 || y > 1000) {
-            return false;
-        }
-
-        // Check if world is loaded
-        World world = location.getWorld();
-        if (!world.isChunkLoaded(location.getBlockX() >> 4, location.getBlockZ() >> 4)) {
-            return false;
-        }
-
-        return true;
-    }
-
-    /**
-     * Calculate distance between two locations safely
-     */
-    public static double safeDistance(Location loc1, Location loc2) {
-        if (loc1 == null || loc2 == null) {
-            return Double.MAX_VALUE;
-        }
-
-        if (!loc1.getWorld().equals(loc2.getWorld())) {
-            return Double.MAX_VALUE;
-        }
-
-        return loc1.distance(loc2);
-    }
-
-    /**
-     * Calculate squared distance for performance
-     */
-    public static double safeDistanceSquared(Location loc1, Location loc2) {
-        if (loc1 == null || loc2 == null) {
-            return Double.MAX_VALUE;
-        }
-
-        if (!loc1.getWorld().equals(loc2.getWorld())) {
-            return Double.MAX_VALUE;
-        }
-
-        return loc1.distanceSquared(loc2);
-    }
-
-    /**
-     * Check if player is within range of location
-     */
-    public static boolean isPlayerInRange(Player player, Location location, double range) {
-        if (player == null || !player.isOnline()) {
-            return false;
-        }
-
-        return safeDistanceSquared(player.getLocation(), location) <= range * range;
-    }
-
-    /**
-     * Get players within range of a location
-     */
-    public static List<Player> getPlayersInRange(Location center, double range) {
-        if (center == null || center.getWorld() == null) {
-            return Collections.emptyList();
-        }
-
-        List<Player> playersInRange = new ArrayList<>();
-        double rangeSquared = range * range;
-
-        for (Player player : center.getWorld().getPlayers()) {
-            if (safeDistanceSquared(player.getLocation(), center) <= rangeSquared) {
-                playersInRange.add(player);
+        for (int i = 0; i < words.length; i++) {
+            if (i > 0) result.append(" ");
+            if (!words[i].isEmpty()) {
+                result.append(words[i].substring(0, 1).toUpperCase())
+                        .append(words[i].substring(1));
             }
         }
 
-        return playersInRange;
+        return result.toString();
     }
 
     /**
-     * Sanitize vendor ID to ensure it's safe for file names and keys
+     * Format material name for display with better handling
      */
-    public static String sanitizeVendorId(String vendorId) {
-        if (vendorId == null) {
-            return "unknown_vendor";
-        }
+    public static String formatVendorTypeName(String type) {
+        if (type == null || type.isEmpty()) return "Unknown Item";
 
-        // Remove or replace problematic characters
-        return vendorId.toLowerCase()
-                .replaceAll("[^a-z0-9_-]", "_")
-                .replaceAll("_{2,}", "_")
-                .replaceAll("^_+|_+$", "");
+        // Handle special cases
+        String processed = type.toLowerCase()
+                .replace('_', ' ')
+                .replace("magma cream", "Orb")
+                .replace("cod", "Speedfish")
+                .replace("book", "Teleport Book")
+                .replace("saddle", "Mount Access");
+
+        return capitalizeFirst(processed);
     }
 
     /**
-     * Validate vendor ID
+     * Validate that an item has a valid price
      */
-    public static boolean isValidVendorId(String vendorId) {
-        if (vendorId == null || vendorId.trim().isEmpty()) {
-            return false;
-        }
-
-        String sanitized = sanitizeVendorId(vendorId);
-        return vendorId.equals(sanitized) && vendorId.length() <= 32;
-    }
-
-    /**
-     * Create a standardized error message with timestamp
-     */
-    public static String createErrorMessage(String context, String error) {
-        return "[" + formatTime(System.currentTimeMillis()) + "] " + context + ": " + error;
-    }
-
-    /**
-     * Log error with context for vendor system
-     */
-    public static void logVendorError(JavaPlugin plugin, String vendorId, String operation, Exception e) {
-        String message = String.format("Vendor %s failed during %s: %s",
-                vendorId != null ? vendorId : "unknown",
-                operation != null ? operation : "unknown operation",
-                e.getMessage());
-
-        plugin.getLogger().log(Level.WARNING, message, e);
-    }
-
-    /**
-     * Create standardized hologram lines for vendor types
-     */
-    public static List<String> createDefaultHologramLines(String vendorType) {
-        ChatColor color = getVendorTypeColor(vendorType);
-        String displayName = formatVendorTypeName(vendorType);
-
-        return Arrays.asList(
-                color + ChatColor.BOLD.toString() + displayName,
-                ChatColor.GRAY + "Click to interact"
-        );
-    }
-
-    /**
-     * Format vendor type name for display
-     */
-    public static String formatVendorTypeName(String vendorType) {
-        if (vendorType == null || vendorType.isEmpty()) {
-            return "Vendor";
-        }
-
-        switch (vendorType.toLowerCase()) {
-            case "item": return "Item Vendor";
-            case "fisherman": return "Fisherman";
-            case "book": return "Book Vendor";
-            case "upgrade": return "Upgrade Vendor";
-            case "banker": return "Banker";
-            case "medic": return "Medic";
-            case "gambler": return "Gambler";
-            default: return capitalizeFirst(vendorType) + " Vendor";
-        }
-    }
-
-    /**
-     * Capitalize first letter of string
-     */
-    public static String capitalizeFirst(String str) {
-        if (str == null || str.isEmpty()) {
-            return str;
-        }
-        return str.substring(0, 1).toUpperCase() + str.substring(1).toLowerCase();
-    }
-
-    /**
-     * Create a safe copy of a location
-     */
-    public static Location safeCopyLocation(Location location) {
-        if (location == null) {
-            return null;
-        }
-        return location.clone();
-    }
-
-    /**
-     * Check if two locations are approximately equal (within small tolerance)
-     */
-    public static boolean locationsEqual(Location loc1, Location loc2, double tolerance) {
-        if (loc1 == null && loc2 == null) {
-            return true;
-        }
-        if (loc1 == null || loc2 == null) {
-            return false;
-        }
-        if (!loc1.getWorld().equals(loc2.getWorld())) {
-            return false;
-        }
-
-        return Math.abs(loc1.getX() - loc2.getX()) <= tolerance &&
-                Math.abs(loc1.getY() - loc2.getY()) <= tolerance &&
-                Math.abs(loc1.getZ() - loc2.getZ()) <= tolerance;
-    }
-
-    /**
-     * Get safe chunk coordinates from location
-     */
-    public static int[] getChunkCoords(Location location) {
-        if (location == null) {
-            return new int[]{0, 0};
-        }
-        return new int[]{location.getBlockX() >> 4, location.getBlockZ() >> 4};
-    }
-
-    /**
-     * Check if chunk is loaded
-     */
-    public static boolean isChunkLoaded(Location location) {
-        if (location == null || location.getWorld() == null) {
-            return false;
-        }
-
-        int[] coords = getChunkCoords(location);
-        return location.getWorld().isChunkLoaded(coords[0], coords[1]);
-    }
-
-    /**
-     * Create a map from list for easier parameter passing
-     */
-    public static <T> Map<String, T> createMap(String key1, T value1) {
-        Map<String, T> map = new HashMap<>();
-        map.put(key1, value1);
-        return map;
-    }
-
-    /**
-     * Create a map from two key-value pairs
-     */
-    public static <T> Map<String, T> createMap(String key1, T value1, String key2, T value2) {
-        Map<String, T> map = new HashMap<>();
-        map.put(key1, value1);
-        map.put(key2, value2);
-        return map;
-    }
-
-    /**
-     * Null-safe string comparison
-     */
-    public static boolean stringsEqual(String str1, String str2) {
-        return Objects.equals(str1, str2);
-    }
-
-    /**
-     * Null-safe string comparison (case insensitive)
-     */
-    public static boolean stringsEqualIgnoreCase(String str1, String str2) {
-        if (str1 == null && str2 == null) {
-            return true;
-        }
-        if (str1 == null || str2 == null) {
-            return false;
-        }
-        return str1.equalsIgnoreCase(str2);
-    }
-
-    /**
-     * Convert stack trace to string for logging
-     */
-    public static String stackTraceToString(Exception e) {
-        if (e == null) {
-            return "No exception";
-        }
-
-        StringBuilder sb = new StringBuilder();
-        sb.append(e.getClass().getSimpleName()).append(": ").append(e.getMessage()).append("\n");
-
-        for (StackTraceElement element : e.getStackTrace()) {
-            sb.append("  at ").append(element.toString()).append("\n");
-        }
-
-        return sb.toString();
-    }
-
-    /**
-     * Clamp value between min and max
-     */
-    public static int clamp(int value, int min, int max) {
-        return Math.max(min, Math.min(max, value));
-    }
-
-    /**
-     * Clamp double value between min and max
-     */
-    public static double clamp(double value, double min, double max) {
-        return Math.max(min, Math.min(max, value));
-    }
-
-    /**
-     * Check if string is null or empty
-     */
-    public static boolean isNullOrEmpty(String str) {
-        return str == null || str.trim().isEmpty();
-    }
-
-    /**
-     * Get non-null string with default fallback
-     */
-    public static String getOrDefault(String value, String defaultValue) {
-        return isNullOrEmpty(value) ? defaultValue : value;
-    }
-
-    /**
-     * Check if an item currently has vendor lore attached
-     */
-    public static boolean hasVendorLore(ItemStack item) {
+    public static boolean hasValidPrice(ItemStack item) {
         return extractPriceFromLore(item) > 0;
     }
 
     /**
-     * Create a display copy of an item for vendor menus (with price lore)
+     * Get a display-friendly price string
      */
-    public static ItemStack createVendorDisplayItem(ItemStack originalItem, int price) {
-        if (originalItem == null) {
-            return null;
-        }
-
-        // First ensure the item is clean of any existing vendor lore
-        ItemStack cleanItem = removePriceFromItem(originalItem);
-
-        // Then add the price lore for display
-        return addPriceToItem(cleanItem, price);
+    public static String getPriceDisplay(ItemStack item) {
+        int price = extractPriceFromLore(item);
+        return price > 0 ? formatColoredCurrency(price) : ChatColor.RED + "Not for sale";
     }
 
     /**
-     * Get a clean copy of an item suitable for giving to players
+     * DEPRECATED: Use createVendorDisplayItem instead
+     * This method is kept for backward compatibility but should not be used for new code
      */
-    public static ItemStack createCleanItemCopy(ItemStack vendorItem) {
-        if (vendorItem == null) {
-            return null;
-        }
+    @Deprecated
+    public static ItemStack createVendorItem(ItemStack baseItem, int price, String description) {
+        return createVendorDisplayItem(baseItem, price, description);
+    }
 
-        return removePriceFromItem(vendorItem);
+    /**
+     * DEPRECATED: Use getOriginalCleanItem instead
+     */
+    @Deprecated
+    public static ItemStack removePriceFromItem(ItemStack item) {
+        return getOriginalCleanItem(item);
     }
 }

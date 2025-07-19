@@ -8,7 +8,6 @@ import com.rednetty.server.mechanics.combat.pvp.AlignmentMechanics;
 import com.rednetty.server.mechanics.moderation.ModerationMechanics;
 import com.rednetty.server.mechanics.moderation.Rank;
 import com.rednetty.server.mechanics.player.listeners.PlayerListenerManager;
-import com.rednetty.server.mechanics.player.stats.PlayerStatsCalculator;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.entity.Player;
@@ -18,45 +17,57 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.player.AsyncPlayerPreLoginEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
-import org.bukkit.inventory.ItemStack;
 import org.bukkit.plugin.Plugin;
 import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.scheduler.BukkitTask;
 
-import java.text.SimpleDateFormat;
 import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.Consumer;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
- * Simplified YakPlayer manager with reliable player data handling
+ * : YakPlayerManager with atomic operations and dupe prevention
+ * - Comprehensive player state management with atomic operations
+ * -  combat logout handling with proper state isolation
+ * - Improved error handling and rollback capabilities
+ * - Thread-safe operations with better concurrency control
+ * - Guaranteed data consistency and dupe prevention
+ * - Fixed deadlock issues with proper executor sizing and async chaining
  */
 public class YakPlayerManager implements Listener {
     private static volatile YakPlayerManager instance;
     private static final Object INSTANCE_LOCK = new Object();
 
     // Configuration constants
-    private static final long DATA_LOAD_TIMEOUT_MS = 30000L; // 30 seconds
-    private static final long SAVE_TIMEOUT_MS = 15000L; // 15 seconds
+    private static final long DATA_LOAD_TIMEOUT_MS = 30000L;
+    private static final long SAVE_TIMEOUT_MS = 15000L;
     private static final int MAX_CONCURRENT_OPERATIONS = 5;
+    private static final long PLAYER_STATE_LOCK_TIMEOUT = 5000L;
 
     // Core dependencies
     private volatile YakPlayerRepository repository;
     private final Logger logger;
     private final Plugin plugin;
 
-    // Player management
+    //  player management with atomic operations
     private final Map<UUID, YakPlayer> onlinePlayers = new ConcurrentHashMap<>();
     private final Map<String, UUID> playerNameCache = new ConcurrentHashMap<>();
     private final Set<UUID> loadingPlayers = ConcurrentHashMap.newKeySet();
 
-    // Thread management
+    // Player state management for dupe prevention
+    private final Map<UUID, ReentrantReadWriteLock> playerStateLocks = new ConcurrentHashMap<>();
+    private final Map<UUID, AtomicBoolean> playerDataDirty = new ConcurrentHashMap<>();
+    private final Map<UUID, Long> lastSaveTime = new ConcurrentHashMap<>();
+
+    // Thread management -  Increased thread pool size to prevent deadlocks
     private final ExecutorService ioExecutor;
+    private final ExecutorService saveExecutor; // Separate executor for saves to prevent deadlocks
     private final Semaphore operationSemaphore = new Semaphore(MAX_CONCURRENT_OPERATIONS);
 
     // State management
@@ -68,6 +79,7 @@ public class YakPlayerManager implements Listener {
     // Tasks
     private BukkitTask autoSaveTask;
     private BukkitTask healthMonitorTask;
+    private BukkitTask stateCleanupTask;
 
     // Performance tracking
     private final AtomicInteger totalPlayerJoins = new AtomicInteger(0);
@@ -89,15 +101,27 @@ public class YakPlayerManager implements Listener {
         this.autoSaveInterval = plugin.getConfig().getLong("player_manager.auto_save_interval_ticks", 6000L);
         this.playersPerSaveCycle = plugin.getConfig().getInt("player_manager.players_per_save_cycle", 8);
 
-        // Initialize thread pool
-        this.ioExecutor = Executors.newFixedThreadPool(3, r -> {
+        // OPTIMIZED: Initialize thread pools with balanced sizing for performance
+        // Reduced IO thread pool for better performance while preventing deadlocks
+        int ioThreads = plugin.getConfig().getInt("player_manager.io_threads", 6);
+        int saveThreads = plugin.getConfig().getInt("player_manager.save_threads", 3);
+
+        this.ioExecutor = Executors.newFixedThreadPool(ioThreads, r -> {
             Thread thread = new Thread(r, "YakPlayerManager-IO");
             thread.setDaemon(true);
             thread.setPriority(Thread.NORM_PRIORITY);
             return thread;
         });
 
-        logger.info("YakPlayerManager initialized");
+        // Separate executor for save operations to prevent deadlocks
+        this.saveExecutor = Executors.newFixedThreadPool(saveThreads, r -> {
+            Thread thread = new Thread(r, "YakPlayerManager-Save");
+            thread.setDaemon(true);
+            thread.setPriority(Thread.NORM_PRIORITY);
+            return thread;
+        });
+
+        logger.info(" YakPlayerManager initialized with dupe prevention, deadlock fixes, and tab menu optimizations");
     }
 
     public static YakPlayerManager getInstance() {
@@ -114,7 +138,7 @@ public class YakPlayerManager implements Listener {
     }
 
     /**
-     * Initialize the player manager
+     * Initialize the  player manager
      */
     public void onEnable() {
         if (!initialized.compareAndSet(false, true)) {
@@ -123,7 +147,7 @@ public class YakPlayerManager implements Listener {
         }
 
         try {
-            logger.info("Starting YakPlayerManager initialization...");
+            logger.info("Starting  YakPlayerManager initialization...");
 
             // Initialize repository
             if (!initializeRepository()) {
@@ -142,10 +166,10 @@ public class YakPlayerManager implements Listener {
             systemHealthy.set(true);
             repositoryReady.set(true);
 
-            logger.info("YakPlayerManager enabled successfully");
+            logger.info(" YakPlayerManager enabled successfully with dupe prevention, deadlock fixes, and performance optimizations");
 
         } catch (Exception e) {
-            logger.log(Level.SEVERE, "Failed to initialize YakPlayerManager", e);
+            logger.log(Level.SEVERE, "Failed to initialize  YakPlayerManager", e);
             systemHealthy.set(false);
         }
     }
@@ -180,7 +204,7 @@ public class YakPlayerManager implements Listener {
     }
 
     /**
-     * Enhanced pre-login handler with ban checking
+     *  pre-login handler with comprehensive ban checking
      */
     @EventHandler(priority = EventPriority.LOWEST)
     public void onPlayerPreLogin(AsyncPlayerPreLoginEvent event) {
@@ -200,14 +224,14 @@ public class YakPlayerManager implements Listener {
         String playerName = event.getName();
 
         try {
-            // Check for existing ban
+            // Check for existing ban with atomic operation
             CompletableFuture<Optional<YakPlayer>> playerFuture = repository.findById(uuid);
             Optional<YakPlayer> playerOpt = playerFuture.get(10, TimeUnit.SECONDS);
 
             if (playerOpt.isPresent()) {
                 YakPlayer player = playerOpt.get();
 
-                // Check ban status
+                // Atomic ban status check
                 if (player.isBanned()) {
                     String banMessage = formatBanMessage(player);
                     if (banMessage != null) {
@@ -229,12 +253,61 @@ public class YakPlayerManager implements Listener {
         }
     }
 
+    /**
+     * ATOMIC player join handler with comprehensive state management
+     */
+    @EventHandler(priority = EventPriority.LOWEST)
+    public void onPlayerJoin(PlayerJoinEvent event) {
+        Player player = event.getPlayer();
+        UUID uuid = player.getUniqueId();
+        String playerName = player.getName();
+
+        totalPlayerJoins.incrementAndGet();
+        logger.info("Player joining: " + playerName + " (" + uuid + ")");
+
+        // Acquire player state lock immediately
+        ReentrantReadWriteLock playerLock = getPlayerStateLock(uuid);
+        playerLock.writeLock().lock();
+
+        try {
+            // Check system health
+            if (!repositoryReady.get() || repository == null) {
+                logger.severe("Player joined but repository not ready: " + playerName);
+                player.sendMessage(ChatColor.RED + "Server is not ready. Please reconnect in a moment.");
+                return;
+            }
+
+            // Check for duplicate processing
+            if (loadingPlayers.contains(uuid) || onlinePlayers.containsKey(uuid)) {
+                logger.warning("Duplicate join event for player: " + playerName);
+                return;
+            }
+
+            // Add to loading set
+            loadingPlayers.add(uuid);
+
+            // Set temporary join message
+            setTemporaryJoinMessage(event, player);
+
+            // Load player data asynchronously
+            loadPlayerDataAsync(player).whenComplete((yakPlayer, error) -> {
+                Bukkit.getScheduler().runTask(plugin, () -> {
+                    handlePlayerLoadCompletion(player, yakPlayer, error);
+                });
+            });
+
+        } finally {
+            playerLock.writeLock().unlock();
+        }
+    }
 
     /**
-     * Load player data asynchronously
+     * ATOMIC player data loading with  error handling
      */
     private CompletableFuture<YakPlayer> loadPlayerDataAsync(Player player) {
         return CompletableFuture.supplyAsync(() -> {
+            UUID uuid = player.getUniqueId();
+
             try {
                 // Acquire operation semaphore
                 if (!operationSemaphore.tryAcquire(5, TimeUnit.SECONDS)) {
@@ -244,24 +317,24 @@ public class YakPlayerManager implements Listener {
                 try {
                     logger.fine("Loading player data for: " + player.getName());
 
-                    // Load from repository
-                    CompletableFuture<Optional<YakPlayer>> repositoryFuture = repository.findById(player.getUniqueId());
+                    // Load from repository with timeout
+                    CompletableFuture<Optional<YakPlayer>> repositoryFuture = repository.findById(uuid);
                     Optional<YakPlayer> existingPlayer = repositoryFuture.get(DATA_LOAD_TIMEOUT_MS, TimeUnit.MILLISECONDS);
 
                     YakPlayer yakPlayer;
-                    boolean isNewPlayer;
 
                     if (existingPlayer.isPresent()) {
                         yakPlayer = existingPlayer.get();
-                        yakPlayer.connect(player);
-                        isNewPlayer = false;
+
+                        // ATOMIC connection setup
+                        connectPlayerAtomically(yakPlayer, player);
+
                         logger.fine("Loaded existing player data for: " + player.getName());
                     } else {
                         yakPlayer = new YakPlayer(player);
-                        isNewPlayer = true;
                         logger.info("Created new player data for: " + player.getName());
 
-                        // Save new player immediately
+                        // Save new player immediately with atomic operation
                         repository.save(yakPlayer).get(5, TimeUnit.SECONDS);
                     }
 
@@ -281,7 +354,27 @@ public class YakPlayerManager implements Listener {
     }
 
     /**
-     * Handle completion of player data loading
+     * ATOMIC player connection setup
+     */
+    private void connectPlayerAtomically(YakPlayer yakPlayer, Player player) {
+        UUID uuid = player.getUniqueId();
+        ReentrantReadWriteLock playerLock = getPlayerStateLock(uuid);
+
+        playerLock.writeLock().lock();
+        try {
+            yakPlayer.connect(player);
+
+            // Initialize tracking
+            playerDataDirty.put(uuid, new AtomicBoolean(false));
+            lastSaveTime.put(uuid, System.currentTimeMillis());
+
+        } finally {
+            playerLock.writeLock().unlock();
+        }
+    }
+
+    /**
+     * Handle completion of player data loading with atomic registration
      */
     private void handlePlayerLoadCompletion(Player player, YakPlayer yakPlayer, Throwable error) {
         UUID uuid = player.getUniqueId();
@@ -297,17 +390,26 @@ public class YakPlayerManager implements Listener {
             return;
         }
 
-        // Register player
-        onlinePlayers.put(uuid, yakPlayer);
-        playerNameCache.put(player.getName().toLowerCase(), uuid);
+        // ATOMIC player registration
+        ReentrantReadWriteLock playerLock = getPlayerStateLock(uuid);
+        playerLock.writeLock().lock();
 
-        logger.info("Successfully loaded player data for: " + player.getName());
+        try {
+            // Register player atomically
+            onlinePlayers.put(uuid, yakPlayer);
+            playerNameCache.put(player.getName().toLowerCase(), uuid);
 
-        // Initialize player systems
-        initializePlayerSystems(player, yakPlayer);
+            logger.info("Successfully loaded player data for: " + player.getName());
 
-        // Update join message
-        updateJoinMessage(player, yakPlayer);
+            // Initialize player systems
+            initializePlayerSystems(player, yakPlayer);
+
+            // Update join message
+            updateJoinMessage(player, yakPlayer);
+
+        } finally {
+            playerLock.writeLock().unlock();
+        }
     }
 
     /**
@@ -327,13 +429,300 @@ public class YakPlayerManager implements Listener {
     }
 
     /**
-     * Save player data asynchronously
+     *  Initialize player systems with combat logout state handling - NO DUPLICATE MESSAGES
+     */
+    private void initializePlayerSystems(Player player, YakPlayer yakPlayer) {
+        UUID uuid = player.getUniqueId();
+
+        try {
+            // Check and handle combat logout state atomically
+            YakPlayer.CombatLogoutState logoutState = yakPlayer.getCombatLogoutState();
+
+            switch (logoutState) {
+                case PROCESSED:
+                case PROCESSING:
+                    schedulePlayerDeath(player, yakPlayer);
+                    return;
+
+                case COMPLETED:
+                    yakPlayer.setCombatLogoutState(YakPlayer.CombatLogoutState.NONE);
+                    // REMOVED: showCombatLogoutMessage(player, yakPlayer);
+                    // CombatLogoutMechanics handles all messaging to prevent duplicates
+                    break;
+
+                case NONE:
+                default:
+                    break;
+            }
+
+            // Initialize energy atomically
+            if (!yakPlayer.hasTemporaryData("energy")) {
+                yakPlayer.setTemporaryData("energy", 100);
+            }
+            player.setExp(1.0f);
+            player.setLevel(100);
+
+            // Apply saved inventory and armor
+            yakPlayer.applyInventory(player);
+
+            // Calculate and apply health stats with delay
+            Bukkit.getScheduler().runTaskLater(plugin, () -> {
+                try {
+                    PlayerListenerManager.getInstance().getHealthListener().recalculateHealth(player);
+                    yakPlayer.applyStats(player);
+                    logger.fine("Applied health stats for " + player.getName() +
+                            ": " + yakPlayer.getHealth() + "/" + yakPlayer.getMaxHealth());
+                } catch (Exception e) {
+                    logger.log(Level.WARNING, "Error applying health stats for " + player.getName(), e);
+                }
+            }, 1L);
+
+            // Initialize rank system atomically
+            initializeRankSystem(player, yakPlayer, uuid);
+
+            if (yakPlayer.getHorseTier() == 6 || yakPlayer.getHorseTier() == 0) yakPlayer.setHorseTier(1);
+
+            // Initialize chat tag system atomically
+            initializeChatTagSystem(player, yakPlayer, uuid);
+
+            logger.fine("Initialized systems for player: " + player.getName());
+
+        } catch (Exception e) {
+            logger.log(Level.WARNING, "Error initializing player systems for " + player.getName(), e);
+        }
+    }
+
+    /**
+     * ATOMIC rank system initialization
+     */
+    private void initializeRankSystem(Player player, YakPlayer yakPlayer, UUID uuid) {
+        try {
+            String rankString = yakPlayer.getRank();
+            if (rankString == null || rankString.trim().isEmpty()) {
+                rankString = "default";
+                yakPlayer.setRank("default");
+                logger.info("Set default rank for player with null/empty rank: " + player.getName());
+            }
+
+            Rank rank = Rank.fromString(rankString);
+            ModerationMechanics.rankMap.put(uuid, rank);
+
+            logger.fine("Successfully loaded rank " + rank.name() + " for player: " + player.getName());
+
+        } catch (IllegalArgumentException e) {
+            logger.warning("Invalid rank for player " + player.getName() + ": " + yakPlayer.getRank() +
+                    ". Setting to DEFAULT and saving correction.");
+
+            ModerationMechanics.rankMap.put(uuid, Rank.DEFAULT);
+            yakPlayer.setRank("default");
+
+            // Save correction atomically
+            savePlayerDataAsync(yakPlayer).whenComplete((result, error) -> {
+                if (error != null) {
+                    logger.warning("Failed to save rank correction for " + player.getName() + ": " + error.getMessage());
+                } else {
+                    logger.info("Successfully corrected and saved rank for " + player.getName());
+                }
+            });
+        }
+    }
+
+    /**
+     * ATOMIC chat tag system initialization
+     */
+    private void initializeChatTagSystem(Player player, YakPlayer yakPlayer, UUID uuid) {
+        try {
+            String chatTagString = yakPlayer.getChatTag();
+            if (chatTagString == null || chatTagString.trim().isEmpty()) {
+                chatTagString = "DEFAULT";
+                yakPlayer.setChatTag("DEFAULT");
+            }
+
+            ChatTag tag = ChatTag.valueOf(chatTagString);
+            ChatMechanics.getPlayerTags().put(uuid, tag);
+
+        } catch (IllegalArgumentException e) {
+            logger.warning("Invalid chat tag for player " + player.getName() + ": " + yakPlayer.getChatTag() +
+                    ". Setting to DEFAULT.");
+            ChatMechanics.getPlayerTags().put(uuid, ChatTag.DEFAULT);
+            yakPlayer.setChatTag("DEFAULT");
+        }
+    }
+
+    /**
+     * Schedule player death for combat logout processing
+     */
+    private void schedulePlayerDeath(Player player, YakPlayer yakPlayer) {
+        yakPlayer.setCombatLogoutState(YakPlayer.CombatLogoutState.PROCESSING);
+
+        Bukkit.getScheduler().runTaskLater(plugin, () -> {
+            if (!player.isOnline() || player.isDead()) return;
+
+            try {
+                player.setHealth(0);
+                if (player.isDead()) {
+                    yakPlayer.setCombatLogoutState(YakPlayer.CombatLogoutState.COMPLETED);
+                    showCombatLogoutMessage(player, yakPlayer);
+                }
+            } catch (Exception e) {
+                logger.log(Level.WARNING, "Error processing combat logout death", e);
+            }
+        }, 5L);
+    }
+
+    /**
+     *  Show combat logout completion message - REMOVE DUPLICATE
+     * This method should be REMOVED or commented out since CombatLogoutMechanics handles the messaging
+     */
+    private void showCombatLogoutMessage(Player player, YakPlayer yakPlayer) {
+        // REMOVED: This was causing duplicate messages
+        // The CombatLogoutMechanics.schedulePlayerDeathSafely() already handles messaging
+        // No message needed here to prevent duplication
+
+        YakRealms.log("Combat logout completion processing for: " + player.getName() + " (message handled by CombatLogoutMechanics)");
+    }
+
+
+    /**
+     * Get punishment message based on alignment
+     */
+    private String getCombatLogoutPunishmentMessage(String alignment) {
+        switch (alignment) {
+            case "LAWFUL":
+                return "As a lawful player, you kept your armor and first hotbar item but lost other inventory.";
+            case "NEUTRAL":
+                return "As a neutral player, you had chances to keep some gear based on luck.";
+            case "CHAOTIC":
+                return "As a chaotic player, you lost all items for combat logging.";
+            default:
+                return "Your items were handled according to your alignment rules.";
+        }
+    }
+
+    /**
+     * ATOMIC player quit handler with comprehensive state management
+     */
+    @EventHandler(priority = EventPriority.HIGH)
+    public void onPlayerQuit(PlayerQuitEvent event) {
+        Player player = event.getPlayer();
+        UUID uuid = player.getUniqueId();
+        String playerName = player.getName();
+
+        totalPlayerQuits.incrementAndGet();
+        logger.info("Player quitting: " + playerName);
+
+        // Acquire player state lock
+        ReentrantReadWriteLock playerLock = getPlayerStateLock(uuid);
+        playerLock.writeLock().lock();
+
+        try {
+            // Remove from loading if still loading
+            loadingPlayers.remove(uuid);
+
+            // Get and remove player data atomically
+            YakPlayer yakPlayer = onlinePlayers.remove(uuid);
+            if (yakPlayer == null) {
+                logger.warning("No player data found for quitting player: " + playerName);
+                cleanupPlayerReferences(uuid, playerName);
+                return;
+            }
+
+            // Check if this is a combat logout scenario
+            boolean isCombatLogout = false;
+            try {
+                isCombatLogout = AlignmentMechanics.getInstance().isCombatLoggingOut(player);
+            } catch (Exception e) {
+                logger.warning("Could not check combat logout status for " + playerName + ": " + e.getMessage());
+            }
+
+            if (isCombatLogout) {
+                logger.info("COMBAT LOGOUT detected for " + playerName + " - processing handled by AlignmentMechanics");
+
+                // For combat logout, DON'T update inventory/stats
+                yakPlayer.disconnect();
+                cleanupPlayerReferences(uuid, playerName);
+
+                // Set quit message
+                event.setQuitMessage(ChatColor.RED + "[-] " + ChatColor.GRAY + playerName + ChatColor.DARK_GRAY + " (combat logout)");
+                return;
+            }
+
+            // Normal quit processing
+            logger.fine("Normal quit processing for: " + playerName);
+
+            // Update player data before saving (atomic operation)
+            updatePlayerBeforeSaveAtomically(yakPlayer, player);
+            yakPlayer.disconnect();
+
+            // Clean up references
+            cleanupPlayerReferences(uuid, playerName);
+
+            // Save player data asynchronously - don't block the quit event
+            savePlayerDataAsync(yakPlayer).whenComplete((result, error) -> {
+                if (error != null) {
+                    logger.log(Level.SEVERE, "Failed to save player on quit: " + playerName, error);
+                    failedSaves.incrementAndGet();
+                } else {
+                    logger.fine("Successfully saved player on quit: " + playerName);
+                    successfulSaves.incrementAndGet();
+                }
+            });
+
+            // Set quit message
+            setQuitMessage(event, player, yakPlayer);
+
+        } finally {
+            playerLock.writeLock().unlock();
+        }
+    }
+
+    /**
+     * ATOMIC player data update before save
+     */
+    private void updatePlayerBeforeSaveAtomically(YakPlayer yakPlayer, Player bukkitPlayer) {
+        if (yakPlayer == null || bukkitPlayer == null) {
+            return;
+        }
+
+        try {
+            // Don't update data if player is dead or has very low health
+            if (bukkitPlayer.isDead() || bukkitPlayer.getHealth() <= 0.5) {
+                logger.warning("Skipping data update for dead/ghost player: " + bukkitPlayer.getName());
+                return;
+            }
+
+            // Atomic update of all player data
+            yakPlayer.updateLocation(bukkitPlayer.getLocation());
+            yakPlayer.updateStats(bukkitPlayer);
+            yakPlayer.updateInventory(bukkitPlayer);
+
+            // Mark as dirty
+            AtomicBoolean dirty = playerDataDirty.get(bukkitPlayer.getUniqueId());
+            if (dirty != null) {
+                dirty.set(true);
+            }
+
+            logger.fine("Updated all data for normal quit: " + bukkitPlayer.getName());
+
+        } catch (Exception e) {
+            logger.log(Level.WARNING, "Error updating player before save: " + yakPlayer.getUsername(), e);
+        }
+    }
+
+    /**
+     *  ATOMIC player data saving with separate executor to prevent deadlocks
      */
     private CompletableFuture<Boolean> savePlayerDataAsync(YakPlayer yakPlayer) {
         return CompletableFuture.supplyAsync(() -> {
             if (yakPlayer == null) {
                 return false;
             }
+
+            UUID uuid = yakPlayer.getUUID();
+            ReentrantReadWriteLock playerLock = getPlayerStateLock(uuid);
+
+            // Use read lock for saving (allows concurrent reads)
+            playerLock.readLock().lock();
 
             try {
                 // Acquire operation semaphore
@@ -345,9 +734,16 @@ public class YakPlayerManager implements Listener {
                 try {
                     logger.fine("Saving player data for: " + yakPlayer.getUsername());
 
-                    // Perform save
+                    // Perform atomic save
                     CompletableFuture<YakPlayer> saveFuture = repository.save(yakPlayer);
                     YakPlayer savedPlayer = saveFuture.get(SAVE_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+
+                    // Update save tracking
+                    lastSaveTime.put(uuid, System.currentTimeMillis());
+                    AtomicBoolean dirty = playerDataDirty.get(uuid);
+                    if (dirty != null) {
+                        dirty.set(false);
+                    }
 
                     return savedPlayer != null;
 
@@ -358,12 +754,21 @@ public class YakPlayerManager implements Listener {
             } catch (Exception e) {
                 logger.log(Level.SEVERE, "Failed to save player data for: " + yakPlayer.getUsername(), e);
                 return false;
+            } finally {
+                playerLock.readLock().unlock();
             }
-        }, ioExecutor);
+        }, saveExecutor); //  Use separate save executor to prevent deadlocks
     }
 
     /**
-     * Clean up player references
+     * Get or create player state lock
+     */
+    private ReentrantReadWriteLock getPlayerStateLock(UUID uuid) {
+        return playerStateLocks.computeIfAbsent(uuid, k -> new ReentrantReadWriteLock());
+    }
+
+    /**
+     * Clean up player references atomically
      */
     private void cleanupPlayerReferences(UUID uuid, String playerName) {
         playerNameCache.remove(playerName.toLowerCase());
@@ -371,10 +776,14 @@ public class YakPlayerManager implements Listener {
         // Clean up moderation and chat systems
         ModerationMechanics.rankMap.remove(uuid);
         ChatMechanics.getPlayerTags().remove(uuid);
+
+        // Clean up tracking data
+        playerDataDirty.remove(uuid);
+        lastSaveTime.remove(uuid);
     }
 
     /**
-     * Start background tasks
+     *  background tasks
      */
     private void startBackgroundTasks() {
         // Auto-save task
@@ -395,26 +804,43 @@ public class YakPlayerManager implements Listener {
                     performHealthCheck();
                 }
             }
-        }.runTaskTimerAsynchronously(plugin, 1200L, 1200L); // Every minute
+        }.runTaskTimerAsynchronously(plugin, 1200L, 1200L);
 
-        logger.info("Background tasks started successfully");
+        // State cleanup task
+        stateCleanupTask = new BukkitRunnable() {
+            @Override
+            public void run() {
+                if (!shutdownInProgress.get()) {
+                    performStateCleanup();
+                }
+            }
+        }.runTaskTimerAsynchronously(plugin, 6000L, 6000L); // Every 5 minutes
+
+        logger.info(" background tasks started successfully");
     }
 
     /**
-     * Perform auto-save with rate limiting
+     * Perform auto-save with atomic operations
      */
     private void performAutoSave() {
         List<YakPlayer> playersToSave = new ArrayList<>();
 
-        // Collect players to save (limit to configured number per cycle)
+        // Collect players to save atomically
         int count = 0;
-        for (YakPlayer player : onlinePlayers.values()) {
+        for (Map.Entry<UUID, YakPlayer> entry : onlinePlayers.entrySet()) {
             if (count >= playersPerSaveCycle) break;
 
+            UUID uuid = entry.getKey();
+            YakPlayer player = entry.getValue();
             Player bukkitPlayer = player.getBukkitPlayer();
+
             if (bukkitPlayer != null && bukkitPlayer.isOnline()) {
-                playersToSave.add(player);
-                count++;
+                // Check if player data is dirty
+                AtomicBoolean dirty = playerDataDirty.get(uuid);
+                if (dirty != null && dirty.get()) {
+                    playersToSave.add(player);
+                    count++;
+                }
             }
         }
 
@@ -428,14 +854,14 @@ public class YakPlayerManager implements Listener {
         for (YakPlayer player : playersToSave) {
             Player bukkitPlayer = player.getBukkitPlayer();
             if (bukkitPlayer != null) {
-                updatePlayerBeforeSave(player, bukkitPlayer);
+                updatePlayerBeforeSaveAtomically(player, bukkitPlayer);
             }
             savePlayerDataAsync(player);
         }
     }
 
     /**
-     * Perform health check
+     * Perform system health check
      */
     private void performHealthCheck() {
         try {
@@ -453,10 +879,23 @@ public class YakPlayerManager implements Listener {
                 logger.warning("Operation semaphore exhausted");
             }
 
+            // Check for stuck locks
+            long currentTime = System.currentTimeMillis();
+            int stuckLocks = 0;
+            for (Map.Entry<UUID, Long> entry : lastSaveTime.entrySet()) {
+                if (currentTime - entry.getValue() > 300000) { // 5 minutes
+                    stuckLocks++;
+                }
+            }
+
+            if (stuckLocks > 0) {
+                logger.warning("Detected " + stuckLocks + " potentially stuck player locks");
+            }
+
             systemHealthy.set(healthy);
 
             if (!healthy) {
-                logger.warning("YakPlayerManager health check failed");
+                logger.warning(" YakPlayerManager health check failed");
             }
 
         } catch (Exception e) {
@@ -466,14 +905,108 @@ public class YakPlayerManager implements Listener {
     }
 
     /**
-     * Shutdown process
+     * Perform state cleanup
+     */
+    private void performStateCleanup() {
+        try {
+            long currentTime = System.currentTimeMillis();
+
+            // Clean up orphaned player state locks
+            Iterator<Map.Entry<UUID, ReentrantReadWriteLock>> lockIterator = playerStateLocks.entrySet().iterator();
+            while (lockIterator.hasNext()) {
+                Map.Entry<UUID, ReentrantReadWriteLock> entry = lockIterator.next();
+                UUID uuid = entry.getKey();
+
+                // Remove locks for offline players
+                if (!onlinePlayers.containsKey(uuid)) {
+                    Long lastSave = lastSaveTime.get(uuid);
+                    if (lastSave == null || currentTime - lastSave > 600000) { // 10 minutes
+                        lockIterator.remove();
+                        playerDataDirty.remove(uuid);
+                        lastSaveTime.remove(uuid);
+                    }
+                }
+            }
+
+            logger.fine("State cleanup completed");
+
+        } catch (Exception e) {
+            logger.log(Level.WARNING, "Error during state cleanup", e);
+        }
+    }
+
+    /**
+     * ATOMIC save all players on shutdown
+     */
+    private void saveAllPlayersOnShutdown() {
+        logger.info("Saving " + onlinePlayers.size() + " players on shutdown...");
+
+        List<CompletableFuture<Boolean>> saveFutures = new ArrayList<>();
+
+        for (YakPlayer yakPlayer : new ArrayList<>(onlinePlayers.values())) {
+            Player player = yakPlayer.getBukkitPlayer();
+
+            boolean wasCombatLogout = false;
+            if (player != null && player.isOnline()) {
+                try {
+                    wasCombatLogout = AlignmentMechanics.getInstance().isCombatLoggingOut(player);
+                    if (wasCombatLogout) {
+                        logger.info("Saving combat logout player on shutdown: " + player.getName());
+                    }
+                } catch (Exception e) {
+                    logger.fine("Could not check combat status during shutdown for " + yakPlayer.getUsername());
+                }
+
+                // Update player data before saving
+                updatePlayerBeforeSaveAtomically(yakPlayer, player);
+            }
+
+            yakPlayer.disconnect();
+
+            // Use synchronous save for shutdown
+            saveFutures.add(CompletableFuture.supplyAsync(() -> {
+                try {
+                    YakPlayer result = repository.saveSync(yakPlayer);
+                    return result != null;
+                } catch (Exception e) {
+                    logger.log(Level.SEVERE, "Failed to save player on shutdown: " + yakPlayer.getUsername(), e);
+                    return false;
+                }
+            }, saveExecutor)); // Use save executor even for shutdown
+        }
+
+        try {
+            CompletableFuture<Void> allSaves = CompletableFuture.allOf(
+                    saveFutures.toArray(new CompletableFuture[0]));
+            allSaves.get(30, TimeUnit.SECONDS);
+
+            long successful = saveFutures.stream()
+                    .mapToLong(future -> {
+                        try {
+                            return future.get() ? 1 : 0;
+                        } catch (Exception e) {
+                            return 0;
+                        }
+                    }).sum();
+
+            logger.info("Shutdown save completed: " + successful + "/" + saveFutures.size() + " players saved");
+
+        } catch (TimeoutException e) {
+            logger.warning("Shutdown save timed out after 30 seconds");
+        } catch (Exception e) {
+            logger.log(Level.SEVERE, "Error during shutdown save", e);
+        }
+    }
+
+    /**
+     *  shutdown process
      */
     public void onDisable() {
         if (!shutdownInProgress.compareAndSet(false, true)) {
             return;
         }
 
-        logger.info("Starting YakPlayerManager shutdown...");
+        logger.info("Starting  YakPlayerManager shutdown...");
 
         try {
             // Cancel tasks
@@ -482,6 +1015,9 @@ public class YakPlayerManager implements Listener {
             }
             if (healthMonitorTask != null && !healthMonitorTask.isCancelled()) {
                 healthMonitorTask.cancel();
+            }
+            if (stateCleanupTask != null && !stateCleanupTask.isCancelled()) {
+                stateCleanupTask.cancel();
             }
 
             // Save all online players
@@ -492,14 +1028,20 @@ public class YakPlayerManager implements Listener {
                 repository.shutdown();
             }
 
-            // Shutdown executor
+            //  Shutdown both executors
             ioExecutor.shutdown();
+            saveExecutor.shutdown();
+
             try {
                 if (!ioExecutor.awaitTermination(10, TimeUnit.SECONDS)) {
                     ioExecutor.shutdownNow();
                 }
+                if (!saveExecutor.awaitTermination(10, TimeUnit.SECONDS)) {
+                    saveExecutor.shutdownNow();
+                }
             } catch (InterruptedException e) {
                 ioExecutor.shutdownNow();
+                saveExecutor.shutdownNow();
                 Thread.currentThread().interrupt();
             }
 
@@ -507,18 +1049,21 @@ public class YakPlayerManager implements Listener {
             onlinePlayers.clear();
             playerNameCache.clear();
             loadingPlayers.clear();
+            playerStateLocks.clear();
+            playerDataDirty.clear();
+            lastSaveTime.clear();
 
-            logger.info("YakPlayerManager shutdown completed successfully");
+            logger.info(" YakPlayerManager shutdown completed successfully");
 
         } catch (Exception e) {
-            logger.log(Level.SEVERE, "Error during YakPlayerManager shutdown", e);
+            logger.log(Level.SEVERE, "Error during  YakPlayerManager shutdown", e);
         } finally {
             initialized.set(false);
             repositoryReady.set(false);
         }
     }
 
-    // Message formatting methods
+    // Message formatting methods (unchanged but with  error handling)
     private String formatBanMessage(YakPlayer player) {
         if (!player.isBanned()) {
             return null;
@@ -585,7 +1130,7 @@ public class YakPlayerManager implements Listener {
         }
     }
 
-    private void setEnhancedQuitMessage(PlayerQuitEvent event, Player player, YakPlayer yakPlayer) {
+    private void setQuitMessage(PlayerQuitEvent event, Player player, YakPlayer yakPlayer) {
         if (yakPlayer != null) {
             String formattedName = yakPlayer.getFormattedDisplayName();
             event.setQuitMessage(ChatColor.RED + "[-] " + formattedName);
@@ -595,21 +1140,24 @@ public class YakPlayerManager implements Listener {
     }
 
     /**
-     * Execute an operation on a YakPlayer with proper synchronization and error handling.
-     * This method is used by the EconomyManager and other systems that need to perform
-     * operations on player data safely.
-     *
-     * @param uuid The UUID of the player
-     * @param operation The operation to perform on the YakPlayer
-     * @param saveAfter Whether to save the player data after the operation
-     * @return A CompletableFuture<Boolean> indicating success or failure
+     *  ATOMIC operation execution with proper async chaining to prevent deadlocks
      */
     public CompletableFuture<Boolean> withPlayer(UUID uuid, Consumer<YakPlayer> operation, boolean saveAfter) {
         if (uuid == null || operation == null) {
             return CompletableFuture.completedFuture(false);
         }
 
+        //  Chain the operations properly instead of blocking
         return CompletableFuture.supplyAsync(() -> {
+            ReentrantReadWriteLock playerLock = getPlayerStateLock(uuid);
+
+            // Use appropriate lock based on whether we're saving
+            if (saveAfter) {
+                playerLock.writeLock().lock();
+            } else {
+                playerLock.readLock().lock();
+            }
+
             try {
                 // Acquire operation semaphore
                 if (!operationSemaphore.tryAcquire(10, TimeUnit.SECONDS)) {
@@ -628,13 +1176,13 @@ public class YakPlayerManager implements Listener {
                     // Execute the operation
                     operation.accept(yakPlayer);
 
-                    // Save if requested
-                    if (saveAfter) {
-                        CompletableFuture<Boolean> saveFuture = savePlayerDataAsync(yakPlayer);
-                        return saveFuture.get(SAVE_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+                    // Mark as dirty
+                    AtomicBoolean dirty = playerDataDirty.get(uuid);
+                    if (dirty != null) {
+                        dirty.set(true);
                     }
 
-                    return true;
+                    return true; //  Return true immediately, don't wait for save
 
                 } finally {
                     operationSemaphore.release();
@@ -643,30 +1191,44 @@ public class YakPlayerManager implements Listener {
             } catch (Exception e) {
                 logger.log(Level.SEVERE, "Error in withPlayer operation for " + uuid, e);
                 return false;
+            } finally {
+                if (saveAfter) {
+                    playerLock.writeLock().unlock();
+                } else {
+                    playerLock.readLock().unlock();
+                }
             }
-        }, ioExecutor);
+        }, ioExecutor).thenCompose(operationSuccess -> {
+            //  Chain the save operation instead of blocking
+            if (operationSuccess && saveAfter) {
+                YakPlayer yakPlayer = getPlayer(uuid);
+                if (yakPlayer != null) {
+                    return savePlayerDataAsync(yakPlayer);
+                }
+            }
+            return CompletableFuture.completedFuture(operationSuccess);
+        });
     }
 
-    /**
-     * Overloaded version that defaults to saving after the operation
-     */
     public CompletableFuture<Boolean> withPlayer(UUID uuid, Consumer<YakPlayer> operation) {
         return withPlayer(uuid, operation, true);
     }
 
-    // Public API methods
+    // OPTIMIZED: Public API methods with fast read operations for tab menus
     public YakPlayer getPlayer(UUID uuid) {
+        if (uuid == null) return null;
+        // OPTIMIZED: Direct access for read operations - ConcurrentHashMap is thread-safe for reads
         return onlinePlayers.get(uuid);
     }
 
     public YakPlayer getPlayer(String name) {
         if (name == null) return null;
         UUID uuid = playerNameCache.get(name.toLowerCase());
-        return uuid != null ? onlinePlayers.get(uuid) : null;
+        return uuid != null ? getPlayer(uuid) : null;
     }
 
     public YakPlayer getPlayer(Player player) {
-        return getPlayer(player.getUniqueId());
+        return player != null ? getPlayer(player.getUniqueId()) : null;
     }
 
     public Collection<YakPlayer> getOnlinePlayers() {
@@ -698,9 +1260,10 @@ public class YakPlayerManager implements Listener {
     }
 
     public void logPerformanceStats() {
-        logger.info("=== YakPlayerManager Performance Stats ===");
+        logger.info("===  YakPlayerManager Performance Stats ===");
         logger.info("Online Players: " + onlinePlayers.size());
         logger.info("Loading Players: " + loadingPlayers.size());
+        logger.info("Active Player Locks: " + playerStateLocks.size());
         logger.info("Total Joins: " + totalPlayerJoins.get());
         logger.info("Total Quits: " + totalPlayerQuits.get());
         logger.info("Successful Loads: " + successfulLoads.get());
@@ -708,30 +1271,29 @@ public class YakPlayerManager implements Listener {
         logger.info("Successful Saves: " + successfulSaves.get());
         logger.info("Failed Saves: " + failedSaves.get());
         logger.info("Operation Permits Available: " + operationSemaphore.availablePermits() + "/" + MAX_CONCURRENT_OPERATIONS);
+        logger.info("IO Executor Active: " + ((ThreadPoolExecutor) ioExecutor).getActiveCount() + "/" + ((ThreadPoolExecutor) ioExecutor).getCorePoolSize());
+        logger.info("Save Executor Active: " + ((ThreadPoolExecutor) saveExecutor).getActiveCount() + "/" + ((ThreadPoolExecutor) saveExecutor).getCorePoolSize());
         logger.info("Repository Ready: " + repositoryReady.get());
         logger.info("System Health: " + (systemHealthy.get() ? "HEALTHY" : "DEGRADED"));
-        logger.info("==========================================");
+        logger.info("Optimizations: Fast reads enabled, deadlock prevention active");
+        logger.info("===================================================");
     }
 
-    // Convenience methods for other systems
+    // OPTIMIZED:  convenience methods with fast read paths for tab menus
     public CompletableFuture<Boolean> addPlayerGems(UUID playerId, int amount) {
-        YakPlayer yakPlayer = getPlayer(playerId);
-        if (yakPlayer != null) {
-            yakPlayer.setBankGems(yakPlayer.getBankGems() + amount);
-            return savePlayer(yakPlayer);
-        }
-        return CompletableFuture.completedFuture(false);
+        return withPlayer(playerId, yakPlayer ->
+                yakPlayer.setBankGems(yakPlayer.getBankGems() + amount));
     }
 
     public CompletableFuture<Boolean> removePlayerGems(UUID playerId, int amount) {
-        YakPlayer yakPlayer = getPlayer(playerId);
-        if (yakPlayer != null && yakPlayer.getBankGems() >= amount) {
-            yakPlayer.setBankGems(yakPlayer.getBankGems() - amount);
-            return savePlayer(yakPlayer);
-        }
-        return CompletableFuture.completedFuture(false);
+        return withPlayer(playerId, yakPlayer -> {
+            if (yakPlayer.getBankGems() >= amount) {
+                yakPlayer.setBankGems(yakPlayer.getBankGems() - amount);
+            }
+        });
     }
 
+    // OPTIMIZED: Fast read methods for tab menus (no locking needed)
     public int getPlayerGems(UUID playerId) {
         YakPlayer yakPlayer = getPlayer(playerId);
         return yakPlayer != null ? yakPlayer.getBankGems() : 0;
@@ -748,343 +1310,67 @@ public class YakPlayerManager implements Listener {
     }
 
     public boolean hasPlayer(UUID playerId) {
-        return playerId != null && getPlayer(playerId) != null;
+        return playerId != null && onlinePlayers.containsKey(playerId);
     }
 
     public boolean hasPlayer(String playerName) {
-        return playerName != null && !playerName.trim().isEmpty() && getPlayer(playerName) != null;
+        return playerName != null && !playerName.trim().isEmpty() &&
+                playerNameCache.containsKey(playerName.toLowerCase());
     }
 
-    /**
-     *  Enhanced player quit handler with combat logout protection
-     */
-    @EventHandler(priority = EventPriority.HIGHEST)
-    public void onPlayerQuit(PlayerQuitEvent event) {
-        Player player = event.getPlayer();
-        UUID uuid = player.getUniqueId();
-        String playerName = player.getName();
-
-        totalPlayerQuits.incrementAndGet();
-        logger.info("Player quitting: " + playerName);
-
-        // Remove from loading if still loading
-        loadingPlayers.remove(uuid);
-
-        // Get and remove player data
-        YakPlayer yakPlayer = onlinePlayers.remove(uuid);
-        if (yakPlayer == null) {
-            logger.warning("No player data found for quitting player: " + playerName);
-            cleanupPlayerReferences(uuid, playerName);
-            return;
-        }
-
-        //  Check if this is a combat logout scenario
-        boolean isCombatLogout = false;
-        try {
-            // Check with AlignmentMechanics if player is combat logging
-            isCombatLogout = AlignmentMechanics.getInstance().isCombatLoggingOut(player);
-        } catch (Exception e) {
-            logger.warning("Could not check combat logout status for " + playerName + ": " + e.getMessage());
-        }
-
-        if (isCombatLogout) {
-            logger.info("COMBAT LOGOUT detected for " + playerName + " - special handling");
-
-            // For combat logout, DON'T update inventory/stats from the bukkit player
-            // This prevents the combat logger from keeping items they shouldn't have
-            yakPlayer.disconnect();
-
-            // Mark as combat logout in temporary data
-            yakPlayer.setTemporaryData("combat_logout_quit", System.currentTimeMillis());
-
-            // Clean up references
-            cleanupPlayerReferences(uuid, playerName);
-
-            // Save player data immediately (without updating from bukkit player)
-            savePlayerDataAsync(yakPlayer).whenComplete((result, error) -> {
-                if (error != null) {
-                    logger.log(Level.SEVERE, "Failed to save combat logout player: " + playerName, error);
-                    failedSaves.incrementAndGet();
-                } else {
-                    logger.info("Successfully saved combat logout player: " + playerName);
-                    successfulSaves.incrementAndGet();
-                }
-            });
-
-            // Set quit message
-            event.setQuitMessage(ChatColor.RED + "[-] " + ChatColor.GRAY + playerName + ChatColor.DARK_GRAY + " (combat logout)");
-            return;
-        }
-
-        // Normal quit processing
-        logger.fine("Normal quit processing for: " + playerName);
-
-        // Update player data before saving (only for normal quits)
-        updatePlayerBeforeSave(yakPlayer, player);
-        yakPlayer.disconnect();
-
-        // Clean up references
-        cleanupPlayerReferences(uuid, playerName);
-
-        // Save player data
-        savePlayerDataAsync(yakPlayer).whenComplete((result, error) -> {
-            if (error != null) {
-                logger.log(Level.SEVERE, "Failed to save player on quit: " + playerName, error);
-                failedSaves.incrementAndGet();
-            } else {
-                logger.fine("Successfully saved player on quit: " + playerName);
-                successfulSaves.incrementAndGet();
-            }
-        });
-
-        // Set quit message
-        setEnhancedQuitMessage(event, player, yakPlayer);
-    }
-
-    /**
-     *  Enhanced updatePlayerBeforeSave with combat logout protection
-     */
-    private void updatePlayerBeforeSave(YakPlayer yakPlayer, Player bukkitPlayer) {
-        if (yakPlayer == null || bukkitPlayer == null) {
-            return;
-        }
-
-        try {
-            //  Don't update data if player is dead or has very low health (ghost state)
-            if (bukkitPlayer.isDead() || bukkitPlayer.getHealth() <= 0.5) {
-                logger.warning("Skipping data update for dead/ghost player: " + bukkitPlayer.getName());
-                return;
-            }
-
-            //  Check if this player combat logged - if so, don't update inventory
-            boolean isCombatLogout = false;
-            try {
-                isCombatLogout = AlignmentMechanics.getInstance().isCombatLoggingOut(bukkitPlayer);
-            } catch (Exception e) {
-                logger.fine("Could not check combat logout status during save: " + e.getMessage());
-            }
-
-            // Always update location and stats
-            yakPlayer.updateLocation(bukkitPlayer.getLocation());
-            yakPlayer.updateStats(bukkitPlayer);
-
-            // Only update inventory for non-combat logouts
-            if (!isCombatLogout) {
-                yakPlayer.updateInventory(bukkitPlayer);
-                logger.fine("Updated inventory for normal quit: " + bukkitPlayer.getName());
-            } else {
-                logger.info("Skipped inventory update for combat logout: " + bukkitPlayer.getName());
-            }
-
-        } catch (Exception e) {
-            logger.log(Level.WARNING, "Error updating player before save: " + yakPlayer.getUsername(), e);
-        }
-    }
-
-    /**
-     *  Enhanced player join handler with combat logout detection
-     */
-    @EventHandler(priority = EventPriority.LOWEST)
-    public void onPlayerJoin(PlayerJoinEvent event) {
-        Player player = event.getPlayer();
-        UUID uuid = player.getUniqueId();
-        String playerName = player.getName();
-
-        totalPlayerJoins.incrementAndGet();
-        logger.info("Player joining: " + playerName + " (" + uuid + ")");
-
-        // Check system health
-        if (!repositoryReady.get() || repository == null) {
-            logger.severe("Player joined but repository not ready: " + playerName);
-            player.sendMessage(ChatColor.RED + "Server is not ready. Please reconnect in a moment.");
-            return;
-        }
-
-        // Check for duplicate processing
-        if (loadingPlayers.contains(uuid) || onlinePlayers.containsKey(uuid)) {
-            logger.warning("Duplicate join event for player: " + playerName);
-            return;
-        }
-
-        // Add to loading set
-        loadingPlayers.add(uuid);
-
-        // Set temporary join message
-        setTemporaryJoinMessage(event, player);
-
-        // Load player data asynchronously
-        loadPlayerDataAsync(player).whenComplete((yakPlayer, error) -> {
-            Bukkit.getScheduler().runTask(plugin, () -> {
-                handlePlayerLoadCompletion(player, yakPlayer, error);
-            });
-        });
-    }
-
-    /**
-     *  Enhanced initialization with combat logout state cleanup
-     */
-    private void initializePlayerSystems(Player player, YakPlayer yakPlayer) {
-        try {
-            UUID uuid = player.getUniqueId();
-
-            //  Check if player had a combat logout last session
-            boolean hadCombatLogout = yakPlayer.hasTemporaryData("combat_logout_quit");
-            if (hadCombatLogout) {
-                logger.info("Player " + player.getName() + " had a combat logout last session");
-                yakPlayer.removeTemporaryData("combat_logout_quit");
-
-                // Notify player about the combat logout consequences
-                player.sendMessage(ChatColor.RED + "⚠ You were punished for combat logging in your last session.");
-                player.sendMessage(ChatColor.GRAY + "All items were dropped at your death location.");
-            }
-
-            // Initialize energy
-            if (!yakPlayer.hasTemporaryData("energy")) {
-                yakPlayer.setTemporaryData("energy", 100);
-            }
-            player.setExp(1.0f);
-            player.setLevel(100);
-
-            // Apply saved inventory and armor first (needed for health calculation)
-            yakPlayer.applyInventory(player);
-
-            // Calculate max health based on current armor and apply all stats
-            // This needs to be done AFTER inventory is applied so armor is equipped
-            Bukkit.getScheduler().runTaskLater(plugin, () -> {
-                try {
-                    PlayerListenerManager.getInstance().getHealthListener().recalculateHealth(player);
-
-                    // Apply all stats including the corrected health values
-                    yakPlayer.applyStats(player);
-
-                    logger.fine("Applied health stats for " + player.getName() +
-                            ": " + yakPlayer.getHealth() + "/" + yakPlayer.getMaxHealth());
-
-                } catch (Exception e) {
-                    logger.log(Level.WARNING, "Error applying health stats for " + player.getName(), e);
-                }
-            }, 1L); // Delay by 1 tick to ensure inventory is fully applied
-
-            // Initialize rank system
-            try {
-                String rankString = yakPlayer.getRank();
-                if (rankString == null || rankString.trim().isEmpty()) {
-                    rankString = "default";
-                    yakPlayer.setRank("default");
-                    logger.info("Set default rank for player with null/empty rank: " + player.getName());
-                }
-
-                Rank rank = Rank.fromString(rankString);
-                ModerationMechanics.rankMap.put(uuid, rank);
-
-                logger.fine("Successfully loaded rank " + rank.name() + " for player: " + player.getName());
-
-            } catch (IllegalArgumentException e) {
-                logger.warning("Invalid rank for player " + player.getName() + ": " + yakPlayer.getRank() +
-                        ". Setting to DEFAULT and saving correction.");
-
-                ModerationMechanics.rankMap.put(uuid, Rank.DEFAULT);
-                yakPlayer.setRank("default");
-
-                savePlayerDataAsync(yakPlayer).whenComplete((result, error) -> {
-                    if (error != null) {
-                        logger.warning("Failed to save rank correction for " + player.getName() + ": " + error.getMessage());
-                    } else {
-                        logger.info("Successfully corrected and saved rank for " + player.getName());
-                    }
-                });
-            }
-
-            // Initialize chat tag system
-            try {
-                String chatTagString = yakPlayer.getChatTag();
-                if (chatTagString == null || chatTagString.trim().isEmpty()) {
-                    chatTagString = "DEFAULT";
-                    yakPlayer.setChatTag("DEFAULT");
-                }
-
-                ChatTag tag = ChatTag.valueOf(chatTagString);
-                ChatMechanics.getPlayerTags().put(uuid, tag);
-
-            } catch (IllegalArgumentException e) {
-                logger.warning("Invalid chat tag for player " + player.getName() + ": " + yakPlayer.getChatTag() +
-                        ". Setting to DEFAULT.");
-                ChatMechanics.getPlayerTags().put(uuid, ChatTag.DEFAULT);
-                yakPlayer.setChatTag("DEFAULT");
-            }
-
-            logger.fine("Initialized systems for player: " + player.getName());
-
-        } catch (Exception e) {
-            logger.log(Level.WARNING, "Error initializing player systems for " + player.getName(), e);
-        }
-    }
-
-    /**
-     *  Enhanced save all players on shutdown with combat logout handling
-     */
-    private void saveAllPlayersOnShutdown() {
-        logger.info("Saving " + onlinePlayers.size() + " players on shutdown...");
-
-        List<CompletableFuture<Boolean>> saveFutures = new ArrayList<>();
-
-        for (YakPlayer yakPlayer : new ArrayList<>(onlinePlayers.values())) {
-            Player player = yakPlayer.getBukkitPlayer();
-
-            //  For shutdown, save current state regardless of combat status
-            // But log if it was a combat logout for debugging
-            boolean wasCombatLogout = false;
-            if (player != null && player.isOnline()) {
-                try {
-                    wasCombatLogout = AlignmentMechanics.getInstance().isCombatLoggingOut(player);
-                    if (wasCombatLogout) {
-                        logger.info("Saving combat logout player on shutdown: " + player.getName());
-                    }
-                } catch (Exception e) {
-                    logger.fine("Could not check combat status during shutdown for " + yakPlayer.getUsername());
-                }
-
-                // Update player data before saving (normal update during shutdown)
-                updatePlayerBeforeSave(yakPlayer, player);
-            }
-
-            yakPlayer.disconnect();
-
-            // Use synchronous save for shutdown
-            saveFutures.add(CompletableFuture.supplyAsync(() -> {
-                try {
-                    YakPlayer result = repository.saveSync(yakPlayer);
-                    return result != null;
-                } catch (Exception e) {
-                    logger.log(Level.SEVERE, "Failed to save player on shutdown: " + yakPlayer.getUsername(), e);
-                    return false;
-                }
-            }, ioExecutor));
-        }
-
-        try {
-            CompletableFuture<Void> allSaves = CompletableFuture.allOf(
-                    saveFutures.toArray(new CompletableFuture[0]));
-            allSaves.get(30, TimeUnit.SECONDS);
-
-            long successful = saveFutures.stream()
-                    .mapToLong(future -> {
-                        try {
-                            return future.get() ? 1 : 0;
-                        } catch (Exception e) {
-                            return 0;
-                        }
-                    }).sum();
-
-            logger.info("Shutdown save completed: " + successful + "/" + saveFutures.size() + " players saved");
-
-        } catch (TimeoutException e) {
-            logger.warning("Shutdown save timed out after 30 seconds");
-        } catch (Exception e) {
-            logger.log(Level.SEVERE, "Error during shutdown save", e);
-        }
-    }
     public boolean hasPlayer(Player player) {
-        return player != null && player.isOnline() && getPlayer(player) != null;
+        return player != null && player.isOnline() && onlinePlayers.containsKey(player.getUniqueId());
+    }
+
+    // OPTIMIZED: Fast read methods specifically for tab menu performance
+    public Map<UUID, String> getAllPlayerDisplayNames() {
+        Map<UUID, String> displayNames = new HashMap<>();
+        for (Map.Entry<UUID, YakPlayer> entry : onlinePlayers.entrySet()) {
+            YakPlayer player = entry.getValue();
+            if (player != null) {
+                displayNames.put(entry.getKey(), player.getFormattedDisplayName());
+            }
+        }
+        return displayNames;
+    }
+
+    public Map<UUID, Integer> getAllPlayerLevels() {
+        Map<UUID, Integer> levels = new HashMap<>();
+        for (Map.Entry<UUID, YakPlayer> entry : onlinePlayers.entrySet()) {
+            YakPlayer player = entry.getValue();
+            if (player != null) {
+                levels.put(entry.getKey(), player.getLevel());
+            }
+        }
+        return levels;
+    }
+
+    public Map<UUID, Integer> getAllPlayerGems() {
+        Map<UUID, Integer> gems = new HashMap<>();
+        for (Map.Entry<UUID, YakPlayer> entry : onlinePlayers.entrySet()) {
+            YakPlayer player = entry.getValue();
+            if (player != null) {
+                gems.put(entry.getKey(), player.getBankGems());
+            }
+        }
+        return gems;
+    }
+
+    /**
+     * Special method for combat logout processing
+     */
+    public YakPlayer getPlayerForCombatLogout(Player player) {
+        if (player == null) return null;
+        return onlinePlayers.get(player.getUniqueId());
+    }
+
+    /**
+     * Mark a player as having combat logged for processing
+     */
+    public void markPlayerCombatLogged(UUID playerId) {
+        YakPlayer yakPlayer = onlinePlayers.get(playerId);
+        if (yakPlayer != null) {
+            yakPlayer.setTemporaryData("combat_logout_processing", System.currentTimeMillis());
+        }
     }
 }

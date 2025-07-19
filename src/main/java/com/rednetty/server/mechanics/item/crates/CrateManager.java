@@ -25,7 +25,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Logger;
 
 /**
- * Enhanced central manager for the crate system with  animation integration
+ *  central manager for the crate system with  animation integration
  */
 public class CrateManager {
     private static CrateManager instance;
@@ -40,13 +40,13 @@ public class CrateManager {
     private EconomyManager economyManager;
     private YakPlayerManager playerManager;
 
-    // Active sessions and processing with enhanced tracking
+    // Active sessions and processing with  tracking
     private final Map<UUID, CrateOpening> activeOpenings = new ConcurrentHashMap<>();
     private final Set<UUID> processingPlayers = ConcurrentHashMap.newKeySet();
     private final Map<CrateType, CrateConfiguration> crateConfigurations = new HashMap<>();
     private final Map<UUID, Long> lastOpenTimes = new ConcurrentHashMap<>();
 
-    // Enhanced statistics tracking
+    //  statistics tracking
     private final Map<CrateType, Integer> cratesOpened = new ConcurrentHashMap<>();
     private final Map<CrateType, Integer> cratesGenerated = new ConcurrentHashMap<>();
     private final Map<UUID, Integer> playerOpenCounts = new ConcurrentHashMap<>();
@@ -65,7 +65,7 @@ public class CrateManager {
     private BukkitTask statisticsTask;
     private BukkitTask notificationTask;
 
-    // Enhanced settings
+    //  settings
     private boolean enableAnimations = true;
     private boolean enableSounds = true;
     private boolean enableParticles = true;
@@ -95,11 +95,11 @@ public class CrateManager {
     }
 
     /**
-     * Enhanced initialization with  animation manager
+     *  initialization with  animation manager
      */
     public void initialize() {
         try {
-            logger.info("Initializing enhanced crate system...");
+            logger.info("Initializing  crate system...");
 
             // Load configuration first
             loadConfiguration();
@@ -122,12 +122,12 @@ public class CrateManager {
             // Validate system integrity
             validateSystemIntegrity();
 
-            logger.info("Enhanced crate system initialized successfully with " +
+            logger.info(" crate system initialized successfully with " +
                     crateConfigurations.size() + " crate types and " +
                     getFeatureString());
 
         } catch (Exception e) {
-            logger.severe("Failed to initialize enhanced crate system: " + e.getMessage());
+            logger.severe("Failed to initialize  crate system: " + e.getMessage());
             e.printStackTrace();
             throw new RuntimeException("Crate system initialization failed", e);
         }
@@ -219,13 +219,13 @@ public class CrateManager {
 // In CrateManager.java - Update the openCrate method to ensure single reward generation
 
     /**
-     *  Enhanced crate opening with single reward generation
+     *   crate opening with single reward generation
      */
     public boolean openCrate(Player player, ItemStack crateItem) {
         UUID playerId = player.getUniqueId();
 
         try {
-            // Enhanced validation
+            //  validation
             if (!validateCrateOpening(player, crateItem)) {
                 return false;
             }
@@ -241,7 +241,7 @@ public class CrateManager {
                 return false;
             }
 
-            // Determine crate type with enhanced validation
+            // Determine crate type with  validation
             CrateType crateType = crateFactory.determineCrateType(crateItem);
             if (crateType == null) {
                 player.sendMessage(ChatColor.RED + "This crate's mystical signature is unreadable!");
@@ -262,7 +262,7 @@ public class CrateManager {
                 return false;
             }
 
-            // Create enhanced opening session
+            // Create  opening session
             CrateOpening opening = new CrateOpening(player, crateType, configuration);
             activeOpenings.put(playerId, opening);
             processingPlayers.add(playerId);
@@ -281,7 +281,7 @@ public class CrateManager {
                 rewards.add(createFallbackReward(crateType));
             }
 
-            // Enhanced logging for debugging
+            //  logging for debugging
             logger.info("=== CRATE OPENING DEBUG INFO ===");
             logger.info("Player: " + player.getName());
             logger.info("Crate Type: " + crateType);
@@ -320,14 +320,14 @@ public class CrateManager {
             logger.severe("Error opening crate for player " + player.getName() + ": " + e.getMessage());
             e.printStackTrace();
 
-            // Enhanced cleanup on error
+            //  cleanup on error
             cleanupFailedOpening(playerId, player);
             return false;
         }
     }
 
     /**
-     * Enhanced validation for crate opening
+     *  validation for crate opening
      */
     private boolean validateCrateOpening(Player player, ItemStack crateItem) {
         UUID playerId = player.getUniqueId();
@@ -347,11 +347,11 @@ public class CrateManager {
         if (processingPlayers.contains(playerId) || activeOpenings.containsKey(playerId)) {
             player.sendMessage(ChatColor.RED + "✦ " + ChatColor.BOLD + "You are already opening a crate!" +
                     ChatColor.RED + " ✦");
-            playEnhancedErrorSound(player);
+            playErrorSound(player);
             return false;
         }
 
-        // Enhanced inventory space check
+        //  inventory space check
         if (!hasInventorySpace(player, 3)) { // Check for at least 3 free slots
             sendInventoryFullMessage(player);
             return false;
@@ -360,7 +360,7 @@ public class CrateManager {
         // Check if crate is valid
         if (!crateFactory.isCrate(crateItem)) {
             player.sendMessage(ChatColor.RED + "This item is not a valid mystical crate!");
-            playEnhancedErrorSound(player);
+            playErrorSound(player);
             return false;
         }
 
@@ -407,7 +407,7 @@ public class CrateManager {
     }
 
     /**
-     * Sends enhanced crate opening message
+     * Sends  crate opening message
      */
     private void sendCrateOpeningMessage(Player player, CrateType crateType) {
         // Main message
@@ -492,7 +492,7 @@ public class CrateManager {
     }
 
     /**
-     * NEW: Completes crate opening with pre-generated rewards (for  animation system)
+     *  Completes crate opening with pre-generated rewards (for  animation system)
      * NOTE: This method assumes rewards have already been given to the player by the animation
      */
     public void completeCrateOpeningWithRewards(CrateOpening opening, List<ItemStack> rewards) {
@@ -544,7 +544,7 @@ public class CrateManager {
     }
 
     /**
-     * Gives rewards to player with enhanced handling
+     * Gives rewards to player with  handling
      */
     private void giveRewardsToPlayer(Player player, List<ItemStack> rewards, CrateType crateType) {
         List<ItemStack> overflow = new ArrayList<>();
@@ -668,7 +668,7 @@ public class CrateManager {
         ItemStack fallback = createFallbackReward(opening.getCrateType());
         player.getInventory().addItem(fallback);
 
-        // Enhanced error message
+        //  error message
         player.sendMessage("");
         player.sendMessage(ChatColor.YELLOW + "⚠ " + ChatColor.BOLD + "MYSTICAL INTERFERENCE" + ChatColor.YELLOW + " ⚠");
         player.sendMessage(ChatColor.GRAY + "The cosmic energies were disrupted, but you received compensation!");
@@ -683,7 +683,7 @@ public class CrateManager {
     // Utility methods
 
     /**
-     * Enhanced inventory space checking
+     *  inventory space checking
      */
     private boolean hasInventorySpace(Player player, int requiredSlots) {
         int emptySlots = 0;
@@ -705,13 +705,13 @@ public class CrateManager {
         player.sendMessage(ChatColor.YELLOW + "Please make at least 3 empty slots and try again.");
         player.sendMessage("");
 
-        playEnhancedErrorSound(player);
+        playErrorSound(player);
     }
 
     /**
-     * Plays enhanced error sound
+     * Plays  error sound
      */
-    private void playEnhancedErrorSound(Player player) {
+    private void playErrorSound(Player player) {
         if (enableSounds) {
             player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_BASS, 1.0f, 0.5f);
         }
@@ -726,7 +726,7 @@ public class CrateManager {
         player.sendMessage(ChatColor.GRAY + message);
         player.sendMessage("");
 
-        playEnhancedErrorSound(player);
+        playErrorSound(player);
     }
 
     /**
@@ -777,7 +777,7 @@ public class CrateManager {
     // Configuration and data management methods
 
     /**
-     * Loads crate configurations with enhanced validation
+     * Loads crate configurations with  validation
      */
     private void loadCrateConfigurations() {
         ConfigurationSection cratesSection = config.getConfigurationSection("crate-types");
@@ -863,7 +863,7 @@ public class CrateManager {
         cleanupTask = new BukkitRunnable() {
             @Override
             public void run() {
-                performEnhancedCleanup();
+                performCleanup();
             }
         }.runTaskTimerAsynchronously(plugin, 600L, 600L); // Every 30 seconds
 
@@ -887,9 +887,9 @@ public class CrateManager {
     }
 
     /**
-     * Enhanced cleanup with better error handling
+     *  cleanup with better error handling
      */
-    private void performEnhancedCleanup() {
+    private void performCleanup() {
         try {
             // Clean up expired openings
             long currentTime = System.currentTimeMillis();
@@ -926,7 +926,7 @@ public class CrateManager {
                     currentTime - entry.getValue() > 300000);
 
         } catch (Exception e) {
-            logger.warning("Error during enhanced crate cleanup: " + e.getMessage());
+            logger.warning("Error during  crate cleanup: " + e.getMessage());
         }
     }
 
@@ -1058,11 +1058,11 @@ public class CrateManager {
     }
 
     /**
-     * Enhanced shutdown with proper cleanup and data saving
+     *  shutdown with proper cleanup and data saving
      */
     public void shutdown() {
         try {
-            logger.info("Shutting down enhanced crate system...");
+            logger.info("Shutting down  crate system...");
 
             // Cancel background tasks
             if (cleanupTask != null) cleanupTask.cancel();
@@ -1099,10 +1099,10 @@ public class CrateManager {
             lastOpenTimes.clear();
             sessionStats.clear();
 
-            logger.info("Enhanced crate system shut down successfully");
+            logger.info(" crate system shut down successfully");
 
         } catch (Exception e) {
-            logger.warning("Error during enhanced crate system shutdown: " + e.getMessage());
+            logger.warning("Error during  crate system shutdown: " + e.getMessage());
         }
     }
 
@@ -1115,10 +1115,10 @@ public class CrateManager {
     public Map<UUID, CrateOpening> getActiveOpenings() { return new HashMap<>(activeOpenings); }
     public CrateConfiguration getConfiguration(CrateType crateType) { return crateConfigurations.get(crateType); }
 
-    // Enhanced API methods
+    //  API methods
 
     /**
-     * Creates a crate with enhanced options
+     * Creates a crate with  options
      */
     public ItemStack createCrate(CrateType crateType, boolean isHalloween) {
         ItemStack crate = crateFactory.createCrate(crateType, isHalloween);
@@ -1138,7 +1138,7 @@ public class CrateManager {
     }
 
     /**
-     * Enhanced method to give crates to players
+     *  method to give crates to players
      */
     public void giveCratesToPlayer(Player player, CrateType crateType, int amount, boolean isHalloween, boolean isLocked) {
         if (amount <= 0) return;
@@ -1175,7 +1175,7 @@ public class CrateManager {
             }
         }
 
-        // Enhanced notification message
+        //  notification message
         String crateName = (isHalloween ? "Halloween " : "") + crateType.getDisplayName() + " Crate";
         player.sendMessage("");
         player.sendMessage(ChatColor.GREEN + "✦ " + ChatColor.BOLD + "CRATES RECEIVED" + ChatColor.GREEN + " ✦");
@@ -1197,7 +1197,7 @@ public class CrateManager {
     }
 
     /**
-     * Enhanced statistics method
+     *  statistics method
      */
     public Map<String, Object> getStatistics() {
         Map<String, Object> stats = new HashMap<>();
@@ -1208,7 +1208,7 @@ public class CrateManager {
         stats.put("processingPlayers", processingPlayers.size());
         stats.put("configurationsLoaded", crateConfigurations.size());
 
-        // Enhanced stats
+        //  stats
         stats.put("crateTypesOpened", new HashMap<>(cratesOpened));
         stats.put("crateTypesGenerated", new HashMap<>(cratesGenerated));
         stats.put("uniquePlayers", playerOpenCounts.size());

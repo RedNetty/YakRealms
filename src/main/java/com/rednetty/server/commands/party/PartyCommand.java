@@ -16,7 +16,7 @@ import java.util.Arrays;
 import java.util.List;
 
 /**
- * Enhanced Party Chat Command with comprehensive messaging features and validation
+ *  Party Chat Command with comprehensive messaging features and validation
  * Integrates fully with the advanced PartyMechanics system including permission checks,
  * message formatting, interactive features, and item display support
  */
@@ -411,7 +411,7 @@ public class PartyCommand implements CommandExecutor, TabCompleter {
     }
 
     /**
-     * Handle special message types and provide enhanced feedback
+     * Handle special message types and provide  feedback
      */
     private void handleSpecialMessageTypes(Player player, String message) {
         String lowerMessage = message.toLowerCase();

@@ -33,7 +33,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Logger;
 
 /**
- * Enhanced event handler for crate-related interactions using 1.20.4 features
+ *  event handler for crate-related interactions using 1.20.4 features
  * Provides comprehensive event handling with improved UX and error handling
  */
 public class CrateHandler implements Listener {
@@ -43,13 +43,13 @@ public class CrateHandler implements Listener {
     private final CrateFactory crateFactory;
     private final EconomyManager economyManager;
 
-    // Enhanced spam prevention and cooldown management
+    //  spam prevention and cooldown management
     private final Set<UUID> processingClicks = ConcurrentHashMap.newKeySet();
     private final Map<UUID, Long> lastClickTimes = new ConcurrentHashMap<>();
     private final Map<UUID, Long> lastScrapTimes = new ConcurrentHashMap<>();
     private final Map<UUID, Integer> clickCounts = new ConcurrentHashMap<>();
 
-    // Enhanced cooldown settings
+    //  cooldown settings
     private static final long CLICK_COOLDOWN_MS = 500; // 0.5 second between clicks
     private static final long SCRAP_COOLDOWN_MS = 2000; // 2 seconds between scraps
     private static final long SPAM_THRESHOLD_MS = 5000; // 5 seconds for spam detection
@@ -74,7 +74,7 @@ public class CrateHandler implements Listener {
     }
 
     /**
-     * Enhanced crate opening via inventory clicking with modern UX
+     *  crate opening via inventory clicking with modern UX
      */
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onInventoryClick(InventoryClickEvent event) {
@@ -126,7 +126,7 @@ public class CrateHandler implements Listener {
     }
 
     /**
-     * Enhanced crate interactions via right-clicking in hand
+     *  crate interactions via right-clicking in hand
      */
     @EventHandler(priority = EventPriority.HIGH)
     public void onPlayerInteract(PlayerInteractEvent event) {
@@ -143,14 +143,14 @@ public class CrateHandler implements Listener {
 
         event.setCancelled(true);
 
-        // Enhanced duel check (if duel system exists)
+        //  duel check (if duel system exists)
         if (isPlayerInDuel(player)) {
             sendDuelMessage(player);
             return;
         }
 
-        // Handle right-click for enhanced scrap value
-        handleEnhancedCrateScrapValue(player, item);
+        // Handle right-click for  scrap value
+        handleCrateScrapValue(player, item);
     }
 
     /**
@@ -177,7 +177,7 @@ public class CrateHandler implements Listener {
     }
 
     /**
-     * Enhanced player join handling
+     *  player join handling
      */
     @EventHandler(priority = EventPriority.MONITOR)
     public void onPlayerJoin(PlayerJoinEvent event) {
@@ -201,7 +201,7 @@ public class CrateHandler implements Listener {
     }
 
     /**
-     * Enhanced player quit handling
+     *  player quit handling
      */
     @EventHandler(priority = EventPriority.MONITOR)
     public void onPlayerQuit(PlayerQuitEvent event) {
@@ -220,13 +220,13 @@ public class CrateHandler implements Listener {
     }
 
     /**
-     * Enhanced crate inventory click handler with modern UX
+     *  crate inventory click handler with modern UX
      */
     private void handleCrateInventoryClick(Player player, ItemStack crateItem, InventoryClickEvent event) {
         UUID playerId = player.getUniqueId();
 
-        // Enhanced spam prevention
-        if (!checkEnhancedCooldown(player, CLICK_COOLDOWN_MS, lastClickTimes)) {
+        //  spam prevention
+        if (!checkCooldown(player, CLICK_COOLDOWN_MS, lastClickTimes)) {
             return;
         }
 
@@ -236,15 +236,15 @@ public class CrateHandler implements Listener {
             return;
         }
 
-        // Enhanced duel check
+        //  duel check
         if (isPlayerInDuel(player)) {
             sendDuelMessage(player);
             return;
         }
 
-        // Enhanced inventory space check
-        if (!hasEnhancedInventorySpace(player)) {
-            sendEnhancedInventoryFullMessage(player);
+        //  inventory space check
+        if (!hasInventorySpace(player)) {
+            sendInventoryFullMessage(player);
             return;
         }
 
@@ -257,13 +257,13 @@ public class CrateHandler implements Listener {
         processingClicks.add(playerId);
 
         try {
-            // Enhanced opening attempt with user feedback
+            //  opening attempt with user feedback
             sendOpeningStartMessage(player, crateItem);
 
             boolean success = crateManager.openCrate(player, crateItem);
 
             if (success) {
-                // Consume the crate item with enhanced feedback
+                // Consume the crate item with  feedback
                 consumeCrateItem(event, crateItem);
 
                 // Force inventory update to prevent ghost items
@@ -291,7 +291,7 @@ public class CrateHandler implements Listener {
     }
 
     /**
-     * Enhanced crate key usage handler
+     *  crate key usage handler
      */
     private void handleCrateKeyUsage(Player player, InventoryClickEvent event) {
         ItemStack cursor = event.getCursor();
@@ -307,7 +307,7 @@ public class CrateHandler implements Listener {
             return;
         }
 
-        // Enhanced validation
+        //  validation
         CrateType crateType = crateFactory.determineCrateType(target);
         if (crateType == null) {
             player.sendMessage(ChatColor.RED + "✗ Invalid crate type!");
@@ -315,14 +315,14 @@ public class CrateHandler implements Listener {
             return;
         }
 
-        // Enhanced key validation (placeholder for future key type checking)
+        //  key validation (placeholder for future key type checking)
         if (!validateCrateKey(cursor, crateType)) {
             player.sendMessage(ChatColor.RED + "✗ This key cannot unlock this crate type!");
             playErrorSound(player);
             return;
         }
 
-        // Unlock the crate with enhanced effects
+        // Unlock the crate with  effects
         ItemStack unlockedCrate = unlockCrateWithEffects(player, target);
         event.setCurrentItem(unlockedCrate);
 
@@ -337,20 +337,20 @@ public class CrateHandler implements Listener {
             }
         }.runTaskLater(plugin, 1L);
 
-        // Enhanced success feedback
+        //  success feedback
         sendKeySuccessMessage(player, crateType);
 
         logger.fine("Player " + player.getName() + " unlocked a " + crateType + " crate");
     }
 
     /**
-     * Enhanced crate scrap value handler with modern UX
+     *  crate scrap value handler with modern UX
      */
-    private void handleEnhancedCrateScrapValue(Player player, ItemStack crateItem) {
+    private void handleCrateScrapValue(Player player, ItemStack crateItem) {
         UUID playerId = player.getUniqueId();
 
-        // Enhanced cooldown check for scrapping
-        if (!checkEnhancedCooldown(player, SCRAP_COOLDOWN_MS, lastScrapTimes)) {
+        //  cooldown check for scrapping
+        if (!checkCooldown(player, SCRAP_COOLDOWN_MS, lastScrapTimes)) {
             long remaining = getRemainingCooldown(playerId, SCRAP_COOLDOWN_MS, lastScrapTimes);
             player.spigot().sendMessage(ChatMessageType.ACTION_BAR,
                     new TextComponent(ChatColor.YELLOW + "⏳ Scrap cooldown: " + (remaining / 1000) + "s"));
@@ -364,8 +364,8 @@ public class CrateHandler implements Listener {
             return;
         }
 
-        // Enhanced scrap value calculation
-        int scrapValue = calculateEnhancedScrapValue(crateType);
+        //  scrap value calculation
+        int scrapValue = calculateScrapValue(crateType);
 
         // Show confirmation for valuable crates
         if (crateType.getTier() >= 4) {
@@ -378,7 +378,7 @@ public class CrateHandler implements Listener {
     }
 
     /**
-     * Performs the actual scrap operation with enhanced effects
+     * Performs the actual scrap operation with  effects
      */
     private void performScrapOperation(Player player, ItemStack crateItem, CrateType crateType, int scrapValue) {
         // Try to give gems to player
@@ -403,10 +403,10 @@ public class CrateHandler implements Listener {
                 }
             }.runTaskLater(plugin, 1L);
 
-            // Enhanced success message with animations
-            sendEnhancedScrapSuccessMessage(player, crateType, scrapValue);
+            //  success message with animations
+            sendScrapSuccessMessage(player, crateType, scrapValue);
 
-            // Enhanced effects
+            //  effects
             playScrapEffects(player, crateType);
 
             // Update scrap cooldown
@@ -418,9 +418,9 @@ public class CrateHandler implements Listener {
     }
 
     /**
-     * Enhanced validation and utility methods
+     *  validation and utility methods
      */
-    private boolean checkEnhancedCooldown(Player player, long cooldownMs, Map<UUID, Long> timeMap) {
+    private boolean checkCooldown(Player player, long cooldownMs, Map<UUID, Long> timeMap) {
         UUID playerId = player.getUniqueId();
         long currentTime = System.currentTimeMillis();
         Long lastTime = timeMap.get(playerId);
@@ -467,7 +467,7 @@ public class CrateHandler implements Listener {
         return Math.max(0, cooldownMs - elapsed);
     }
 
-    private boolean hasEnhancedInventorySpace(Player player) {
+    private boolean hasInventorySpace(Player player) {
         int emptySlots = 0;
         for (ItemStack item : player.getInventory().getStorageContents()) {
             if (item == null || item.getType() == Material.AIR) {
@@ -549,19 +549,19 @@ public class CrateHandler implements Listener {
     }
 
     private boolean validateCrateKey(ItemStack key, CrateType crateType) {
-        // Enhanced key validation - placeholder for future implementation
+        //  key validation - placeholder for future implementation
         // For now, all keys can open all crates
         return true;
     }
 
     private boolean isPlayerInDuel(Player player) {
-        // Enhanced duel check - placeholder for integration with duel system
+        //  duel check - placeholder for integration with duel system
         // return Duels.duelers.containsKey(player);
         return false;
     }
 
     /**
-     * Enhanced item manipulation methods - FIXED ghost item bug
+     *  item manipulation methods - FIXED ghost item bug
      */
     private void consumeCrateItem(InventoryClickEvent event, ItemStack crateItem) {
         if (crateItem.getAmount() > 1) {
@@ -615,9 +615,9 @@ public class CrateHandler implements Listener {
     }
 
     /**
-     * Enhanced scrap value calculation
+     *  scrap value calculation
      */
-    private int calculateEnhancedScrapValue(CrateType crateType) {
+    private int calculateScrapValue(CrateType crateType) {
         int baseValue = switch (crateType.getTier()) {
             case 1 -> 75;   // Increased from 50
             case 2 -> 150;  // Increased from 125
@@ -641,7 +641,7 @@ public class CrateHandler implements Listener {
     }
 
     /**
-     * Enhanced message sending methods
+     *  message sending methods
      */
     private void sendProcessingMessage(Player player) {
         player.sendMessage(ChatColor.RED + "⚡ You are already opening a mystical crate!");
@@ -655,7 +655,7 @@ public class CrateHandler implements Listener {
         playErrorSound(player);
     }
 
-    private void sendEnhancedInventoryFullMessage(Player player) {
+    private void sendInventoryFullMessage(Player player) {
         player.sendMessage("");
         player.sendMessage(ChatColor.RED + "⚠ " + ChatColor.BOLD + "MYSTICAL OVERFLOW PROTECTION" + ChatColor.RED + " ⚠");
         player.sendMessage(ChatColor.GRAY + "Your inventory lacks space for the mystical energies!");
@@ -719,7 +719,7 @@ public class CrateHandler implements Listener {
         performScrapOperation(player, player.getInventory().getItemInMainHand(), crateType, scrapValue);
     }
 
-    private void sendEnhancedScrapSuccessMessage(Player player, CrateType crateType, int scrapValue) {
+    private void sendScrapSuccessMessage(Player player, CrateType crateType, int scrapValue) {
         player.sendMessage("");
         player.sendMessage(TextUtil.getCenteredMessage(
                 ChatColor.YELLOW + "⚒ " + ChatColor.BOLD + "CRATE DISASSEMBLED" + ChatColor.YELLOW + " ⚒"
@@ -741,7 +741,7 @@ public class CrateHandler implements Listener {
 
         player.sendMessage("");
 
-        // Enhanced action bar feedback
+        //  action bar feedback
         player.spigot().sendMessage(ChatMessageType.ACTION_BAR,
                 new TextComponent(ChatColor.GREEN + "+" + TextUtil.formatNumber(scrapValue) + "g " +
                         ChatColor.GRAY + "• Balance updated!"));
@@ -766,7 +766,7 @@ public class CrateHandler implements Listener {
     }
 
     /**
-     * Enhanced sound and effect methods
+     *  sound and effect methods
      */
     private void playErrorSound(Player player) {
         player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_BASS, 1.0f, 0.5f);
@@ -785,7 +785,7 @@ public class CrateHandler implements Listener {
     }
 
     private void playScrapEffects(Player player, CrateType crateType) {
-        // Enhanced scrap sound
+        //  scrap sound
         player.playSound(player.getLocation(), Sound.BLOCK_ANVIL_USE, 1.0f, 1.2f);
         player.playSound(player.getLocation(), Sound.ENTITY_ITEM_PICKUP, 0.8f, 1.5f);
 
@@ -889,7 +889,7 @@ public class CrateHandler implements Listener {
     }
 
     /**
-     * Enhanced cleanup method for shutdown
+     *  cleanup method for shutdown
      */
     public void cleanup() {
         // Clear all tracking data

@@ -488,7 +488,7 @@ public class NavGraphPathfinder {
      * while clamping vertical differences.
      */
     /**
-     * Enhanced path smoothing that maintains building entry/exit points.
+     *  path smoothing that maintains building entry/exit points.
      */
     private List<Location> smoothPath(List<Location> path) {
         if (path.size() <= 2) return path;

@@ -13,7 +13,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Enhanced Party Accept Command with comprehensive error handling and user feedback
+ *  Party Accept Command with comprehensive error handling and user feedback
  * Integrates fully with the advanced PartyMechanics system
  */
 public class PAcceptCommand implements CommandExecutor, TabCompleter {
@@ -44,7 +44,7 @@ public class PAcceptCommand implements CommandExecutor, TabCompleter {
         boolean success = partyMechanics.acceptPartyInvite(player);
 
         if (success) {
-            // Success feedback with enhanced effects
+            // Success feedback with  effects
             player.sendMessage(ChatColor.GREEN + "✓ " + ChatColor.BOLD + "Party invitation accepted!");
             player.sendMessage(ChatColor.GRAY + "Welcome to the party! Use " + ChatColor.YELLOW + "/p <message>"
                     + ChatColor.GRAY + " to chat with your party members.");
@@ -61,7 +61,7 @@ public class PAcceptCommand implements CommandExecutor, TabCompleter {
     }
 
     /**
-     * Send enhanced usage message with context-aware help
+     * Send  usage message with context-aware help
      */
     private void sendUsageMessage(Player player) {
         player.sendMessage(ChatColor.RED + "❌ " + ChatColor.BOLD + "Invalid Syntax");

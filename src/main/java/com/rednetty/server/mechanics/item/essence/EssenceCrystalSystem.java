@@ -149,7 +149,7 @@ public class EssenceCrystalSystem implements Listener {
                 "",
                 ChatColor.RED + "⚠ The item loses that stat permanently!",
                 "",
-                ChatColor.YELLOW + "Usage: Click on any enhanced item",
+                ChatColor.YELLOW + "Usage: Click on any  item",
                 ChatColor.AQUA + "Price: " + ChatColor.WHITE + "1,500g",
                 "",
                 ChatColor.GOLD + "✨ " + ChatColor.ITALIC + "Channel the essence within..."

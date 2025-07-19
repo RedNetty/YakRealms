@@ -1,3 +1,4 @@
+<?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
     <modelVersion>4.0.0</modelVersion>
@@ -26,6 +27,10 @@
             <id>central</id>
             <name>Central Repository</name>
             <url>https://repo.maven.apache.org/maven2</url>
+        </repository>
+        <repository>
+            <id>minecraft-libraries</id>
+            <url>https://libraries.minecraft.net/</url>
         </repository>
         <!-- Spigot Repository -->
         <repository>
@@ -64,7 +69,6 @@
         </repository>
     </repositories>
 
-    <!-- Plugin repositories -->
     <pluginRepositories>
         <pluginRepository>
             <id>central</id>
@@ -82,10 +86,27 @@
         <dependency>
             <groupId>org.spigotmc</groupId>
             <artifactId>spigot-api</artifactId>
-            <version>1.20.2-R0.1-SNAPSHOT</version>
+            <version>1.20.4-R0.1-SNAPSHOT</version>
             <scope>provided</scope>
         </dependency>
+
+        <!-- GlowingEntities API - CORRECT MAVEN COORDINATES -->
+        <dependency>
+            <groupId>fr.skytasul</groupId>
+            <artifactId>glowingentities</artifactId>
+            <version>1.4.5</version>
+            <scope>compile</scope>
+        </dependency>
+
+
         <!-- Optional: Bukkit API -->
+        <dependency>
+            <groupId>com.mojang</groupId>
+            <artifactId>authlib</artifactId>
+            <version>3.11.50</version>
+            <scope>provided</scope>
+        </dependency>
+
         <dependency>
             <groupId>net.citizensnpcs</groupId>
             <artifactId>citizens-main</artifactId>
@@ -99,6 +120,7 @@
                 </exclusion>
             </exclusions>
         </dependency>
+
         <dependency>
             <groupId>com.comphenix.protocol</groupId>
             <artifactId>ProtocolLib</artifactId>
@@ -115,6 +137,12 @@
             <groupId>com.sk89q.worldedit</groupId>
             <artifactId>worldedit-bukkit</artifactId>
             <version>7.2.12</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.github.NEZNAMY</groupId>
+            <artifactId>TAB-API</artifactId>
+            <version>5.2.4</version>
             <scope>provided</scope>
         </dependency>
         <!-- MongoDB Driver -->
@@ -215,7 +243,7 @@
                         </goals>
                         <configuration>
                             <createDependencyReducedPom>false</createDependencyReducedPom>
-                            <minimizeJar>true</minimizeJar>
+                            <minimizeJar>false</minimizeJar>
                             <filters>
                                 <filter>
                                     <artifact>*:*</artifact>
@@ -225,8 +253,20 @@
                                         <exclude>META-INF/*.RSA</exclude>
                                     </excludes>
                                 </filter>
+                                <!-- Don't minimize GlowingEntities -->
+                                <filter>
+                                    <artifact>io.github.skytasul:glowingentities</artifact>
+                                    <includes>
+                                        <include>**</include>
+                                    </includes>
+                                </filter>
                             </filters>
                             <relocations>
+                                <!-- Relocate GlowingEntities to avoid conflicts -->
+                                <relocation>
+                                    <pattern>fr.skytasul.glowingentities</pattern>
+                                    <shadedPattern>com.rednetty.server.libs.glowingentities</shadedPattern>
+                                </relocation>
                                 <!-- Relocate MongoDB to avoid conflicts -->
                                 <relocation>
                                     <pattern>com.mongodb</pattern>

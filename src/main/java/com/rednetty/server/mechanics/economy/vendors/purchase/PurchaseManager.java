@@ -10,628 +10,590 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.AsyncPlayerChatEvent;
+import org.bukkit.event.player.PlayerKickEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.inventory.ItemStack;
-import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitRunnable;
 
-import java.util.*;
+import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.logging.Level;
 
 /**
- * Enhanced PurchaseManager with improved transaction handling, validation, and error recovery.
- * Manages the complete purchase process for vendor items with comprehensive error handling,
- * transaction timeout management, and performance tracking.
+ * FIXED purchase manager that works with original clean items from vendor menus
+ * Now receives clean items directly and gives them to players without modification
  */
 public class PurchaseManager implements Listener {
-
-    private static volatile PurchaseManager instance;
-    private static final Object INSTANCE_LOCK = new Object();
-
-    // Core components
+    // Configuration
+    private static final long PURCHASE_TIMEOUT_MS = 60000; // 1 minute timeout
     private final JavaPlugin plugin;
     private final EconomyManager economyManager;
-
-    // Transaction state tracking (thread-safe)
-    private final Map<UUID, PurchaseTransaction> activeTransactions = new ConcurrentHashMap<>();
-    private final Map<UUID, Long> lastInteractionTime = new ConcurrentHashMap<>();
-
-    // Performance and analytics
-    private final AtomicLong totalTransactions = new AtomicLong(0);
-    private final AtomicLong successfulTransactions = new AtomicLong(0);
-    private final AtomicLong failedTransactions = new AtomicLong(0);
-    private final AtomicLong cancelledTransactions = new AtomicLong(0);
-
-    // Configuration
-    private static final long TRANSACTION_TIMEOUT_MS = 60000; // 1 minute
-    private static final long MESSAGE_COOLDOWN_MS = 500; // 500ms between messages
+    private static final long PURCHASE_COOLDOWN_MS = 500; // 500ms cooldown
+    private static final int MIN_QUANTITY = 1;
+    private static PurchaseManager instance;
+    private final Map<UUID, PurchaseSession> activePurchases = new ConcurrentHashMap<>();
     private static final int MAX_QUANTITY = 64;
-    private static final int MAX_CONCURRENT_TRANSACTIONS = 100;
+    private final Map<UUID, Long> lastPurchaseTime = new ConcurrentHashMap<>();
 
-    /**
-     * Enhanced constructor with validation
-     */
     private PurchaseManager(JavaPlugin plugin) {
         this.plugin = plugin;
         this.economyManager = EconomyManager.getInstance();
-
-        // Register events
         plugin.getServer().getPluginManager().registerEvents(this, plugin);
 
-        // Start cleanup task for expired transactions
-        startMaintenanceTask();
-
-        plugin.getLogger().info("Enhanced PurchaseManager initialized with transaction management");
+        // Start cleanup task for expired sessions
+        startCleanupTask();
     }
 
-    /**
-     * Thread-safe singleton getter
-     */
+    public static void initialize(JavaPlugin plugin) {
+        if (instance == null) {
+            instance = new PurchaseManager(plugin);
+        }
+    }
+
     public static PurchaseManager getInstance() {
         if (instance == null) {
-            throw new IllegalStateException("PurchaseManager not initialized. Call initialize() first.");
+            throw new IllegalStateException("PurchaseManager not initialized!");
         }
         return instance;
     }
 
     /**
-     * Initialize the PurchaseManager
+     *  Start purchase session with original clean item (no cleaning needed)
      */
-    public static PurchaseManager initialize(JavaPlugin plugin) {
-        if (instance == null) {
-            synchronized (INSTANCE_LOCK) {
-                if (instance == null) {
-                    instance = new PurchaseManager(plugin);
-                }
-            }
-        }
-        return instance;
-    }
-
-    /**
-     * Start maintenance task for cleanup and monitoring
-     */
-    private void startMaintenanceTask() {
-        new BukkitRunnable() {
-            @Override
-            public void run() {
-                try {
-                    cleanupExpiredTransactions();
-                    cleanupOldInteractionTimes();
-                } catch (Exception e) {
-                    plugin.getLogger().log(Level.WARNING, "Error during PurchaseManager maintenance", e);
-                }
-            }
-        }.runTaskTimerAsynchronously(plugin, 1200L, 1200L); // Every minute
-    }
-
-    /**
-     * Enhanced purchase initiation with comprehensive validation
-     */
-    public void startPurchase(Player player, ItemStack item, int price) {
-        UUID playerId = player.getUniqueId();
-
-        try {
-            // Validate input parameters
-            if (!validatePurchaseInputs(player, item, price)) {
-                return;
-            }
-
-            // Check if player already has an active transaction
-            if (activeTransactions.containsKey(playerId)) {
-                player.sendMessage(ChatColor.RED + "You already have an active purchase. Type 'cancel' to cancel it.");
-                return;
-            }
-
-            // Check system load
-            if (activeTransactions.size() >= MAX_CONCURRENT_TRANSACTIONS) {
-                player.sendMessage(ChatColor.RED + "The vendor system is currently busy. Please try again in a moment.");
-                return;
-            }
-
-            // Clean item for purchase (remove price from lore)
-            ItemStack purchaseItem = VendorUtils.removePriceFromItem(item);
-            if (purchaseItem == null) {
-                player.sendMessage(ChatColor.RED + "Invalid item. Please try again.");
-                return;
-            }
-
-            // Create transaction
-            PurchaseTransaction transaction = new PurchaseTransaction(
-                    playerId,
-                    purchaseItem,
-                    price,
-                    System.currentTimeMillis()
-            );
-
-            activeTransactions.put(playerId, transaction);
-            totalTransactions.incrementAndGet();
-
-            // Send purchase prompts with enhanced formatting
-            sendPurchasePrompts(player, purchaseItem, price);
-
-            // Schedule timeout task
-            scheduleTransactionTimeout(playerId);
-
-        } catch (Exception e) {
-            plugin.getLogger().log(Level.WARNING, "Error starting purchase for player " + player.getName(), e);
-            player.sendMessage(ChatColor.RED + "An error occurred while starting your purchase. Please try again.");
-            cleanupTransaction(playerId);
-        }
-    }
-
-    /**
-     * Enhanced input validation
-     */
-    private boolean validatePurchaseInputs(Player player, ItemStack item, int price) {
+    public boolean startPurchase(Player player, ItemStack originalCleanItem, int pricePerItem) {
         if (player == null || !player.isOnline()) {
             return false;
         }
 
-        if (item == null || item.getType().isAir()) {
+        UUID playerId = player.getUniqueId();
+
+        // Check for existing session
+        if (activePurchases.containsKey(playerId)) {
+            player.sendMessage(ChatColor.RED + "⚠ You already have an active purchase. Type " +
+                    ChatColor.BOLD + "'cancel'" + ChatColor.RED + " to cancel it.");
+            return false;
+        }
+
+        // Check purchase cooldown
+        if (isOnCooldown(playerId)) {
+            player.sendMessage(ChatColor.RED + "Please wait a moment before starting another purchase.");
+            return false;
+        }
+
+        // Validate item
+        if (originalCleanItem == null || originalCleanItem.getType().isAir()) {
             player.sendMessage(ChatColor.RED + "Invalid item for purchase.");
             return false;
         }
 
-        if (price <= 0) {
-            player.sendMessage(ChatColor.RED + "Invalid price for this item.");
+        // Validate price
+        if (pricePerItem <= 0) {
+            player.sendMessage(ChatColor.RED + "This item is not available for purchase.");
             return false;
         }
 
-        if (price > 1000000) { // Reasonable upper limit
-            player.sendMessage(ChatColor.RED + "This item is too expensive to purchase.");
+        // Comprehensive funds check
+        int playerGems = economyManager.getPhysicalGems(player);
+        if (playerGems < pricePerItem) {
+            player.sendMessage("");
+            player.sendMessage(ChatColor.RED + "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+            player.sendMessage(ChatColor.RED + "                    ⚠ INSUFFICIENT FUNDS ⚠");
+            player.sendMessage(ChatColor.RED + "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+            player.sendMessage(ChatColor.RED + "Required: " + ChatColor.WHITE + VendorUtils.formatColoredCurrency(pricePerItem));
+            player.sendMessage(ChatColor.RED + "Your gems: " + ChatColor.WHITE + VendorUtils.formatColoredCurrency(playerGems));
+            player.sendMessage(ChatColor.RED + "Needed: " + ChatColor.WHITE + VendorUtils.formatColoredCurrency(pricePerItem - playerGems));
+            player.sendMessage(ChatColor.RED + "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+            player.sendMessage("");
             return false;
         }
 
-        return true;
-    }
+        try {
+            //  Use the original clean item directly (no cleaning needed)
+            ItemStack cleanItem = originalCleanItem.clone();
 
-    /**
-     * Enhanced purchase prompts with better formatting
-     */
-    private void sendPurchasePrompts(Player player, ItemStack item, int price) {
-        String itemName = getItemDisplayName(item);
-        long maxCost = (long) price * MAX_QUANTITY;
-
-        player.sendMessage("");
-        player.sendMessage(ChatColor.GOLD + "▬▬▬▬▬▬▬ " + ChatColor.YELLOW + "PURCHASE CONFIRMATION" + ChatColor.GOLD + " ▬▬▬▬▬▬▬");
-        player.sendMessage(ChatColor.GREEN + "Item: " + ChatColor.WHITE + itemName);
-        player.sendMessage(ChatColor.GREEN + "Price per item: " + ChatColor.WHITE + VendorUtils.formatCurrency(price));
-        player.sendMessage(ChatColor.GREEN + "Maximum quantity: " + ChatColor.WHITE + MAX_QUANTITY + " (" + VendorUtils.formatCurrency(maxCost) + ")");
-        player.sendMessage("");
-        player.sendMessage(ChatColor.YELLOW + "Enter the " + ChatColor.BOLD + "QUANTITY" + ChatColor.YELLOW + " you'd like to purchase:");
-        player.sendMessage(ChatColor.GRAY + "• Type a number between 1 and " + MAX_QUANTITY);
-        player.sendMessage(ChatColor.GRAY + "• Type '" + ChatColor.RED + "cancel" + ChatColor.GRAY + "' to void this purchase");
-        player.sendMessage(ChatColor.GOLD + "▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬");
-        player.sendMessage("");
-    }
-
-    /**
-     * Get display name for item
-     */
-    private String getItemDisplayName(ItemStack item) {
-        if (item.hasItemMeta() && item.getItemMeta().hasDisplayName()) {
-            return item.getItemMeta().getDisplayName();
-        }
-        return VendorUtils.capitalizeFirst(item.getType().name().toLowerCase().replace('_', ' '));
-    }
-
-    /**
-     * Schedule transaction timeout
-     */
-    private void scheduleTransactionTimeout(UUID playerId) {
-        new BukkitRunnable() {
-            @Override
-            public void run() {
-                PurchaseTransaction transaction = activeTransactions.get(playerId);
-                if (transaction != null &&
-                        System.currentTimeMillis() - transaction.startTime > TRANSACTION_TIMEOUT_MS) {
-
-                    Player player = plugin.getServer().getPlayer(playerId);
-                    if (player != null && player.isOnline()) {
-                        player.sendMessage(ChatColor.RED + "Purchase timed out. Transaction cancelled.");
-                    }
-
-                    cancelTransaction(playerId);
-                }
+            // Validate clean item
+            if (cleanItem == null || cleanItem.getType().isAir()) {
+                player.sendMessage(ChatColor.RED + "Failed to process item for purchase.");
+                return false;
             }
-        }.runTaskLater(plugin, (TRANSACTION_TIMEOUT_MS / 50) + 20); // Convert to ticks + buffer
+
+            // Create session with clean item
+            PurchaseSession session = new PurchaseSession(cleanItem, pricePerItem, System.currentTimeMillis());
+            activePurchases.put(playerId, session);
+
+            // Send  purchase prompt
+            sendPurchasePrompt(player, session);
+
+            plugin.getLogger().info("Started purchase session for " + player.getName() +
+                    " - Item: " + cleanItem.getType() + ", Price: " + pricePerItem);
+
+            return true;
+
+        } catch (Exception e) {
+            plugin.getLogger().log(Level.SEVERE, "Error starting purchase for " + player.getName(), e);
+            player.sendMessage(ChatColor.RED + "An error occurred while starting the purchase. Please try again.");
+            return false;
+        }
     }
 
     /**
-     * Enhanced chat input handling with validation
+     *  purchase prompt with beautiful formatting
+     */
+    private void sendPurchasePrompt(Player player, PurchaseSession session) {
+        String itemName = getCleanItemDisplayName(session.item);
+        int maxAffordable = Math.min(MAX_QUANTITY, economyManager.getPhysicalGems(player) / session.pricePerItem);
+
+        player.sendMessage("");
+        player.sendMessage(ChatColor.GOLD + "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+        player.sendMessage(ChatColor.GOLD + "                      🛒 PURCHASE MENU 🛒");
+        player.sendMessage(ChatColor.GOLD + "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+        player.sendMessage("");
+        player.sendMessage(ChatColor.GREEN + "📦 Item: " + ChatColor.WHITE + itemName);
+        player.sendMessage(ChatColor.GREEN + "💰 Price per item: " + VendorUtils.formatColoredCurrency(session.pricePerItem));
+        player.sendMessage(ChatColor.GREEN + "💎 Your gems: " + VendorUtils.formatColoredCurrency(economyManager.getPhysicalGems(player)));
+        player.sendMessage(ChatColor.GREEN + "📊 Max affordable: " + ChatColor.WHITE + maxAffordable + " items");
+
+        if (maxAffordable >= 10) {
+            long cost10 = (long) session.pricePerItem * 10;
+            player.sendMessage(ChatColor.GRAY + "   💡 10 items would cost: " + VendorUtils.formatColoredCurrency(cost10));
+        }
+
+        player.sendMessage("");
+        player.sendMessage(ChatColor.YELLOW + "📝 Enter the " + ChatColor.BOLD + "QUANTITY" + ChatColor.YELLOW + " you want to buy:");
+        player.sendMessage(ChatColor.GRAY + "   Range: " + ChatColor.WHITE + MIN_QUANTITY + " - " + Math.min(MAX_QUANTITY, maxAffordable));
+        player.sendMessage(ChatColor.GRAY + "   Type " + ChatColor.RED + "'cancel'" + ChatColor.GRAY + " to exit");
+        player.sendMessage(ChatColor.GRAY + "   ⏱ Auto-expires in 60 seconds");
+        player.sendMessage("");
+        player.sendMessage(ChatColor.GOLD + "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+        player.sendMessage("");
+
+        // Play a pleasant sound
+        player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_PLING, 1.0f, 1.5f);
+    }
+
+    /**
+     * Handle chat input with better validation and feedback
      */
     @EventHandler(priority = EventPriority.LOWEST)
-    public void onChatInput(AsyncPlayerChatEvent event) {
+    public void onChat(AsyncPlayerChatEvent event) {
         Player player = event.getPlayer();
         UUID playerId = player.getUniqueId();
 
-        // Check if player has active transaction
-        PurchaseTransaction transaction = activeTransactions.get(playerId);
-        if (transaction == null) {
+        PurchaseSession session = activePurchases.get(playerId);
+        if (session == null) {
             return;
         }
 
-        // Cancel the chat event
         event.setCancelled(true);
-
-        // Check message cooldown
-        if (!isMessageCooldownExpired(playerId)) {
-            return;
-        }
-        updateMessageCooldown(playerId);
-
         String message = event.getMessage().trim();
 
-        // Handle cancellation
-        if (message.equalsIgnoreCase("cancel")) {
-            Bukkit.getScheduler().runTask(plugin, () -> {
-                player.sendMessage(ChatColor.RED + "Purchase cancelled.");
-                cancelTransaction(playerId);
-            });
+        // Check session timeout
+        if (System.currentTimeMillis() - session.startTime > PURCHASE_TIMEOUT_MS) {
+            activePurchases.remove(playerId);
+            player.sendMessage("");
+            player.sendMessage(ChatColor.RED + "⏱ Purchase session timed out. Please try again.");
+            player.sendMessage("");
             return;
         }
 
-        // Process quantity input on main thread
-        Bukkit.getScheduler().runTask(plugin, () -> {
-            processQuantityInput(player, message, transaction);
-        });
+        // Handle cancellation with multiple variations
+        if (message.equalsIgnoreCase("cancel") || message.equalsIgnoreCase("c") ||
+                message.equalsIgnoreCase("exit") || message.equalsIgnoreCase("quit")) {
+            cancelPurchase(playerId, ChatColor.YELLOW + "Purchase cancelled by player.");
+            return;
+        }
+
+        //  quantity parsing with better error messages
+        int quantity;
+        try {
+            quantity = Integer.parseInt(message);
+        } catch (NumberFormatException e) {
+            player.sendMessage("");
+            player.sendMessage(ChatColor.RED + "❌ Invalid input: '" + message + "'");
+            player.sendMessage(ChatColor.YELLOW + "Please enter a valid number (" + MIN_QUANTITY + "-" + MAX_QUANTITY + ") or 'cancel'");
+            player.sendMessage("");
+            return;
+        }
+
+        //  quantity validation
+        if (quantity < MIN_QUANTITY) {
+            player.sendMessage("");
+            player.sendMessage(ChatColor.RED + "❌ Quantity too low! Minimum: " + MIN_QUANTITY);
+            player.sendMessage("");
+            return;
+        }
+
+        if (quantity > MAX_QUANTITY) {
+            player.sendMessage("");
+            player.sendMessage(ChatColor.RED + "❌ Quantity too high! Maximum: " + MAX_QUANTITY);
+            player.sendMessage(ChatColor.GRAY + "For larger purchases, contact an administrator.");
+            player.sendMessage("");
+            return;
+        }
+
+        // Check affordability
+        long totalCost = (long) session.pricePerItem * quantity;
+        if (totalCost > economyManager.getPhysicalGems(player)) {
+            player.sendMessage("");
+            player.sendMessage(ChatColor.RED + "❌ Cannot afford " + quantity + " items!");
+            player.sendMessage(ChatColor.RED + "Cost: " + VendorUtils.formatColoredCurrency(totalCost));
+            player.sendMessage(ChatColor.RED + "Your gems: " + VendorUtils.formatColoredCurrency(economyManager.getPhysicalGems(player)));
+            player.sendMessage("");
+            return;
+        }
+
+        // Process purchase on main thread
+        Bukkit.getScheduler().runTask(plugin, () -> processPurchase(player, session, quantity));
     }
 
     /**
-     * Enhanced quantity input processing
+     *  Process purchase with original clean items (no modification needed)
      */
-    private void processQuantityInput(Player player, String message, PurchaseTransaction transaction) {
+    private void processPurchase(Player player, PurchaseSession session, int quantity) {
         UUID playerId = player.getUniqueId();
 
         try {
-            // Parse quantity
-            int quantity;
-            try {
-                quantity = Integer.parseInt(message);
-            } catch (NumberFormatException e) {
-                player.sendMessage(ChatColor.RED + "Please enter a valid number, or type '" + ChatColor.BOLD + "cancel" + ChatColor.RED + "' to void this purchase.");
+            // Validate player is still online
+            if (!player.isOnline()) {
+                activePurchases.remove(playerId);
                 return;
             }
 
-            // Validate quantity
-            if (quantity <= 0) {
-                player.sendMessage(ChatColor.RED + "Quantity must be greater than 0.");
-                return;
-            }
-
-            if (quantity > MAX_QUANTITY) {
-                player.sendMessage(ChatColor.RED + "Maximum quantity is " + MAX_QUANTITY + " items per transaction.");
-                return;
-            }
-
-            // Calculate total cost
-            long totalCost = (long) quantity * transaction.pricePerItem;
-
-            // Validate total cost doesn't overflow
+            // Calculate total cost with overflow protection
+            long totalCost = (long) session.pricePerItem * quantity;
             if (totalCost > Integer.MAX_VALUE) {
-                player.sendMessage(ChatColor.RED + "Total cost is too high. Please choose a smaller quantity.");
+                player.sendMessage(ChatColor.RED + "❌ Purchase amount too large! Please reduce quantity.");
+                cancelPurchase(playerId, "Purchase amount too large");
                 return;
             }
 
-            // Check if player has enough gems
+            // Final funds check (player might have spent gems while in menu)
             if (!economyManager.hasPhysicalGems(player, (int) totalCost)) {
-                player.sendMessage(ChatColor.RED + "Insufficient funds! You need " + VendorUtils.formatCurrency(totalCost) + " but only have " + VendorUtils.formatCurrency(economyManager.getPhysicalGems(player)) + ".");
-                player.sendMessage(ChatColor.GRAY + "Calculation: " + quantity + " × " + VendorUtils.formatCurrency(transaction.pricePerItem) + " = " + VendorUtils.formatCurrency(totalCost));
+                int currentGems = economyManager.getPhysicalGems(player);
+                player.sendMessage("");
+                player.sendMessage(ChatColor.RED + "❌ Insufficient gems!");
+                player.sendMessage(ChatColor.RED + "Required: " + VendorUtils.formatColoredCurrency((int) totalCost));
+                player.sendMessage(ChatColor.RED + "Available: " + VendorUtils.formatColoredCurrency(currentGems));
+                player.sendMessage("");
+                cancelPurchase(playerId, "Insufficient funds");
                 return;
             }
 
-            // Check inventory space
-            if (!hasInventorySpace(player, transaction.item, quantity)) {
-                player.sendMessage(ChatColor.RED + "Insufficient inventory space! Clear some room and try again.");
+            // Check inventory space before payment
+            if (!hasInventorySpace(player, session.item, quantity)) {
+                player.sendMessage("");
+                player.sendMessage(ChatColor.RED + "❌ Not enough inventory space for " + quantity + " items!");
+                player.sendMessage(ChatColor.YELLOW + "Free up some space and try again.");
+                player.sendMessage("");
+                cancelPurchase(playerId, "Insufficient inventory space");
                 return;
             }
 
-            // Complete the purchase
-            completePurchase(player, transaction, quantity, (int) totalCost);
+            // Process payment
+            var paymentResult = economyManager.removePhysicalGems(player, (int) totalCost);
+            if (!paymentResult.isSuccess()) {
+                player.sendMessage("");
+                player.sendMessage(ChatColor.RED + "❌ Payment failed: " + paymentResult.getMessage());
+                player.sendMessage("");
+                cancelPurchase(playerId, "Payment failed: " + paymentResult.getMessage());
+                return;
+            }
+
+            //  Give items directly without any modification (session.item is already clean)
+            int itemsGiven = giveItems(player, session.item, quantity);
+
+            if (itemsGiven < quantity) {
+                // Partial success - refund the difference
+                int refund = (quantity - itemsGiven) * session.pricePerItem;
+                economyManager.addBankGems(player, refund);
+
+                player.sendMessage("");
+                player.sendMessage(ChatColor.YELLOW + "⚠ Partial purchase completed!");
+                player.sendMessage(ChatColor.YELLOW + "Items given: " + itemsGiven + "/" + quantity);
+                player.sendMessage(ChatColor.YELLOW + "Refunded: " + VendorUtils.formatColoredCurrency(refund));
+                player.sendMessage("");
+            }
+
+            // Send beautiful success message
+            sendSuccessMessage(player, session, itemsGiven, itemsGiven * session.pricePerItem);
+
+            // Update purchase tracking
+            lastPurchaseTime.put(playerId, System.currentTimeMillis());
+
+            // Log successful purchase
+            plugin.getLogger().info("Purchase completed: " + player.getName() +
+                    " bought " + itemsGiven + "x " + session.item.getType() +
+                    " for " + (itemsGiven * session.pricePerItem) + " gems");
 
         } catch (Exception e) {
-            plugin.getLogger().log(Level.WARNING, "Error processing quantity input for player " + player.getName(), e);
-            player.sendMessage(ChatColor.RED + "An error occurred while processing your purchase. Please try again.");
-            cancelTransaction(playerId);
+            plugin.getLogger().log(Level.SEVERE, "Error processing purchase for " + player.getName(), e);
+            player.sendMessage("");
+            player.sendMessage(ChatColor.RED + "❌ An error occurred while processing your purchase.");
+            player.sendMessage(ChatColor.RED + "Please contact an administrator if gems were deducted.");
+            player.sendMessage("");
+
+            // Attempt emergency refund
+            try {
+                int totalCost = session.pricePerItem * quantity;
+                economyManager.addBankGems(player, totalCost);
+                player.sendMessage(ChatColor.GREEN + "💰 Emergency refund of " +
+                        VendorUtils.formatColoredCurrency(totalCost) + " issued.");
+            } catch (Exception refundError) {
+                plugin.getLogger().log(Level.SEVERE, "CRITICAL: Failed to emergency refund player " + player.getName(), refundError);
+            }
+
+        } finally {
+            // Always clean up the session
+            activePurchases.remove(playerId);
         }
     }
 
     /**
-     * Enhanced inventory space checking
+     * Send  success message with detailed information
+     */
+    private void sendSuccessMessage(Player player, PurchaseSession session, int quantity, int totalCost) {
+        String itemName = getCleanItemDisplayName(session.item);
+
+        player.sendMessage("");
+        player.sendMessage(ChatColor.GREEN + "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+        player.sendMessage(ChatColor.GREEN + "                    ✅ PURCHASE SUCCESSFUL! ✅");
+        player.sendMessage(ChatColor.GREEN + "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+        player.sendMessage("");
+        player.sendMessage(ChatColor.GREEN + "🎉 Purchase completed successfully!");
+        player.sendMessage(ChatColor.GREEN + "📦 Bought: " + ChatColor.WHITE + quantity + "x " + itemName);
+        player.sendMessage(ChatColor.GREEN + "💸 Total cost: " + ChatColor.RED + "-" + VendorUtils.formatColoredCurrency(totalCost));
+        player.sendMessage(ChatColor.GREEN + "💎 Remaining gems: " + VendorUtils.formatColoredCurrency(economyManager.getPhysicalGems(player)));
+
+        if (quantity > 1) {
+            player.sendMessage(ChatColor.GREEN + "📊 Price per item: " + VendorUtils.formatColoredCurrency(session.pricePerItem));
+        }
+
+        player.sendMessage("");
+        player.sendMessage(ChatColor.YELLOW + "🎁 Items have been added to your inventory!");
+        player.sendMessage(ChatColor.GREEN + "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+        player.sendMessage("");
+
+        // Play success sounds
+        player.playSound(player.getLocation(), Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 1.0f, 1.0f);
+        player.playSound(player.getLocation(), Sound.ENTITY_PLAYER_LEVELUP, 0.5f, 1.5f);
+    }
+
+    /**
+     *  cancel purchase with better messaging
+     */
+    private void cancelPurchase(UUID playerId, String reason) {
+        activePurchases.remove(playerId);
+        Player player = Bukkit.getPlayer(playerId);
+        if (player != null && player.isOnline()) {
+            player.sendMessage("");
+            player.sendMessage(ChatColor.RED + "🚫 " + reason);
+            player.sendMessage("");
+        }
+    }
+
+    /**
+     * Get clean display name for items (no cleaning needed, items are already clean)
+     */
+    private String getCleanItemDisplayName(ItemStack item) {
+        if (item.hasItemMeta() && item.getItemMeta().hasDisplayName()) {
+            // The item is already clean, just get the display name
+            return ChatColor.stripColor(item.getItemMeta().getDisplayName());
+        }
+        return VendorUtils.formatVendorTypeName(item.getType().name());
+    }
+
+    /**
+     *  inventory space checking with better stack handling
      */
     private boolean hasInventorySpace(Player player, ItemStack item, int quantity) {
-        if (item.getMaxStackSize() == 1) {
-            // Non-stackable items need individual slots
-            int emptySlots = 0;
+        try {
+            int spaceNeeded = quantity;
+            int maxStack = item.getMaxStackSize();
+
             for (ItemStack slot : player.getInventory().getStorageContents()) {
                 if (slot == null || slot.getType().isAir()) {
-                    emptySlots++;
+                    spaceNeeded -= maxStack;
+                } else if (slot.isSimilar(item)) {
+                    int canAdd = maxStack - slot.getAmount();
+                    spaceNeeded -= canAdd;
                 }
-            }
-            return quantity <= emptySlots;
-        } else {
-            // Stackable items - check available space
-            Map<Integer, ? extends ItemStack> similar = player.getInventory().all(item.getType());
-            int availableSpace = 0;
 
-            // Count space in existing stacks
-            for (ItemStack stack : similar.values()) {
-                if (stack.isSimilar(item)) {
-                    availableSpace += item.getMaxStackSize() - stack.getAmount();
+                if (spaceNeeded <= 0) {
+                    return true;
                 }
             }
 
-            // Count empty slots
-            for (ItemStack slot : player.getInventory().getStorageContents()) {
-                if (slot == null || slot.getType().isAir()) {
-                    availableSpace += item.getMaxStackSize();
-                }
-            }
-
-            return quantity <= availableSpace;
-        }
-    }
-
-    /**
-     * Enhanced purchase completion
-     */
-    private void completePurchase(Player player, PurchaseTransaction transaction, int quantity, int totalCost) {
-        UUID playerId = player.getUniqueId();
-
-        try {
-            // Double-check funds (race condition protection)
-            if (!economyManager.hasPhysicalGems(player, totalCost)) {
-                player.sendMessage(ChatColor.RED + "Insufficient funds! Your balance may have changed.");
-                cancelTransaction(playerId);
-                return;
-            }
-
-            // Remove gems first
-            if (!economyManager.removePhysicalGems(player, totalCost).isSuccess()) {
-                player.sendMessage(ChatColor.RED + "Failed to process payment. Transaction cancelled.");
-                cancelTransaction(playerId);
-                return;
-            }
-
-            // Give items
-            boolean itemsGiven = giveItemsToPlayer(player, transaction.item, quantity);
-
-            if (!itemsGiven) {
-                // Refund if item giving failed
-                economyManager.addBankGems(player, totalCost);
-                player.sendMessage(ChatColor.RED + "Failed to give items. Payment refunded.");
-                cancelTransaction(playerId);
-                return;
-            }
-
-            // Success!
-            sendSuccessMessage(player, transaction.item, quantity, totalCost);
-            player.playSound(player.getLocation(), Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 1.0f, 1.0f);
-
-            // Update statistics
-            successfulTransactions.incrementAndGet();
-            cleanupTransaction(playerId);
+            return spaceNeeded <= 0;
 
         } catch (Exception e) {
-            plugin.getLogger().log(Level.SEVERE, "Error completing purchase for player " + player.getName(), e);
-
-            // Attempt refund
-            try {
-                economyManager.addBankGems(player, totalCost);
-                player.sendMessage(ChatColor.RED + "Purchase failed due to an error. Payment refunded.");
-            } catch (Exception refundError) {
-                plugin.getLogger().log(Level.SEVERE, "Failed to refund player " + player.getName() + " " + totalCost + " gems", refundError);
-                player.sendMessage(ChatColor.DARK_RED + "Critical error: Purchase failed and refund failed. Contact an administrator immediately.");
-            }
-
-            failedTransactions.incrementAndGet();
-            cancelTransaction(playerId);
+            plugin.getLogger().log(Level.WARNING, "Error checking inventory space for " + player.getName(), e);
+            return false; // Err on the side of caution
         }
     }
 
     /**
-     * Enhanced item giving with better error handling
+     * Give items to player (items are already clean, no modification needed)
      */
-    private boolean giveItemsToPlayer(Player player, ItemStack item, int quantity) {
+    private int giveItems(Player player, ItemStack item, int quantity) {
+        int given = 0;
+
         try {
-            if (item.getMaxStackSize() == 1) {
-                // Non-stackable items
-                for (int i = 0; i < quantity; i++) {
-                    Map<Integer, ItemStack> leftover = player.getInventory().addItem(item.clone());
-                    if (!leftover.isEmpty()) {
-                        // Inventory full, drop remaining items and notify
-                        for (ItemStack drop : leftover.values()) {
-                            player.getWorld().dropItemNaturally(player.getLocation(), drop);
-                        }
-                        player.sendMessage(ChatColor.YELLOW + "Some items were dropped at your feet due to full inventory.");
-                    }
-                }
-            } else {
-                // Stackable items
-                int remaining = quantity;
-                while (remaining > 0) {
-                    int stackSize = Math.min(remaining, item.getMaxStackSize());
-                    ItemStack stack = item.clone();
-                    stack.setAmount(stackSize);
+            // Use the clean item directly (no cloning needed for modification)
+            ItemStack toGive = item.clone();
 
-                    Map<Integer, ItemStack> leftover = player.getInventory().addItem(stack);
-                    if (!leftover.isEmpty()) {
-                        // Drop leftover items
-                        for (ItemStack drop : leftover.values()) {
-                            player.getWorld().dropItemNaturally(player.getLocation(), drop);
-                        }
-                        player.sendMessage(ChatColor.YELLOW + "Some items were dropped at your feet due to full inventory.");
+            while (quantity > 0 && given < MAX_QUANTITY) {
+                int stackSize = Math.min(quantity, item.getMaxStackSize());
+                toGive.setAmount(stackSize);
+
+                Map<Integer, ItemStack> leftover = player.getInventory().addItem(toGive.clone());
+
+                if (leftover.isEmpty()) {
+                    // All items were added
+                    given += stackSize;
+                    quantity -= stackSize;
+                } else {
+                    // Some items couldn't be added
+                    int notAdded = leftover.values().stream().mapToInt(ItemStack::getAmount).sum();
+                    int actuallyAdded = stackSize - notAdded;
+                    given += actuallyAdded;
+
+                    // Drop remaining items at player's feet with notification
+                    for (ItemStack drop : leftover.values()) {
+                        player.getWorld().dropItemNaturally(player.getLocation(), drop);
                     }
 
-                    remaining -= stackSize;
+                    if (actuallyAdded < stackSize) {
+                        player.sendMessage(ChatColor.YELLOW + "⚠ Some items were dropped at your feet due to full inventory.");
+                        break; // Stop trying if inventory is full
+                    }
+
+                    quantity -= stackSize;
                 }
             }
 
-            return true;
         } catch (Exception e) {
-            plugin.getLogger().log(Level.WARNING, "Error giving items to player " + player.getName(), e);
-            return false;
+            plugin.getLogger().log(Level.WARNING, "Error giving items to " + player.getName(), e);
         }
+
+        return given;
     }
 
     /**
-     * Enhanced success message
+     * Check if player is on purchase cooldown
      */
-    private void sendSuccessMessage(Player player, ItemStack item, int quantity, int totalCost) {
-        String itemName = getItemDisplayName(item);
-
-        player.sendMessage("");
-        player.sendMessage(ChatColor.GREEN + "▬▬▬▬▬▬▬ " + ChatColor.GOLD + "PURCHASE SUCCESSFUL" + ChatColor.GREEN + " ▬▬▬▬▬▬▬");
-        player.sendMessage(ChatColor.GREEN + "✓ Purchased: " + ChatColor.WHITE + quantity + "x " + itemName);
-        player.sendMessage(ChatColor.GREEN + "✓ Total cost: " + ChatColor.RED + "-" + VendorUtils.formatCurrency(totalCost));
-        player.sendMessage(ChatColor.GREEN + "✓ Remaining balance: " + ChatColor.GOLD + VendorUtils.formatCurrency(economyManager.getPhysicalGems(player)));
-        player.sendMessage(ChatColor.GREEN + "▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬");
-        player.sendMessage("");
+    private boolean isOnCooldown(UUID playerId) {
+        Long lastPurchase = lastPurchaseTime.get(playerId);
+        return lastPurchase != null && (System.currentTimeMillis() - lastPurchase) < PURCHASE_COOLDOWN_MS;
     }
 
     /**
-     * Enhanced transaction cancellation
+     * Start cleanup task for expired sessions
      */
-    public void cancelTransaction(UUID playerId) {
-        PurchaseTransaction transaction = activeTransactions.remove(playerId);
-        if (transaction != null) {
-            cancelledTransactions.incrementAndGet();
-        }
+    private void startCleanupTask() {
+        new BukkitRunnable() {
+            @Override
+            public void run() {
+                cleanupExpiredSessions();
+            }
+        }.runTaskTimer(plugin, 600L, 600L); // Run every 30 seconds
     }
 
     /**
-     * Clean up transaction without marking as cancelled
+     * Clean up expired purchase sessions
      */
-    private void cleanupTransaction(UUID playerId) {
-        activeTransactions.remove(playerId);
+    private void cleanupExpiredSessions() {
+        long currentTime = System.currentTimeMillis();
+
+        activePurchases.entrySet().removeIf(entry -> {
+            UUID playerId = entry.getKey();
+            PurchaseSession session = entry.getValue();
+
+            boolean expired = (currentTime - session.startTime) > PURCHASE_TIMEOUT_MS;
+
+            if (expired) {
+                Player player = Bukkit.getPlayer(playerId);
+                if (player != null && player.isOnline()) {
+                    player.sendMessage("");
+                    player.sendMessage(ChatColor.RED + "⏱ Your purchase session has expired.");
+                    player.sendMessage("");
+                }
+                plugin.getLogger().info("Cleaned up expired purchase session for " + playerId);
+            }
+
+            return expired;
+        });
+
+        // Clean up old purchase times (keep for 5 minutes)
+        lastPurchaseTime.entrySet().removeIf(entry ->
+                (currentTime - entry.getValue()) > 300000);
     }
 
     /**
-     * Player quit event handling
+     * Handle player quit/kick events
      */
     @EventHandler
     public void onPlayerQuit(PlayerQuitEvent event) {
-        UUID playerId = event.getPlayer().getUniqueId();
-        cancelTransaction(playerId);
-        lastInteractionTime.remove(playerId);
+        handlePlayerLeave(event.getPlayer());
+    }
+
+    @EventHandler
+    public void onPlayerKick(PlayerKickEvent event) {
+        handlePlayerLeave(event.getPlayer());
     }
 
     /**
-     * Message cooldown management
+     * Handle player leaving the server
      */
-    private boolean isMessageCooldownExpired(UUID playerId) {
-        Long lastTime = lastInteractionTime.get(playerId);
-        if (lastTime == null) {
-            return true;
+    private void handlePlayerLeave(Player player) {
+        UUID playerId = player.getUniqueId();
+        PurchaseSession session = activePurchases.remove(playerId);
+
+        if (session != null) {
+            plugin.getLogger().info("Cleaned up purchase session for disconnected player: " + player.getName());
         }
-        return System.currentTimeMillis() - lastTime >= MESSAGE_COOLDOWN_MS;
-    }
-
-    private void updateMessageCooldown(UUID playerId) {
-        lastInteractionTime.put(playerId, System.currentTimeMillis());
-    }
-
-    /**
-     * Cleanup expired transactions
-     */
-    private void cleanupExpiredTransactions() {
-        long currentTime = System.currentTimeMillis();
-
-        activeTransactions.entrySet().removeIf(entry -> {
-            PurchaseTransaction transaction = entry.getValue();
-            if (currentTime - transaction.startTime > TRANSACTION_TIMEOUT_MS) {
-                Player player = plugin.getServer().getPlayer(entry.getKey());
-                if (player != null && player.isOnline()) {
-                    player.sendMessage(ChatColor.RED + "Your purchase timed out and was cancelled.");
-                }
-                cancelledTransactions.incrementAndGet();
-                return true;
-            }
-            return false;
-        });
-    }
-
-    /**
-     * Cleanup old interaction times
-     */
-    private void cleanupOldInteractionTimes() {
-        long currentTime = System.currentTimeMillis();
-        lastInteractionTime.entrySet().removeIf(entry ->
-                currentTime - entry.getValue() > 300000); // 5 minutes
-    }
-
-    /**
-     * Enhanced price extraction with better parsing
-     */
-    public static int getPriceFromLore(ItemStack item) {
-        return VendorUtils.extractPriceFromLore(item);
     }
 
     /**
      * Check if player is in purchase process
      */
     public boolean isInPurchaseProcess(UUID playerId) {
-        return activeTransactions.containsKey(playerId);
+        return activePurchases.containsKey(playerId);
     }
 
     /**
-     * Get active transaction count
+     * Force cancel a purchase (admin function)
      */
-    public int getActiveTransactionCount() {
-        return activeTransactions.size();
-    }
-
-    /**
-     * Get purchase statistics
-     */
-    public Map<String, Object> getStatistics() {
-        Map<String, Object> stats = new HashMap<>();
-        stats.put("totalTransactions", totalTransactions.get());
-        stats.put("successfulTransactions", successfulTransactions.get());
-        stats.put("failedTransactions", failedTransactions.get());
-        stats.put("cancelledTransactions", cancelledTransactions.get());
-        stats.put("activeTransactions", activeTransactions.size());
-
-        long total = totalTransactions.get();
-        if (total > 0) {
-            stats.put("successRate", (double) successfulTransactions.get() / total * 100.0);
-        } else {
-            stats.put("successRate", 0.0);
-        }
-
-        return stats;
-    }
-
-    /**
-     * Force cancel all transactions (admin command)
-     */
-    public void cancelAllTransactions() {
-        for (UUID playerId : new HashSet<>(activeTransactions.keySet())) {
-            Player player = plugin.getServer().getPlayer(playerId);
+    public boolean cancelPurchase(UUID playerId) {
+        PurchaseSession session = activePurchases.remove(playerId);
+        if (session != null) {
+            Player player = Bukkit.getPlayer(playerId);
             if (player != null && player.isOnline()) {
-                player.sendMessage(ChatColor.RED + "Your purchase was cancelled by an administrator.");
+                player.sendMessage(ChatColor.RED + "🚫 Your purchase was cancelled by an administrator.");
             }
-            cancelTransaction(playerId);
+            return true;
         }
-        plugin.getLogger().info("All active transactions cancelled by administrator");
+        return false;
     }
 
     /**
-     * Transaction data class
+     * Get active purchase count (for monitoring)
      */
-    private static class PurchaseTransaction {
-        final UUID playerId;
-        final ItemStack item;
+    public int getActivePurchaseCount() {
+        return activePurchases.size();
+    }
+
+    /**
+     *  Purchase session data class - stores original clean items
+     */
+    private static class PurchaseSession {
+        final ItemStack item; // This is now guaranteed to be the original clean item
         final int pricePerItem;
         final long startTime;
 
-        PurchaseTransaction(UUID playerId, ItemStack item, int pricePerItem, long startTime) {
-            this.playerId = playerId;
-            this.item = item.clone(); // Defensive copy
+        PurchaseSession(ItemStack originalCleanItem, int pricePerItem, long startTime) {
+            this.item = originalCleanItem;
             this.pricePerItem = pricePerItem;
             this.startTime = startTime;
         }

@@ -2,6 +2,7 @@ package com.rednetty.server.mechanics.item;
 
 import com.rednetty.server.YakRealms;
 import com.rednetty.server.mechanics.player.YakPlayerManager;
+import com.rednetty.server.mechanics.player.mounts.type.MountType;
 import com.rednetty.server.mechanics.player.settings.Toggles;
 import com.rednetty.server.utils.nbt.NBTAccessor;
 import org.bukkit.Bukkit;
@@ -266,7 +267,7 @@ public class MenuItemManager {
             }
 
             // Attempt to summon the elytra
-            if (mountManager.summonMount(player, com.rednetty.server.mechanics.player.mounts.MountType.ELYTRA)) {
+            if (mountManager.summonMount(player, MountType.ELYTRA)) {
                 logger.fine("Elytra mount summoned for " + player.getName());
                 // Close the crafting inventory to prevent interference
                 player.closeInventory();
@@ -311,7 +312,7 @@ public class MenuItemManager {
             }
 
             // Attempt to summon the horse
-            if (mountManager.summonMount(player, com.rednetty.server.mechanics.player.mounts.MountType.HORSE)) {
+            if (mountManager.summonMount(player, MountType.HORSE)) {
                 logger.fine("Horse mount summoned for " + player.getName());
                 // Close the crafting inventory to prevent interference
                 player.closeInventory();

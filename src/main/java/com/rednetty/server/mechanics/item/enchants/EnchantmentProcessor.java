@@ -12,6 +12,7 @@ import org.bukkit.Sound;
 import org.bukkit.entity.Player;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.meta.ArmorMeta;
 import org.bukkit.inventory.meta.ItemMeta;
 
 import java.util.ArrayList;
@@ -39,7 +40,7 @@ public class EnchantmentProcessor {
      * @param player     The player enhancing the armor
      * @param event      The inventory click event
      * @param scrollItem The enhancement scroll
-     * @param armorItem  The armor being enhanced
+     * @param armorItem  The armor being 
      */
     public void processArmorEnhancement(Player player, InventoryClickEvent event, ItemStack scrollItem, ItemStack armorItem) {
         // Verify the armor is valid for the scroll
@@ -87,8 +88,8 @@ public class EnchantmentProcessor {
         int newHp = (int) (currentHp + hpIncrease);
 
         // Create updated item
-        ItemStack enhancedItem = armorItem.clone();
-        ItemMeta meta = enhancedItem.getItemMeta();
+        ItemStack Item = armorItem.clone();
+        ItemMeta meta = Item.getItemMeta();
 
         // Update name with new plus level
         meta.setDisplayName(ChatColor.RED + "[+" + (currentPlus + 1) + "] " + itemName);
@@ -126,20 +127,20 @@ public class EnchantmentProcessor {
         }
 
         meta.setLore(lore);
-        enhancedItem.setItemMeta(meta);
+        Item.setItemMeta(meta);
 
-        // Add glow effect for items +4 and above
-        if (currentPlus + 1 >= MAX_SAFE_ENHANCEMENT) {
-            Enchants.addGlow(enhancedItem);
+        // Add glow effect for items +4 and above (special handling for T6 netherite)
+        if (currentPlus + 1 >= MAX_SAFE_ENHANCEMENT + 1) {
+            Item = addGlowToItem(Item);
         }
 
         // Remove protection if one was used
-        if (ItemAPI.isProtected(enhancedItem)) {
-            enhancedItem = ItemAPI.removeProtection(enhancedItem);
+        if (ItemAPI.isProtected(Item)) {
+            Item = ItemAPI.removeProtection(Item);
         }
 
         // Update the item in inventory
-        event.setCurrentItem(enhancedItem);
+        event.setCurrentItem(Item);
 
         // Success feedback
         player.sendMessage(TextUtil.colorize("&a→ Enhancement Successful &7[&c+" + (currentPlus + 1) + "&7]"));
@@ -155,7 +156,7 @@ public class EnchantmentProcessor {
      * @param player     The player enhancing the weapon
      * @param event      The inventory click event
      * @param scrollItem The enhancement scroll
-     * @param weaponItem The weapon being enhanced
+     * @param weaponItem The weapon being 
      */
     public void processWeaponEnhancement(Player player, InventoryClickEvent event, ItemStack scrollItem, ItemStack weaponItem) {
         // Verify the weapon is valid for the scroll
@@ -206,8 +207,8 @@ public class EnchantmentProcessor {
         int newMaxDmg = (int) (currentMaxDmg + maxDmgIncrease);
 
         // Create updated item
-        ItemStack enhancedItem = weaponItem.clone();
-        ItemMeta meta = enhancedItem.getItemMeta();
+        ItemStack Item = weaponItem.clone();
+        ItemMeta meta = Item.getItemMeta();
 
         // Update name with new plus level
         meta.setDisplayName(ChatColor.RED + "[+" + (currentPlus + 1) + "] " + itemName);
@@ -232,20 +233,20 @@ public class EnchantmentProcessor {
         }
 
         meta.setLore(lore);
-        enhancedItem.setItemMeta(meta);
+        Item.setItemMeta(meta);
 
-        // Add glow effect for items +4 and above
-        if (currentPlus + 1 >= MAX_SAFE_ENHANCEMENT) {
-            Enchants.addGlow(enhancedItem);
+        // Add glow effect for items +4 and above (special handling for T6 netherite)
+        if (currentPlus + 1 >= MAX_SAFE_ENHANCEMENT + 1) {
+            Item = addGlowToItem(Item);
         }
 
         // Remove protection if one was used
-        if (ItemAPI.isProtected(enhancedItem)) {
-            enhancedItem = ItemAPI.removeProtection(enhancedItem);
+        if (ItemAPI.isProtected(Item)) {
+            Item = ItemAPI.removeProtection(Item);
         }
 
         // Update the item in inventory
-        event.setCurrentItem(enhancedItem);
+        event.setCurrentItem(Item);
 
         // Success feedback
         player.sendMessage(ChatColor.GREEN.toString() + ChatColor.BOLD + "→ Enhancement Successful +" + (currentPlus + 1));
@@ -253,6 +254,30 @@ public class EnchantmentProcessor {
         // Visual and sound effects
         player.playSound(player.getLocation(), Sound.ENTITY_PLAYER_LEVELUP, 1.0f, 1.25f);
         FireworkUtil.spawnFirework(player.getLocation(), FireworkEffect.Type.BURST, Color.YELLOW);
+    }
+
+    /**
+     * Safely adds glow to an item, with special handling for T6 netherite gear
+     *
+     * @param item The item to add glow to
+     * @return The item with glow effect applied
+     */
+    private ItemStack addGlowToItem(ItemStack item) {
+        if (item == null) {
+            return item;
+        }
+
+        // Check if this is T6 netherite armor (which has special trim handling)
+        boolean isNetheriteArmor = item.getType().toString().contains("NETHERITE") &&
+                item.getItemMeta() instanceof ArmorMeta;
+
+        if (isNetheriteArmor) {
+            // Use the safe glow method for netherite armor to preserve trims
+            return Enchants.addGlowSafely(item);
+        } else {
+            // Use regular glow method for other items
+            return Enchants.addGlow(item);
+        }
     }
 
     /**

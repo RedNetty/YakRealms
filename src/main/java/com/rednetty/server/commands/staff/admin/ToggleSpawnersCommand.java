@@ -14,7 +14,7 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 /**
- * Enhanced command for toggling spawner activation with improved functionality and statistics
+ *  command for toggling spawner activation with improved functionality and statistics
  */
 public class ToggleSpawnersCommand implements CommandExecutor, TabCompleter {
     private final MobManager mobManager;
@@ -77,7 +77,7 @@ public class ToggleSpawnersCommand implements CommandExecutor, TabCompleter {
     }
 
     /**
-     * Set spawners enabled/disabled with enhanced feedback
+     * Set spawners enabled/disabled with  feedback
      */
     private void setSpawnersEnabled(CommandSender sender, boolean enabled) {
         boolean wasEnabled = mobManager.areSpawnersEnabled();
@@ -187,7 +187,7 @@ public class ToggleSpawnersCommand implements CommandExecutor, TabCompleter {
     }
 
     /**
-     * Send enhanced usage message
+     * Send  usage message
      */
     private void sendUsage(CommandSender sender) {
         sender.sendMessage(ChatColor.GOLD + "========== ToggleSpawners Command Usage ==========");

@@ -5,12 +5,23 @@ api-version: 1.20
 description: YakRealms MMORPG Server Core - Complete fantasy MMORPG experience
 authors: [ RedNetty, YakDeveloper ]
 website: https://rednetty.com
-depend: []
-softdepend: []
+depend:
+softdepend:
+  - TAB            # TAB will load before YakRealms if present
+  - Citizens       # Other soft dependencies
+  - WorldGuard
+  - WorldEdit
+  - Essentials
+  - ProtocolLib
 load: STARTUP
 prefix: YakRealms
 
 commands:
+  tabmenu:
+    description: Manage the custom tab menu system
+    usage: /tabmenu <status|enable|disable|reload|update|stats|help> [player]
+    permission: yakrealms.admin.tabmenu
+    aliases: [tab, customtab]
   # Economy Commands
   balance:
     description: Check your gem balance
@@ -79,7 +90,6 @@ commands:
   togglespawners:
     description: Toggle mob spawners on/off
     usage: /togglespawners [on|off]
-    aliases: [ t, toggle, settings ]
     permission: yakrealms.admin.togglespawners
   boss:
     description: Spawn a boss
@@ -116,9 +126,15 @@ commands:
     description: Manage mounts
     usage: /mount <subcommand> [args]
     permission: yakrealms.player.mount
+  glowingdrops:
+    description: Glowing drops system commands
+    usage: /glowingdrops <status|reload|radius|toggle|test>
+    permission: yakrealms.admin
+    permission-message: You don't have permission to use this command.
   toggles:
     description: Toggle player settings
     usage: /toggles [setting] [value]
+    aliases: [ t, toggle, settings ]
     permission: yakrealms.player.toggles
   invsee:
     description: View a player's inventory

@@ -12,10 +12,12 @@ import com.sk89q.worldguard.protection.regions.ProtectedRegion;
 import com.sk89q.worldguard.protection.regions.RegionContainer;
 import com.sk89q.worldguard.protection.regions.RegionQuery;
 import org.bukkit.Bukkit;
+import org.bukkit.GameMode;
 import org.bukkit.Location;
 import org.bukkit.World;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
+import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.event.server.PluginEnableEvent;
 
 import java.util.HashMap;
@@ -226,6 +228,13 @@ public class WorldGuardManager implements Listener {
         if (event.getPlugin().getName().equals("WorldGuard") && !worldGuardEnabled) {
             YakRealms.log("WorldGuard detected. Initializing integration...");
             initialize();
+        }
+    }
+
+    @EventHandler
+    public void onBlockBreak(BlockBreakEvent event) {
+        if (event.getPlayer().getGameMode() == GameMode.SURVIVAL) {
+            event.setCancelled(true);
         }
     }
 }

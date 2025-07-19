@@ -106,9 +106,7 @@ public class MerchantConfig {
         rarityMultipliers.put("COMMON", 1.0);
         rarityMultipliers.put("UNCOMMON", 1.25);
         rarityMultipliers.put("RARE", 1.5);
-        rarityMultipliers.put("EPIC", 2.0);
-        rarityMultipliers.put("LEGENDARY", 3.0);
-        rarityMultipliers.put("MYTHIC", 5.0);
+        rarityMultipliers.put("UNIQUE", 2.5);
     }
 
     /**

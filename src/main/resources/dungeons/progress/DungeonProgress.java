@@ -14,7 +14,7 @@ import java.util.logging.Logger;
 import java.util.stream.Collectors;
 
 /**
- * ENHANCED: Complete Dungeon Progress Tracking System
+ * : Complete Dungeon Progress Tracking System
  *
  * Manages objective tracking, progress updates, and completion detection
  * for dungeon instances. Handles complex objective dependencies and

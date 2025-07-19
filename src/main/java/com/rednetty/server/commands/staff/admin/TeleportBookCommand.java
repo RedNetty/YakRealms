@@ -1,6 +1,6 @@
 package com.rednetty.server.commands.staff.admin;
 
-import com.rednetty.server.mechanics.teleport.*;
+import com.rednetty.server.mechanics.world.teleport.*;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.Location;
@@ -290,17 +290,18 @@ public class TeleportBookCommand implements CommandExecutor, TabCompleter {
         lore.add(ChatColor.GRAY + "Custom teleport book.");
 
         // Register the book
-        ItemStack book = bookSystem.registerCustomBook(bookId, destId,
+        boolean book = bookSystem.registerCustomBook(bookId, destId,
                 ChatColor.translateAlternateColorCodes('&', displayName.toString()), lore);
 
-        if (book == null) {
+        if (!book) {
             sender.sendMessage(ChatColor.RED + "Failed to register custom book.");
             return true;
         }
 
         // Give to player if they are in-game
         if (sender instanceof Player) {
-            ((Player) sender).getInventory().addItem(book);
+            ItemStack itemStack = bookSystem.getBookTemplates().get(bookId);
+            ((Player) sender).getInventory().addItem(itemStack);
             sender.sendMessage(ChatColor.GREEN + "Created and registered custom book '" + bookId + "'.");
         } else {
             sender.sendMessage(ChatColor.GREEN + "Registered custom book '" + bookId + "'.");

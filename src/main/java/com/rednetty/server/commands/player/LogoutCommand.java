@@ -1,6 +1,7 @@
 package com.rednetty.server.commands.player;
 
 import com.rednetty.server.YakRealms;
+import com.rednetty.server.mechanics.combat.logout.CombatLogoutMechanics;
 import com.rednetty.server.mechanics.combat.pvp.AlignmentMechanics;
 import com.rednetty.server.mechanics.player.YakPlayer;
 import com.rednetty.server.mechanics.player.YakPlayerManager;
@@ -22,11 +23,11 @@ import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.scheduler.BukkitTask;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.List;
-import java.util.ArrayList;
 
 /**
  * Logout command that allows players to safely disconnect with proper combat and safe zone checks
@@ -82,7 +83,7 @@ public class LogoutCommand implements CommandExecutor, TabCompleter, Listener {
 
         // Check if player is combat tagged
         if (alignmentMechanics.isPlayerTagged(player)) {
-            long combatTime = alignmentMechanics.getTimeSinceLastTag(player);
+            long combatTime = CombatLogoutMechanics.getInstance().getTimeSinceLastTag(player);
             int timeLeft = (int) ((10000 - combatTime) / 1000); // 10 second combat tag
             timeLeft = Math.max(0, timeLeft);
 

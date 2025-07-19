@@ -227,7 +227,7 @@ public class ForgeHammerSystem implements Listener {
                 lore.add(ChatColor.GREEN + "✓ Safe up to +6 enhancement");
                 lore.add(ChatColor.RED + "✗ Risky beyond +6");
                 lore.add("");
-                lore.add(ChatColor.YELLOW + "Usage: Click on any enhanced item");
+                lore.add(ChatColor.YELLOW + "Usage: Click on any  item");
                 break;
 
             case MASTER:

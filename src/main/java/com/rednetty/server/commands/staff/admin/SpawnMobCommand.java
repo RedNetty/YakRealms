@@ -308,7 +308,7 @@ public class SpawnMobCommand implements CommandExecutor, TabCompleter {
     }
 
     /**
-     *  Enhanced validation with proper elite support
+     *   validation with proper elite support
      */
     private ValidationResult validateSpawnRequest(SpawnRequest request) {
         // Check mob type
@@ -640,7 +640,7 @@ public class SpawnMobCommand implements CommandExecutor, TabCompleter {
         }
 
         if (args.length == 3 && !args[0].equalsIgnoreCase("multi")) {
-            // Third argument: elite status - enhanced for elite-only types
+            // Third argument: elite status -  for elite-only types
             MobType type = MobType.getById(args[0]);
             if (type != null && type.isElite()) {
                 // Elite-only type, only suggest true

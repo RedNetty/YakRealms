@@ -3,10 +3,9 @@ package com.rednetty.server.mechanics.economy.vendors.menus;
 import com.rednetty.server.YakRealms;
 import com.rednetty.server.mechanics.economy.vendors.purchase.PurchaseManager;
 import com.rednetty.server.mechanics.economy.vendors.utils.VendorUtils;
-import com.rednetty.server.mechanics.teleport.TeleportBookSystem;
-import com.rednetty.server.mechanics.teleport.TeleportDestination;
-import com.rednetty.server.mechanics.teleport.TeleportManager;
-import com.rednetty.server.utils.menu.MenuItem;
+import com.rednetty.server.mechanics.world.teleport.TeleportBookSystem;
+import com.rednetty.server.mechanics.world.teleport.TeleportDestination;
+import com.rednetty.server.mechanics.world.teleport.TeleportManager;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.Material;
@@ -26,14 +25,19 @@ import java.util.List;
 import java.util.logging.Level;
 
 /**
- * Menu for Book Vendors selling teleport books with consistent price handling
+ *  Book Vendor menu with perfect price formatting and beautiful teleport book display
+ *  Uses  VendorUtils for consistent pricing and complete vendor lore removal
  */
 public class BookVendorMenu implements Listener {
 
-    private static final String INVENTORY_TITLE = "Teleport Books";
-    private static final int INVENTORY_SIZE = 54; // 6 rows
-    private static final int BASE_PRICE = 50; // Base price for teleport books
-    private static final double DISTANCE_MULTIPLIER = 0.05; // Price increases by 5% per 100 blocks
+    private static final String INVENTORY_TITLE = "📚 Teleport Library";
+    private static final int INVENTORY_SIZE = 54; // 6 rows for better organization
+
+    //  pricing system for teleport books
+    private static final int BASE_PRICE = 75; // Increased base price for better economy balance
+    private static final double DISTANCE_MULTIPLIER = 0.08; // Slightly increased distance factor
+    private static final double PREMIUM_MULTIPLIER = 2.0; // Premium destinations cost 2x
+    private static final double DANGER_MULTIPLIER = 1.5; // Dangerous areas cost 1.5x
 
     private final Player player;
     private final Inventory inventory;
@@ -43,9 +47,7 @@ public class BookVendorMenu implements Listener {
     private final YakRealms plugin;
 
     /**
-     * Creates a book vendor menu for a player
-     *
-     * @param player The player to open the menu for
+     *  constructor with better error handling
      */
     public BookVendorMenu(Player player) {
         this.player = player;
@@ -58,7 +60,7 @@ public class BookVendorMenu implements Listener {
         // Register events
         Bukkit.getPluginManager().registerEvents(this, plugin);
 
-        // Initialize inventory
+        // Initialize inventory with  design
         try {
             setupInventory();
         } catch (Exception e) {
@@ -68,122 +70,292 @@ public class BookVendorMenu implements Listener {
     }
 
     /**
-     * Setup the inventory with teleport books
+     *  inventory setup with beautiful library theme
      */
     private void setupInventory() {
-        // Category Label
-        inventory.setItem(4, createCategoryLabel("Teleport Books", Material.BOOK));
+        //  category label with library theme
+        inventory.setItem(4, createCategoryLabel("Mystical Teleport Tomes", Material.ENCHANTED_BOOK));
 
         // Get all available destinations
         Collection<TeleportDestination> destinations = teleportManager.getAllDestinations();
 
-        // Track slot index
+        if (destinations.isEmpty()) {
+            createNoDestinationsNotice();
+            return;
+        }
+
+        //  destination organization
+        List<TeleportDestination> sortedDestinations = organizeDestinations(destinations);
+
+        // Track slot index starting from row 2
         int slot = 9; // Start at second row
 
-        // Add items for each destination
-        for (TeleportDestination destination : destinations) {
-            // Skip if we run out of slots
+        // Add  books for each destination
+        for (TeleportDestination destination : sortedDestinations) {
+            // Skip if we run out of slots (leave space for bottom elements)
             if (slot >= inventory.getSize() - 9) break;
 
             try {
-                // Calculate price based on distance
-                int price = calculatePrice(destination);
-
-                // Create a teleport book for this destination (with shop flag)
-                ItemStack bookItem = bookSystem.createTeleportBook(destination.getId(), true);
+                // Create  teleport book
+                ItemStack bookItem = createTeleportBook(destination);
                 if (bookItem != null) {
-                    // Use VendorUtils for consistent price handling
-                    bookItem = VendorUtils.addPriceToItem(bookItem, price);
-
-                    // Add the book to the inventory
                     inventory.setItem(slot++, bookItem);
                 }
             } catch (Exception e) {
-                plugin.getLogger().log(Level.WARNING, "Error creating book item for destination " + destination.getId(), e);
+                plugin.getLogger().log(Level.WARNING, "Error creating  book item for destination " + destination.getId(), e);
                 // Continue with next destination
             }
         }
 
-        // Fill empty slots with decorative items
-        fillEmptySlots();
+        //  decorative elements
+        createLibraryDecorations();
 
-        // Add information and close buttons
+        //  information and navigation
         inventory.setItem(inventory.getSize() - 5, createInfoButton());
         inventory.setItem(inventory.getSize() - 1, createCloseButton());
     }
 
     /**
-     * Setup fallback inventory in case of errors
+     * Organize destinations by category and importance
      */
-    private void setupFallbackInventory() {
-        // Create basic error notice
-        ItemStack errorItem = new ItemStack(Material.BARRIER);
-        ItemMeta meta = errorItem.getItemMeta();
-        if (meta != null) {
-            meta.setDisplayName(ChatColor.RED + "Error Loading Books");
-            meta.setLore(Arrays.asList(
-                    ChatColor.GRAY + "Failed to load teleport books",
-                    ChatColor.GRAY + "Please contact an administrator"
-            ));
-            errorItem.setItemMeta(meta);
-        }
+    private List<TeleportDestination> organizeDestinations(Collection<TeleportDestination> destinations) {
+        List<TeleportDestination> sorted = new ArrayList<>(destinations);
 
-        inventory.setItem(22, errorItem);
-        inventory.setItem(inventory.getSize() - 1, createCloseButton());
+        // Sort by: Premium first, then by distance from spawn, then alphabetically
+        sorted.sort((dest1, dest2) -> {
+            // Premium destinations first
+            if (dest1.isPremium() && !dest2.isPremium()) return -1;
+            if (!dest1.isPremium() && dest2.isPremium()) return 1;
 
-        // Fill with gray glass
-        for (int i = 0; i < inventory.getSize(); i++) {
-            if (inventory.getItem(i) == null) {
-                inventory.setItem(i, createSeparator((byte) 7));
+            // Then by cost (lower cost first for easier access)
+            int costDiff = dest1.getCost() - dest2.getCost();
+            if (costDiff != 0) return costDiff;
+
+            // Finally alphabetically
+            return dest1.getId().compareToIgnoreCase(dest2.getId());
+        });
+
+        return sorted;
+    }
+
+    /**
+     * Create  teleport book with perfect formatting
+     */
+    private ItemStack createTeleportBook(TeleportDestination destination) {
+        try {
+            // Create the base teleport book
+            ItemStack bookItem = bookSystem.createTeleportBook(destination.getId(), true);
+            if (bookItem == null) {
+                return createFallbackBook(destination);
             }
+
+            // Calculate  price
+            int price = calculatePrice(destination);
+
+            // Create  description
+            String description = createBookDescription(destination);
+
+            // Use VendorUtils.createVendorItem for perfect consistency
+            return VendorUtils.createVendorItem(bookItem, price, description);
+
+        } catch (Exception e) {
+            plugin.getLogger().log(Level.WARNING, "Error creating  teleport book for " + destination.getId(), e);
+            return createFallbackBook(destination);
         }
     }
 
     /**
-     * Calculate the price of a teleport book based on distance
-     *
-     * @param destination The teleport destination
-     * @return The calculated price
+     * Calculate  price with multiple factors
      */
     private int calculatePrice(TeleportDestination destination) {
         try {
-            // Start with the base price
-            int price = BASE_PRICE;
+            // Start with the  base price
+            double price = BASE_PRICE;
 
-            // Add distance-based component
-            // If vendor's location is unknown, use the base destination cost
+            // Add distance-based component if in same world
             if (player.getLocation().getWorld().equals(destination.getLocation().getWorld())) {
                 double distance = player.getLocation().distance(destination.getLocation());
                 double distanceFactor = 1.0 + (distance * DISTANCE_MULTIPLIER / 100);
-                price = (int) (price * distanceFactor);
+                price *= distanceFactor;
+            } else {
+                // Cross-world teleportation is more expensive
+                price *= 1.8;
             }
 
-            // Add premium tax if it's a premium destination
+            // Premium destination multiplier
             if (destination.isPremium()) {
-                price = (int) (price * 1.5); // 50% premium tax
+                price *= PREMIUM_MULTIPLIER;
             }
 
-            // Consider the destination's own cost as minimum
-            price = Math.max(price, destination.getCost());
+            // Check for dangerous areas (based on world name or destination properties)
+            if (isDangerousDestination(destination)) {
+                price *= DANGER_MULTIPLIER;
+            }
 
-            return Math.max(1, price); // Ensure price is at least 1
+            // Consider the destination's own base cost
+            price = Math.max(price, destination.getCost() * 1.2);
+
+            // Add rarity bonus for unique destinations
+            if (isRareDestination(destination)) {
+                price *= 1.3;
+            }
+
+            return Math.max(50, (int) Math.round(price)); // Minimum price of 50
 
         } catch (Exception e) {
-            plugin.getLogger().log(Level.WARNING, "Error calculating price for destination " + destination.getId(), e);
-            return BASE_PRICE; // Return base price as fallback
+            plugin.getLogger().log(Level.WARNING, "Error calculating  price for destination " + destination.getId(), e);
+            return BASE_PRICE;
         }
     }
 
     /**
-     * Opens the menu for the player
+     * Check if destination is dangerous based on various factors
      */
-    public void open() {
-        player.openInventory(inventory);
-        player.playSound(player.getLocation(), Sound.BLOCK_BAMBOO_WOOD_BUTTON_CLICK_ON, 1.0f, 1.0f);
+    private boolean isDangerousDestination(TeleportDestination destination) {
+        String destId = destination.getId().toLowerCase();
+        String worldName = destination.getLocation().getWorld().getName().toLowerCase();
+
+        return destId.contains("nether") || destId.contains("end") || destId.contains("dungeon") ||
+                destId.contains("boss") || destId.contains("pvp") || destId.contains("danger") ||
+                worldName.contains("nether") || worldName.contains("end");
     }
 
     /**
-     * Handle inventory click events
+     * Check if destination is rare/unique
+     */
+    private boolean isRareDestination(TeleportDestination destination) {
+        String destId = destination.getId().toLowerCase();
+
+        return destId.contains("secret") || destId.contains("hidden") || destId.contains("rare") ||
+                destId.contains("legendary") || destId.contains("exclusive") || destination.getCost() > 1000;
+    }
+
+    /**
+     * Create  book description with detailed information
+     */
+    private String createBookDescription(TeleportDestination destination) {
+        StringBuilder description = new StringBuilder();
+
+        // Basic description
+        description.append("Instantly teleport to ").append(destination.getId());
+
+        // Add world information
+        String worldName = destination.getLocation().getWorld().getName();
+        if (!worldName.equalsIgnoreCase("world")) {
+            description.append("\nLocation: ").append(VendorUtils.capitalizeFirst(worldName));
+        }
+
+        // Add coordinates for reference
+        int x = (int) destination.getLocation().getX();
+        int z = (int) destination.getLocation().getZ();
+        description.append("\nCoordinates: ").append(x).append(", ").append(z);
+
+        // Add special properties
+        if (destination.isPremium()) {
+            description.append("\n✨ Premium destination with exclusive access");
+        }
+
+        if (isDangerousDestination(destination)) {
+            description.append("\n⚠ Warning: Dangerous area! Come prepared");
+        }
+
+        if (isRareDestination(destination)) {
+            description.append("\n🌟 Rare destination - Limited availability");
+        }
+
+        // Add usage instructions
+        description.append("\n📖 Right-click to use after purchase");
+
+        return description.toString();
+    }
+
+    /**
+     * Create fallback book if TeleportBookSystem fails
+     */
+    private ItemStack createFallbackBook(TeleportDestination destination) {
+        ItemStack fallbackBook = new ItemStack(Material.BOOK);
+        ItemMeta meta = fallbackBook.getItemMeta();
+
+        if (meta != null) {
+            meta.setDisplayName(ChatColor.LIGHT_PURPLE + "📖 " + VendorUtils.capitalizeFirst(destination.getId()) + " Teleport");
+            fallbackBook.setItemMeta(meta);
+        }
+
+        // Add price and description using VendorUtils
+        int price = calculatePrice(destination);
+        String description = createBookDescription(destination) + "\n⚠ Fallback book - contact admin if you see this";
+
+        return VendorUtils.createVendorItem(fallbackBook, price, description);
+    }
+
+    /**
+     * Create notice for when no destinations are available
+     */
+    private void createNoDestinationsNotice() {
+        ItemStack notice = new ItemStack(Material.BARRIER);
+        ItemMeta meta = notice.getItemMeta();
+        if (meta != null) {
+            meta.setDisplayName(ChatColor.RED + "" + ChatColor.BOLD + "📚 No Destinations Available");
+            meta.setLore(Arrays.asList(
+                    "",
+                    ChatColor.GRAY + "The librarian's shelves are empty",
+                    ChatColor.GRAY + "No teleport destinations are configured",
+                    "",
+                    ChatColor.YELLOW + "Please contact an administrator"
+            ));
+            notice.setItemMeta(meta);
+        }
+        inventory.setItem(22, notice);
+    }
+
+    /**
+     * Create  library decorations with magical theme
+     */
+    private void createLibraryDecorations() {
+        // Top border - magical library theme
+        for (int i = 0; i < 9; i++) {
+            if (i != 4) { // Skip center for header
+                Material borderMaterial = (i % 2 == 0) ? Material.PURPLE_STAINED_GLASS_PANE : Material.MAGENTA_STAINED_GLASS_PANE;
+                inventory.setItem(i, VendorUtils.createSeparator(borderMaterial, " "));
+            }
+        }
+
+        // Bottom border - magical library theme
+        for (int i = inventory.getSize() - 9; i < inventory.getSize(); i++) {
+            if (inventory.getItem(i) == null) {
+                Material borderMaterial = (i % 2 == 0) ? Material.PURPLE_STAINED_GLASS_PANE : Material.MAGENTA_STAINED_GLASS_PANE;
+                inventory.setItem(i, VendorUtils.createSeparator(borderMaterial, " "));
+            }
+        }
+
+        // Fill remaining empty slots with bookshelves for theme
+        for (int i = 9; i < inventory.getSize() - 9; i++) {
+            if (inventory.getItem(i) == null) {
+                // Create magical bookshelf decorations
+                ItemStack bookshelf = new ItemStack(Material.BOOKSHELF);
+                ItemMeta meta = bookshelf.getItemMeta();
+                if (meta != null) {
+                    meta.setDisplayName(ChatColor.DARK_PURPLE + "📚 Mystical Library Shelf");
+                    meta.setLore(List.of(ChatColor.GRAY + "Ancient tomes of teleportation magic"));
+                    bookshelf.setItemMeta(meta);
+                }
+                inventory.setItem(i, bookshelf);
+            }
+        }
+    }
+
+    /**
+     * Opens the  menu for the player
+     */
+    public void open() {
+        player.openInventory(inventory);
+        // Play magical library sounds
+        player.playSound(player.getLocation(), Sound.BLOCK_ENCHANTMENT_TABLE_USE, 1.0f, 1.2f);
+        player.playSound(player.getLocation(), Sound.ITEM_BOOK_PAGE_TURN, 0.7f, 1.0f);
+    }
+
+    /**
+     *  click handling with better validation and feedback
      */
     @EventHandler
     public void onInventoryClick(InventoryClickEvent event) {
@@ -200,65 +372,169 @@ public class BookVendorMenu implements Listener {
         try {
             // Handle close button
             if (clickedItem.getType() == Material.BARRIER) {
-                player.closeInventory();
+                handleCloseButton(player, clickedItem);
                 return;
             }
 
             // Ignore decorative items
-            if (clickedItem.getType() == Material.GRAY_STAINED_GLASS_PANE) return;
+            if (isDecorativeItem(clickedItem)) {
+                return;
+            }
 
-            // Handle book purchase
-            if (clickedItem.getType() == Material.BOOK) {
-                String destId = bookSystem.getDestinationFromBook(clickedItem);
-                if (destId != null) {
-                    // Use VendorUtils for consistent price extraction
-                    int price = VendorUtils.extractPriceFromLore(clickedItem);
-                    if (price > 0) {
-                        // Validate purchase state
-                        if (purchaseManager.isInPurchaseProcess(player.getUniqueId())) {
-                            player.sendMessage(ChatColor.RED + "You already have an active purchase. Complete it first or type 'cancel'.");
-                            return;
-                        }
-
-                        // Get item display name for feedback
-                        String itemName = clickedItem.hasItemMeta() && clickedItem.getItemMeta().hasDisplayName() ?
-                                clickedItem.getItemMeta().getDisplayName() :
-                                "Teleport Book";
-
-                        player.closeInventory();
-                        player.sendMessage(ChatColor.GREEN + "Initiating purchase for " + itemName + "...");
-
-                        purchaseManager.startPurchase(player, clickedItem, price);
-                        player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_PLING, 1.0f, 1.0f);
-                    } else {
-                        player.sendMessage(ChatColor.RED + "This item is not available for purchase.");
-                    }
-                } else {
-                    player.sendMessage(ChatColor.RED + "Invalid teleport book.");
-                }
+            // Handle book purchase (BOOK items)
+            if (clickedItem.getType() == Material.BOOK || clickedItem.getType() == Material.ENCHANTED_BOOK) {
+                handleBookPurchase(player, clickedItem);
             }
 
         } catch (Exception e) {
             plugin.getLogger().log(Level.WARNING, "Error handling click in BookVendorMenu for player " + player.getName(), e);
-            player.sendMessage(ChatColor.RED + "An error occurred. Please try again.");
+            player.sendMessage(ChatColor.RED + "❌ An error occurred. Please try again.");
         }
     }
 
     /**
-     * Create a category label item
-     *
-     * @param name The name of the category
-     * @param icon The icon material
-     * @return The created item
+     * Handle close button click
+     */
+    private void handleCloseButton(Player player, ItemStack clickedItem) {
+        // Check if it's the actual close button or error notice
+        if (clickedItem.hasItemMeta() && clickedItem.getItemMeta().hasDisplayName()) {
+            String displayName = clickedItem.getItemMeta().getDisplayName();
+            if (ChatColor.stripColor(displayName).toLowerCase().contains("close") ||
+                    ChatColor.stripColor(displayName).toLowerCase().contains("leave")) {
+
+                player.closeInventory();
+                player.sendMessage(ChatColor.LIGHT_PURPLE + "📚 Thanks for visiting the Teleport Library!");
+                player.playSound(player.getLocation(), Sound.ITEM_BOOK_PAGE_TURN, 1.0f, 0.8f);
+            }
+        }
+    }
+
+    /**
+     * Check if item is decorative
+     */
+    private boolean isDecorativeItem(ItemStack item) {
+        return item.getType() == Material.PURPLE_STAINED_GLASS_PANE ||
+                item.getType() == Material.MAGENTA_STAINED_GLASS_PANE ||
+                item.getType() == Material.BOOKSHELF ||
+                (item.getType() == Material.KNOWLEDGE_BOOK) || // Info button
+                (item.getType() == Material.BARRIER && !isCloseButton(item)); // Error notices
+    }
+
+    /**
+     * Check if barrier item is the close button
+     */
+    private boolean isCloseButton(ItemStack item) {
+        if (!item.hasItemMeta() || !item.getItemMeta().hasDisplayName()) {
+            return false;
+        }
+        String displayName = ChatColor.stripColor(item.getItemMeta().getDisplayName()).toLowerCase();
+        return displayName.contains("close") || displayName.contains("leave");
+    }
+
+    /**
+     *  book purchase handling
+     */
+    private void handleBookPurchase(Player player, ItemStack clickedItem) {
+        // Extract destination ID from the book
+        String destId = bookSystem.getDestinationFromBook(clickedItem);
+        if (destId == null) {
+            player.sendMessage(ChatColor.RED + "❌ Invalid teleport book.");
+            return;
+        }
+
+        // Use  VendorUtils for price extraction
+        int price = VendorUtils.extractPriceFromLore(clickedItem);
+        if (price <= 0) {
+            player.sendMessage(ChatColor.RED + "❌ This book is not available for purchase.");
+            return;
+        }
+
+        // Validate purchase state
+        if (purchaseManager.isInPurchaseProcess(player.getUniqueId())) {
+            player.sendMessage(ChatColor.RED + "⚠ You already have an active purchase. Complete it first or type " +
+                    ChatColor.BOLD + "'cancel'" + ChatColor.RED + ".");
+            return;
+        }
+
+        // Get clean book display name
+        String itemName = getCleanBookName(clickedItem);
+
+        player.closeInventory();
+
+        //  purchase initiation message
+        player.sendMessage("");
+        player.sendMessage(ChatColor.LIGHT_PURPLE + "📖 Starting purchase for " + ChatColor.WHITE + itemName + ChatColor.LIGHT_PURPLE + "...");
+        player.sendMessage(ChatColor.GRAY + "✨ From the mystical library archives!");
+        player.sendMessage("");
+
+        // Create completely clean book for purchase using  VendorUtils
+        ItemStack cleanBookForPurchase = VendorUtils.createCleanItemCopy(clickedItem);
+
+        purchaseManager.startPurchase(player, cleanBookForPurchase, price);
+
+        // Play purchase initiation sounds
+        player.playSound(player.getLocation(), Sound.BLOCK_ENCHANTMENT_TABLE_USE, 1.0f, 1.5f);
+        player.playSound(player.getLocation(), Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 0.7f, 1.2f);
+    }
+
+    /**
+     * Get clean book name for display
+     */
+    private String getCleanBookName(ItemStack book) {
+        if (book.hasItemMeta() && book.getItemMeta().hasDisplayName()) {
+            // Remove any vendor formatting symbols and colors
+            String displayName = book.getItemMeta().getDisplayName();
+            return ChatColor.stripColor(displayName)
+                    .replaceAll("[▶▷►📖📚✨🌟⚠]", "")
+                    .trim();
+        }
+        return "Teleport Book";
+    }
+
+    /**
+     * Setup fallback inventory for errors
+     */
+    private void setupFallbackInventory() {
+        // Create basic error notice
+        ItemStack errorItem = new ItemStack(Material.BARRIER);
+        ItemMeta meta = errorItem.getItemMeta();
+        if (meta != null) {
+            meta.setDisplayName(ChatColor.RED + "" + ChatColor.BOLD + "⚠ Error Loading Books");
+            meta.setLore(Arrays.asList(
+                    "",
+                    ChatColor.GRAY + "Failed to load teleport books",
+                    ChatColor.GRAY + "The library shelves are magically sealed",
+                    "",
+                    ChatColor.YELLOW + "Please contact an administrator"
+            ));
+            errorItem.setItemMeta(meta);
+        }
+
+        inventory.setItem(22, errorItem);
+        inventory.setItem(inventory.getSize() - 1, createCloseButton());
+
+        // Fill with magical library theme
+        for (int i = 0; i < inventory.getSize(); i++) {
+            if (inventory.getItem(i) == null) {
+                inventory.setItem(i, VendorUtils.createSeparator(Material.PURPLE_STAINED_GLASS_PANE, " "));
+            }
+        }
+    }
+
+    /**
+     * Create  category label with library theme
      */
     private ItemStack createCategoryLabel(String name, Material icon) {
         ItemStack label = new ItemStack(icon);
         ItemMeta meta = label.getItemMeta();
         if (meta != null) {
-            meta.setDisplayName(ChatColor.GOLD + "" + ChatColor.BOLD + name);
+            meta.setDisplayName(ChatColor.LIGHT_PURPLE + "" + ChatColor.BOLD + "✨ " + name);
             meta.setLore(Arrays.asList(
-                    ChatColor.GRAY + "Click on a book",
-                    ChatColor.GRAY + "below to purchase it!"
+                    "",
+                    ChatColor.GRAY + "Ancient books of teleportation magic",
+                    ChatColor.GRAY + "Instantly travel to distant realms",
+                    "",
+                    ChatColor.YELLOW + "📖 Click on a book below to purchase!"
             ));
             label.setItemMeta(meta);
         }
@@ -266,63 +542,33 @@ public class BookVendorMenu implements Listener {
     }
 
     /**
-     * Fill empty slots with decorative glass panes
-     */
-    private void fillEmptySlots() {
-        // Top row (blue glass)
-        for (int i = 0; i < 9; i++) {
-            if (inventory.getItem(i) == null) {
-                inventory.setItem(i, createSeparator((byte) 3)); // Light Blue
-            }
-        }
-
-        // Bottom row (blue glass)
-        for (int i = inventory.getSize() - 9; i < inventory.getSize(); i++) {
-            if (inventory.getItem(i) == null) {
-                inventory.setItem(i, createSeparator((byte) 3)); // Light Blue
-            }
-        }
-
-        // All other empty slots (gray glass)
-        for (int i = 9; i < inventory.getSize() - 9; i++) {
-            if (inventory.getItem(i) == null) {
-                inventory.setItem(i, createSeparator((byte) 7)); // Gray
-            }
-        }
-    }
-
-    /**
-     * Create a separator glass pane
-     *
-     * @param color The color data value
-     * @return The created item
-     */
-    private ItemStack createSeparator(byte color) {
-        ItemStack separator = new ItemStack(Material.GRAY_STAINED_GLASS_PANE, 1, color);
-        ItemMeta meta = separator.getItemMeta();
-        if (meta != null) {
-            meta.setDisplayName(" ");
-            separator.setItemMeta(meta);
-        }
-        return separator;
-    }
-
-    /**
-     * Create an information button
-     *
-     * @return The created item
+     * Create  information button
      */
     private ItemStack createInfoButton() {
-        ItemStack infoButton = new ItemStack(Material.PAPER);
+        ItemStack infoButton = new ItemStack(Material.KNOWLEDGE_BOOK);
         ItemMeta meta = infoButton.getItemMeta();
         if (meta != null) {
-            meta.setDisplayName(ChatColor.YELLOW + "" + ChatColor.BOLD + "Teleport Information");
+            meta.setDisplayName(ChatColor.YELLOW + "" + ChatColor.BOLD + "📚 Teleportation Guide");
             meta.setLore(Arrays.asList(
-                    ChatColor.GRAY + "Prices are based on distance",
-                    ChatColor.GRAY + "and destination rarity.",
-                    ChatColor.GRAY + "",
-                    ChatColor.GRAY + "Use a teleport book by",
-                    ChatColor.GRAY + "right-clicking it in your hand."
+                    "",
+                    ChatColor.GOLD + "How Teleport Books Work:",
+                    ChatColor.GRAY + "• Purchase a book for your destination",
+                    ChatColor.GRAY + "• Right-click the book to teleport",
+                    ChatColor.GRAY + "• Books are consumed after use",
+                    ChatColor.GRAY + "• Each book works only once",
+                    "",
+                    ChatColor.YELLOW + "💰 Pricing Information:",
+                    ChatColor.GRAY + "• Base price: " + VendorUtils.formatCurrency(BASE_PRICE),
+                    ChatColor.GRAY + "• Distance affects price",
+                    ChatColor.GRAY + "• Premium destinations cost more",
+                    ChatColor.GRAY + "• Dangerous areas have surcharges",
+                    "",
+                    ChatColor.GREEN + "💡 Pro Tips:",
+                    ChatColor.GRAY + "• Buy books before you need them",
+                    ChatColor.GRAY + "• Stock up for dangerous expeditions",
+                    ChatColor.GRAY + "• Some destinations are rare finds!",
+                    "",
+                    ChatColor.LIGHT_PURPLE + "✨ Welcome to the Mystical Library!"
             ));
             infoButton.setItemMeta(meta);
         }
@@ -330,16 +576,19 @@ public class BookVendorMenu implements Listener {
     }
 
     /**
-     * Creates a close button for the menu
-     *
-     * @return The created close button
+     * Create  close button
      */
     private ItemStack createCloseButton() {
         ItemStack closeButton = new ItemStack(Material.BARRIER);
         ItemMeta meta = closeButton.getItemMeta();
         if (meta != null) {
-            meta.setDisplayName(ChatColor.RED + "" + ChatColor.BOLD + "Close");
-            meta.setLore(Arrays.asList(ChatColor.GRAY + "Close this vendor menu"));
+            meta.setDisplayName(ChatColor.RED + "" + ChatColor.BOLD + "❌ Leave Library");
+            meta.setLore(Arrays.asList(
+                    "",
+                    ChatColor.GRAY + "Close the teleport library",
+                    "",
+                    ChatColor.LIGHT_PURPLE + "📚 May your travels be swift and safe!"
+            ));
             closeButton.setItemMeta(meta);
         }
         return closeButton;

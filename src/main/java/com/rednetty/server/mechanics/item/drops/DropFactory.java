@@ -1,12 +1,12 @@
 package com.rednetty.server.mechanics.item.drops;
 
 import com.rednetty.server.YakRealms;
-import com.rednetty.server.mechanics.item.crates.types.CrateType;
 import com.rednetty.server.mechanics.economy.MoneyManager;
+import com.rednetty.server.mechanics.item.crates.types.CrateType;
 import com.rednetty.server.mechanics.item.scroll.ItemAPI;
-import com.rednetty.server.mechanics.teleport.TeleportBookSystem;
-import com.rednetty.server.mechanics.teleport.TeleportDestination;
-import com.rednetty.server.mechanics.teleport.TeleportManager;
+import com.rednetty.server.mechanics.world.teleport.TeleportBookSystem;
+import com.rednetty.server.mechanics.world.teleport.TeleportDestination;
+import com.rednetty.server.mechanics.world.teleport.TeleportManager;
 import org.bukkit.ChatColor;
 import org.bukkit.Material;
 import org.bukkit.inventory.ItemFlag;
@@ -19,7 +19,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.logging.Logger;
 
 /**
- * Enhanced factory class for creating different types of drops with improved performance and visual effects
+ *  factory class for creating different types of drops with improved performance and visual effects
  */
 public class DropFactory {
     private static DropFactory instance;
@@ -28,7 +28,7 @@ public class DropFactory {
     private final TeleportManager teleportManager;
     private final TeleportBookSystem teleportBookSystem;
 
-    // Enhanced cache management
+    //  cache management
     private final Map<Integer, List<TeleportDestination>> tieredDestinations = new HashMap<>();
     private volatile long lastDestinationCacheUpdate = 0;
     private static final long CACHE_REFRESH_INTERVAL = TimeUnit.MINUTES.toMillis(1); // More readable
@@ -37,7 +37,7 @@ public class DropFactory {
     private static final int GEM_BASE_MULTIPLIER = 3;
     private static final int MAX_GEM_STACK = 64;
 
-    // Enhanced crate visual effects with Tier 6 Netherite integration
+    //  crate visual effects with Tier 6 Netherite integration
     private static final Map<Integer, ChatColor> TIER_COLORS = Map.of(
             1, ChatColor.WHITE,
             2, ChatColor.GREEN,
@@ -73,7 +73,7 @@ public class DropFactory {
     }
 
     /**
-     * Creates a drop for a normal mob - delegates to DropsManager with enhanced logging
+     * Creates a drop for a normal mob - delegates to DropsManager with  logging
      *
      * @param tier     The tier level (1-6)
      * @param itemType The item type (1-8)
@@ -93,7 +93,7 @@ public class DropFactory {
     }
 
     /**
-     * Creates a drop for an elite mob with enhanced error handling
+     * Creates a drop for an elite mob with  error handling
      *
      * @param tier     The tier level (1-6)
      * @param itemType The item type (1-8)
@@ -116,17 +116,17 @@ public class DropFactory {
     }
 
     /**
-     * Creates an enhanced crate drop with improved visual design
+     * Creates an  crate drop with improved visual design
      *
      * @param tier The tier level (1-6)
-     * @return The created crate ItemStack with enhanced visuals
+     * @return The created crate ItemStack with  visuals
      */
     public ItemStack createCrateDrop(int tier) {
         return YakRealms.getInstance().getCrateManager().createCrate(CrateType.getByTier(tier, false),false);
     }
 
     /**
-     * Creates enhanced gem drop with tier-based scaling
+     * Creates  gem drop with tier-based scaling
      *
      * @param tier The tier level (1-6)
      * @return The created gem ItemStack
@@ -148,7 +148,7 @@ public class DropFactory {
     }
 
     /**
-     * Creates scroll drop with enhanced destination selection and error handling
+     * Creates scroll drop with  destination selection and error handling
      *
      * @param tier The tier level (1-6)
      * @return The created scroll ItemStack
@@ -165,7 +165,7 @@ public class DropFactory {
     }
 
     /**
-     * Creates enhanced generic scroll with tier-based visual effects
+     * Creates  generic scroll with tier-based visual effects
      */
     private ItemStack createGenericScrollItem(String destinationName, int tier) {
         ItemStack scroll = new ItemStack(Material.PAPER);
@@ -214,7 +214,7 @@ public class DropFactory {
                 return;
             }
 
-            // Group destinations by tier with enhanced logic
+            // Group destinations by tier with  logic
             for (TeleportDestination dest : allDestinations) {
                 int destTier = calculateDestinationTier(dest);
                 tieredDestinations.computeIfAbsent(destTier, k -> new ArrayList<>()).add(dest);
@@ -232,7 +232,7 @@ public class DropFactory {
     }
 
     /**
-     * Enhanced destination tier calculation with better logic
+     *  destination tier calculation with better logic
      */
     private int calculateDestinationTier(TeleportDestination destination) {
         if (destination.isPremium()) {
@@ -267,7 +267,7 @@ public class DropFactory {
 
         List<TeleportDestination> eligibleDestinations = new ArrayList<>();
 
-        // Enhanced tier-based destination selection
+        //  tier-based destination selection
         switch (tier) {
             case 1:
             case 2:
@@ -338,7 +338,7 @@ public class DropFactory {
     }
 
     /**
-     * Enhanced fallback destination selection
+     *  fallback destination selection
      */
     private TeleportDestination getFallbackDestination() {
         return teleportManager.getAllDestinations().stream()
@@ -348,7 +348,7 @@ public class DropFactory {
     }
 
     /**
-     * Creates enhanced lore for crates with visual elements
+     * Creates  lore for crates with visual elements
      */
     private List<String> createCrateLore(int tier, ChatColor tierColor) {
         List<String> lore = new ArrayList<>();
@@ -398,7 +398,7 @@ public class DropFactory {
     }
 
     /**
-     * Calculates gem amount with enhanced scaling
+     * Calculates gem amount with  scaling
      */
     private int calculateGemAmount(int tier) {
         int baseAmount = 1;
@@ -450,7 +450,7 @@ public class DropFactory {
     }
 
     /**
-     * Enhanced logging for drop creation
+     *  logging for drop creation
      */
     private void logDropCreation(String dropType, int tier, int itemType, int rarity) {
         if (logger.isLoggable(java.util.logging.Level.FINE)) {

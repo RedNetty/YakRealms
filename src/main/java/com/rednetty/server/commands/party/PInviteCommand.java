@@ -15,7 +15,7 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 /**
- * Enhanced Party Invite Command with comprehensive features and validation
+ *  Party Invite Command with comprehensive features and validation
  * Integrates fully with the advanced PartyMechanics system including custom messages,
  * permission checks, and detailed feedback
  */
@@ -64,11 +64,11 @@ public class PInviteCommand implements CommandExecutor, TabCompleter {
             }
         }
 
-        // Attempt to invite player with enhanced feedback
+        // Attempt to invite player with  feedback
         boolean success = partyMechanics.invitePlayerToParty(targetPlayer, player, customMessage);
 
         if (success) {
-            // Enhanced success feedback
+            //  success feedback
             player.sendMessage(ChatColor.GREEN + "✓ " + ChatColor.BOLD + "Party invitation sent!");
             player.sendMessage(ChatColor.GRAY + "Invited " + ChatColor.WHITE + ChatColor.BOLD + targetName
                     + ChatColor.GRAY + " to your party.");
@@ -173,7 +173,7 @@ public class PInviteCommand implements CommandExecutor, TabCompleter {
     }
 
     /**
-     * Send enhanced usage message with examples
+     * Send  usage message with examples
      */
     private void sendUsageMessage(Player player) {
         player.sendMessage(ChatColor.RED + "❌ " + ChatColor.BOLD + "Invalid Syntax");

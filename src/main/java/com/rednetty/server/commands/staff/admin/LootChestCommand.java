@@ -1,10 +1,11 @@
 package com.rednetty.server.commands.staff.admin;
 
-import com.rednetty.server.mechanics.world.lootchests.LootChestManager;
+import com.rednetty.server.mechanics.world.lootchests.core.Chest;
+import com.rednetty.server.mechanics.world.lootchests.core.ChestManager;
+import com.rednetty.server.mechanics.world.lootchests.types.ChestState;
 import com.rednetty.server.mechanics.world.lootchests.types.ChestTier;
 import com.rednetty.server.mechanics.world.lootchests.types.ChestType;
-import com.rednetty.server.mechanics.world.lootchests.types.LootChestLocation;
-import com.rednetty.server.mechanics.world.lootchests.data.LootChestData;
+import com.rednetty.server.mechanics.world.lootchests.types.ChestLocation;
 import org.bukkit.ChatColor;
 import org.bukkit.Location;
 import org.bukkit.command.Command;
@@ -18,15 +19,12 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.stream.Collectors;
 
-/**
- * Command handler for the loot chest system
- */
 public class LootChestCommand implements CommandExecutor, TabCompleter {
 
-    private final LootChestManager manager;
+    private final ChestManager manager;
 
     public LootChestCommand() {
-        this.manager = LootChestManager.getInstance();
+        this.manager = ChestManager.getInstance();
     }
 
     @Override
@@ -85,9 +83,6 @@ public class LootChestCommand implements CommandExecutor, TabCompleter {
         }
     }
 
-    /**
-     * Handles chest creation command
-     */
     private boolean handleCreateCommand(Player player, String[] args) {
         if (!player.hasPermission("yakrealms.admin.lootchest")) {
             player.sendMessage(ChatColor.RED + "You don't have permission to use this command.");
@@ -121,11 +116,11 @@ public class LootChestCommand implements CommandExecutor, TabCompleter {
         }
 
         Location location = player.getLocation().getBlock().getLocation();
-        LootChestData chestData = manager.createChest(location, tier, type);
+        Chest chest = manager.createChest(location, tier, type);
 
-        if (chestData != null) {
+        if (chest != null) {
             player.sendMessage(ChatColor.GREEN + "Created " + type + " chest (tier " + tier.getLevel() + ") at your location.");
-            player.sendMessage(ChatColor.GRAY + "Display: " + chestData.getDisplayName());
+            player.sendMessage(ChatColor.GRAY + "Display: " + chest.getDisplayName());
         } else {
             player.sendMessage(ChatColor.RED + "Failed to create chest at your location.");
         }
@@ -133,9 +128,6 @@ public class LootChestCommand implements CommandExecutor, TabCompleter {
         return true;
     }
 
-    /**
-     * Handles chest removal command
-     */
     private boolean handleRemoveCommand(Player player, String[] args) {
         if (!player.hasPermission("yakrealms.admin.lootchest")) {
             player.sendMessage(ChatColor.RED + "You don't have permission to use this command.");
@@ -143,21 +135,17 @@ public class LootChestCommand implements CommandExecutor, TabCompleter {
         }
 
         Location location = player.getLocation().getBlock().getLocation();
-        LootChestLocation chestLocation = new LootChestLocation(location);
+        ChestLocation chestLocation = new ChestLocation(location);
 
         boolean success = manager.removeChest(chestLocation);
         if (success) {
             player.sendMessage(ChatColor.GREEN + "Removed loot chest at your location.");
-            manager.getRepository().deleteChest(chestLocation);
         } else {
             player.sendMessage(ChatColor.RED + "No loot chest found at your location.");
         }
         return true;
     }
 
-    /**
-     * Handles chest info command
-     */
     private boolean handleInfoCommand(Player player, String[] args) {
         if (!player.hasPermission("yakrealms.player.lootchest.info")) {
             player.sendMessage(ChatColor.RED + "You don't have permission to use this command.");
@@ -165,40 +153,37 @@ public class LootChestCommand implements CommandExecutor, TabCompleter {
         }
 
         Location location = player.getLocation().getBlock().getLocation();
-        LootChestLocation chestLocation = new LootChestLocation(location);
-        LootChestData chestData = manager.getChest(chestLocation);
+        ChestLocation chestLocation = new ChestLocation(location);
+        Chest chest = manager.getRegistry().getChest(chestLocation);
 
-        if (chestData == null) {
+        if (chest == null) {
             player.sendMessage(ChatColor.RED + "No loot chest found at your location.");
             return false;
         }
 
         player.sendMessage(ChatColor.YELLOW + "=== Loot Chest Info ===");
         player.sendMessage(ChatColor.WHITE + "Location: " + chestLocation);
-        player.sendMessage(ChatColor.WHITE + "Display: " + chestData.getDisplayName());
-        player.sendMessage(ChatColor.WHITE + "Tier: " + chestData.getTier());
-        player.sendMessage(ChatColor.WHITE + "Type: " + chestData.getType());
-        player.sendMessage(ChatColor.WHITE + "State: " + chestData.getStatusString());
-        player.sendMessage(ChatColor.WHITE + "Interactions: " + chestData.getInteractionCount());
-        player.sendMessage(ChatColor.WHITE + "Age: " + (chestData.getAge() / 1000) + " seconds");
+        player.sendMessage(ChatColor.WHITE + "Display: " + chest.getDisplayName());
+        player.sendMessage(ChatColor.WHITE + "Tier: " + chest.getTier());
+        player.sendMessage(ChatColor.WHITE + "Type: " + chest.getType());
+        player.sendMessage(ChatColor.WHITE + "State: " + chest.getStatusString());
+        player.sendMessage(ChatColor.WHITE + "Interactions: " + chest.getInteractionCount());
+        player.sendMessage(ChatColor.WHITE + "Age: " + (chest.getAge() / 1000) + " seconds");
 
-        if (chestData.getRespawnTimeRemaining() > 0) {
-            player.sendMessage(ChatColor.WHITE + "Respawn in: " + (chestData.getRespawnTimeRemaining() / 1000) + " seconds");
+        if (chest.getRespawnTimeRemaining() > 0) {
+            player.sendMessage(ChatColor.WHITE + "Respawn in: " + (chest.getRespawnTimeRemaining() / 1000) + " seconds");
         }
 
         return true;
     }
 
-    /**
-     * Handles list command
-     */
     private boolean handleListCommand(Player player, String[] args) {
         if (!player.hasPermission("yakrealms.admin.lootchest")) {
             player.sendMessage(ChatColor.RED + "You don't have permission to use this command.");
             return false;
         }
 
-        var chests = manager.getActiveChests();
+        var chests = manager.getRegistry().getAllChests();
 
         player.sendMessage(ChatColor.YELLOW + "=== Active Loot Chests (" + chests.size() + ") ===");
 
@@ -225,8 +210,8 @@ public class LootChestCommand implements CommandExecutor, TabCompleter {
 
         for (int i = startIndex; i < endIndex; i++) {
             var entry = chestList.get(i);
-            LootChestLocation loc = entry.getKey();
-            LootChestData data = entry.getValue();
+            ChestLocation loc = entry.getKey();
+            Chest data = entry.getValue();
 
             player.sendMessage(ChatColor.WHITE.toString() + (i + 1) + ". " + loc + " - " +
                     data.getTier() + " " + data.getType() + " (" + data.getStatusString() + ")");
@@ -243,9 +228,6 @@ public class LootChestCommand implements CommandExecutor, TabCompleter {
         return true;
     }
 
-    /**
-     * Handles stats command
-     */
     private boolean handleStatsCommand(Player player, String[] args) {
         if (!player.hasPermission("yakrealms.admin.lootchest")) {
             player.sendMessage(ChatColor.RED + "You don't have permission to use this command.");
@@ -259,8 +241,8 @@ public class LootChestCommand implements CommandExecutor, TabCompleter {
             player.sendMessage(ChatColor.WHITE + entry.getKey() + ": " + ChatColor.AQUA + entry.getValue());
         }
 
-        // Factory statistics
-        var factoryStats = manager.getFactory().getLootStatistics();
+        // Loot generation statistics
+        var factoryStats = manager.getLootGenerator().getLootStatistics();
         player.sendMessage(ChatColor.YELLOW + "\n=== Loot Generation Statistics ===");
         for (String stat : factoryStats) {
             player.sendMessage(ChatColor.WHITE + stat);
@@ -269,9 +251,6 @@ public class LootChestCommand implements CommandExecutor, TabCompleter {
         return true;
     }
 
-    /**
-     * Handles care package command
-     */
     private boolean handleCarePackageCommand(Player player, String[] args) {
         if (!player.hasPermission("yakrealms.admin.lootchest")) {
             player.sendMessage(ChatColor.RED + "You don't have permission to use this command.");
@@ -279,9 +258,9 @@ public class LootChestCommand implements CommandExecutor, TabCompleter {
         }
 
         Location location = player.getLocation();
-        LootChestData chestData = manager.spawnCarePackage(location);
+        Chest chest = manager.spawnCarePackage(location);
 
-        if (chestData != null) {
+        if (chest != null) {
             player.sendMessage(ChatColor.GREEN + "Spawned care package at your location.");
             player.sendMessage(ChatColor.GRAY + "All online players have been notified!");
         } else {
@@ -291,9 +270,6 @@ public class LootChestCommand implements CommandExecutor, TabCompleter {
         return true;
     }
 
-    /**
-     * Handles special chest command
-     */
     private boolean handleSpecialCommand(Player player, String[] args) {
         if (!player.hasPermission("yakrealms.admin.lootchest")) {
             player.sendMessage(ChatColor.RED + "You don't have permission to use this command.");
@@ -317,9 +293,9 @@ public class LootChestCommand implements CommandExecutor, TabCompleter {
         }
 
         Location location = player.getLocation();
-        LootChestData chestData = manager.createSpecialChest(location, tier);
+        Chest chest = manager.createSpecialChest(location, tier);
 
-        if (chestData != null) {
+        if (chest != null) {
             player.sendMessage(ChatColor.GREEN + "Created special chest (tier " + tier.getLevel() + ") at your location.");
             player.sendMessage(ChatColor.GRAY + "This chest will automatically despawn after 5 minutes.");
         } else {
@@ -329,9 +305,6 @@ public class LootChestCommand implements CommandExecutor, TabCompleter {
         return true;
     }
 
-    /**
-     * Handles reload command
-     */
     private boolean handleReloadCommand(Player player, String[] args) {
         if (!player.hasPermission("yakrealms.admin.lootchest")) {
             player.sendMessage(ChatColor.RED + "You don't have permission to use this command.");
@@ -349,23 +322,24 @@ public class LootChestCommand implements CommandExecutor, TabCompleter {
         return true;
     }
 
-    /**
-     * Handles cleanup command
-     */
     private boolean handleCleanupCommand(Player player, String[] args) {
         if (!player.hasPermission("yakrealms.admin.lootchest")) {
             player.sendMessage(ChatColor.RED + "You don't have permission to use this command.");
             return false;
         }
 
-        int beforeCount = manager.getActiveChests().size();
+        int beforeCount = manager.getRegistry().size();
 
-        // Clear all chest inventories (will trigger cleanup)
-        manager.clearAllChestInventories();
+        int cleaned = 0;
+        for (Chest chest : new ArrayList<>(manager.getRegistry().getAllChests().values())) {
+            if (chest.getState() == ChestState.OPENED) {
+                chest.setState(ChestState.AVAILABLE);
+                manager.getRepository().saveChest(chest);
+                cleaned++;
+            }
+        }
 
-        int afterCount = manager.getActiveChests().size();
-        int cleaned = beforeCount - afterCount;
-
+        int afterCount = manager.getRegistry().size();
         player.sendMessage(ChatColor.GREEN + "Cleanup completed!");
         player.sendMessage(ChatColor.GRAY + "Cleaned up " + cleaned + " chest inventories.");
         player.sendMessage(ChatColor.GRAY + "Active chests: " + afterCount);
@@ -373,9 +347,6 @@ public class LootChestCommand implements CommandExecutor, TabCompleter {
         return true;
     }
 
-    /**
-     * Sends help message to player
-     */
     private void sendHelpMessage(Player player) {
         player.sendMessage(ChatColor.YELLOW + "=== Loot Chest Commands ===");
 

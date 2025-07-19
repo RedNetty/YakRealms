@@ -15,7 +15,7 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 /**
- * Enhanced market command with comprehensive functionality
+ *  market command with comprehensive functionality
  */
 public class MarketCommand implements CommandExecutor, TabCompleter {
     private final MarketManager marketManager;

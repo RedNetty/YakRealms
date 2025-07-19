@@ -23,12 +23,12 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Logger;
 
 /**
- * Enhanced base class for creating interactive menus/GUIs with improved performance and visual effects
+ *  base class for creating interactive menus/GUIs with improved performance and visual effects
  */
 public abstract class Menu {
     private static final Logger LOGGER = Logger.getLogger(Menu.class.getName());
 
-    // Enhanced registry with thread safety
+    //  registry with thread safety
     private static final Map<UUID, Menu> openMenus = new ConcurrentHashMap<>();
     private static final MenuEventHandler eventHandler = new MenuEventHandler();
     private static boolean initialized = false;
@@ -39,7 +39,7 @@ public abstract class Menu {
     protected final Map<Integer, MenuItem> items = new HashMap<>();
     protected final String originalTitle;
 
-    // Enhanced features
+    //  features
     private BukkitTask refreshTask;
     private boolean autoRefresh = false;
     private int refreshInterval = 20; // 1 second default
@@ -53,7 +53,7 @@ public abstract class Menu {
     private BukkitTask animationTask;
 
     /**
-     * Enhanced menu constructor with validation and improved initialization
+     *  menu constructor with validation and improved initialization
      *
      * @param player The player who will see the menu
      * @param title  The title of the inventory
@@ -97,7 +97,7 @@ public abstract class Menu {
     }
 
     /**
-     * Enhanced event handler initialization with better thread safety
+     *  event handler initialization with better thread safety
      */
     private static synchronized void initializeEventHandlers() {
         if (!initialized) {
@@ -108,7 +108,7 @@ public abstract class Menu {
     }
 
     /**
-     * Opens the menu with enhanced features
+     * Opens the menu with  features
      */
     public void open() {
         try {
@@ -169,7 +169,7 @@ public abstract class Menu {
     }
 
     /**
-     * Enhanced item setting with validation
+     *  item setting with validation
      *
      * @param slot The slot to set the item in
      * @param item The menu item to set
@@ -211,7 +211,7 @@ public abstract class Menu {
     }
 
     /**
-     * Enhanced item removal with cleanup
+     *  item removal with cleanup
      *
      * @param slot The slot to remove the item from
      */
@@ -226,7 +226,7 @@ public abstract class Menu {
     }
 
     /**
-     * Enhanced border creation with customizable materials and patterns
+     *  border creation with customizable materials and patterns
      *
      * @param material The material for the border
      * @param name     The display name for border items
@@ -278,7 +278,7 @@ public abstract class Menu {
     }
 
     /**
-     * Enhanced slot validation
+     *  slot validation
      */
     private boolean isValidSlot(int slot) {
         return slot >= 0 && slot < inventory.getSize();
@@ -374,7 +374,7 @@ public abstract class Menu {
     }
 
     /**
-     * Enhanced inventory update with error handling
+     *  inventory update with error handling
      */
     protected void updateInventory() {
         try {
@@ -390,7 +390,7 @@ public abstract class Menu {
     }
 
     /**
-     * Enhanced click handling with sound effects and validation
+     *  click handling with sound effects and validation
      *
      * @param slot The slot that was clicked
      */
@@ -424,7 +424,7 @@ public abstract class Menu {
     }
 
     /**
-     * Enhanced sound playing
+     *  sound playing
      */
     private void playSound(Sound sound, float volume, float pitch) {
         if (player.isOnline()) {
@@ -522,7 +522,7 @@ public abstract class Menu {
     }
 
     /**
-     * Enhanced event listener with improved error handling
+     *  event listener with improved error handling
      */
     private static class MenuEventHandler implements Listener {
 

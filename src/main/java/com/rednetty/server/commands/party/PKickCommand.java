@@ -14,7 +14,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Enhanced Party Kick Command with comprehensive permission checking and validation
+ *  Party Kick Command with comprehensive permission checking and validation
  * Integrates fully with the advanced PartyMechanics system including role-based permissions
  */
 public class PKickCommand implements CommandExecutor, TabCompleter {
@@ -60,11 +60,11 @@ public class PKickCommand implements CommandExecutor, TabCompleter {
         // Show confirmation for kick action
         showKickConfirmation(player, targetPlayer);
 
-        // Attempt to kick player with enhanced feedback
+        // Attempt to kick player with  feedback
         boolean success = partyMechanics.removePlayerFromParty(targetPlayer);
 
         if (success) {
-            // Enhanced success feedback
+            //  success feedback
             player.sendMessage(ChatColor.GREEN + "✓ " + ChatColor.BOLD + "Player removed from party!");
             player.sendMessage(ChatColor.GRAY + "Kicked " + ChatColor.WHITE + ChatColor.BOLD + targetName
                     + ChatColor.GRAY + " from the party.");
@@ -203,7 +203,7 @@ public class PKickCommand implements CommandExecutor, TabCompleter {
     }
 
     /**
-     * Send enhanced usage message with role-based help
+     * Send  usage message with role-based help
      */
     private void sendUsageMessage(Player player) {
         player.sendMessage(ChatColor.RED + "❌ " + ChatColor.BOLD + "Invalid Syntax");

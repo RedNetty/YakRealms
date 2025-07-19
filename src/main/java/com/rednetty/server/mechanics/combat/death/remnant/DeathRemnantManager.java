@@ -19,7 +19,7 @@ import java.util.logging.Level;
 /**
  *  Robust death remnant manager with comprehensive entity tracking and cleanup
  * - Implements consistent entity tagging and tracking system
- * - Enhanced cleanup that handles orphaned entities properly
+ * -  cleanup that handles orphaned entities properly
  * - Death remnants are purely decorative visual elements only
  * - No item storage or management - items always drop on ground separately
  */

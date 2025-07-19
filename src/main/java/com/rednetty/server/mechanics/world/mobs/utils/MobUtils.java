@@ -17,25 +17,25 @@ import java.util.Random;
 import java.util.logging.Logger;
 
 /**
- * Enhanced utility class for mob-related operations with full T6 Netherite support
+ *  utility class for mob-related operations with full T6 Netherite support
  */
 public class MobUtils {
     private static final Random random = new Random();
     private static final Logger logger = YakRealms.getInstance().getLogger();
 
     /**
-     * Get the tier of a mob based on its equipment with enhanced T6 Netherite support
+     * Get the tier of a mob based on its equipment with  T6 Netherite support
      */
     public static int getMobTier(LivingEntity entity) {
         if (entity == null || entity.getEquipment() == null ||
                 entity.getEquipment().getItemInMainHand() == null) {
-            return 1;
+            return 0;
         }
 
         String itemType = entity.getEquipment().getItemInMainHand().getType().name();
         boolean isT6Netherite = isNetheriteT6(entity.getEquipment().getItemInMainHand());
 
-        // Enhanced T6 Netherite detection
+        //  T6 Netherite detection
         if (itemType.contains("NETHERITE_")) {
             return isT6Netherite ? 6 : 6; // All netherite is T6, but check for special formatting
         }
@@ -97,7 +97,7 @@ public class MobUtils {
     }
 
     /**
-     * Get a player's tier based on their armor with enhanced T6 Netherite support
+     * Get a player's tier based on their armor with  T6 Netherite support
      */
     public static int getPlayerTier(Player player) {
         int tier = 0;
@@ -105,7 +105,7 @@ public class MobUtils {
             if (is != null && is.getType() != Material.AIR) {
                 String armorType = is.getType().name();
 
-                // Enhanced T6 Netherite detection
+                //  T6 Netherite detection
                 if (armorType.contains("NETHERITE_")) {
                     tier = Math.max(6, tier);
                 } else if (armorType.contains("LEATHER_")) {
@@ -264,7 +264,7 @@ public class MobUtils {
     }
 
     /**
-     * Apply tier-based health multiplier with enhanced T6 support
+     * Apply tier-based health multiplier with  T6 support
      */
     public static int applyHealthMultiplier(int baseHealth, int tier, boolean elite) {
         if (elite) {
@@ -279,7 +279,7 @@ public class MobUtils {
                     return baseHealth * 5;
                 case 5:
                     return baseHealth * 6;
-                case 6: // Enhanced T6 Netherite elite multiplier
+                case 6: //  T6 Netherite elite multiplier
                     return baseHealth * 8;
                 default:
                     return baseHealth * 2;
@@ -296,7 +296,7 @@ public class MobUtils {
                     return (int) (baseHealth * 1.4);
                 case 5:
                     return baseHealth * 2;
-                case 6: // Enhanced T6 Netherite multiplier
+                case 6: //  T6 Netherite multiplier
                     return (int) (baseHealth * 3.0);
                 default:
                     return baseHealth;
@@ -305,7 +305,7 @@ public class MobUtils {
     }
 
     /**
-     * Get the appropriate health bar length based on tier with enhanced T6 support
+     * Get the appropriate health bar length based on tier with  T6 support
      */
     public static int getBarLength(int tier) {
         switch (tier) {
@@ -317,7 +317,7 @@ public class MobUtils {
                 return 40;
             case 5:
                 return 50;
-            case 6: // Enhanced T6 Netherite bar length
+            case 6: //  T6 Netherite bar length
                 return 65;
             default:
                 return 25;
@@ -360,7 +360,7 @@ public class MobUtils {
                 return true;
             }
 
-            // Enhanced stuck detection
+            //  stuck detection
             boolean mobStuck = isMobStuck(mobLoc);
 
             return (distance >= 3 && distance <= 36 &&
@@ -386,7 +386,7 @@ public class MobUtils {
     }
 
     /**
-     * Enhanced liquid detection
+     *  liquid detection
      */
     private static boolean isInLiquid(Location location) {
         try {
@@ -401,7 +401,7 @@ public class MobUtils {
     }
 
     /**
-     * Enhanced stuck detection
+     *  stuck detection
      */
     private static boolean isMobStuck(Location mobLoc) {
         try {
@@ -511,7 +511,7 @@ public class MobUtils {
     }
 
     /**
-     * Generate a health bar string with enhanced T6 support
+     * Generate a health bar string with  T6 support
      */
     public static String generateHealthBar(LivingEntity entity, double health, double maxHealth, int tier, boolean inCriticalState) {
         if (entity == null) return "";
@@ -554,7 +554,7 @@ public class MobUtils {
     }
 
     /**
-     * Get tier color with enhanced T6 GOLD support
+     * Get tier color with  T6 GOLD support
      */
     public static ChatColor getTierColor(int tier) {
         switch (tier) {
@@ -596,42 +596,6 @@ public class MobUtils {
     }
 
     /**
-     * Validate entity tracking
-     */
-    public static boolean isEntityValidAndTracked(LivingEntity entity) {
-        if (entity == null) return false;
-
-        try {
-            // Basic validity checks
-            if (!entity.isValid() || entity.isDead()) {
-                return false;
-            }
-
-            // Check if entity is properly tracked by server
-            Entity foundEntity = Bukkit.getEntity(entity.getUniqueId());
-            if (foundEntity == null || !foundEntity.equals(entity)) {
-                return false;
-            }
-
-            // Verify world is loaded and entity is in world
-            if (entity.getWorld() == null || !entity.isInWorld()) {
-                return false;
-            }
-
-            // Check if chunk is loaded
-            Location loc = entity.getLocation();
-            if (loc == null || !entity.getWorld().isChunkLoaded(loc.getBlockX() >> 4, loc.getBlockZ() >> 4)) {
-                return false;
-            }
-
-            return true;
-        } catch (Exception e) {
-            logger.warning("Entity validation error: " + e.getMessage());
-            return false;
-        }
-    }
-
-    /**
      * Clean a mob name of health bar formatting
      */
     public static String cleanMobName(String name) {
@@ -643,7 +607,7 @@ public class MobUtils {
         String cleaned = name.replaceAll("[|]", "");
 
         // Remove multiple consecutive color codes
-        cleaned = cleaned.replaceAll("(§.){2,}", "§r");
+        cleaned = cleaned.replaceAll("(Â§.){2,}", "Â§r");
 
         return cleaned.trim();
     }
@@ -674,7 +638,7 @@ public class MobUtils {
     }
 
     /**
-     * Enhanced mob name capture that stores the actual original name
+     *  mob name capture that stores the actual original name
      */
     public static String captureOriginalName(LivingEntity entity) {
         if (entity == null) return null;

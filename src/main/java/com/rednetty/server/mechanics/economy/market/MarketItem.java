@@ -20,7 +20,7 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
- * Enhanced market item representation with MongoDB integration and improved functionality
+ *  market item representation with MongoDB integration and improved functionality
  */
 public class MarketItem {
     private static final Logger logger = Logger.getLogger(MarketItem.class.getName());

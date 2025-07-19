@@ -590,7 +590,7 @@ public class ItemCommand implements CommandExecutor, TabCompleter {
      * Send comprehensive help message
      */
     private void sendHelp(Player player) {
-        player.sendMessage(ChatColor.GOLD + "===== Enhanced Item Command Help =====");
+        player.sendMessage(ChatColor.GOLD + "=====  Item Command Help =====");
         player.sendMessage("");
 
         player.sendMessage(ChatColor.YELLOW + "Basic Items:");

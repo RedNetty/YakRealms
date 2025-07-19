@@ -21,7 +21,7 @@ import java.util.logging.Logger;
 import java.util.stream.Collectors;
 
 /**
- * ENHANCED: Complete Dungeon Room Management System
+ * : Complete Dungeon Room Management System
  *
  * Manages individual rooms within dungeons, including mob spawning,
  * room events, player tracking, environmental effects, and room-specific

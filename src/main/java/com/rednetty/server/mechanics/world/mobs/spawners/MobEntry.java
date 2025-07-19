@@ -3,7 +3,7 @@ package com.rednetty.server.mechanics.world.mobs.spawners;
 import com.rednetty.server.mechanics.world.mobs.core.MobType;
 
 /**
- *  Enhanced MobEntry with better validation and utility methods
+ *   MobEntry with better validation and utility methods
  */
 public class MobEntry {
     private final String mobType;

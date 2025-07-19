@@ -26,12 +26,12 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
- * Enhanced moderation functionality including:
+ *  moderation functionality including:
  * - Comprehensive player ranks management with proper permission hierarchies
  * - Advanced banning and muting system with duration tracking
  * - Robust chat tag management with validation
  * - Performance optimized permission caching
- * - Enhanced error handling and recovery
+ * -  error handling and recovery
  * - Staff activity monitoring and important staff protection
  * - Automatic rank validation and correction
  * - Permission debugging and audit capabilities
@@ -45,7 +45,7 @@ public class ModerationMechanics implements Listener {
     private final AtomicBoolean isShuttingDown = new AtomicBoolean(false);
     private final AtomicInteger permissionUpdates = new AtomicInteger(0);
 
-    // Enhanced caching with performance tracking
+    //  caching with performance tracking
     public static final Map<UUID, Rank> rankMap = new ConcurrentHashMap<>();
     private final Map<UUID, PermissionAttachment> permissionMap = new ConcurrentHashMap<>();
     private final Map<UUID, Long> lastPermissionUpdate = new ConcurrentHashMap<>();
@@ -64,7 +64,7 @@ public class ModerationMechanics implements Listener {
     private BukkitTask performanceTask;
     private BukkitTask staffActivityTask;
 
-    // Enhanced constants
+    //  constants
     private static final List<String> IMPORTANT_STAFF = Arrays.asList("Red");
     private static final long PERMISSION_UPDATE_COOLDOWN = 1000L; // 1 second cooldown
     private static final long STAFF_ACTIVITY_TIMEOUT = 300000L; // 5 minutes
@@ -91,7 +91,7 @@ public class ModerationMechanics implements Listener {
     }
 
     /**
-     * Enhanced initialization with performance monitoring
+     *  initialization with performance monitoring
      */
     public void onEnable() {
         long startTime = System.currentTimeMillis();
@@ -100,7 +100,7 @@ public class ModerationMechanics implements Listener {
             // Register events
             Bukkit.getServer().getPluginManager().registerEvents(this, YakRealms.getInstance());
 
-            // Initialize ranks for online players with enhanced error handling
+            // Initialize ranks for online players with  error handling
             int successCount = 0;
             int failureCount = 0;
 
@@ -135,7 +135,7 @@ public class ModerationMechanics implements Listener {
     }
 
     /**
-     * Enhanced cleanup with comprehensive data saving
+     *  cleanup with comprehensive data saving
      */
     public void onDisable() {
         long startTime = System.currentTimeMillis();
@@ -164,7 +164,7 @@ public class ModerationMechanics implements Listener {
                 }
             }
 
-            // Save all ranks with enhanced error handling
+            // Save all ranks with  error handling
             saveAllRanks();
 
             // Log performance statistics
@@ -195,7 +195,7 @@ public class ModerationMechanics implements Listener {
     }
 
     /**
-     * Enhanced rank saving with comprehensive error handling and retry logic
+     *  rank saving with comprehensive error handling and retry logic
      */
     private void saveAllRanks() {
         YakPlayerRepository repository = YakPlayerManager.getInstance().getRepository();
@@ -256,7 +256,7 @@ public class ModerationMechanics implements Listener {
     }
 
     /**
-     * Enhanced player join handler with comprehensive initialization
+     *  player join handler with comprehensive initialization
      */
     @EventHandler(priority = EventPriority.MONITOR)
     public void onPlayerJoin(PlayerJoinEvent event) {
@@ -284,7 +284,7 @@ public class ModerationMechanics implements Listener {
                 }
             }
 
-            // Schedule delayed initialization with enhanced error handling
+            // Schedule delayed initialization with  error handling
             Bukkit.getScheduler().runTaskLater(YakRealms.getInstance(), () -> {
                 try {
                     initializePlayer(player);
@@ -312,7 +312,7 @@ public class ModerationMechanics implements Listener {
     }
 
     /**
-     * Enhanced player quit handler with comprehensive cleanup and data synchronization
+     *  player quit handler with comprehensive cleanup and data synchronization
      */
     @EventHandler
     public void onPlayerQuit(PlayerQuitEvent event) {
@@ -335,7 +335,7 @@ public class ModerationMechanics implements Listener {
             YakPlayer yakPlayer = playerManager.getPlayer(player);
 
             if (yakPlayer != null) {
-                // Enhanced rank synchronization
+                //  rank synchronization
                 if (rankMap.containsKey(uuid)) {
                     Rank memoryRank = rankMap.get(uuid);
                     String currentRankStr = yakPlayer.getRank();
@@ -360,7 +360,7 @@ public class ModerationMechanics implements Listener {
                 YakRealms.log("WARNING: No player data found for quitting player: " + player.getName());
             }
 
-            //  Clean up permission attachment with enhanced validation
+            //  Clean up permission attachment with  validation
             cleanupPermissionAttachment(uuid, player);
 
             // Clean up caches (do this last)
@@ -384,7 +384,7 @@ public class ModerationMechanics implements Listener {
     }
 
     /**
-     * Enhanced player initialization with comprehensive validation
+     *  player initialization with comprehensive validation
      */
     private void initializePlayer(Player player) {
         UUID uuid = player.getUniqueId();
@@ -392,10 +392,10 @@ public class ModerationMechanics implements Listener {
 
         try {
             if (yakPlayer != null) {
-                // Enhanced rank loading with validation
+                //  rank loading with validation
                 initializePlayerRank(player, yakPlayer);
 
-                // Enhanced chat tag loading with validation
+                //  chat tag loading with validation
                 initializePlayerChatTag(player, yakPlayer, uuid);
 
                 // Save any corrections made during initialization
@@ -420,7 +420,7 @@ public class ModerationMechanics implements Listener {
     }
 
     /**
-     * Initialize player rank with enhanced validation and error recovery
+     * Initialize player rank with  validation and error recovery
      */
     private void initializePlayerRank(Player player, YakPlayer yakPlayer) {
         UUID uuid = player.getUniqueId();
@@ -466,7 +466,7 @@ public class ModerationMechanics implements Listener {
     }
 
     /**
-     * Validate and parse rank with enhanced error handling
+     * Validate and parse rank with  error handling
      */
     private Rank validateAndParseRank(String rankStr, String playerName) {
         try {
@@ -513,7 +513,7 @@ public class ModerationMechanics implements Listener {
     }
 
     /**
-     * Enhanced permission setup with comprehensive rank-based permissions
+     *  permission setup with comprehensive rank-based permissions
      */
     private void setupPermissions(Player player) {
         UUID uuid = player.getUniqueId();
@@ -616,10 +616,10 @@ public class ModerationMechanics implements Listener {
         attachment.setPermission("yakrealms.donator", true);
         attachment.setPermission("yakrealms.vip", true);
 
-        // Enhanced market permissions for donators
+        //  market permissions for donators
         attachment.setPermission("yakrealms.market.featured", true);
 
-        // Enhanced crate permissions for donators
+        //  crate permissions for donators
         attachment.setPermission("yakrealms.crate.preview", true);
 
         // Premium donator benefits
@@ -658,7 +658,7 @@ public class ModerationMechanics implements Listener {
             attachment.setPermission("yakrealms.moderator", true);
             attachment.setPermission("yakrealms.mod", true);
 
-            // Enhanced staff permissions
+            //  staff permissions
             attachment.setPermission("yakrealms.setrank.staff", true);
             attachment.setPermission("yakrealms.admin.invsee", true);
             attachment.setPermission("yakrealms.admin.alignment", true);
@@ -720,7 +720,7 @@ public class ModerationMechanics implements Listener {
         attachment.setPermission("yakrealms.lootchest.reload", true);
         attachment.setPermission("yakrealms.lootchest.cleanup", true);
 
-        // Enhanced setrank permissions
+        //  setrank permissions
         attachment.setPermission("yakrealms.setrank.mod", true);
         attachment.setPermission("yakrealms.setrank.admin", true);
 
@@ -742,7 +742,7 @@ public class ModerationMechanics implements Listener {
     }
 
     /**
-     * Enhanced rank checking methods with null safety
+     *  rank checking methods with null safety
      */
     private boolean isPremiumDonator(Rank rank) {
         if (rank == null) return false;
@@ -797,7 +797,7 @@ public class ModerationMechanics implements Listener {
     }
 
     /**
-     * Enhanced utility methods for better functionality
+     *  utility methods for better functionality
      */
 
     /**
@@ -812,7 +812,7 @@ public class ModerationMechanics implements Listener {
     }
 
     /**
-     * Enhanced getRank method with comprehensive error handling and caching
+     *  getRank method with comprehensive error handling and caching
      */
     public static Rank getRank(Player player) {
         if (player == null) return Rank.DEFAULT;
@@ -824,7 +824,7 @@ public class ModerationMechanics implements Listener {
             return rankMap.get(uuid);
         }
 
-        // Try to get from YakPlayer data with enhanced error handling
+        // Try to get from YakPlayer data with  error handling
         try {
             YakPlayer yakPlayer = YakPlayerManager.getInstance().getPlayer(player);
             if (yakPlayer == null) {
@@ -885,7 +885,7 @@ public class ModerationMechanics implements Listener {
     }
 
     /**
-     * Enhanced setRank method with immediate permission updates and validation
+     *  setRank method with immediate permission updates and validation
      */
     public void setRank(Player player, Rank rank) {
         if (player == null || rank == null) {
@@ -912,7 +912,7 @@ public class ModerationMechanics implements Listener {
             // Update staff tracking
             updateStaffTracking(player, rank);
 
-            // Save to player data asynchronously with enhanced error handling
+            // Save to player data asynchronously with  error handling
             updateAndSaveRank(uuid, rank, () -> {
                 // Post-rank-change operations
                 handlePostRankChange(player, rank);
@@ -937,7 +937,7 @@ public class ModerationMechanics implements Listener {
     }
 
     /**
-     * Enhanced updateAndSaveRank with better error handling and retry logic
+     *  updateAndSaveRank with better error handling and retry logic
      */
     public void updateAndSaveRank(UUID uuid, Rank rank, Runnable callback) {
         // Update the memory cache immediately
@@ -978,7 +978,7 @@ public class ModerationMechanics implements Listener {
      * Validate if a rank change is allowed (can be overridden for custom logic)
      */
     private boolean validateRankChange(Rank oldRank, Rank newRank) {
-        // Basic validation - can be enhanced based on business rules
+        // Basic validation - can be  based on business rules
         return newRank != null;
     }
 
@@ -1055,7 +1055,7 @@ public class ModerationMechanics implements Listener {
     }
 
     /**
-     * Enhanced utility methods for staff management
+     *  utility methods for staff management
      */
 
     /**
@@ -1081,7 +1081,7 @@ public class ModerationMechanics implements Listener {
     }
 
     /**
-     * Enhanced staff checking methods
+     *  staff checking methods
      */
     public static boolean isStaff(Player player) {
         if (player == null) return false;
@@ -1128,7 +1128,7 @@ public class ModerationMechanics implements Listener {
     }
 
     /**
-     * Enhanced moderation methods with better error handling
+     *  moderation methods with better error handling
      */
 
     public void banPlayer(UUID targetUuid, String reason, long durationSeconds, String banner) {
@@ -1206,7 +1206,7 @@ public class ModerationMechanics implements Listener {
     }
 
     /**
-     * Enhanced helper methods
+     *  helper methods
      */
 
     private void unlockAllChatTags(Player player) {
@@ -1246,7 +1246,7 @@ public class ModerationMechanics implements Listener {
     }
 
     /**
-     *  Enhanced cleanup and utility methods with proper validation
+     *   cleanup and utility methods with proper validation
      */
 
     /**

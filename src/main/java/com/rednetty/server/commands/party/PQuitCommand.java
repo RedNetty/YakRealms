@@ -13,7 +13,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Enhanced Party Quit Command with comprehensive feedback and leadership handling
+ *  Party Quit Command with comprehensive feedback and leadership handling
  * Integrates fully with the advanced PartyMechanics system including role transitions
  */
 public class PQuitCommand implements CommandExecutor, TabCompleter {
@@ -57,7 +57,7 @@ public class PQuitCommand implements CommandExecutor, TabCompleter {
         boolean success = partyMechanics.removePlayerFromParty(player);
 
         if (success) {
-            // Enhanced feedback after leaving
+            //  feedback after leaving
             player.sendMessage(ChatColor.GRAY + "You are no longer part of a party group.");
 
             // Play farewell sound
@@ -160,7 +160,7 @@ public class PQuitCommand implements CommandExecutor, TabCompleter {
     }
 
     /**
-     * Send enhanced usage message
+     * Send  usage message
      */
     private void sendUsageMessage(Player player) {
         player.sendMessage(ChatColor.RED + "❌ " + ChatColor.BOLD + "Invalid Syntax");

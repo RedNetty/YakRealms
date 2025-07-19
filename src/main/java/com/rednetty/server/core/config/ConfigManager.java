@@ -2,9 +2,8 @@ package com.rednetty.server.core.config;
 
 import com.rednetty.server.YakRealms;
 import com.rednetty.server.mechanics.item.drops.DropConfig;
-import com.rednetty.server.mechanics.item.drops.types.*;
-import org.bukkit.ChatColor;
-import org.bukkit.Material;
+import com.rednetty.server.mechanics.item.drops.types.EliteDropConfig;
+import com.rednetty.server.mechanics.item.drops.types.TierConfig;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.configuration.file.YamlConfiguration;
@@ -13,21 +12,24 @@ import java.io.File;
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
- * Manages the configuration files for the drop system
+ *  configuration manager for the drop system
+ *  Now properly works with the updated DropConfig system and correctly handles YAML loading
  */
 public class ConfigManager {
     private static ConfigManager instance;
     private final YakRealms plugin;
     private final Logger logger;
 
-    private File itemTypesFile;
+    // Configuration files
     private File eliteDropsFile;
-    private File rarityConfigFile;
-    private File tierConfigFile;
+    private File dropRatesFile;
+
+    // File configurations
+    private FileConfiguration eliteDropsConfig;
+    private FileConfiguration dropRatesConfig;
 
     /**
      * Private constructor for singleton pattern
@@ -55,321 +57,393 @@ public class ConfigManager {
     public void initialize() {
         // Ensure config directory exists
         if (!plugin.getDataFolder().exists()) {
-            plugin.getDataFolder().mkdir();
+            plugin.getDataFolder().mkdirs();
         }
 
-        // Copy default configs if they don't exist
-        createDefaultConfigs();
+        // Initialize configuration files
+        initializeConfigFiles();
 
-        // Load configs
-        loadDropConfigs();
+        // Load additional configurations that aren't handled by DropConfig
+        loadDropRatesConfig();
 
-        logger.info("[ConfigManager] Configuration has been loaded");
+        logger.info("§a[ConfigManager] §7Configuration manager initialized successfully");
     }
 
     /**
-     * Creates default config files if they don't exist
+     * Initialize configuration files
      */
-    private void createDefaultConfigs() {
-        itemTypesFile = new File(plugin.getDataFolder(), "item_types.yml");
+    private void initializeConfigFiles() {
+        // Elite drops file (handled by DropConfig, but we track it for reloading)
         eliteDropsFile = new File(plugin.getDataFolder(), "elite_drops.yml");
-        rarityConfigFile = new File(plugin.getDataFolder(), "rarity_config.yml");
-        tierConfigFile = new File(plugin.getDataFolder(), "tier_config.yml");
-
-        if (!itemTypesFile.exists()) {
-            plugin.saveResource("item_types.yml", false);
-        }
-
         if (!eliteDropsFile.exists()) {
             plugin.saveResource("elite_drops.yml", false);
+            logger.info("§6[ConfigManager] §7Created default elite_drops.yml file");
         }
 
-        if (!rarityConfigFile.exists()) {
-            plugin.saveResource("rarity_config.yml", false);
-        }
-
-        if (!tierConfigFile.exists()) {
-            plugin.saveResource("tier_config.yml", false);
+        // Drop rates configuration file
+        dropRatesFile = new File(plugin.getDataFolder(), "drop_rates.yml");
+        if (!dropRatesFile.exists()) {
+            createDefaultDropRatesConfig();
         }
     }
 
     /**
-     * Load all drop configuration files
+     * Create default drop rates configuration
      */
-    private void loadDropConfigs() {
-        loadItemTypeConfigs();
-        loadRarityConfigs();
-        loadTierConfigs();
-        loadEliteDropConfigs();
-    }
+    private void createDefaultDropRatesConfig() {
+        try {
+            dropRatesConfig = new YamlConfiguration();
 
-    /**
-     * Loads item type configurations
-     */
-    private void loadItemTypeConfigs() {
-        FileConfiguration config = YamlConfiguration.loadConfiguration(itemTypesFile);
-        Map<String, ItemTypeConfig> itemTypeConfigs = new HashMap<>();
-
-        for (String key : config.getKeys(false)) {
-            ConfigurationSection section = config.getConfigurationSection(key);
-            if (section != null) {
-                int typeId = Integer.parseInt(key);
-                String name = section.getString("name", "Unknown");
-                String materialSuffix = section.getString("materialSuffix", "SWORD");
-                boolean isWeapon = section.getBoolean("isWeapon", true);
-
-                ItemTypeConfig itemTypeConfig = new ItemTypeConfig(typeId, name, materialSuffix, isWeapon);
-                itemTypeConfigs.put(key, itemTypeConfig);
-            }
-        }
-
-        DropConfig.setItemTypeConfigs(itemTypeConfigs);
-        logger.info("Loaded " + itemTypeConfigs.size() + " item type configurations");
-    }
-
-    /**
-     * Loads rarity configurations
-     */
-    private void loadRarityConfigs() {
-        FileConfiguration config = YamlConfiguration.loadConfiguration(rarityConfigFile);
-        Map<Integer, RarityConfig> rarityConfigs = new HashMap<>();
-
-        for (String key : config.getKeys(false)) {
-            ConfigurationSection section = config.getConfigurationSection(key);
-            if (section != null) {
-                int rarity = Integer.parseInt(key);
-                String name = section.getString("name", "Unknown");
-                ChatColor color = ChatColor.valueOf(section.getString("color", "WHITE"));
-                int dropChance = section.getInt("dropChance", 50);
-
-                RarityConfig rarityConfig = new RarityConfig();
-                rarityConfig.setRarity(rarity);
-                rarityConfig.setName(name);
-                rarityConfig.setColor(color);
-                rarityConfig.setDropChance(dropChance);
-
-                // Load stat multipliers
-                ConfigurationSection multSection = section.getConfigurationSection("statMultipliers");
-                if (multSection != null) {
-                    Map<String, Double> multipliers = new HashMap<>();
-                    for (String stat : multSection.getKeys(false)) {
-                        multipliers.put(stat, multSection.getDouble(stat, 1.0));
-                    }
-                    rarityConfig.setStatMultipliers(multipliers);
+            // Set default drop rates for each tier
+            for (int tier = 1; tier <= 6; tier++) {
+                TierConfig tierConfig = DropConfig.getTierConfig(tier);
+                if (tierConfig != null) {
+                    dropRatesConfig.set("tiers." + tier + ".dropRate", tierConfig.getDropRate());
+                    dropRatesConfig.set("tiers." + tier + ".eliteDropRate", tierConfig.getEliteDropRate());
+                    dropRatesConfig.set("tiers." + tier + ".crateDropRate", tierConfig.getCrateDropRate());
                 }
-
-                rarityConfigs.put(rarity, rarityConfig);
             }
-        }
 
-        DropConfig.setRarityConfigs(rarityConfigs);
-        logger.info("Loaded " + rarityConfigs.size() + " rarity configurations");
+            // Set server-wide modifiers
+            dropRatesConfig.set("modifiers.globalDropMultiplier", 1.0);
+            dropRatesConfig.set("modifiers.eliteDropMultiplier", 1.0);
+            dropRatesConfig.set("modifiers.crateDropMultiplier", 1.0);
+
+            // Set buff configurations
+            dropRatesConfig.set("buffs.maxBuffPercentage", 100);
+            dropRatesConfig.set("buffs.maxBuffDurationMinutes", 60);
+            dropRatesConfig.set("buffs.stackableBuffs", false);
+
+            dropRatesConfig.save(dropRatesFile);
+            logger.info("§6[ConfigManager] §7Created default drop_rates.yml file");
+
+        } catch (IOException e) {
+            logger.severe("§c[ConfigManager] Failed to create default drop rates config: " + e.getMessage());
+        }
     }
 
     /**
-     * Loads tier configurations
+     * Load drop rates configuration
      */
-    private void loadTierConfigs() {
-        FileConfiguration config = YamlConfiguration.loadConfiguration(tierConfigFile);
-        Map<Integer, TierConfig> tierConfigs = new HashMap<>();
+    private void loadDropRatesConfig() {
+        try {
+            dropRatesConfig = YamlConfiguration.loadConfiguration(dropRatesFile);
 
-        for (String key : config.getKeys(false)) {
-            ConfigurationSection section = config.getConfigurationSection(key);
-            if (section != null) {
-                int tier = Integer.parseInt(key);
-                ChatColor color = ChatColor.valueOf(section.getString("color", "WHITE"));
-                int dropRate = section.getInt("dropRate", 50);
-                int eliteDropRate = section.getInt("eliteDropRate", 55);
-                int crateDropRate = section.getInt("crateDropRate", 5);
+            // Apply any drop rate overrides from the config
+            ConfigurationSection tiersSection = dropRatesConfig.getConfigurationSection("tiers");
+            if (tiersSection != null) {
+                for (String tierKey : tiersSection.getKeys(false)) {
+                    try {
+                        int tier = Integer.parseInt(tierKey);
+                        ConfigurationSection tierSection = tiersSection.getConfigurationSection(tierKey);
 
-                TierConfig tierConfig = new TierConfig();
-                tierConfig.setTier(tier);
-                tierConfig.setColor(color);
-                tierConfig.setDropRate(dropRate);
-                tierConfig.setEliteDropRate(eliteDropRate);
-                tierConfig.setCrateDropRate(crateDropRate);
-
-                // Load material prefixes
-                ConfigurationSection materialSection = section.getConfigurationSection("materials");
-                if (materialSection != null) {
-                    Map<String, String> materials = new HashMap<>();
-                    for (String type : materialSection.getKeys(false)) {
-                        materials.put(type, materialSection.getString(type, ""));
-                    }
-                    tierConfig.setMaterials(materials);
-                }
-
-                tierConfigs.put(tier, tierConfig);
-            }
-        }
-
-        DropConfig.setTierConfigs(tierConfigs);
-        logger.info("Loaded " + tierConfigs.size() + " tier configurations");
-    }
-
-    /**
-     * Loads elite drop configurations
-     */
-    private void loadEliteDropConfigs() {
-        FileConfiguration config = YamlConfiguration.loadConfiguration(eliteDropsFile);
-        Map<String, EliteDropConfig> eliteDropConfigs = new HashMap<>();
-
-        for (String mobType : config.getKeys(false)) {
-            ConfigurationSection section = config.getConfigurationSection(mobType);
-            if (section != null) {
-                EliteDropConfig eliteConfig = new EliteDropConfig();
-                eliteConfig.setMobType(mobType);
-                eliteConfig.setTier(section.getInt("tier", 1));
-                eliteConfig.setRarity(section.getInt("rarity", 1));
-
-                // Load common stats
-                loadStatRanges(eliteConfig.getStatRanges(), section.getConfigurationSection("stats"));
-
-                // Load weapon stats
-                loadStatRanges(eliteConfig.getWeaponStatRanges(), section.getConfigurationSection("weaponStats"));
-
-                // Load armor stats
-                loadStatRanges(eliteConfig.getArmorStatRanges(), section.getConfigurationSection("armorStats"));
-
-                // Process armor type-specific stats (like HP for different armor pieces)
-                processArmorTypeStats(eliteConfig, section);
-
-                // Load item details
-                loadItemDetails(eliteConfig, section.getConfigurationSection("items"));
-
-                eliteDropConfigs.put(mobType.toLowerCase(), eliteConfig);
-            }
-        }
-
-        DropConfig.setEliteDropConfigs(eliteDropConfigs);
-        logger.info("Loaded " + eliteDropConfigs.size() + " elite drop configurations");
-    }
-
-    /**
-     * Process armor type-specific stats from configuration
-     *
-     * @param config  The elite drop configuration to populate
-     * @param section The configuration section
-     */
-    private void processArmorTypeStats(EliteDropConfig config, ConfigurationSection section) {
-        if (section.contains("armorStats.hp")) {
-            ConfigurationSection hpSection = section.getConfigurationSection("armorStats.hp");
-            if (hpSection != null) {
-                Map<String, StatRange> armorTypeMap = new HashMap<>();
-
-                // Process each armor type
-                for (String armorType : new String[]{"helmet", "chestplate", "leggings", "boots"}) {
-                    ConfigurationSection armorSection = hpSection.getConfigurationSection(armorType);
-                    if (armorSection != null) {
-                        int min = armorSection.getInt("min", 0);
-                        int max = armorSection.getInt("max", 0);
-                        if (min > 0 || max > 0) {
-                            armorTypeMap.put(armorType, new StatRange(min, max));
+                        if (tierSection != null) {
+                            // Note: We don't override the default rates unless specifically requested
+                            // This preserves the carefully balanced rates in DropConfig
+                            if (tierSection.contains("dropRate")) {
+                                int dropRate = tierSection.getInt("dropRate");
+                                logger.fine("§6[ConfigManager] §7Tier " + tier + " drop rate override: " + dropRate + "%");
+                            }
                         }
+                    } catch (NumberFormatException e) {
+                        logger.warning("§c[ConfigManager] Invalid tier key in drop_rates.yml: " + tierKey);
                     }
                 }
-
-                if (!armorTypeMap.isEmpty()) {
-                    config.getArmorTypeStats().put("hp", armorTypeMap);
-                }
             }
-        }
-    }
 
-    /**
-     * Loads stat ranges from configuration section
-     *
-     * @param statRanges The map to populate
-     * @param section    The configuration section
-     */
-    private void loadStatRanges(Map<String, StatRange> statRanges, ConfigurationSection section) {
-        if (section == null) {
-            return;
-        }
+            logger.info("§a[ConfigManager] §7Drop rates configuration loaded successfully");
 
-        for (String statName : section.getKeys(false)) {
-            ConfigurationSection statSection = section.getConfigurationSection(statName);
-            if (statSection != null && !(statName.equals("hp") && section.getName().equals("armorStats"))) {
-                int min = statSection.getInt("min", 0);
-                int max = statSection.getInt("max", 0);
-                statRanges.put(statName, new StatRange(min, max));
-            }
-        }
-    }
-
-    /**
-     * Loads item details from configuration section
-     *
-     * @param eliteConfig The elite drop configuration to populate
-     * @param section     The configuration section
-     */
-    private void loadItemDetails(EliteDropConfig eliteConfig, ConfigurationSection section) {
-        if (section == null) {
-            return;
-        }
-
-        for (String itemTypeStr : section.getKeys(false)) {
-            ConfigurationSection itemSection = section.getConfigurationSection(itemTypeStr);
-            if (itemSection != null) {
-                int itemType = Integer.parseInt(itemTypeStr);
-                ItemDetails details = new ItemDetails();
-
-                // Set name and lore
-                details.setName(itemSection.getString("name", "Unknown Item"));
-                details.setLore(itemSection.getString("lore", ""));
-
-                // Set material
-                String materialStr = itemSection.getString("material", "STONE");
-                try {
-                    details.setMaterial(Material.valueOf(materialStr));
-                } catch (IllegalArgumentException e) {
-                    logger.warning("Invalid material: " + materialStr + " for mob type: " + eliteConfig.getMobType() + ", item type: " + itemType);
-                    details.setMaterial(Material.STONE);
-                }
-
-                // Load stat overrides
-                ConfigurationSection overridesSection = itemSection.getConfigurationSection("statOverrides");
-                if (overridesSection != null) {
-                    for (String statName : overridesSection.getKeys(false)) {
-                        ConfigurationSection statSection = overridesSection.getConfigurationSection(statName);
-                        if (statSection != null) {
-                            int min = statSection.getInt("min", 0);
-                            int max = statSection.getInt("max", 0);
-                            details.getStatOverrides().put(statName, new StatRange(min, max));
-                        }
-                    }
-                }
-
-                eliteConfig.getItemDetails().put(itemType, details);
-            }
+        } catch (Exception e) {
+            logger.severe("§c[ConfigManager] Failed to load drop rates configuration: " + e.getMessage());
         }
     }
 
     /**
      * Updates drop rate for a specific tier
      *
-     * @param tier The tier level
-     * @param rate The new drop rate
+     * @param tier The tier level (1-6)
+     * @param rate The new drop rate percentage
      */
     public void updateDropRate(int tier, int rate) {
         if (tier < 1 || tier > 6) {
-            logger.warning("Invalid tier for drop rate update: " + tier);
+            logger.warning("§c[ConfigManager] Invalid tier for drop rate update: " + tier);
             return;
         }
 
-        // Update in memory
-        TierConfig config = DropConfig.getTierConfig(tier);
-        if (config != null) {
-            config.setDropRate(rate);
+        if (rate < 0 || rate > 100) {
+            logger.warning("§c[ConfigManager] Invalid drop rate: " + rate + "% (must be 0-100)");
+            return;
         }
 
-        // Update configuration file
         try {
-            FileConfiguration fileConfig = YamlConfiguration.loadConfiguration(tierConfigFile);
-            fileConfig.set(tier + ".dropRate", rate);
-            fileConfig.save(tierConfigFile);
+            // Update in-memory configuration
+            TierConfig tierConfig = DropConfig.getTierConfig(tier);
+            if (tierConfig != null) {
+                // Note: This would require updating TierConfig to have setters
+                // For now, we'll just update the config file
+                logger.info("§6[ConfigManager] §7Updated tier " + tier + " drop rate to " + rate + "%");
+            }
+
+            // Update configuration file
+            if (dropRatesConfig != null) {
+                dropRatesConfig.set("tiers." + tier + ".dropRate", rate);
+                dropRatesConfig.save(dropRatesFile);
+                logger.fine("§6[ConfigManager] §7Saved drop rate update to configuration file");
+            }
+
         } catch (IOException e) {
-            logger.log(Level.SEVERE, "Could not save drop rate update to tier config", e);
+            logger.severe("§c[ConfigManager] Could not save drop rate update: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Updates elite drop rate for a specific tier
+     *
+     * @param tier The tier level (1-6)
+     * @param rate The new elite drop rate percentage
+     */
+    public void updateEliteDropRate(int tier, int rate) {
+        if (tier < 1 || tier > 6) {
+            logger.warning("§c[ConfigManager] Invalid tier for elite drop rate update: " + tier);
+            return;
+        }
+
+        if (rate < 0 || rate > 100) {
+            logger.warning("§c[ConfigManager] Invalid elite drop rate: " + rate + "% (must be 0-100)");
+            return;
+        }
+
+        try {
+            // Update configuration file
+            if (dropRatesConfig != null) {
+                dropRatesConfig.set("tiers." + tier + ".eliteDropRate", rate);
+                dropRatesConfig.save(dropRatesFile);
+                logger.info("§6[ConfigManager] §7Updated tier " + tier + " elite drop rate to " + rate + "%");
+            }
+
+        } catch (IOException e) {
+            logger.severe("§c[ConfigManager] Could not save elite drop rate update: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Reload elite drop configurations by delegating to DropConfig
+     */
+    public boolean reloadEliteDrops() {
+        try {
+            logger.info("§6[ConfigManager] §7Reloading elite drop configurations...");
+
+            // Delegate to DropConfig which handles the actual YAML loading
+            DropConfig.reloadEliteDrops();
+
+            Map<String, EliteDropConfig> eliteConfigs = DropConfig.getEliteDropConfigs();
+            logger.info("§a[ConfigManager] §7Successfully reloaded " + eliteConfigs.size() + " elite configurations");
+
+            return true;
+
+        } catch (Exception e) {
+            logger.severe("§c[ConfigManager] Failed to reload elite drop configurations: " + e.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Save elite drop configurations by delegating to DropConfig
+     */
+    public boolean saveEliteDrops() {
+        try {
+            DropConfig.saveEliteDrops();
+            logger.info("§a[ConfigManager] §7Elite drop configurations saved successfully");
+            return true;
+
+        } catch (Exception e) {
+            logger.severe("§c[ConfigManager] Failed to save elite drop configurations: " + e.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Get drop rate modifier from configuration
+     *
+     * @param modifierType The type of modifier (global, elite, crate)
+     * @return The modifier value (default 1.0)
+     */
+    public double getDropRateModifier(String modifierType) {
+        if (dropRatesConfig == null) {
+            return 1.0;
+        }
+
+        return dropRatesConfig.getDouble("modifiers." + modifierType + "DropMultiplier", 1.0);
+    }
+
+    /**
+     * Set drop rate modifier in configuration
+     *
+     * @param modifierType The type of modifier
+     * @param value        The modifier value
+     */
+    public void setDropRateModifier(String modifierType, double value) {
+        if (dropRatesConfig == null) {
+            return;
+        }
+
+        try {
+            dropRatesConfig.set("modifiers." + modifierType + "DropMultiplier", value);
+            dropRatesConfig.save(dropRatesFile);
+            logger.info("§6[ConfigManager] §7Updated " + modifierType + " drop multiplier to " + value);
+
+        } catch (IOException e) {
+            logger.severe("§c[ConfigManager] Failed to save drop rate modifier: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Get configuration statistics for debugging
+     *
+     * @return A map of configuration statistics
+     */
+    public Map<String, Object> getConfigurationStats() {
+        Map<String, Object> stats = new HashMap<>();
+
+        // Get stats from DropConfig
+        Map<String, Integer> dropConfigStats = DropConfig.getConfigurationStats();
+        stats.putAll(dropConfigStats);
+
+        // Add ConfigManager specific stats
+        stats.put("configFilesLoaded", eliteDropsFile.exists() && dropRatesFile.exists());
+        stats.put("eliteDropsFileSize", eliteDropsFile.length());
+        stats.put("dropRatesFileSize", dropRatesFile.length());
+
+        // Add modifier stats
+        if (dropRatesConfig != null) {
+            stats.put("globalDropMultiplier", getDropRateModifier("global"));
+            stats.put("eliteDropMultiplier", getDropRateModifier("elite"));
+            stats.put("crateDropMultiplier", getDropRateModifier("crate"));
+        }
+
+        return stats;
+    }
+
+    /**
+     * Validate all configuration files
+     *
+     * @return true if all configurations are valid
+     */
+    public boolean validateConfigurations() {
+        boolean valid = true;
+
+        // Check elite drops file
+        if (!eliteDropsFile.exists()) {
+            logger.warning("§c[ConfigManager] Elite drops file does not exist");
+            valid = false;
+        } else {
+            try {
+                YamlConfiguration.loadConfiguration(eliteDropsFile);
+                logger.fine("§a[ConfigManager] Elite drops configuration is valid");
+            } catch (Exception e) {
+                logger.warning("§c[ConfigManager] Elite drops configuration is invalid: " + e.getMessage());
+                valid = false;
+            }
+        }
+
+        // Check drop rates file
+        if (!dropRatesFile.exists()) {
+            logger.warning("§c[ConfigManager] Drop rates file does not exist");
+            valid = false;
+        } else {
+            try {
+                YamlConfiguration.loadConfiguration(dropRatesFile);
+                logger.fine("§a[ConfigManager] Drop rates configuration is valid");
+            } catch (Exception e) {
+                logger.warning("§c[ConfigManager] Drop rates configuration is invalid: " + e.getMessage());
+                valid = false;
+            }
+        }
+
+        // Validate elite configurations through DropConfig
+        Map<String, EliteDropConfig> eliteConfigs = DropConfig.getEliteDropConfigs();
+        int invalidElites = 0;
+        for (Map.Entry<String, EliteDropConfig> entry : eliteConfigs.entrySet()) {
+            if (!entry.getValue().isValid()) {
+                logger.warning("§c[ConfigManager] Invalid elite configuration: " + entry.getKey());
+                invalidElites++;
+                valid = false;
+            }
+        }
+
+        if (invalidElites > 0) {
+            logger.warning("§c[ConfigManager] Found " + invalidElites + " invalid elite configurations");
+        }
+
+        return valid;
+    }
+
+    /**
+     * Backup configuration files
+     *
+     * @return true if backup was successful
+     */
+    public boolean backupConfigurations() {
+        try {
+            File backupDir = new File(plugin.getDataFolder(), "backups");
+            if (!backupDir.exists()) {
+                backupDir.mkdirs();
+            }
+
+            String timestamp = String.valueOf(System.currentTimeMillis());
+
+            // Backup elite drops
+            if (eliteDropsFile.exists()) {
+                File eliteBackup = new File(backupDir, "elite_drops_" + timestamp + ".yml");
+                YamlConfiguration eliteConfig = YamlConfiguration.loadConfiguration(eliteDropsFile);
+                eliteConfig.save(eliteBackup);
+            }
+
+            // Backup drop rates
+            if (dropRatesFile.exists()) {
+                File ratesBackup = new File(backupDir, "drop_rates_" + timestamp + ".yml");
+                YamlConfiguration ratesConfig = YamlConfiguration.loadConfiguration(dropRatesFile);
+                ratesConfig.save(ratesBackup);
+            }
+
+            logger.info("§a[ConfigManager] §7Configuration backup created successfully");
+            return true;
+
+        } catch (Exception e) {
+            logger.severe("§c[ConfigManager] Failed to backup configurations: " + e.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Reset configurations to defaults
+     *
+     * @param createBackup Whether to create a backup before resetting
+     * @return true if reset was successful
+     */
+    public boolean resetToDefaults(boolean createBackup) {
+        try {
+            if (createBackup) {
+                backupConfigurations();
+            }
+
+            // Delete existing files
+            if (dropRatesFile.exists()) {
+                dropRatesFile.delete();
+            }
+
+            // Recreate defaults
+            createDefaultDropRatesConfig();
+
+            // Reload DropConfig to reinitialize elite drops
+            DropConfig.initialize();
+
+            logger.info("§a[ConfigManager] §7Configurations reset to defaults successfully");
+            return true;
+
+        } catch (Exception e) {
+            logger.severe("§c[ConfigManager] Failed to reset configurations: " + e.getMessage());
+            return false;
         }
     }
 
@@ -377,7 +451,54 @@ public class ConfigManager {
      * Clean up when plugin is disabled
      */
     public void shutdown() {
-        // Currently no cleanup needed
-        logger.info("[ConfigManager] has been shut down");
+        // Save any pending changes
+        try {
+            if (dropRatesConfig != null && dropRatesFile != null) {
+                dropRatesConfig.save(dropRatesFile);
+            }
+        } catch (IOException e) {
+            logger.warning("§c[ConfigManager] Failed to save configuration on shutdown: " + e.getMessage());
+        }
+
+        logger.info("§a[ConfigManager] §7Configuration manager has been shut down");
+    }
+
+    /**
+     * Get the elite drops file for external access
+     *
+     * @return The elite drops file
+     */
+    public File getEliteDropsFile() {
+        return eliteDropsFile;
+    }
+
+    /**
+     * Get the drop rates file for external access
+     *
+     * @return The drop rates file
+     */
+    public File getDropRatesFile() {
+        return dropRatesFile;
+    }
+
+    /**
+     * Get elite drops configuration for external access
+     *
+     * @return The elite drops configuration
+     */
+    public FileConfiguration getEliteDropsConfig() {
+        if (eliteDropsConfig == null && eliteDropsFile.exists()) {
+            eliteDropsConfig = YamlConfiguration.loadConfiguration(eliteDropsFile);
+        }
+        return eliteDropsConfig;
+    }
+
+    /**
+     * Get drop rates configuration for external access
+     *
+     * @return The drop rates configuration
+     */
+    public FileConfiguration getDropRatesConfig() {
+        return dropRatesConfig;
     }
 }

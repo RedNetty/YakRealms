@@ -2,7 +2,6 @@ package com.rednetty.server.mechanics.chat;
 
 import com.rednetty.server.YakRealms;
 import com.rednetty.server.mechanics.moderation.ModerationMechanics;
-import com.rednetty.server.mechanics.moderation.Rank;
 import com.rednetty.server.mechanics.player.YakPlayer;
 import com.rednetty.server.mechanics.player.YakPlayerManager;
 import com.rednetty.server.utils.text.TextUtil;
@@ -35,7 +34,7 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
- * Enhanced ChatMechanics system for YakRealms
+ *  ChatMechanics system for YakRealms
  *
  * Handles all chat-related functionality including:
  * - Advanced chat formatting and display
@@ -134,7 +133,7 @@ public class ChatMechanics implements Listener {
     // === LIFECYCLE MANAGEMENT ===
 
     /**
-     * Enhanced initialization with better error recovery
+     *  initialization with better error recovery
      */
     public void onEnable() {
         if (isEnabled.get()) {
@@ -168,7 +167,7 @@ public class ChatMechanics implements Listener {
     }
 
     /**
-     * Enhanced cleanup with better resource management
+     *  cleanup with better resource management
      */
     public void onDisable() {
         if (!isEnabled.get()) {
@@ -236,22 +235,26 @@ public class ChatMechanics implements Listener {
     // === BACKGROUND TASKS ===
 
     /**
-     * Enhanced cooldown management with better performance
+     *   cooldown management with proper ConcurrentHashMap handling
      */
     private void startCooldownTask() {
         cooldownTask = new BukkitRunnable() {
             @Override
             public void run() {
                 try {
-                    chatCooldown.entrySet().removeIf(entry -> {
+                    // Use iterator to safely modify the map during iteration
+                    Iterator<Map.Entry<UUID, Integer>> iterator = chatCooldown.entrySet().iterator();
+                    while (iterator.hasNext()) {
+                        Map.Entry<UUID, Integer> entry = iterator.next();
                         int newValue = entry.getValue() - 1;
+
                         if (newValue <= 0) {
-                            return true; // Remove expired cooldowns
+                            iterator.remove(); // Remove expired cooldowns
                         } else {
-                            entry.setValue(newValue);
-                            return false;
+                            // Update the value in the map directly
+                            chatCooldown.put(entry.getKey(), newValue);
                         }
-                    });
+                    }
                 } catch (Exception e) {
                     logger.log(Level.WARNING, "Error in cooldown task", e);
                 }
@@ -260,32 +263,34 @@ public class ChatMechanics implements Listener {
     }
 
     /**
-     * Enhanced mute timer with better player data synchronization
+     *   mute timer with proper ConcurrentHashMap handling
      */
     private void startMuteTimerTask() {
         muteTimerTask = new BukkitRunnable() {
             @Override
             public void run() {
                 try {
-                    mutedPlayers.entrySet().removeIf(entry -> {
+                    Iterator<Map.Entry<UUID, Integer>> iterator = mutedPlayers.entrySet().iterator();
+                    while (iterator.hasNext()) {
+                        Map.Entry<UUID, Integer> entry = iterator.next();
                         UUID uuid = entry.getKey();
                         int muteTime = entry.getValue();
 
                         // Skip permanent mutes (value <= 0)
                         if (muteTime <= 0) {
-                            return false;
+                            continue;
                         }
 
                         int newTime = muteTime - 1;
                         if (newTime <= 0) {
                             // Mute expired
                             updatePlayerMuteStatus(uuid, 0);
-                            return true; // Remove from map
+                            iterator.remove(); // Remove from map
                         } else {
-                            entry.setValue(newTime);
-                            return false;
+                            // Update the mute time
+                            mutedPlayers.put(uuid, newTime);
                         }
-                    });
+                    }
                 } catch (Exception e) {
                     logger.log(Level.WARNING, "Error in mute timer task", e);
                 }
@@ -310,7 +315,7 @@ public class ChatMechanics implements Listener {
     // === PERSISTENCE MANAGEMENT ===
 
     /**
-     * Enhanced muted players loading with better error handling
+     *  muted players loading with better error handling
      */
     private void loadMutedPlayers() {
         File file = new File(YakRealms.getInstance().getDataFolder(), Config.MUTED_FILE);
@@ -349,7 +354,7 @@ public class ChatMechanics implements Listener {
     }
 
     /**
-     * Enhanced muted players saving with atomic operations
+     *  muted players saving with atomic operations
      */
     private void saveMutedPlayers() {
         File file = new File(YakRealms.getInstance().getDataFolder(), Config.MUTED_FILE);
@@ -373,7 +378,7 @@ public class ChatMechanics implements Listener {
     }
 
     /**
-     * Enhanced chat tags saving with batch operations
+     *  chat tags saving with batch operations
      */
     private void saveAllChatTags() {
         try {
@@ -396,7 +401,7 @@ public class ChatMechanics implements Listener {
     // === EVENT HANDLERS ===
 
     /**
-     * Enhanced player join handling with better error recovery
+     *  player join handling with better error recovery
      */
     @EventHandler(priority = EventPriority.MONITOR)
     public void onPlayerJoin(PlayerJoinEvent event) {
@@ -415,7 +420,7 @@ public class ChatMechanics implements Listener {
     }
 
     /**
-     * Enhanced player quit handling with cleanup
+     *  player quit handling with cleanup
      */
     @EventHandler(priority = EventPriority.MONITOR)
     public void onPlayerQuit(PlayerQuitEvent event) {
@@ -438,7 +443,7 @@ public class ChatMechanics implements Listener {
     }
 
     /**
-     * Enhanced command preprocessing with better validation
+     *  command preprocessing with better validation
      */
     @EventHandler(priority = EventPriority.LOWEST)
     public void onPlayerCommand(PlayerCommandPreprocessEvent event) {
@@ -469,7 +474,7 @@ public class ChatMechanics implements Listener {
     }
 
     /**
-     * Enhanced chat event handling with async processing
+     *  chat event handling with async processing
      */
     @EventHandler(priority = EventPriority.HIGH)
     public void onPlayerChat(AsyncPlayerChatEvent event) {
@@ -544,7 +549,7 @@ public class ChatMechanics implements Listener {
     // === CHAT PROCESSING ===
 
     /**
-     * Enhanced chat processing with comprehensive validation and features
+     *  chat processing with comprehensive validation and features
      */
     public void processChat(Player player, String message) {
         if (!validateChatInput(player, message)) {
@@ -637,7 +642,7 @@ public class ChatMechanics implements Listener {
     // === MESSAGE PROCESSING ===
 
     /**
-     * Enhanced normal message sending with improved recipient handling
+     *  normal message sending with improved recipient handling
      */
     private void sendNormalMessage(Player player, String message) {
         try {
@@ -665,7 +670,7 @@ public class ChatMechanics implements Listener {
     }
 
     /**
-     * Enhanced item message with improved error handling and fallbacks
+     *  item message with improved error handling and fallbacks
      */
     private void sendItemMessage(Player player, String message) {
         try {
@@ -766,7 +771,7 @@ public class ChatMechanics implements Listener {
     // === NEARBY PLAYER DETECTION ===
 
     /**
-     * Enhanced nearby player detection with better filtering
+     *  nearby player detection with better filtering
      */
     private List<Player> getNearbyPlayers(Player player) {
         try {
@@ -807,7 +812,7 @@ public class ChatMechanics implements Listener {
     // === VANISHED STAFF MESSAGING ===
 
     /**
-     * Enhanced vanished staff messaging with item support
+     *  vanished staff messaging with item support
      */
     private void sendToVanishedStaff(Player sender, String senderName, String message, boolean hasItem) {
         try {
@@ -847,7 +852,7 @@ public class ChatMechanics implements Listener {
     // === PLAYER DATA MANAGEMENT ===
 
     /**
-     * Enhanced player data loading using YakPlayer system
+     *  player data loading using YakPlayer system
      */
     private void loadPlayerChatTag(Player player) {
         if (player == null || !player.isOnline()) {
@@ -923,7 +928,7 @@ public class ChatMechanics implements Listener {
     // === FORMATTING AND DISPLAY ===
 
     /**
-     * Enhanced player name formatting with caching
+     *  player name formatting with caching
      */
     private String getFormattedPlayerName(Player player) {
         if (player == null) {
@@ -971,7 +976,7 @@ public class ChatMechanics implements Listener {
     }
 
     /**
-     * Enhanced player name formatting for specific recipients (considers buddy status)
+     *  player name formatting for specific recipients (considers buddy status)
      */
     private String getFormattedNameFor(Player player, Player recipient) {
         if (player == null || recipient == null) {
@@ -1017,7 +1022,7 @@ public class ChatMechanics implements Listener {
     // === ITEM DISPLAY SYSTEM ===
 
     /**
-     * Enhanced item validation with comprehensive checks
+     *  item validation with comprehensive checks
      */
     private boolean isHoldingValidItem(Player player) {
         if (player == null || !player.isOnline()) {
@@ -1037,7 +1042,7 @@ public class ChatMechanics implements Listener {
     }
 
     /**
-     * Enhanced item display name generation with better formatting
+     *  item display name generation with better formatting
      */
     private String getItemDisplayName(ItemStack item) {
         if (item == null || item.getType() == Material.AIR) {
@@ -1074,7 +1079,7 @@ public class ChatMechanics implements Listener {
     }
 
     /**
-     * Enhanced item display formatting with proper color matching
+     *  item display formatting with proper color matching
      */
     private String formatItemDisplay(String itemDisplayName) {
         if (itemDisplayName == null || itemDisplayName.isEmpty()) {
@@ -1132,7 +1137,7 @@ public class ChatMechanics implements Listener {
     // === ADVANCED ITEM MESSAGING ===
 
     /**
-     * Enhanced item hover message with better error handling
+     *  item hover message with better error handling
      */
     private boolean sendItemHoverMessage(Player sender, ItemStack item, String senderName,
                                          String message, Player recipient) {
@@ -1176,7 +1181,7 @@ public class ChatMechanics implements Listener {
     }
 
     /**
-     * Enhanced item hover text generation with comprehensive information
+     *  item hover text generation with comprehensive information
      */
     private List<String> getItemHoverText(ItemStack item) {
         List<String> text = new ArrayList<>();
@@ -1237,7 +1242,7 @@ public class ChatMechanics implements Listener {
     // === MESSAGE FILTERING ===
 
     /**
-     * Enhanced message filtering with configurable word lists and IP detection
+     *  message filtering with configurable word lists and IP detection
      */
     private String filterMessage(String message) {
         if (message == null || message.isEmpty()) {
@@ -1321,7 +1326,7 @@ public class ChatMechanics implements Listener {
     // === UTILITY METHODS ===
 
     /**
-     * Enhanced file existence checking with directory creation
+     *  file existence checking with directory creation
      */
     private boolean ensureFileExists(File file) {
         try {
@@ -1348,7 +1353,7 @@ public class ChatMechanics implements Listener {
     // === COMPATIBILITY AND DETECTION ===
 
     /**
-     * Enhanced modern chat support detection
+     *  modern chat support detection
      */
     public static boolean supportsModernChat() {
         try {
@@ -1361,7 +1366,7 @@ public class ChatMechanics implements Listener {
     }
 
     /**
-     * Enhanced compatibility information gathering
+     *  compatibility information gathering
      */
     public static String getCompatibilityInfo() {
         StringBuilder info = new StringBuilder();
@@ -1381,7 +1386,7 @@ public class ChatMechanics implements Listener {
     // === PUBLIC API METHODS ===
 
     /**
-     * Enhanced mute management using YakPlayer system
+     *  mute management using YakPlayer system
      */
     public static void mutePlayer(Player player, int timeInSeconds) {
         if (player == null) {
@@ -1411,7 +1416,7 @@ public class ChatMechanics implements Listener {
     }
 
     /**
-     * Enhanced unmute functionality using YakPlayer system
+     *  unmute functionality using YakPlayer system
      */
     public static void unmutePlayer(Player player) {
         if (player == null) {
@@ -1433,7 +1438,7 @@ public class ChatMechanics implements Listener {
     }
 
     /**
-     * Enhanced mute status checking using YakPlayer system
+     *  mute status checking using YakPlayer system
      */
     public static boolean isMuted(Player player) {
         if (player == null) {
@@ -1450,7 +1455,7 @@ public class ChatMechanics implements Listener {
     }
 
     /**
-     * Enhanced mute time retrieval using YakPlayer system
+     *  mute time retrieval using YakPlayer system
      */
     public static int getMuteTime(Player player) {
         if (player == null) {
@@ -1469,7 +1474,7 @@ public class ChatMechanics implements Listener {
     // === CHAT TAG MANAGEMENT ===
 
     /**
-     * Enhanced chat tag retrieval
+     *  chat tag retrieval
      */
     public static ChatTag getPlayerTag(Player player) {
         if (player == null) {
@@ -1479,7 +1484,7 @@ public class ChatMechanics implements Listener {
     }
 
     /**
-     * Enhanced chat tag setting with validation
+     *  chat tag setting with validation
      */
     public static void setPlayerTag(Player player, ChatTag tag) {
         if (player == null || tag == null) {
@@ -1504,7 +1509,7 @@ public class ChatMechanics implements Listener {
     }
 
     /**
-     * Enhanced tag unlock checking
+     *  tag unlock checking
      */
     public static boolean hasTagUnlocked(Player player, ChatTag tag) {
         if (player == null || tag == null) {
@@ -1521,7 +1526,7 @@ public class ChatMechanics implements Listener {
     }
 
     /**
-     * Enhanced tag unlocking with YakPlayer persistence
+     *  tag unlocking with YakPlayer persistence
      */
     public static void unlockTag(Player player, ChatTag tag) {
         if (player == null || tag == null) {
@@ -1551,7 +1556,7 @@ public class ChatMechanics implements Listener {
     // === REPLY SYSTEM ===
 
     /**
-     * Enhanced reply target management
+     *  reply target management
      */
     public static void setReplyTarget(Player sender, Player target) {
         if (sender != null) {
@@ -1564,7 +1569,7 @@ public class ChatMechanics implements Listener {
     }
 
     /**
-     * Enhanced reply target retrieval with validation
+     *  reply target retrieval with validation
      */
     public static Player getReplyTarget(Player player) {
         if (player == null) {
@@ -1582,7 +1587,7 @@ public class ChatMechanics implements Listener {
     // === EXTERNAL API METHODS ===
 
     /**
-     * Enhanced external item messaging API
+     *  external item messaging API
      */
     public static boolean sendItemMessageToPlayer(Player sender, ItemStack item, String prefix,
                                                   String message, Player recipient) {
@@ -1594,7 +1599,7 @@ public class ChatMechanics implements Listener {
     }
 
     /**
-     * Enhanced external batch item messaging API
+     *  external batch item messaging API
      */
     public static int sendItemMessageToPlayers(Player sender, ItemStack item, String prefix,
                                                String message, List<Player> recipients) {
@@ -1612,7 +1617,7 @@ public class ChatMechanics implements Listener {
                     if (success) {
                         successCount++;
                     } else {
-                        // Enhanced fallback with proper formatting
+                        //  fallback with proper formatting
                         String itemName = instance.getItemDisplayName(item);
                         String itemDisplay = instance.formatItemDisplay(itemName);
                         String fallbackMessage = message.replace("@i@", itemDisplay);
@@ -1633,7 +1638,7 @@ public class ChatMechanics implements Listener {
     }
 
     /**
-     * Enhanced external item validation API
+     *  external item validation API
      */
     public static boolean isPlayerHoldingValidItem(Player player) {
         ChatMechanics instance = getInstance();
@@ -1641,7 +1646,7 @@ public class ChatMechanics implements Listener {
     }
 
     /**
-     * Enhanced external item display name API
+     *  external item display name API
      */
     public static String getDisplayNameForItem(ItemStack item) {
         ChatMechanics instance = getInstance();
@@ -1654,7 +1659,7 @@ public class ChatMechanics implements Listener {
     // === STATISTICS AND DEBUGGING ===
 
     /**
-     * Enhanced statistics gathering
+     *  statistics gathering
      */
     public static Map<String, Object> getStatistics() {
         Map<String, Object> stats = new HashMap<>();
@@ -1668,14 +1673,14 @@ public class ChatMechanics implements Listener {
     }
 
     /**
-     * Enhanced debug information for administrators
+     *  debug information for administrators
      */
     public static void debugChatSystem(Player player) {
         if (player == null || !player.isOnline()) {
             return;
         }
 
-        player.sendMessage(ChatColor.GOLD + "=== Enhanced Chat System Debug Info ===");
+        player.sendMessage(ChatColor.GOLD + "===  Chat System Debug Info ===");
 
         // System information
         player.sendMessage(ChatColor.YELLOW + "Server Version: " + ChatColor.WHITE + Bukkit.getVersion());
@@ -1712,7 +1717,7 @@ public class ChatMechanics implements Listener {
     }
 
     /**
-     * Enhanced test method for item display functionality
+     *  test method for item display functionality
      */
     public static void testItemDisplay(Player player) {
         if (player == null || !player.isOnline()) {
@@ -1735,7 +1740,7 @@ public class ChatMechanics implements Listener {
                 return;
             }
 
-            player.sendMessage(ChatColor.GREEN + "Testing enhanced item display functionality...");
+            player.sendMessage(ChatColor.GREEN + "Testing  item display functionality...");
 
             // Test basic item info
             player.sendMessage(ChatColor.YELLOW + "Item Type: " + item.getType().name());
@@ -1762,8 +1767,8 @@ public class ChatMechanics implements Listener {
 
             // Test item display processing
             try {
-                instance.processChat(player, "Testing enhanced item display @i@ here!");
-                player.sendMessage(ChatColor.GREEN + "✓ Enhanced item display test completed");
+                instance.processChat(player, "Testing  item display @i@ here!");
+                player.sendMessage(ChatColor.GREEN + "✓  item display test completed");
             } catch (Exception e) {
                 player.sendMessage(ChatColor.RED + "✗ Item display test failed: " + e.getMessage());
                 instance.logger.warning("Item display test failed: " + e.getMessage());
@@ -1771,7 +1776,7 @@ public class ChatMechanics implements Listener {
 
         } catch (Exception e) {
             player.sendMessage(ChatColor.RED + "Error during testing: " + e.getMessage());
-            getInstance().logger.log(Level.SEVERE, "Error during enhanced item display testing", e);
+            getInstance().logger.log(Level.SEVERE, "Error during  item display testing", e);
         }
     }
 
@@ -1785,7 +1790,7 @@ public class ChatMechanics implements Listener {
     }
 
     /**
-     * Enhanced method to clear all temporary data (for testing/admin use)
+     *  method to clear all temporary data (for testing/admin use)
      */
     public static void clearAllTempData() {
         chatCooldown.clear();
@@ -1794,7 +1799,7 @@ public class ChatMechanics implements Listener {
     }
 
     /**
-     * Enhanced method to reload player data (for admin use)
+     *  method to reload player data (for admin use)
      */
     public static void reloadPlayerData(Player player) {
         if (player != null && getInstance() != null) {
