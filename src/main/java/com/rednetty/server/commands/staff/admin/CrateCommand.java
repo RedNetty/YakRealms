@@ -3,8 +3,8 @@ import com.rednetty.server.YakRealms;
 import com.rednetty.server.mechanics.item.crates.CrateManager;
 import com.rednetty.server.mechanics.item.crates.menu.CratePreviewGUI;
 import com.rednetty.server.mechanics.item.crates.types.CrateType;
-import com.rednetty.server.mechanics.moderation.ModerationMechanics;
-import com.rednetty.server.mechanics.moderation.Rank;
+import com.rednetty.server.mechanics.player.moderation.ModerationMechanics;
+import com.rednetty.server.mechanics.player.moderation.Rank;
 import com.rednetty.server.utils.text.TextUtil;
 import net.md_5.bungee.api.chat.ClickEvent;
 import net.md_5.bungee.api.chat.ComponentBuilder;
@@ -672,7 +672,7 @@ public class CrateCommand implements CommandExecutor, TabCompleter {
         }
 
         // Check rank-based permissions
-        Rank rank = ModerationMechanics.getRank(player);
+        Rank rank = ModerationMechanics.getInstance().getPlayerRank(player.getUniqueId());
         return switch (permission) {
             case "yakrealms.crate.give" -> rank.ordinal() >= Rank.GM.ordinal();
             case "yakrealms.crate.admin" -> rank.ordinal() >= Rank.MANAGER.ordinal();

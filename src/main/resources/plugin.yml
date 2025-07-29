@@ -17,6 +17,11 @@ load: STARTUP
 prefix: YakRealms
 
 commands:
+  combattest:
+    description: Test command for combat tagging system
+    usage: /combattest <subcommand> [args]
+    permission: yakserver.admin
+    aliases: [ ct, combatdebug ]
   tabmenu:
     description: Manage the custom tab menu system
     usage: /tabmenu <status|enable|disable|reload|update|stats|help> [player]

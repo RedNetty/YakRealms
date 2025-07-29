@@ -87,7 +87,7 @@ public class MountVendorMenu implements Listener {
         // Top border - stable brown theme
         for (int i = 0; i < 9; i++) {
             if (i != STATUS_SLOT) {
-                Material borderMaterial = (i % 2 == 0) ? Material.BROWN_STAINED_GLASS_PANE : Material.ORANGE_STAINED_GLASS_PANE;
+                Material borderMaterial = (i % 2 == 0) ? Material.YELLOW_STAINED_GLASS_PANE : Material.ORANGE_STAINED_GLASS_PANE;
                 inventory.setItem(i, VendorUtils.createSeparator(borderMaterial, " "));
             }
         }
@@ -95,38 +95,18 @@ public class MountVendorMenu implements Listener {
         // Bottom border - stable theme
         for (int i = 27; i < 36; i++) {
             if (inventory.getItem(i) == null) {
-                Material borderMaterial = (i % 2 == 0) ? Material.BROWN_STAINED_GLASS_PANE : Material.ORANGE_STAINED_GLASS_PANE;
+                Material borderMaterial = (i % 2 == 0) ? Material.YELLOW_STAINED_GLASS_PANE : Material.ORANGE_STAINED_GLASS_PANE;
                 inventory.setItem(i, VendorUtils.createSeparator(borderMaterial, " "));
             }
         }
-
-        // Sides with hay bales for theme
-        inventory.setItem(9, createHayBale());
-        inventory.setItem(17, createHayBale());
-        inventory.setItem(18, createHayBale());
-        inventory.setItem(26, createHayBale());
 
         // Fill remaining empty slots with appropriate decorations
         for (int i = 10; i < 27; i++) {
             if (inventory.getItem(i) == null && !isReservedSlot(i)) {
                 // Use light brown glass for stable floor effect
-                inventory.setItem(i, VendorUtils.createSeparator(Material.BROWN_STAINED_GLASS_PANE, " "));
+                inventory.setItem(i, VendorUtils.createSeparator(Material.YELLOW_STAINED_GLASS_PANE, " "));
             }
         }
-    }
-
-    /**
-     * Create hay bale decoration
-     */
-    private ItemStack createHayBale() {
-        ItemStack hay = new ItemStack(Material.HAY_BLOCK);
-        ItemMeta meta = hay.getItemMeta();
-        if (meta != null) {
-            meta.setDisplayName(ChatColor.YELLOW + "🌾 Fresh Hay");
-            meta.setLore(List.of(ChatColor.GRAY + "Food for the horses"));
-            hay.setItemMeta(meta);
-        }
-        return hay;
     }
 
     /**
@@ -457,6 +437,7 @@ public class MountVendorMenu implements Listener {
      */
     private void handleTierPurchase(Player player, int tier) {
         int currentTier = yakPlayer.getHorseTier();
+        if(currentTier == 0 ) currentTier = 1;
 
         // Check if already owned
         if (tier <= currentTier) {

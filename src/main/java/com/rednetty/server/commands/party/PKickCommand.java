@@ -61,7 +61,7 @@ public class PKickCommand implements CommandExecutor, TabCompleter {
         showKickConfirmation(player, targetPlayer);
 
         // Attempt to kick player with  feedback
-        boolean success = partyMechanics.removePlayerFromParty(targetPlayer);
+        boolean success = partyMechanics.kickPlayerFromParty(player.getUniqueId(), targetPlayer.getUniqueId());
 
         if (success) {
             //  success feedback
@@ -112,7 +112,7 @@ public class PKickCommand implements CommandExecutor, TabCompleter {
         }
 
         // Check permissions using the advanced party system
-        PartyMechanics.Party party = partyMechanics.getParty(kicker);
+        PartyMechanics.Party party = partyMechanics.getParty(kicker.getUniqueId());
         if (party != null) {
             // Check if kicker has permission to kick
             if (!party.hasPermission(kicker.getUniqueId(), PartyMechanics.PartyPermission.KICK)) {
@@ -146,7 +146,7 @@ public class PKickCommand implements CommandExecutor, TabCompleter {
      * Show kick confirmation with target information
      */
     private void showKickConfirmation(Player kicker, Player target) {
-        PartyMechanics.Party party = partyMechanics.getParty(kicker);
+        PartyMechanics.Party party = partyMechanics.getParty(kicker.getUniqueId());
         if (party != null) {
             String roleInfo = "";
             if (party.isOfficer(target.getUniqueId())) {
@@ -162,7 +162,7 @@ public class PKickCommand implements CommandExecutor, TabCompleter {
      * Show current party status after kick
      */
     private void showPartyStatus(Player player) {
-        PartyMechanics.Party party = partyMechanics.getParty(player);
+        PartyMechanics.Party party = partyMechanics.getParty(player.getUniqueId());
         if (party != null) {
             int currentSize = party.getSize();
             int maxSize = party.getMaxSize();
@@ -212,7 +212,7 @@ public class PKickCommand implements CommandExecutor, TabCompleter {
         player.sendMessage("");
 
         if (partyMechanics.isInParty(player)) {
-            PartyMechanics.Party party = partyMechanics.getParty(player);
+            PartyMechanics.Party party = partyMechanics.getParty(player.getUniqueId());
             if (party != null) {
                 if (party.hasPermission(player.getUniqueId(), PartyMechanics.PartyPermission.KICK)) {
                     List<Player> kickableMembers = getKickableMembers(player, party);
@@ -266,7 +266,7 @@ public class PKickCommand implements CommandExecutor, TabCompleter {
 
         if (args.length == 1 && partyMechanics.isInParty(player)) {
             String partialName = args[0].toLowerCase();
-            PartyMechanics.Party party = partyMechanics.getParty(player);
+            PartyMechanics.Party party = partyMechanics.getParty(player.getUniqueId());
 
             if (party != null && party.hasPermission(player.getUniqueId(), PartyMechanics.PartyPermission.KICK)) {
                 List<Player> kickableMembers = getKickableMembers(player, party);

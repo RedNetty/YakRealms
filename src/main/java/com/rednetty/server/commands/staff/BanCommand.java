@@ -1,6 +1,6 @@
 package com.rednetty.server.commands.staff;
 
-import com.rednetty.server.mechanics.moderation.ModerationMechanics;
+import com.rednetty.server.mechanics.player.moderation.ModerationMechanics;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.command.Command;
@@ -85,15 +85,6 @@ public class BanCommand implements CommandExecutor, TabCompleter {
         String durationText = durationSeconds == 0 ? "permanently" :
                 "for " + formatDuration(durationSeconds);
 
-        String staffMessage = ChatColor.GREEN + targetName + " has been banned " + durationText +
-                ChatColor.GREEN + " by " + sender.getName() +
-                ChatColor.GRAY + " (" + reason + ")";
-
-        for (Player staff : Bukkit.getOnlinePlayers()) {
-            if (staff.hasPermission("yakrealms.staff.ban") || ModerationMechanics.isStaff(staff)) {
-                staff.sendMessage(staffMessage);
-            }
-        }
 
         // Log the ban
         Bukkit.getLogger().info(sender.getName() + " banned " + targetName + " " + durationText + " for: " + reason);

@@ -6,7 +6,7 @@ import org.bukkit.Material;
 /**
  * Represents the different types of loot chests
  * Each type has different behaviors, appearance, and loot generation rules
- * FIXED: Method naming typo corrected
+ * : Method naming typo corrected
  */
 public enum ChestType {
     /**
@@ -22,17 +22,17 @@ public enum ChestType {
             "High-tier care package dropped from the sky", true, false),
 
     /**
-     * Special chest - limited time with enhanced loot
+     * Special chest - limited time with  loot
      */
     SPECIAL("Special", ChatColor.LIGHT_PURPLE, Material.BARREL,
-            "Limited-time chest with enhanced loot", true, true);
+            "Limited-time chest with  loot", true, true);
 
     private final String displayName;
     private final ChatColor color;
     private final Material blockMaterial;
     private final String description;
     private final boolean isTemporary;
-    private final boolean canBeBroken; // FIXED: Renamed from canBeBreaking
+    private final boolean canBeBroken; // : Renamed from canBeBreaking
 
     /**
      * Creates a chest type with the specified properties
@@ -44,7 +44,7 @@ public enum ChestType {
         this.blockMaterial = blockMaterial;
         this.description = description;
         this.isTemporary = isTemporary;
-        this.canBeBroken = canBeBroken; // FIXED: Updated field name
+        this.canBeBroken = canBeBroken; // : Updated field name
     }
 
     /**
@@ -84,7 +84,7 @@ public enum ChestType {
 
     /**
      * Checks if this chest type can be broken by players
-     * FIXED: Method name corrected from canBeBreaking() to canBeBroken()
+     * : Method name corrected from canBeBreaking() to canBeBroken()
      */
     public boolean canBeBroken() {
         return canBeBroken;
@@ -179,16 +179,16 @@ public enum ChestType {
     }
 
     /**
-     * Checks if this chest type should have enhanced particles
+     * Checks if this chest type should have  particles
      */
-    public boolean hasEnhancedParticles() {
+    public boolean hasParticles() {
         return this == CARE_PACKAGE || this == SPECIAL;
     }
 
     /**
-     * Checks if this chest type should have enhanced sounds
+     * Checks if this chest type should have  sounds
      */
-    public boolean hasEnhancedSounds() {
+    public boolean hasSounds() {
         return this == CARE_PACKAGE || this == SPECIAL;
     }
 
@@ -256,8 +256,8 @@ public enum ChestType {
                     "Double loot", "Expires in 10 minutes"
             };
             case SPECIAL -> new String[]{
-                    "Enhanced loot", "Limited time",
-                    "Enhanced effects", "Expires in 5 minutes"
+                    " loot", "Limited time",
+                    " effects", "Expires in 5 minutes"
             };
         };
     }
@@ -305,7 +305,7 @@ public enum ChestType {
         sb.append("Inventory Size: ").append(getInventorySize()).append("\n");
         sb.append("Loot Multiplier: ").append(getLootMultiplier()).append("x\n");
         sb.append("Temporary: ").append(isTemporary ? "Yes" : "No").append("\n");
-        sb.append("Can Break: ").append(canBeBroken ? "Yes" : "No").append("\n"); // FIXED: Updated method call
+        sb.append("Can Break: ").append(canBeBroken ? "Yes" : "No").append("\n"); // : Updated method call
 
         if (isTemporary) {
             sb.append("Expires After: ").append(getExpirationTime() / 1000).append(" seconds\n");
@@ -368,7 +368,7 @@ public enum ChestType {
 
     /**
      * Gets all chest types that can be broken
-     * FIXED: Updated method call
+     * : Updated method call
      */
     public static ChestType[] getBreakableTypes() {
         return java.util.Arrays.stream(values())

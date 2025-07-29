@@ -13,6 +13,7 @@ import org.bukkit.entity.Entity;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
 import org.bukkit.metadata.FixedMetadataValue;
+import org.bukkit.metadata.MetadataValue;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -21,11 +22,11 @@ import java.util.stream.Collectors;
 
 /**
  *  Complete Spawner class with  reliability, error handling, and MAIN THREAD SAFETY
- * - Fixed entity creation validation and spawn failure handling
+ * -  entity creation validation and spawn failure handling
  * -  mob type validation with comprehensive error reporting
  * - Improved spawn success rates with better location finding
  * - Added detailed logging for debugging spawn failures
- * - Fixed respawn queue management and mob counting issues
+ * -  respawn queue management and mob counting issues
  * - ALL entity operations happen on MAIN THREAD ONLY
  */
 public class Spawner {

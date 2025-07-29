@@ -16,7 +16,8 @@ import org.bukkit.util.Vector;
 import java.util.*;
 
 /**
- *  handler for elytra mounts with fixed launch mechanics and improved state tracking
+ * Enhanced handler for elytra mounts with robust cleanup mechanisms and improved state tracking
+ * Fixed issues with stuck elytra items and inconsistent cleanup
  */
 public class ElytraMount implements Mount {
     private final MountManager manager;
@@ -27,16 +28,17 @@ public class ElytraMount implements Mount {
     private final Map<UUID, ChestplateState> originalChestplates = new HashMap<>();
     private final Map<UUID, Long> lastDamageTime = new HashMap<>();
     private final Map<UUID, Long> launchTimes = new HashMap<>();
-    //  Improved configuration constants
+    private final Map<UUID, Long> glidingStartTimes = new HashMap<>();
+
+    // Improved configuration constants
     private static final long DAMAGE_COOLDOWN_MS = 60000; // 1 minute
-    private static final int LANDING_CHECK_INTERVAL = 10; // ticks (was 5, now 10 for less aggressive checking)
+    private static final int LANDING_CHECK_INTERVAL = 10; // ticks
     private static final double LANDING_VELOCITY_THRESHOLD = 0.1; // Y velocity threshold
     private static final double LANDING_SPEED_THRESHOLD = 0.3; // Total speed threshold
     private static final int GROUND_CHECK_DISTANCE = 1; // Distance to check below player
-    private static final int LAUNCH_GRACE_PERIOD = 100; // 5 seconds grace period after launch (was 60)
+    private static final int LAUNCH_GRACE_PERIOD = 100; // 5 seconds grace period after launch
     private static final int GLIDING_TIME_BEFORE_HEIGHT_CHECK = 100; // 5 seconds before checking height limits
-    private static final double LAUNCH_VELOCITY = 1.8; // Reduced from 3.0 for gentler launch
-    private final Map<UUID, Long> glidingStartTimes = new HashMap<>();
+    private static final double LAUNCH_VELOCITY = 1.8; // Launch velocity
 
     /**
      * Inner class to store complete chestplate state
@@ -163,16 +165,14 @@ public class ElytraMount implements Mount {
                 // Check if player is still online
                 if (!player.isOnline()) {
                     cancel();
-                    summonTasks.remove(player.getUniqueId());
-                    summonLocations.remove(player.getUniqueId());
+                    cleanupPlayerData(player.getUniqueId());
                     return;
                 }
 
                 // Check if player is still on cooldown (in case they took damage during summoning)
                 if (isOnDamageCooldown(player)) {
                     cancel();
-                    summonTasks.remove(player.getUniqueId());
-                    summonLocations.remove(player.getUniqueId());
+                    cleanupPlayerData(player.getUniqueId());
                     long timeLeft = getRemainingCooldownTime(player);
                     player.sendMessage(ChatColor.RED + "ELYTRA MOUNT SUMMONING CANCELLED - Damage cooldown: " +
                             (timeLeft / 1000) + "s remaining");
@@ -186,7 +186,7 @@ public class ElytraMount implements Mount {
                     // Launch the player and equip elytra
                     activateElytra(player);
 
-                    // Clean up
+                    // Clean up summoning data
                     summonTasks.remove(player.getUniqueId());
                     summonLocations.remove(player.getUniqueId());
                     cancel();
@@ -206,50 +206,41 @@ public class ElytraMount implements Mount {
     public boolean dismount(Player player, boolean sendMessage) {
         UUID playerUUID = player.getUniqueId();
 
-        // Cancel all active tasks
-        BukkitTask durationTask = durationTasks.remove(playerUUID);
-        if (durationTask != null) {
-            durationTask.cancel();
-        }
+        // ENHANCED: Always perform complete cleanup regardless of current state
+        boolean wasUsingElytra = isUsingElytra(player);
 
-        BukkitTask landingTask = landingDetectionTasks.remove(playerUUID);
-        if (landingTask != null) {
-            landingTask.cancel();
-        }
-
-        // Clean up tracking data
-        launchTimes.remove(playerUUID);
-        glidingStartTimes.remove(playerUUID);
-
-        // Restore original chestplate with  handling
-        restoreOriginalChestplate(player);
-
-        // Stop gliding and ensure safe landing
+        // Force stop gliding first
         if (player.isGliding()) {
             player.setGliding(false);
             player.setFallDistance(0);
+        }
 
-            //  Better landing mechanics
-            if (!isPlayerSafeOnGround(player)) {
-                // Give player a gentle downward velocity to land safely
-                player.setVelocity(new Vector(0, -0.3, 0));
+        // Complete cleanup of all tracking data
+        forceCleanupAllData(playerUUID);
 
-                // Schedule a safety check to prevent fall damage
-                new BukkitRunnable() {
-                    @Override
-                    public void run() {
-                        if (player.isOnline()) {
-                            player.setFallDistance(0);
-                        }
+        // ENHANCED: Restore original chestplate with force mechanism
+        forceRestoreChestplate(player);
+
+        // Ensure safe landing
+        if (!isPlayerSafeOnGround(player)) {
+            // Give player a gentle downward velocity to land safely
+            player.setVelocity(new Vector(0, -0.3, 0));
+
+            // Schedule a safety check to prevent fall damage
+            new BukkitRunnable() {
+                @Override
+                public void run() {
+                    if (player.isOnline()) {
+                        player.setFallDistance(0);
                     }
-                }.runTaskLater(manager.getPlugin(), 5L);
-            }
+                }
+            }.runTaskLater(manager.getPlugin(), 5L);
         }
 
         // Unregister from mount manager
         manager.unregisterActiveMount(playerUUID);
 
-        if (sendMessage) {
+        if (sendMessage && wasUsingElytra) {
             player.sendMessage(ChatColor.RED + "Your elytra wings have worn out and can no longer sustain flight.");
         }
 
@@ -274,6 +265,114 @@ public class ElytraMount implements Mount {
 
         player.sendMessage(ChatColor.RED + "ELYTRA MOUNT SUMMONING CANCELLED" +
                 (reason != null ? " - " + reason : ""));
+    }
+
+    /**
+     * ENHANCED: Complete cleanup of all player data
+     */
+    private void cleanupPlayerData(UUID playerUUID) {
+        // Remove from summoning
+        BukkitTask summonTask = summonTasks.remove(playerUUID);
+        if (summonTask != null) {
+            summonTask.cancel();
+        }
+        summonLocations.remove(playerUUID);
+    }
+
+    /**
+     * ENHANCED: Force cleanup of all tracking data
+     */
+    private void forceCleanupAllData(UUID playerUUID) {
+        // Cancel all active tasks
+        BukkitTask durationTask = durationTasks.remove(playerUUID);
+        if (durationTask != null) {
+            durationTask.cancel();
+        }
+
+        BukkitTask landingTask = landingDetectionTasks.remove(playerUUID);
+        if (landingTask != null) {
+            landingTask.cancel();
+        }
+
+        BukkitTask summonTask = summonTasks.remove(playerUUID);
+        if (summonTask != null) {
+            summonTask.cancel();
+        }
+
+        // Clean up tracking data
+        summonLocations.remove(playerUUID);
+        launchTimes.remove(playerUUID);
+        glidingStartTimes.remove(playerUUID);
+    }
+
+    /**
+     * ENHANCED: Force restore chestplate with fallback mechanisms
+     */
+    private void forceRestoreChestplate(Player player) {
+        UUID playerUUID = player.getUniqueId();
+        ChestplateState chestplateState = originalChestplates.remove(playerUUID);
+
+        ItemStack[] armorContents = player.getInventory().getArmorContents();
+        ItemStack currentChestplate = armorContents[2];
+
+        // ENHANCED: Always attempt to restore if we have stored state
+        if (chestplateState != null) {
+            // Restore the original chestplate regardless of current state
+            armorContents[2] = chestplateState.getOriginalItem();
+            player.getInventory().setArmorContents(armorContents);
+
+            if (chestplateState.hasOriginalItem()) {
+                player.sendMessage(ChatColor.GREEN + "Your original chestplate has been restored.");
+            }
+        } else if (currentChestplate != null && isAnyElytraMount(currentChestplate)) {
+            // ENHANCED: Failsafe - if no stored state but current is elytra mount, remove it
+            armorContents[2] = null;
+            player.getInventory().setArmorContents(armorContents);
+            player.sendMessage(ChatColor.YELLOW + "Stuck elytra mount has been removed.");
+        }
+    }
+
+    /**
+     * ENHANCED: Check if item is any type of elytra mount (including corrupted ones)
+     */
+    private boolean isAnyElytraMount(ItemStack item) {
+        if (item == null || item.getType() != Material.ELYTRA) {
+            return false;
+        }
+
+        if (!item.hasItemMeta()) {
+            return false;
+        }
+
+        ItemMeta meta = item.getItemMeta();
+        if (meta == null) {
+            return false;
+        }
+
+        // Check for our persistent data key
+        NamespacedKey mountKey = new NamespacedKey(manager.getPlugin(), "_elytra_mount");
+        if (meta.getPersistentDataContainer().has(mountKey, PersistentDataType.BYTE)) {
+            return true;
+        }
+
+        // Check for legacy display name patterns
+        if (meta.hasDisplayName()) {
+            String displayName = meta.getDisplayName();
+            return displayName.contains("Elytra Mount") || displayName.contains("Elytra");
+        }
+
+        // Check for characteristic lore
+        if (meta.hasLore()) {
+            List<String> lore = meta.getLore();
+            for (String line : lore) {
+                if (line.contains("Active Mount") || line.contains("Do Not Remove") ||
+                        line.contains("Magical wings")) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -355,7 +454,7 @@ public class ElytraMount implements Mount {
     }
 
     /**
-     *  New method to check if player has been gliding long enough for height checks
+     * New method to check if player has been gliding long enough for height checks
      *
      * @param player The player
      * @return True if the player has been gliding long enough
@@ -371,7 +470,7 @@ public class ElytraMount implements Mount {
     }
 
     /**
-     *  New method to get height limit for region
+     * New method to get height limit for region
      *
      * @param player The player
      * @return Height limit for the player's current region
@@ -384,12 +483,12 @@ public class ElytraMount implements Mount {
             case "frostfall" -> 195.0;
             case "deadpeaks" -> 70.0;
             case "avalon" -> 130.0;
-            default -> 220.0; //  Increased default height limit
+            default -> 220.0; // Increased default height limit
         };
     }
 
     /**
-     *  landing detection with better grace period handling
+     * Enhanced landing detection with better grace period handling
      *
      * @param player The player
      * @return True if the player has landed
@@ -409,7 +508,7 @@ public class ElytraMount implements Mount {
             }
         }
 
-        //  More conservative landing detection
+        // More conservative landing detection
         // Check if player is very close to ground AND has low velocity
         if (isPlayerVeryCloseToGround(player)) {
             Vector velocity = player.getVelocity();
@@ -424,7 +523,7 @@ public class ElytraMount implements Mount {
     }
 
     /**
-     *  Better ground detection - checks if player is very close to solid ground
+     * Better ground detection - checks if player is very close to solid ground
      *
      * @param player The player
      * @return True if player is very close to ground
@@ -459,7 +558,7 @@ public class ElytraMount implements Mount {
     }
 
     /**
-     *  Better safety check for dismounting
+     * Better safety check for dismounting
      *
      * @param player The player
      * @return True if player is safely on ground
@@ -483,7 +582,7 @@ public class ElytraMount implements Mount {
     }
 
     /**
-     *  Improved launch requirements check
+     * Improved launch requirements check
      *
      * @param player The player
      * @return True if the player can launch
@@ -525,31 +624,31 @@ public class ElytraMount implements Mount {
     }
 
     /**
-     *  Improved elytra activation with better timing
+     * Improved elytra activation with better timing
      *
      * @param player The player
      */
     private void activateElytra(Player player) {
         UUID playerUUID = player.getUniqueId();
 
-        //  Gentler launch velocity
+        // Gentler launch velocity
         player.setVelocity(new Vector(0, LAUNCH_VELOCITY, 0));
 
         // Record launch time for grace period
         launchTimes.put(playerUUID, System.currentTimeMillis());
 
-        //  Schedule equipping the elytra after a longer delay to allow proper launch
+        // Schedule equipping the elytra after a delay to allow proper launch
         new BukkitRunnable() {
             @Override
             public void run() {
                 if (!player.isOnline()) {
-                    launchTimes.remove(playerUUID);
+                    forceCleanupAllData(playerUUID);
                     return;
                 }
 
                 player.sendMessage(ChatColor.WHITE + ChatColor.BOLD.toString() + "LAUNCHING...");
 
-                //  chestplate handling
+                // Enhanced chestplate handling
                 equipElytraWithChestplateProperties(player);
 
                 // Start gliding and record the time
@@ -562,7 +661,7 @@ public class ElytraMount implements Mount {
                 // Play sound
                 player.playSound(player.getLocation(), Sound.ITEM_ELYTRA_FLYING, 1.0f, 1.0f);
 
-                //  Start landing detection with even more delay
+                // Start landing detection with delay
                 startLandingDetectionDelayed(player);
 
                 // Schedule elytra duration
@@ -579,11 +678,11 @@ public class ElytraMount implements Mount {
 
                 durationTasks.put(playerUUID, task);
             }
-        }.runTaskLater(manager.getPlugin(), 20L); //  Increased delay from 10L to 20L (1 second)
+        }.runTaskLater(manager.getPlugin(), 20L); // 1 second delay
     }
 
     /**
-     *  chestplate handling - stores complete state and transfers properties to elytra
+     * Enhanced chestplate handling - stores complete state and transfers properties to elytra
      *
      * @param player The player
      */
@@ -596,10 +695,10 @@ public class ElytraMount implements Mount {
         ChestplateState chestplateState = new ChestplateState(currentChestplate);
         originalChestplates.put(playerUUID, chestplateState);
 
-        // Create  elytra with transferred properties
+        // Create enhanced elytra with transferred properties
         ItemStack elytra = createElytra(chestplateState);
 
-        // Equip the  elytra
+        // Equip the enhanced elytra
         armorContents[2] = elytra;
         player.getInventory().setArmorContents(armorContents);
     }
@@ -608,7 +707,7 @@ public class ElytraMount implements Mount {
      * Creates an elytra with properties transferred from the original chestplate
      *
      * @param chestplateState The original chestplate state
-     * @return  elytra with transferred properties
+     * @return Enhanced elytra with transferred properties
      */
     private ItemStack createElytra(ChestplateState chestplateState) {
         ItemStack elytra = new ItemStack(Material.ELYTRA);
@@ -638,17 +737,17 @@ public class ElytraMount implements Mount {
             // Add default flags for elytra
             elytraMeta.addItemFlags(ItemFlag.HIDE_ATTRIBUTES, ItemFlag.HIDE_UNBREAKABLE);
 
-            // Set display name to indicate it's 
+            // Set display name to indicate it's enhanced
             String originalName = chestplateState.getDisplayName();
             if (originalName != null) {
-                elytraMeta.setDisplayName(ChatColor.AQUA + " Elytra " + ChatColor.GRAY + "(" + originalName + ")");
+                elytraMeta.setDisplayName(ChatColor.AQUA + "Enhanced Elytra " + ChatColor.GRAY + "(" + originalName + ")");
             } else {
-                elytraMeta.setDisplayName(ChatColor.AQUA + " Elytra Mount");
+                elytraMeta.setDisplayName(ChatColor.AQUA + "Enhanced Elytra Mount");
             }
 
-            // Create  lore
+            // Create enhanced lore
             List<String> lore = new ArrayList<>();
-            lore.add(ChatColor.GRAY + "Magical wings  with your");
+            lore.add(ChatColor.GRAY + "Magical wings enhanced with your");
             lore.add(ChatColor.GRAY + "chestplate's protective properties.");
             lore.add("");
 
@@ -678,7 +777,7 @@ public class ElytraMount implements Mount {
 
             elytraMeta.setLore(lore);
 
-            // Mark as  elytra mount
+            // Mark as enhanced elytra mount
             NamespacedKey mountKey = new NamespacedKey(manager.getPlugin(), "_elytra_mount");
             elytraMeta.getPersistentDataContainer().set(mountKey, PersistentDataType.BYTE, (byte) 1);
 
@@ -689,38 +788,12 @@ public class ElytraMount implements Mount {
     }
 
     /**
-     * Restores the original chestplate with all properties
-     *
-     * @param player The player
-     */
-    private void restoreOriginalChestplate(Player player) {
-        UUID playerUUID = player.getUniqueId();
-        ChestplateState chestplateState = originalChestplates.remove(playerUUID);
-
-        if (chestplateState == null) {
-            return;
-        }
-
-        ItemStack[] armorContents = player.getInventory().getArmorContents();
-
-        // Only replace if current chestplate is our  elytra
-        if (armorContents[2] != null && isElytraMount(armorContents[2])) {
-            armorContents[2] = chestplateState.getOriginalItem();
-            player.getInventory().setArmorContents(armorContents);
-
-            if (chestplateState.hasOriginalItem()) {
-                player.sendMessage(ChatColor.GREEN + "Your original chestplate has been restored.");
-            }
-        }
-    }
-
-    /**
-     *  Starts landing detection with proper delay
+     * Starts landing detection with proper delay
      *
      * @param player The player
      */
     private void startLandingDetectionDelayed(Player player) {
-        //  Increased delay before starting landing detection from 40L to 80L (4 seconds)
+        // Increased delay before starting landing detection
         new BukkitRunnable() {
             @Override
             public void run() {
@@ -728,7 +801,7 @@ public class ElytraMount implements Mount {
                     startLandingDetection(player);
                 }
             }
-        }.runTaskLater(manager.getPlugin(), 80L);
+        }.runTaskLater(manager.getPlugin(), 80L); // 4 seconds
     }
 
     /**
@@ -748,7 +821,7 @@ public class ElytraMount implements Mount {
                     return;
                 }
 
-                //  Better landing detection
+                // Better landing detection
                 if (hasPlayerLanded(player)) {
                     cancel();
                     landingDetectionTasks.remove(playerUUID);
@@ -785,7 +858,7 @@ public class ElytraMount implements Mount {
         lore.add(ChatColor.YELLOW + "Features:");
         lore.add(ChatColor.GRAY + "• Inherits chestplate properties");
         lore.add(ChatColor.GRAY + "• Advanced landing detection");
-        lore.add(ChatColor.GRAY + "•  durability");
+        lore.add(ChatColor.GRAY + "• Enhanced durability");
         lore.add("");
         lore.add(ChatColor.YELLOW + "Duration: " + manager.getConfig().getElytraDuration() + " seconds");
         lore.add(ChatColor.YELLOW + "Cooldown: 2 minutes after damage");
@@ -830,41 +903,82 @@ public class ElytraMount implements Mount {
         return meta.hasDisplayName() && meta.getDisplayName().equals(ChatColor.AQUA + "Elytra Mount");
     }
 
+    /**
+     * ENHANCED: Forces cleanup for stuck elytra on player
+     */
+    public boolean forceCleanupStuckElytra(Player player) {
+        UUID playerUUID = player.getUniqueId();
+        boolean foundStuckElytra = false;
 
+        // Check for stuck elytra in armor slot
+        ItemStack chestplate = player.getInventory().getChestplate();
+        if (chestplate != null && isAnyElytraMount(chestplate)) {
+            foundStuckElytra = true;
+        }
+
+        if (foundStuckElytra || isUsingElytra(player)) {
+            // Force complete dismount
+            dismount(player, false);
+            player.sendMessage(ChatColor.GREEN + "Forced cleanup of stuck elytra mount completed.");
+            return true;
+        }
+
+        return false;
+    }
 
     /**
-     * Cleanup method to be called when player leaves or plugin disables
+     * ENHANCED: Gets all players with potentially stuck elytra
+     */
+    public List<Player> getPlayersWithStuckElytra() {
+        List<Player> stuckPlayers = new ArrayList<>();
+
+        for (Player player : manager.getPlugin().getServer().getOnlinePlayers()) {
+            ItemStack chestplate = player.getInventory().getChestplate();
+
+            // Check if they have elytra mount but aren't registered as using one
+            if (chestplate != null && isAnyElytraMount(chestplate) && !isUsingElytra(player)) {
+                stuckPlayers.add(player);
+            }
+
+            // Check if they're registered as using elytra but don't have the item
+            if (isUsingElytra(player) && (chestplate == null || !isAnyElytraMount(chestplate))) {
+                stuckPlayers.add(player);
+            }
+        }
+
+        return stuckPlayers;
+    }
+
+    /**
+     * Enhanced cleanup method to be called when player leaves or plugin disables
      *
      * @param player The player
      */
     public void cleanup(Player player) {
         UUID playerUUID = player.getUniqueId();
 
-        // Cancel all tasks
-        BukkitTask summonTask = summonTasks.remove(playerUUID);
-        if (summonTask != null) {
-            summonTask.cancel();
-        }
-
-        BukkitTask durationTask = durationTasks.remove(playerUUID);
-        if (durationTask != null) {
-            durationTask.cancel();
-        }
-
-        BukkitTask landingTask = landingDetectionTasks.remove(playerUUID);
-        if (landingTask != null) {
-            landingTask.cancel();
-        }
+        // Force complete cleanup
+        forceCleanupAllData(playerUUID);
 
         // Clean up stored data
-        summonLocations.remove(playerUUID);
         originalChestplates.remove(playerUUID);
-        launchTimes.remove(playerUUID);
-        glidingStartTimes.remove(playerUUID);
 
-        // Restore chestplate if needed
+        // Restore chestplate if player is online
         if (player.isOnline()) {
-            restoreOriginalChestplate(player);
+            forceRestoreChestplate(player);
         }
+    }
+
+    /**
+     * ENHANCED: Cleanup all stuck elytra mounts server-wide
+     */
+    public void cleanupAllStuckElytra() {
+        List<Player> stuckPlayers = getPlayersWithStuckElytra();
+
+        for (Player player : stuckPlayers) {
+            forceCleanupStuckElytra(player);
+        }
+
+        manager.getPlugin().getLogger().info("Cleaned up " + stuckPlayers.size() + " stuck elytra mounts");
     }
 }

@@ -9,115 +9,114 @@ import org.bukkit.entity.Entity;
 import org.bukkit.entity.EntityType;
 import org.bukkit.metadata.FixedMetadataValue;
 import org.bukkit.metadata.MetadataValue;
+import org.bukkit.metadata.MetadataValue;
 import org.bukkit.scheduler.BukkitTask;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.logging.Logger;
 
 /**
- * ENHANCED ROBUST HOLOGRAM MANAGER
- *
- * FIXES:
- * - Comprehensive cleanup system with multiple validation layers
- * - Periodic orphan detection and removal tasks
- * - Thread-safe hologram lifecycle management
- * - Enhanced session validation and tracking
- * - Automatic error recovery and hologram healing
- * - Detailed logging and diagnostics
- * - Force cleanup capabilities for stuck holograms
- * - Hologram state tracking and validation
+ * :  Hologram Manager with robust tracking and cleanup
+ * Key Fixes:
+ * - Eliminated duplicate hologram creation
+ * - Improved mob-hologram binding
+ * -  cleanup and orphan detection
+ * - Better thread safety and state management
+ * - Aggressive dead hologram removal
  */
 public class HologramManager {
 
     // ================ CONSTANTS ================
-    private static final long CLEANUP_INTERVAL = 600L; // 30 seconds (reduced for more frequent cleanup)
-    private static final long ORPHAN_SCAN_INTERVAL = 1200L; // 1 minute
-    private static final long HEALTH_CHECK_INTERVAL = 200L; // 10 seconds
-    private static final double MOVEMENT_THRESHOLD = 0.05; // More sensitive movement detection
-    private static final int MAX_HOLOGRAM_AGE_TICKS = 72000; // 1 hour max age
-    private static final String HOLOGRAM_METADATA_KEY = "yak_hologram";
-    private static final String SESSION_METADATA_KEY = "yak_session";
-    private static final String CREATION_TIME_KEY = "yak_created";
-    private static final String HOLOGRAM_TYPE_KEY = "yak_holo_type";
+    private static final long CLEANUP_INTERVAL = 100L; // 5 seconds - more frequent
+    private static final long ORPHAN_SCAN_INTERVAL = 200L; // 10 seconds
+    private static final long HEALTH_CHECK_INTERVAL = 60L; // 3 seconds - very frequent
+    private static final double MOVEMENT_THRESHOLD = 0.01; // Tighter movement detection
+    private static final long MAX_HOLOGRAM_AGE_MS = 300000L; // 5 minutes max age
+    private static final String HOLOGRAM_METADATA_KEY = "yak_hologram_v2";
+    private static final String SESSION_METADATA_KEY = "yak_session_v2";
+    private static final String CREATION_TIME_KEY = "yak_created_v2";
+    private static final String HOLOGRAM_TYPE_KEY = "yak_holo_type_v2";
+    private static final String MOB_UUID_KEY = "yak_mob_uuid";
+    private static final String HOLOGRAM_VERSION_KEY = "yak_holo_version";
 
     // ================ SYSTEM STATE ================
     private static final Logger logger = YakRealms.getInstance().getLogger();
     private static final Map<String, Hologram> holograms = new ConcurrentHashMap<>();
     private static final Map<UUID, String> entityToHologramId = new ConcurrentHashMap<>();
-    private static final Set<UUID> pendingRemovals = ConcurrentHashMap.newKeySet();
+    private static final Map<String, String> mobToHologramId = new ConcurrentHashMap<>(); // NEW: mob UUID -> hologram ID
+    private static final Set<String> activeCreations = ConcurrentHashMap.newKeySet(); // NEW: prevent duplicates
+    private static final Set<String> pendingRemovals = ConcurrentHashMap.newKeySet();
     private static final ReentrantReadWriteLock hologramLock = new ReentrantReadWriteLock();
 
     // ================ CLEANUP TASKS ================
     private static BukkitTask cleanupTask;
     private static BukkitTask orphanScanTask;
     private static BukkitTask healthCheckTask;
-    private static boolean systemInitialized = false;
-    private static long sessionId = System.currentTimeMillis();
+    private static BukkitTask emergencyCleanupTask; // NEW: emergency cleanup
+    private static final AtomicBoolean systemInitialized = new AtomicBoolean(false);
+    private static final AtomicLong sessionId = new AtomicLong(System.currentTimeMillis());
+    private static final AtomicLong hologramVersion = new AtomicLong(1); // NEW: version tracking
 
     // ================ STATISTICS ================
-    private static long totalHologramsCreated = 0;
-    private static long totalHologramsRemoved = 0;
-    private static long totalOrphansRemoved = 0;
-    private static long lastCleanupTime = 0;
+    private static final AtomicLong totalHologramsCreated = new AtomicLong(0);
+    private static final AtomicLong totalHologramsRemoved = new AtomicLong(0);
+    private static final AtomicLong totalOrphansRemoved = new AtomicLong(0);
+    private static final AtomicLong totalDuplicatesPrevented = new AtomicLong(0);
+    private static volatile long lastCleanupTime = 0;
 
     /**
-     * Enhanced Hologram class with comprehensive state tracking
+     * :  Hologram class with strict mob binding and duplicate prevention
      */
     public static class Hologram {
-        private final List<ArmorStand> armorStands = new ArrayList<>();
-        private Location baseLocation;
+        private final List<ArmorStand> armorStands = Collections.synchronizedList(new ArrayList<>());
+        private volatile Location baseLocation;
         private final double lineSpacing;
         private final String hologramId;
-        private List<String> currentLines = new ArrayList<>();
+        private final String mobUuid; // NEW: bound to specific mob
+        private List<String> currentLines = Collections.synchronizedList(new ArrayList<>());
         private final long creationTime;
-        private long lastUpdateTime;
-        private volatile boolean isValid = true;
-        private volatile boolean isRemoving = false;
+        private volatile long lastUpdateTime;
+        private final AtomicBoolean isValid = new AtomicBoolean(true);
+        private final AtomicBoolean isRemoving = new AtomicBoolean(false);
+        private final AtomicBoolean isCreating = new AtomicBoolean(false); // NEW: creation lock
         private final String hologramType;
-        private int failedUpdateCount = 0;
+        private final AtomicLong version = new AtomicLong(hologramVersion.incrementAndGet());
+        private volatile int failedUpdateCount = 0;
+        private volatile long lastValidationTime = 0;
 
-        /**
-         * Enhanced constructor with type tracking
-         */
-        public Hologram(Location baseLocation, List<String> lines, double lineSpacing, String hologramId, String type) {
+        public Hologram(Location baseLocation, List<String> lines, double lineSpacing, String hologramId, String type, String mobUuid) {
             this.baseLocation = baseLocation.clone();
             this.lineSpacing = lineSpacing;
             this.hologramId = hologramId;
-            this.currentLines = new ArrayList<>(lines);
+            this.mobUuid = mobUuid;
+            this.currentLines = Collections.synchronizedList(new ArrayList<>(lines));
             this.creationTime = System.currentTimeMillis();
             this.lastUpdateTime = creationTime;
+            this.lastValidationTime = creationTime;
             this.hologramType = type != null ? type : "unknown";
 
-            if (!systemInitialized) {
+            if (!systemInitialized.get()) {
                 initializeCleanupSystem();
             }
 
             spawn(lines);
-            totalHologramsCreated++;
+            totalHologramsCreated.incrementAndGet();
         }
 
         /**
-         * ENHANCED: Move hologram with comprehensive validation and error recovery
+         * : Thread-safe movement with duplicate prevention
          */
         public boolean moveToLocation(Location newLocation) {
-            if (isRemoving || !isValid) {
+            if (isRemoving.get() || !isValid.get() || isCreating.get()) {
                 return false;
             }
 
             if (newLocation == null || newLocation.getWorld() == null) {
-                logger.warning("[HologramManager] Invalid location for hologram " + hologramId);
                 return false;
-            }
-
-            // Verify all ArmorStands are still valid
-            if (!validateArmorStands()) {
-                logger.warning("[HologramManager] ArmorStands validation failed for " + hologramId + ", attempting recovery");
-                if (!attemptRecovery()) {
-                    markInvalid();
-                    return false;
-                }
             }
 
             // Check if movement is significant enough
@@ -126,134 +125,7 @@ public class HologramManager {
                 return false;
             }
 
-            try {
-                // Calculate movement delta
-                double deltaX = newLocation.getX() - baseLocation.getX();
-                double deltaY = newLocation.getY() - baseLocation.getY();
-                double deltaZ = newLocation.getZ() - baseLocation.getZ();
-
-                // Update base location
-                baseLocation = newLocation.clone();
-                lastUpdateTime = System.currentTimeMillis();
-
-                // Move all ArmorStands with validation
-                List<ArmorStand> invalidStands = new ArrayList<>();
-                for (ArmorStand armorStand : armorStands) {
-                    if (armorStand != null && !armorStand.isDead()) {
-                        try {
-                            Location currentLoc = armorStand.getLocation();
-                            Location newLoc = currentLoc.add(deltaX, deltaY, deltaZ);
-                            armorStand.teleport(newLoc);
-                        } catch (Exception e) {
-                            logger.warning("[HologramManager] Failed to move ArmorStand for " + hologramId + ": " + e.getMessage());
-                            invalidStands.add(armorStand);
-                        }
-                    } else {
-                        invalidStands.add(armorStand);
-                    }
-                }
-
-                // Remove invalid ArmorStands
-                if (!invalidStands.isEmpty()) {
-                    armorStands.removeAll(invalidStands);
-                    if (armorStands.isEmpty()) {
-                        markInvalid();
-                        return false;
-                    }
-                }
-
-                return true;
-
-            } catch (Exception e) {
-                logger.severe("[HologramManager] Critical error moving hologram " + hologramId + ": " + e.getMessage());
-                failedUpdateCount++;
-                if (failedUpdateCount > 3) {
-                    markInvalid();
-                }
-                return false;
-            }
-        }
-
-        /**
-         * ENHANCED: Update text with validation and recovery
-         */
-        public boolean updateTextOnly(List<String> newLines) {
-            if (isRemoving || !isValid) {
-                return false;
-            }
-
-            if (newLines == null || newLines.equals(currentLines)) {
-                return false;
-            }
-
-            // Validate ArmorStands before updating
-            if (!validateArmorStands()) {
-                logger.warning("[HologramManager] ArmorStands validation failed during text update for " + hologramId);
-                if (!attemptRecovery()) {
-                    markInvalid();
-                    return false;
-                }
-            }
-
-            try {
-                // If line count changed, recreate hologram
-                if (newLines.size() != armorStands.size()) {
-                    updateLines(newLines);
-                    return true;
-                }
-
-                // Update existing ArmorStands
-                List<ArmorStand> invalidStands = new ArrayList<>();
-                for (int i = 0; i < Math.min(newLines.size(), armorStands.size()); i++) {
-                    ArmorStand armorStand = armorStands.get(i);
-                    if (armorStand != null && !armorStand.isDead()) {
-                        try {
-                            armorStand.setCustomName(newLines.get(i));
-                        } catch (Exception e) {
-                            logger.warning("[HologramManager] Failed to update text for ArmorStand in " + hologramId + ": " + e.getMessage());
-                            invalidStands.add(armorStand);
-                        }
-                    } else {
-                        invalidStands.add(armorStand);
-                    }
-                }
-
-                // Remove invalid ArmorStands
-                if (!invalidStands.isEmpty()) {
-                    armorStands.removeAll(invalidStands);
-                    if (armorStands.isEmpty()) {
-                        markInvalid();
-                        return false;
-                    }
-                }
-
-                currentLines = new ArrayList<>(newLines);
-                lastUpdateTime = System.currentTimeMillis();
-                return true;
-
-            } catch (Exception e) {
-                logger.severe("[HologramManager] Critical error updating text for " + hologramId + ": " + e.getMessage());
-                failedUpdateCount++;
-                if (failedUpdateCount > 3) {
-                    markInvalid();
-                }
-                return false;
-            }
-        }
-
-        /**
-         * ENHANCED: Combined move and update with comprehensive error handling
-         */
-        public boolean moveAndUpdate(Location newLocation, List<String> newLines) {
-            if (isRemoving || !isValid) {
-                return false;
-            }
-
-            boolean moved = false;
-            boolean updated = false;
-
-            try {
-                // Validate before any operations
+            synchronized (armorStands) {
                 if (!validateArmorStands()) {
                     if (!attemptRecovery()) {
                         markInvalid();
@@ -261,269 +133,545 @@ public class HologramManager {
                     }
                 }
 
-                // Move if needed
-                if (newLocation != null && newLocation.getWorld() != null) {
-                    moved = moveToLocation(newLocation);
-                }
-
-                // Update text if needed
-                if (newLines != null) {
-                    updated = updateTextOnly(newLines);
-                }
-
-                if (moved || updated) {
+                try {
+                    baseLocation = newLocation.clone();
                     lastUpdateTime = System.currentTimeMillis();
+
+                    // Move all ArmorStands
+                    List<ArmorStand> invalidStands = new ArrayList<>();
+                    for (int i = 0; i < armorStands.size(); i++) {
+                        ArmorStand armorStand = armorStands.get(i);
+                        if (armorStand != null && !armorStand.isDead() && armorStand.isValid()) {
+                            try {
+                                Location standLocation = baseLocation.clone().subtract(0, lineSpacing * i, 0);
+                                armorStand.teleport(standLocation);
+                            } catch (Exception e) {
+                                invalidStands.add(armorStand);
+                            }
+                        } else {
+                            invalidStands.add(armorStand);
+                        }
+                    }
+
+                    // Remove invalid ArmorStands
+                    if (!invalidStands.isEmpty()) {
+                        armorStands.removeAll(invalidStands);
+                        for (ArmorStand invalid : invalidStands) {
+                            if (invalid != null && !invalid.isDead()) {
+                                try {
+                                    entityToHologramId.remove(invalid.getUniqueId());
+                                    invalid.remove();
+                                } catch (Exception e) {
+                                    // Silent cleanup
+                                }
+                            }
+                        }
+
+                        if (armorStands.isEmpty()) {
+                            markInvalid();
+                            return false;
+                        }
+                    }
+
+                    failedUpdateCount = 0; // Reset on success
+                    return true;
+
+                } catch (Exception e) {
+                    logger.warning("[HologramManager] Movement error for " + hologramId + ": " + e.getMessage());
+                    failedUpdateCount++;
+                    if (failedUpdateCount > 3) {
+                        markInvalid();
+                    }
+                    return false;
                 }
-
-                return moved || updated;
-
-            } catch (Exception e) {
-                logger.severe("[HologramManager] Critical error in moveAndUpdate for " + hologramId + ": " + e.getMessage());
-                markInvalid();
-                return false;
             }
         }
 
         /**
-         * ENHANCED: Validate all ArmorStands are still valid
+         * : Thread-safe text update with validation
          */
+        public boolean updateTextOnly(List<String> newLines) {
+            if (isRemoving.get() || !isValid.get() || isCreating.get()) {
+                return false;
+            }
+
+            if (newLines == null || newLines.equals(currentLines)) {
+                return false; // No change needed
+            }
+
+            synchronized (armorStands) {
+                if (!validateArmorStands()) {
+                    if (!attemptRecovery()) {
+                        markInvalid();
+                        return false;
+                    }
+                }
+
+                try {
+                    // If line count changed, recreate hologram
+                    if (newLines.size() != armorStands.size()) {
+                        updateLines(newLines);
+                        return true;
+                    }
+
+                    // Update existing ArmorStands efficiently
+                    List<ArmorStand> invalidStands = new ArrayList<>();
+                    for (int i = 0; i < Math.min(newLines.size(), armorStands.size()); i++) {
+                        ArmorStand armorStand = armorStands.get(i);
+                        if (armorStand != null && !armorStand.isDead() && armorStand.isValid()) {
+                            try {
+                                String newLine = newLines.get(i);
+                                String currentLine = i < currentLines.size() ? currentLines.get(i) : "";
+
+                                // Only update if text actually changed
+                                if (!newLine.equals(currentLine)) {
+                                    armorStand.setCustomName(newLine);
+                                }
+                            } catch (Exception e) {
+                                invalidStands.add(armorStand);
+                            }
+                        } else {
+                            invalidStands.add(armorStand);
+                        }
+                    }
+
+                    // Remove invalid ArmorStands
+                    if (!invalidStands.isEmpty()) {
+                        armorStands.removeAll(invalidStands);
+                        for (ArmorStand invalid : invalidStands) {
+                            if (invalid != null && !invalid.isDead()) {
+                                try {
+                                    entityToHologramId.remove(invalid.getUniqueId());
+                                    invalid.remove();
+                                } catch (Exception e) {
+                                    // Silent cleanup
+                                }
+                            }
+                        }
+
+                        if (armorStands.isEmpty()) {
+                            markInvalid();
+                            return false;
+                        }
+                    }
+
+                    // Update cache
+                    currentLines.clear();
+                    currentLines.addAll(newLines);
+                    lastUpdateTime = System.currentTimeMillis();
+                    failedUpdateCount = 0;
+                    return true;
+
+                } catch (Exception e) {
+                    logger.warning("[HologramManager] Text update failed for " + hologramId + ": " + e.getMessage());
+                    failedUpdateCount++;
+                    if (failedUpdateCount > 3) {
+                        markInvalid();
+                    }
+                    return false;
+                }
+            }
+        }
+
+        /**
+         * : Combined move and update with atomic operations
+         */
+        public boolean moveAndUpdate(Location newLocation, List<String> newLines) {
+            if (isRemoving.get() || !isValid.get() || isCreating.get()) {
+                return false;
+            }
+
+            boolean moved = false;
+            boolean updated = false;
+
+            synchronized (armorStands) {
+                try {
+                    if (!validateArmorStands()) {
+                        if (!attemptRecovery()) {
+                            markInvalid();
+                            return false;
+                        }
+                    }
+
+                    // Check if we actually need to do anything
+                    boolean locationChanged = newLocation != null && newLocation.getWorld() != null &&
+                            baseLocation.distance(newLocation) >= MOVEMENT_THRESHOLD;
+                    boolean textChanged = newLines != null && !newLines.equals(currentLines);
+
+                    if (!locationChanged && !textChanged) {
+                        return false; // No changes needed
+                    }
+
+                    // Update text first if needed
+                    if (textChanged) {
+                        updated = updateTextOnly(newLines);
+                    }
+
+                    // Then handle movement if needed
+                    if (locationChanged) {
+                        moved = moveToLocation(newLocation);
+                    }
+
+                    if (moved || updated) {
+                        lastUpdateTime = System.currentTimeMillis();
+                        failedUpdateCount = 0; // Reset on success
+                    }
+
+                    return moved || updated;
+
+                } catch (Exception e) {
+                    logger.warning("[HologramManager] Combined update failed for " + hologramId + ": " + e.getMessage());
+                    markInvalid();
+                    return false;
+                }
+            }
+        }
+
+        /**
+         * :  validation with comprehensive checks
+         */
+        // In HologramManager.java (inside Hologram inner class)
+        // In HologramManager.java (inside Hologram inner class), update validateArmorStands()
         public boolean validateArmorStands() {
-            if (armorStands.isEmpty()) {
-                return false;
+            long currentTime = System.currentTimeMillis();
+
+            // Don't validate too frequently
+            if (currentTime - lastValidationTime < 1000) { // 1 second minimum between validations
+                return !armorStands.isEmpty();
             }
 
-            int validCount = 0;
-            for (ArmorStand armorStand : armorStands) {
-                if (armorStand != null && !armorStand.isDead() && armorStand.isValid()) {
-                    if (validateSessionId(armorStand)) {
-                        validCount++;
+            lastValidationTime = currentTime;
+
+            synchronized (armorStands) {
+                // Add mob existence check
+                if (mobUuid != null) {
+                    try {
+                        UUID mobId = UUID.fromString(mobUuid);  // mobUuid is now entity UUID string
+                        Entity mobEntity = Bukkit.getEntity(mobId);
+                        if (mobEntity == null || mobEntity.isDead() || !mobEntity.isValid()) {
+                            return false;  // Invalid if bound mob doesn't exist
+                        }
+                    } catch (Exception e) {
+                        return false;  // Invalid UUID or error
                     }
                 }
-            }
 
-            // At least 50% of ArmorStands must be valid
-            return validCount >= (armorStands.size() * 0.5);
+                if (armorStands.isEmpty()) {
+                    return false;
+                }
+
+                int validCount = 0;
+                List<ArmorStand> invalidStands = new ArrayList<>();
+
+                for (ArmorStand armorStand : armorStands) {
+                    if (armorStand != null && !armorStand.isDead() && armorStand.isValid()) {
+                        // Check if it still has proper metadata
+                        if (validateArmorStandMetadata(armorStand)) {
+                            validCount++;
+                        } else {
+                            invalidStands.add(armorStand);
+                        }
+                    } else {
+                        invalidStands.add(armorStand);
+                    }
+                }
+
+                // Remove invalid stands immediately
+                if (!invalidStands.isEmpty()) {
+                    armorStands.removeAll(invalidStands);
+                    for (ArmorStand invalid : invalidStands) {
+                        if (invalid != null && !invalid.isDead()) {
+                            try {
+                                entityToHologramId.remove(invalid.getUniqueId());
+                                invalid.remove();
+                            } catch (Exception e) {
+                                // Silent cleanup
+                            }
+                        }
+                    }
+                }
+
+                // At least 70% of ArmorStands must be valid
+                return validCount >= Math.max(1, (currentLines.size() * 0.7));
+            }
         }
 
         /**
-         * ENHANCED: Attempt to recover from corrupted state
+         * NEW: Validate ArmorStand metadata
          */
-        public boolean attemptRecovery() {
+        private boolean validateArmorStandMetadata(ArmorStand armorStand) {
             try {
-                logger.info("[HologramManager] Attempting recovery for hologram " + hologramId);
-
-                // Remove invalid ArmorStands
-                Iterator<ArmorStand> iterator = armorStands.iterator();
-                while (iterator.hasNext()) {
-                    ArmorStand armorStand = iterator.next();
-                    if (armorStand == null || armorStand.isDead() || !armorStand.isValid()) {
-                        iterator.remove();
-                    }
+                // Check session ID
+                if (!armorStand.hasMetadata(SESSION_METADATA_KEY)) {
+                    return false;
                 }
 
-                // If we lost all ArmorStands, recreate them
-                if (armorStands.isEmpty() && !currentLines.isEmpty()) {
-                    spawn(currentLines);
-                    return !armorStands.isEmpty();
+                long entitySessionId = armorStand.getMetadata(SESSION_METADATA_KEY).get(0).asLong();
+                if (entitySessionId != sessionId.get()) {
+                    return false;
+                }
+
+                // Check hologram ID
+                if (!armorStand.hasMetadata(HOLOGRAM_METADATA_KEY)) {
+                    return false;
+                }
+
+                String entityHologramId = armorStand.getMetadata(HOLOGRAM_METADATA_KEY).get(0).asString();
+                if (!hologramId.equals(entityHologramId)) {
+                    return false;
+                }
+
+                // Check version
+                if (armorStand.hasMetadata(HOLOGRAM_VERSION_KEY)) {
+                    long entityVersion = armorStand.getMetadata(HOLOGRAM_VERSION_KEY).get(0).asLong();
+                    if (entityVersion != version.get()) {
+                        return false;
+                    }
                 }
 
                 return true;
-
             } catch (Exception e) {
-                logger.severe("[HologramManager] Recovery failed for " + hologramId + ": " + e.getMessage());
                 return false;
             }
         }
 
         /**
-         * Enhanced session validation
+         * : Improved recovery system with better error handling
          */
-        public boolean validateSessionId(ArmorStand armorStand) {
-            if (!armorStand.hasMetadata(SESSION_METADATA_KEY)) {
+        public boolean attemptRecovery() {
+            if (isRemoving.get() || isCreating.get()) {
                 return false;
             }
 
-            try {
-                List<MetadataValue> metadataValues = armorStand.getMetadata(SESSION_METADATA_KEY);
-                for (MetadataValue meta : metadataValues) {
-                    if (meta.asLong() == sessionId) {
-                        return true;
+            synchronized (armorStands) {
+                try {
+                    // Remove invalid ArmorStands
+                    List<ArmorStand> validStands = new ArrayList<>();
+                    for (ArmorStand armorStand : armorStands) {
+                        if (armorStand != null && !armorStand.isDead() && armorStand.isValid()) {
+                            if (validateArmorStandMetadata(armorStand)) {
+                                validStands.add(armorStand);
+                            } else {
+                                // Clean up invalid stand
+                                try {
+                                    entityToHologramId.remove(armorStand.getUniqueId());
+                                    armorStand.remove();
+                                } catch (Exception e) {
+                                    // Silent cleanup
+                                }
+                            }
+                        }
                     }
-                }
-            } catch (Exception e) {
-                logger.warning("[HologramManager] Session validation error for " + hologramId + ": " + e.getMessage());
-            }
 
-            return false;
+                    armorStands.clear();
+                    armorStands.addAll(validStands);
+
+                    // If we lost too many ArmorStands, recreate them
+                    if (armorStands.size() < currentLines.size() * 0.5 && !currentLines.isEmpty()) {
+                        // Remove remaining stands and recreate all
+                        for (ArmorStand stand : armorStands) {
+                            if (stand != null && !stand.isDead()) {
+                                try {
+                                    entityToHologramId.remove(stand.getUniqueId());
+                                    stand.remove();
+                                } catch (Exception e) {
+                                    // Silent cleanup
+                                }
+                            }
+                        }
+                        armorStands.clear();
+                        spawn(currentLines);
+                        return !armorStands.isEmpty();
+                    }
+
+                    return !armorStands.isEmpty();
+
+                } catch (Exception e) {
+                    logger.warning("[HologramManager] Recovery failed for " + hologramId + ": " + e.getMessage());
+                    return false;
+                }
+            }
         }
 
         /**
-         * ENHANCED: Spawn ArmorStands with comprehensive metadata and error handling
+         * : Optimized spawning with better error handling and duplicate prevention
          */
         private void spawn(List<String> lines) {
             if (baseLocation == null || baseLocation.getWorld() == null) {
-                logger.warning("[HologramManager] Cannot spawn hologram " + hologramId + ": invalid location");
                 markInvalid();
                 return;
             }
 
-            if (isRemoving) {
-                return;
+            if (isRemoving.get() || !isCreating.compareAndSet(false, true)) {
+                return; // Already creating or removing
             }
 
-            Bukkit.getScheduler().runTask(YakRealms.getInstance(), () -> {
-                try {
-                    Location spawnLocation = baseLocation.clone();
-                    List<ArmorStand> newArmorStands = new ArrayList<>();
+            try {
+                // Schedule on main thread
+                Bukkit.getScheduler().runTask(YakRealms.getInstance(), () -> {
+                    try {
+                        Location spawnLocation = baseLocation.clone();
+                        List<ArmorStand> newArmorStands = new ArrayList<>();
 
-                    for (String line : lines) {
-                        try {
-                            // Ensure chunk is loaded
-                            if (!spawnLocation.getWorld().isChunkLoaded(spawnLocation.getBlockX() >> 4, spawnLocation.getBlockZ() >> 4)) {
-                                spawnLocation.getWorld().loadChunk(spawnLocation.getBlockX() >> 4, spawnLocation.getBlockZ() >> 4);
+                        for (String line : lines) {
+                            try {
+                                // Ensure chunk is loaded
+                                int chunkX = spawnLocation.getBlockX() >> 4;
+                                int chunkZ = spawnLocation.getBlockZ() >> 4;
+                                if (!spawnLocation.getWorld().isChunkLoaded(chunkX, chunkZ)) {
+                                    spawnLocation.getWorld().loadChunk(chunkX, chunkZ);
+                                }
+
+                                ArmorStand armorStand = (ArmorStand) spawnLocation.getWorld().spawnEntity(spawnLocation, EntityType.ARMOR_STAND);
+
+                                // Configure ArmorStand for optimal performance
+                                armorStand.setVisible(false);
+                                armorStand.setGravity(false);
+                                armorStand.setMarker(true);
+                                armorStand.setInvulnerable(true);
+                                armorStand.setSmall(true);
+                                armorStand.setCanPickupItems(false);
+                                armorStand.setCollidable(false);
+                                armorStand.setCustomName(line);
+                                armorStand.setCustomNameVisible(true);
+
+                                // Set comprehensive metadata for tracking
+                                armorStand.setMetadata(SESSION_METADATA_KEY, new FixedMetadataValue(YakRealms.getInstance(), sessionId.get()));
+                                armorStand.setMetadata(HOLOGRAM_METADATA_KEY, new FixedMetadataValue(YakRealms.getInstance(), hologramId));
+                                armorStand.setMetadata(CREATION_TIME_KEY, new FixedMetadataValue(YakRealms.getInstance(), creationTime));
+                                armorStand.setMetadata(HOLOGRAM_TYPE_KEY, new FixedMetadataValue(YakRealms.getInstance(), hologramType));
+                                armorStand.setMetadata(HOLOGRAM_VERSION_KEY, new FixedMetadataValue(YakRealms.getInstance(), version.get()));
+
+                                if (mobUuid != null) {
+                                    armorStand.setMetadata(MOB_UUID_KEY, new FixedMetadataValue(YakRealms.getInstance(), mobUuid));
+                                }
+
+                                newArmorStands.add(armorStand);
+                                entityToHologramId.put(armorStand.getUniqueId(), hologramId);
+
+                            } catch (Exception e) {
+                                logger.warning("[HologramManager] Failed to spawn ArmorStand for line '" + line + "': " + e.getMessage());
                             }
 
-                            ArmorStand armorStand = (ArmorStand) spawnLocation.getWorld().spawnEntity(spawnLocation, EntityType.ARMOR_STAND);
-
-                            // Configure ArmorStand
-                            armorStand.setVisible(false);
-                            armorStand.setGravity(false);
-                            armorStand.setMarker(true);
-                            armorStand.setInvulnerable(true);
-                            armorStand.setSmall(true);
-                            armorStand.setCanPickupItems(false);
-                            armorStand.setCollidable(false);
-                            armorStand.setCustomName(line);
-                            armorStand.setCustomNameVisible(true);
-
-                            // Enhanced metadata
-                            armorStand.setMetadata(SESSION_METADATA_KEY, new FixedMetadataValue(YakRealms.getInstance(), sessionId));
-                            armorStand.setMetadata(HOLOGRAM_METADATA_KEY, new FixedMetadataValue(YakRealms.getInstance(), hologramId));
-                            armorStand.setMetadata(CREATION_TIME_KEY, new FixedMetadataValue(YakRealms.getInstance(), creationTime));
-                            armorStand.setMetadata(HOLOGRAM_TYPE_KEY, new FixedMetadataValue(YakRealms.getInstance(), hologramType));
-
-                            newArmorStands.add(armorStand);
-                            entityToHologramId.put(armorStand.getUniqueId(), hologramId);
-
-                        } catch (Exception e) {
-                            logger.severe("[HologramManager] Failed to spawn ArmorStand for line '" + line + "' in hologram " + hologramId + ": " + e.getMessage());
+                            spawnLocation.subtract(0, lineSpacing, 0);
                         }
 
-                        spawnLocation.subtract(0, lineSpacing, 0);
-                    }
+                        synchronized (armorStands) {
+                            if (newArmorStands.isEmpty()) {
+                                markInvalid();
+                            } else {
+                                armorStands.addAll(newArmorStands);
+                            }
+                        }
 
-                    if (newArmorStands.isEmpty()) {
-                        logger.severe("[HologramManager] Failed to spawn any ArmorStands for hologram " + hologramId);
+                    } catch (Exception e) {
+                        logger.severe("[HologramManager] Critical error spawning hologram " + hologramId + ": " + e.getMessage());
                         markInvalid();
-                    } else {
-                        armorStands.addAll(newArmorStands);
-                        logger.info("[HologramManager] Successfully spawned " + newArmorStands.size() + " ArmorStands for hologram " + hologramId);
+                    } finally {
+                        isCreating.set(false);
                     }
+                });
 
-                } catch (Exception e) {
-                    logger.severe("[HologramManager] Critical error spawning hologram " + hologramId + ": " + e.getMessage());
-                    markInvalid();
-                }
-            });
+            } catch (Exception e) {
+                logger.severe("[HologramManager] Failed to schedule hologram spawn: " + e.getMessage());
+                isCreating.set(false);
+                markInvalid();
+            }
         }
 
-        /**
-         * ENHANCED: Update lines with better error handling
-         */
         public void updateLines(List<String> newLines) {
-            if (newLines == null || isRemoving) {
+            if (newLines == null || isRemoving.get() || isCreating.get()) {
                 return;
             }
 
             try {
                 remove();
-                currentLines = new ArrayList<>(newLines);
-                if (isValid) {
+                currentLines.clear();
+                currentLines.addAll(newLines);
+                if (isValid.get()) {
                     spawn(newLines);
                 }
             } catch (Exception e) {
-                logger.severe("[HologramManager] Failed to update lines for " + hologramId + ": " + e.getMessage());
+                logger.warning("[HologramManager] Failed to update lines for " + hologramId + ": " + e.getMessage());
                 markInvalid();
             }
         }
 
         /**
-         * ENHANCED: Remove with comprehensive cleanup
+         * :  removal with comprehensive cleanup
          */
         public void remove() {
-            if (isRemoving) {
-                return;
+            if (!isRemoving.compareAndSet(false, true)) {
+                return; // Already removing
             }
 
-            isRemoving = true;
-            isValid = false;
+            isValid.set(false);
 
             try {
-                List<ArmorStand> armorStandsCopy = new ArrayList<>(armorStands);
-                armorStands.clear();
+                synchronized (armorStands) {
+                    List<ArmorStand> armorStandsCopy = new ArrayList<>(armorStands);
+                    armorStands.clear();
 
-                for (ArmorStand armorStand : armorStandsCopy) {
-                    if (armorStand != null && !armorStand.isDead()) {
-                        try {
-                            // Remove from entity tracking
-                            entityToHologramId.remove(armorStand.getUniqueId());
-
-                            // Remove the entity
-                            armorStand.remove();
-
-                        } catch (Exception e) {
-                            logger.warning("[HologramManager] Error removing ArmorStand for " + hologramId + ": " + e.getMessage());
+                    for (ArmorStand armorStand : armorStandsCopy) {
+                        if (armorStand != null && !armorStand.isDead()) {
+                            try {
+                                entityToHologramId.remove(armorStand.getUniqueId());
+                                armorStand.remove();
+                            } catch (Exception e) {
+                                // Silent fail for individual removal
+                            }
                         }
                     }
                 }
 
                 currentLines.clear();
-                totalHologramsRemoved++;
 
-                logger.info("[HologramManager] Successfully removed hologram " + hologramId);
+                // Clean up tracking maps
+                if (mobUuid != null) {
+                    mobToHologramId.remove(mobUuid);
+                }
+
+                totalHologramsRemoved.incrementAndGet();
 
             } catch (Exception e) {
-                logger.severe("[HologramManager] Critical error removing hologram " + hologramId + ": " + e.getMessage());
+                logger.warning("[HologramManager] Error removing hologram " + hologramId + ": " + e.getMessage());
             }
         }
 
-        /**
-         * Mark hologram as invalid
-         */
         private void markInvalid() {
-            isValid = false;
-            pendingRemovals.add(UUID.fromString(hologramId.length() > 36 ? hologramId.substring(0, 36) : hologramId + "00000000-0000-0000-0000-000000000000".substring(hologramId.length())));
+            isValid.set(false);
+            pendingRemovals.add(hologramId);
         }
 
         // ================ GETTERS ================
         public Location getBaseLocation() { return baseLocation != null ? baseLocation.clone() : null; }
-        public int getLineCount() { return armorStands.size(); }
+        public int getLineCount() { synchronized (armorStands) { return armorStands.size(); } }
         public List<String> getCurrentLines() { return new ArrayList<>(currentLines); }
-        public boolean isValid() { return isValid && !isRemoving && !armorStands.isEmpty(); }
+        public boolean isValid() { return isValid.get() && !isRemoving.get() && !armorStands.isEmpty(); }
         public long getCreationTime() { return creationTime; }
         public long getLastUpdateTime() { return lastUpdateTime; }
         public String getHologramId() { return hologramId; }
+        public String getMobUuid() { return mobUuid; }
         public String getHologramType() { return hologramType; }
         public int getFailedUpdateCount() { return failedUpdateCount; }
         public long getAge() { return System.currentTimeMillis() - creationTime; }
+        public long getVersion() { return version.get(); }
     }
 
     // ================ INITIALIZATION ================
 
-    /**
-     * Initialize the comprehensive cleanup system
-     */
     private static void initializeCleanupSystem() {
-        if (systemInitialized) {
+        if (!systemInitialized.compareAndSet(false, true)) {
             return;
         }
 
-        logger.info("[HologramManager] Initializing enhanced cleanup system...");
+        // Generate new session ID
+        sessionId.set(System.currentTimeMillis());
+        hologramVersion.set(1);
 
-        // Perform initial cleanup
         performInitialCleanup();
 
-        // Start periodic cleanup task
+        // Start periodic cleanup task - more frequent
         cleanupTask = Bukkit.getScheduler().runTaskTimer(YakRealms.getInstance(), () -> {
             try {
                 performPeriodicCleanup();
@@ -541,7 +689,7 @@ public class HologramManager {
             }
         }, ORPHAN_SCAN_INTERVAL, ORPHAN_SCAN_INTERVAL);
 
-        // Start health check task
+        // Start health check task - very frequent
         healthCheckTask = Bukkit.getScheduler().runTaskTimer(YakRealms.getInstance(), () -> {
             try {
                 performHealthCheck();
@@ -550,18 +698,21 @@ public class HologramManager {
             }
         }, HEALTH_CHECK_INTERVAL, HEALTH_CHECK_INTERVAL);
 
-        systemInitialized = true;
-        logger.info("[HologramManager] Enhanced cleanup system initialized successfully");
+        // NEW: Emergency cleanup task for dead holograms
+        emergencyCleanupTask = Bukkit.getScheduler().runTaskTimer(YakRealms.getInstance(), () -> {
+            try {
+                performEmergencyCleanup();
+            } catch (Exception e) {
+                logger.severe("[HologramManager] Error in emergency cleanup task: " + e.getMessage());
+            }
+        }, 20L, 20L); // Every second
+
+        logger.info("[HologramManager]  system initialized with session ID: " + sessionId.get());
     }
 
     // ================ CLEANUP OPERATIONS ================
 
-    /**
-     * Perform initial cleanup on system start
-     */
     private static void performInitialCleanup() {
-        logger.info("[HologramManager] Performing initial hologram cleanup...");
-
         int removedCount = 0;
 
         for (World world : Bukkit.getWorlds()) {
@@ -571,47 +722,28 @@ public class HologramManager {
                     if (entity instanceof ArmorStand && !entity.isDead()) {
                         ArmorStand armorStand = (ArmorStand) entity;
 
-                        // Remove old holograms with different session IDs
+                        boolean shouldRemove = false;
+
+                        // Check for any hologram metadata
                         if (armorStand.hasMetadata(SESSION_METADATA_KEY) ||
+                                armorStand.hasMetadata("yak_session") ||
+                                armorStand.hasMetadata(HOLOGRAM_METADATA_KEY) ||
                                 armorStand.hasMetadata("id") ||
-                                armorStand.hasMetadata(HOLOGRAM_METADATA_KEY)) {
+                                armorStand.hasMetadata("hologramId")) {
+                            shouldRemove = true;
+                        }
 
-                            boolean shouldRemove = false;
+                        // Check for invisible, non-colliding armor stands (likely holograms)
+                        if (!armorStand.isVisible() && armorStand.isCustomNameVisible() && !armorStand.isCollidable()) {
+                            shouldRemove = true;
+                        }
 
-                            // Check session ID
-                            if (armorStand.hasMetadata(SESSION_METADATA_KEY)) {
-                                try {
-                                    long entitySessionId = armorStand.getMetadata(SESSION_METADATA_KEY).get(0).asLong();
-                                    if (entitySessionId != sessionId) {
-                                        shouldRemove = true;
-                                    }
-                                } catch (Exception e) {
-                                    shouldRemove = true;
-                                }
-                            } else {
-                                shouldRemove = true; // No session ID = old system
-                            }
-
-                            // Check age
-                            if (armorStand.hasMetadata(CREATION_TIME_KEY)) {
-                                try {
-                                    long creationTime = armorStand.getMetadata(CREATION_TIME_KEY).get(0).asLong();
-                                    long age = System.currentTimeMillis() - creationTime;
-                                    if (age > MAX_HOLOGRAM_AGE_TICKS * 50) { // Convert ticks to ms
-                                        shouldRemove = true;
-                                    }
-                                } catch (Exception e) {
-                                    shouldRemove = true;
-                                }
-                            }
-
-                            if (shouldRemove) {
-                                try {
-                                    armorStand.remove();
-                                    removedCount++;
-                                } catch (Exception e) {
-                                    logger.warning("[HologramManager] Failed to remove old hologram ArmorStand: " + e.getMessage());
-                                }
+                        if (shouldRemove) {
+                            try {
+                                armorStand.remove();
+                                removedCount++;
+                            } catch (Exception e) {
+                                // Silent fail for cleanup
                             }
                         }
                     }
@@ -625,19 +757,17 @@ public class HologramManager {
             logger.info("[HologramManager] Initial cleanup removed " + removedCount + " old hologram entities");
         }
 
-        totalOrphansRemoved += removedCount;
+        totalOrphansRemoved.addAndGet(removedCount);
         lastCleanupTime = System.currentTimeMillis();
     }
 
-    /**
-     * Perform periodic cleanup of invalid holograms
-     */
     private static void performPeriodicCleanup() {
         hologramLock.writeLock().lock();
         try {
             List<String> toRemove = new ArrayList<>();
             int invalidCount = 0;
             int recoveredCount = 0;
+            long currentTime = System.currentTimeMillis();
 
             for (Map.Entry<String, Hologram> entry : holograms.entrySet()) {
                 String id = entry.getKey();
@@ -648,28 +778,28 @@ public class HologramManager {
                     continue;
                 }
 
-                // Check if hologram is valid
+                // Check age
+                if (hologram.getAge() > MAX_HOLOGRAM_AGE_MS) {
+                    toRemove.add(id);
+                    invalidCount++;
+                    continue;
+                }
+
+                // Check validity
                 if (!hologram.isValid()) {
                     toRemove.add(id);
                     invalidCount++;
                     continue;
                 }
 
-                // Attempt to validate and recover if needed
+                // Validate and attempt recovery
                 if (!hologram.validateArmorStands()) {
-                    logger.info("[HologramManager] Attempting recovery for hologram " + id);
                     if (hologram.attemptRecovery()) {
                         recoveredCount++;
                     } else {
                         toRemove.add(id);
                         invalidCount++;
                     }
-                }
-
-                // Check age
-                if (hologram.getAge() > MAX_HOLOGRAM_AGE_TICKS * 50) {
-                    logger.info("[HologramManager] Removing aged hologram " + id);
-                    toRemove.add(id);
                 }
             }
 
@@ -679,15 +809,23 @@ public class HologramManager {
                 if (hologram != null) {
                     hologram.remove();
                 }
+                activeCreations.remove(id);
             }
 
-            // Clean up pending removals
+            // Process pending removals
+            for (String id : pendingRemovals) {
+                Hologram hologram = holograms.remove(id);
+                if (hologram != null) {
+                    hologram.remove();
+                }
+                activeCreations.remove(id);
+            }
             pendingRemovals.clear();
 
-            lastCleanupTime = System.currentTimeMillis();
+            lastCleanupTime = currentTime;
 
             if (invalidCount > 0 || recoveredCount > 0) {
-                logger.info("[HologramManager] Periodic cleanup: removed " + invalidCount +
+                logger.info("[HologramManager] Cleanup: removed " + invalidCount +
                         " invalid holograms, recovered " + recoveredCount + " holograms");
             }
 
@@ -696,11 +834,9 @@ public class HologramManager {
         }
     }
 
-    /**
-     * Perform comprehensive orphan scan across all worlds
-     */
     private static void performOrphanScan() {
         int orphansFound = 0;
+        long currentSessionId = sessionId.get();
 
         for (World world : Bukkit.getWorlds()) {
             try {
@@ -711,7 +847,7 @@ public class HologramManager {
 
                         boolean isOrphan = false;
 
-                        // Check if it's a hologram ArmorStand
+                        // Check for hologram metadata
                         if (armorStand.hasMetadata(HOLOGRAM_METADATA_KEY) ||
                                 armorStand.hasMetadata("id") ||
                                 armorStand.hasMetadata("hologramId")) {
@@ -727,7 +863,7 @@ public class HologramManager {
                                 }
                             }
 
-                            // Check if hologram still exists in our system
+                            // Check if hologram exists
                             if (hologramId != null && !holograms.containsKey(hologramId)) {
                                 isOrphan = true;
                             }
@@ -736,14 +872,13 @@ public class HologramManager {
                             if (armorStand.hasMetadata(SESSION_METADATA_KEY)) {
                                 try {
                                     long entitySessionId = armorStand.getMetadata(SESSION_METADATA_KEY).get(0).asLong();
-                                    if (entitySessionId != sessionId) {
+                                    if (entitySessionId != currentSessionId) {
                                         isOrphan = true;
                                     }
                                 } catch (Exception e) {
                                     isOrphan = true;
                                 }
-                            } else if (armorStand.hasMetadata("id")) {
-                                // Old system ArmorStand
+                            } else {
                                 isOrphan = true;
                             }
 
@@ -752,14 +887,38 @@ public class HologramManager {
                                 isOrphan = true;
                             }
 
+                            // Check age
+                            if (armorStand.hasMetadata(CREATION_TIME_KEY)) {
+                                try {
+                                    long creationTime = armorStand.getMetadata(CREATION_TIME_KEY).get(0).asLong();
+                                    long age = System.currentTimeMillis() - creationTime;
+                                    if (age > MAX_HOLOGRAM_AGE_MS) {
+                                        isOrphan = true;
+                                    }
+                                } catch (Exception e) {
+                                    isOrphan = true;
+                                }
+                            }
+
                             if (isOrphan) {
                                 try {
                                     entityToHologramId.remove(armorStand.getUniqueId());
                                     armorStand.remove();
                                     orphansFound++;
                                 } catch (Exception e) {
-                                    logger.warning("[HologramManager] Failed to remove orphan ArmorStand: " + e.getMessage());
+                                    // Silent fail for orphan removal
                                 }
+                            }
+                        }
+                        // NEW: Also check for unmarked holograms (invisible, non-colliding armor stands)
+                        else if (!armorStand.isVisible() && armorStand.isCustomNameVisible() &&
+                                !armorStand.isCollidable() && armorStand.isMarker()) {
+                            // This looks like a hologram but has no metadata - likely orphaned
+                            try {
+                                armorStand.remove();
+                                orphansFound++;
+                            } catch (Exception e) {
+                                // Silent fail
                             }
                         }
                     }
@@ -771,33 +930,95 @@ public class HologramManager {
 
         if (orphansFound > 0) {
             logger.info("[HologramManager] Orphan scan removed " + orphansFound + " orphaned hologram entities");
-            totalOrphansRemoved += orphansFound;
+            totalOrphansRemoved.addAndGet(orphansFound);
         }
     }
 
-    /**
-     * Perform health check on all active holograms
-     */
     private static void performHealthCheck() {
         hologramLock.readLock().lock();
         try {
             int healthyCount = 0;
             int unhealthyCount = 0;
+            List<String> toRemove = new ArrayList<>();
 
-            for (Hologram hologram : holograms.values()) {
+            for (Map.Entry<String, Hologram> entry : holograms.entrySet()) {
+                Hologram hologram = entry.getValue();
                 if (hologram != null && hologram.isValid()) {
                     if (hologram.validateArmorStands()) {
                         healthyCount++;
                     } else {
                         unhealthyCount++;
-                        logger.warning("[HologramManager] Unhealthy hologram detected: " + hologram.getHologramId());
+                        // Mark for removal if consistently unhealthy
+                        if (hologram.getFailedUpdateCount() > 5) {
+                            toRemove.add(entry.getKey());
+                        }
                     }
+                } else {
+                    toRemove.add(entry.getKey());
                 }
             }
 
-            // Log health status occasionally
+            if (!toRemove.isEmpty()) {
+                hologramLock.readLock().unlock();
+                hologramLock.writeLock().lock();
+                try {
+                    for (String id : toRemove) {
+                        Hologram hologram = holograms.remove(id);
+                        if (hologram != null) {
+                            hologram.remove();
+                        }
+                        activeCreations.remove(id);
+                    }
+                } finally {
+                    hologramLock.readLock().lock();
+                    hologramLock.writeLock().unlock();
+                }
+            }
+
             if (unhealthyCount > 0) {
-                logger.info("[HologramManager] Health check: " + healthyCount + " healthy, " + unhealthyCount + " unhealthy holograms");
+                logger.fine("[HologramManager] Health check: " + healthyCount + " healthy, " +
+                        unhealthyCount + " unhealthy holograms, removed " + toRemove.size());
+            }
+
+        } finally {
+            hologramLock.readLock().unlock();
+        }
+    }
+
+    /**
+     * NEW: Emergency cleanup for completely dead holograms
+     */
+    private static void performEmergencyCleanup() {
+        hologramLock.readLock().lock();
+        try {
+            List<String> emergencyRemove = new ArrayList<>();
+
+            for (Map.Entry<String, Hologram> entry : holograms.entrySet()) {
+                Hologram hologram = entry.getValue();
+                if (hologram == null || (!hologram.isValid() && hologram.getFailedUpdateCount() > 10)) {
+                    emergencyRemove.add(entry.getKey());
+                }
+            }
+
+            if (!emergencyRemove.isEmpty()) {
+                hologramLock.readLock().unlock();
+                hologramLock.writeLock().lock();
+                try {
+                    for (String id : emergencyRemove) {
+                        Hologram hologram = holograms.remove(id);
+                        if (hologram != null) {
+                            hologram.remove();
+                        }
+                        activeCreations.remove(id);
+                    }
+
+                    if (emergencyRemove.size() > 0) {
+                        logger.info("[HologramManager] Emergency cleanup removed " + emergencyRemove.size() + " dead holograms");
+                    }
+                } finally {
+                    hologramLock.readLock().lock();
+                    hologramLock.writeLock().unlock();
+                }
             }
 
         } finally {
@@ -808,33 +1029,39 @@ public class HologramManager {
     // ================ PUBLIC API ================
 
     /**
-     * ENHANCED: Efficient update method with comprehensive error handling
+     * :  update method with duplicate prevention and mob binding
      */
-    public static synchronized boolean updateHologramEfficiently(String id, Location location, List<String> lines, double lineSpacing) {
-        return updateHologramEfficiently(id, location, lines, lineSpacing, "mob");
-    }
-
-    /**
-     * ENHANCED: Efficient update method with type specification
-     */
-    public static synchronized boolean updateHologramEfficiently(String id, Location location, List<String> lines, double lineSpacing, String type) {
+    // In HologramManager.java, update updateHologramEfficiently
+    public static synchronized boolean updateHologramEfficiently(String id, Location location, List<String> lines, double lineSpacing, String mobUuid) {
         if (id == null || id.trim().isEmpty()) {
-            logger.warning("[HologramManager] Cannot update hologram: ID is null or empty");
             return false;
         }
 
         if (location == null || location.getWorld() == null) {
-            logger.warning("[HologramManager] Cannot update hologram: invalid location for ID " + id);
             return false;
         }
 
         if (lines == null || lines.isEmpty()) {
-            logger.warning("[HologramManager] Cannot update hologram: no lines provided for ID " + id);
+            return false;
+        }
+
+        // Prevent duplicate creation
+        if (activeCreations.contains(id)) {
+            totalDuplicatesPrevented.incrementAndGet();
             return false;
         }
 
         hologramLock.writeLock().lock();
         try {
+            // Check for existing mob binding
+            if (mobUuid != null && mobToHologramId.containsKey(mobUuid)) {
+                String existingHologramId = mobToHologramId.get(mobUuid);
+                if (!existingHologramId.equals(id)) {
+                    // Remove old hologram for this mob
+                    removeHologram(existingHologramId);
+                }
+            }
+
             Hologram existingHologram = holograms.get(id);
 
             if (existingHologram != null && existingHologram.isValid()) {
@@ -846,7 +1073,6 @@ public class HologramManager {
 
                 // If update failed, try recovery
                 if (!existingHologram.attemptRecovery()) {
-                    logger.warning("[HologramManager] Failed to recover hologram " + id + ", recreating");
                     removeHologram(id);
                 } else {
                     return existingHologram.moveAndUpdate(location, lines);
@@ -858,14 +1084,38 @@ public class HologramManager {
                 }
             }
 
+            // Add mob validity check before creating
+            if (mobUuid != null) {
+                try {
+                    UUID mobId = UUID.fromString(mobUuid);  // mobUuid is now entity UUID string
+                    Entity mobEntity = Bukkit.getEntity(mobId);
+                    if (mobEntity == null || mobEntity.isDead() || !mobEntity.isValid()) {
+                        removeHologramByMob(mobUuid);  // Clean up any stale
+                        return false;  // Don't create for dead mob
+                    }
+                } catch (Exception e) {
+                    removeHologramByMob(mobUuid);
+                    return false;
+                }
+            }
+
             // Create new hologram
             try {
-                Hologram hologram = new Hologram(location, lines, lineSpacing, id, type);
+                activeCreations.add(id);
+                Hologram hologram = new Hologram(location, lines, lineSpacing, id, "mob", mobUuid);
                 holograms.put(id, hologram);
+
+                // Bind mob to hologram
+                if (mobUuid != null) {
+                    mobToHologramId.put(mobUuid, id);
+                }
+
                 return true;
             } catch (Exception e) {
-                logger.severe("[HologramManager] Failed to create hologram " + id + ": " + e.getMessage());
+                logger.warning("[HologramManager] Failed to create hologram " + id + ": " + e.getMessage());
                 return false;
+            } finally {
+                activeCreations.remove(id);
             }
 
         } finally {
@@ -873,16 +1123,14 @@ public class HologramManager {
         }
     }
 
-    /**
-     * Default efficient update method
-     */
-    public static synchronized boolean updateHologramEfficiently(String id, Location location, List<String> lines) {
-        return updateHologramEfficiently(id, location, lines, 0.25, "mob");
+    public static synchronized boolean updateHologramEfficiently(String id, Location location, List<String> lines, double lineSpacing) {
+        return updateHologramEfficiently(id, location, lines, lineSpacing, null);
     }
 
-    /**
-     * Remove hologram with enhanced cleanup
-     */
+    public static synchronized boolean updateHologramEfficiently(String id, Location location, List<String> lines) {
+        return updateHologramEfficiently(id, location, lines, 0.25, null);
+    }
+
     public static synchronized void removeHologram(String id) {
         if (id == null) {
             return;
@@ -893,58 +1141,43 @@ public class HologramManager {
             Hologram hologram = holograms.remove(id);
             if (hologram != null) {
                 hologram.remove();
-                logger.info("[HologramManager] Removed hologram: " + id);
-            }
-        } finally {
-            hologramLock.writeLock().unlock();
-        }
-    }
-
-    /**
-     * Force remove all holograms matching a pattern
-     */
-    public static synchronized int forceRemoveHologramsByPattern(String pattern) {
-        int removedCount = 0;
-
-        hologramLock.writeLock().lock();
-        try {
-            List<String> toRemove = new ArrayList<>();
-
-            for (String id : holograms.keySet()) {
-                if (id.contains(pattern)) {
-                    toRemove.add(id);
+                // Clean up mob binding
+                if (hologram.getMobUuid() != null) {
+                    mobToHologramId.remove(hologram.getMobUuid());
                 }
             }
-
-            for (String id : toRemove) {
-                removeHologram(id);
-                removedCount++;
-            }
-
+            activeCreations.remove(id);
+            pendingRemovals.remove(id);
         } finally {
             hologramLock.writeLock().unlock();
         }
-
-        logger.info("[HologramManager] Force removed " + removedCount + " holograms matching pattern: " + pattern);
-        return removedCount;
     }
 
     /**
-     * Force cleanup all holograms
+     * NEW: Remove hologram by mob UUID
      */
-    public static synchronized void forceCleanupAll() {
-        logger.info("[HologramManager] Force cleanup requested - removing all holograms");
+    public static synchronized void removeHologramByMob(String mobUuid) {
+        if (mobUuid == null) {
+            return;
+        }
 
+        String hologramId = mobToHologramId.get(mobUuid);
+        if (hologramId != null) {
+            removeHologram(hologramId);
+        }
+    }
+
+    public static synchronized void forceCleanupAll() {
         hologramLock.writeLock().lock();
         try {
-            // Remove all tracked holograms
             List<String> hologramIds = new ArrayList<>(holograms.keySet());
             for (String id : hologramIds) {
                 removeHologram(id);
             }
 
-            // Clear tracking maps
             entityToHologramId.clear();
+            mobToHologramId.clear();
+            activeCreations.clear();
             pendingRemovals.clear();
 
         } finally {
@@ -960,17 +1193,13 @@ public class HologramManager {
                     if (entity instanceof ArmorStand && !entity.isDead()) {
                         ArmorStand armorStand = (ArmorStand) entity;
 
-                        // Check if it looks like a hologram
-                        if (armorStand.hasMetadata(HOLOGRAM_METADATA_KEY) ||
-                                armorStand.hasMetadata("id") ||
-                                armorStand.hasMetadata("hologramId") ||
-                                (!armorStand.isVisible() && armorStand.isCustomNameVisible())) {
-
+                        // Remove any invisible, non-colliding armor stands (likely holograms)
+                        if (!armorStand.isVisible() && !armorStand.isCollidable()) {
                             try {
                                 armorStand.remove();
                                 totalRemoved++;
                             } catch (Exception e) {
-                                logger.warning("[HologramManager] Failed to remove hologram entity: " + e.getMessage());
+                                // Silent fail for force cleanup
                             }
                         }
                     }
@@ -981,15 +1210,10 @@ public class HologramManager {
         }
 
         logger.info("[HologramManager] Force cleanup completed: removed " + totalRemoved + " hologram entities");
-        totalOrphansRemoved += totalRemoved;
+        totalOrphansRemoved.addAndGet(totalRemoved);
     }
 
-    /**
-     * Enhanced cleanup for shutdown
-     */
     public static synchronized void cleanup() {
-        logger.info("[HologramManager] Starting enhanced shutdown cleanup...");
-
         // Cancel all tasks
         if (cleanupTask != null) {
             cleanupTask.cancel();
@@ -1003,24 +1227,26 @@ public class HologramManager {
             healthCheckTask.cancel();
             healthCheckTask = null;
         }
+        if (emergencyCleanupTask != null) {
+            emergencyCleanupTask.cancel();
+            emergencyCleanupTask = null;
+        }
 
         // Force cleanup all holograms
         forceCleanupAll();
 
         // Reset system state
-        systemInitialized = false;
+        systemInitialized.set(false);
         lastCleanupTime = 0;
 
-        logger.info("[HologramManager] Enhanced shutdown cleanup completed");
-        logger.info("[HologramManager] Final statistics - Created: " + totalHologramsCreated +
-                ", Removed: " + totalHologramsRemoved + ", Orphans: " + totalOrphansRemoved);
+        logger.info("[HologramManager]  shutdown cleanup completed");
+        logger.info("[HologramManager] Final statistics - Created: " + totalHologramsCreated.get() +
+                ", Removed: " + totalHologramsRemoved.get() + ", Orphans: " + totalOrphansRemoved.get() +
+                ", Duplicates Prevented: " + totalDuplicatesPrevented.get());
     }
 
     // ================ UTILITY METHODS ================
 
-    /**
-     * Check if hologram exists and is valid
-     */
     public static synchronized boolean hologramExists(String id) {
         if (id == null) return false;
 
@@ -1033,9 +1259,6 @@ public class HologramManager {
         }
     }
 
-    /**
-     * Get hologram count
-     */
     public static synchronized int getHologramCount() {
         hologramLock.readLock().lock();
         try {
@@ -1045,23 +1268,24 @@ public class HologramManager {
         }
     }
 
-    /**
-     * Get detailed statistics
-     */
     public static synchronized String getDetailedStatistics() {
         hologramLock.readLock().lock();
         try {
             StringBuilder stats = new StringBuilder();
-            stats.append("=== Enhanced Hologram Manager Statistics ===\n");
+            stats.append("===  Hologram Manager Statistics ===\n");
             stats.append("Active Holograms: ").append(holograms.size()).append("\n");
-            stats.append("Total Created: ").append(totalHologramsCreated).append("\n");
-            stats.append("Total Removed: ").append(totalHologramsRemoved).append("\n");
-            stats.append("Total Orphans Removed: ").append(totalOrphansRemoved).append("\n");
+            stats.append("Total Created: ").append(totalHologramsCreated.get()).append("\n");
+            stats.append("Total Removed: ").append(totalHologramsRemoved.get()).append("\n");
+            stats.append("Total Orphans Removed: ").append(totalOrphansRemoved.get()).append("\n");
+            stats.append("Duplicates Prevented: ").append(totalDuplicatesPrevented.get()).append("\n");
             stats.append("Tracked Entities: ").append(entityToHologramId.size()).append("\n");
+            stats.append("Mob Bindings: ").append(mobToHologramId.size()).append("\n");
+            stats.append("Active Creations: ").append(activeCreations.size()).append("\n");
             stats.append("Pending Removals: ").append(pendingRemovals.size()).append("\n");
             stats.append("Last Cleanup: ").append(new Date(lastCleanupTime)).append("\n");
-            stats.append("System Initialized: ").append(systemInitialized).append("\n");
-            stats.append("Session ID: ").append(sessionId).append("\n");
+            stats.append("System Initialized: ").append(systemInitialized.get()).append("\n");
+            stats.append("Session ID: ").append(sessionId.get()).append("\n");
+            stats.append("Current Version: ").append(hologramVersion.get()).append("\n");
 
             // Hologram type breakdown
             Map<String, Integer> typeBreakdown = new HashMap<>();
@@ -1082,60 +1306,16 @@ public class HologramManager {
         }
     }
 
-    /**
-     * Perform immediate health check and return results
-     */
-    public static synchronized String performImmediateHealthCheck() {
-        hologramLock.readLock().lock();
-        try {
-            int totalHolograms = holograms.size();
-            int validHolograms = 0;
-            int invalidHolograms = 0;
-            int healthyHolograms = 0;
-            int unhealthyHolograms = 0;
-
-            for (Hologram hologram : holograms.values()) {
-                if (hologram != null) {
-                    if (hologram.isValid()) {
-                        validHolograms++;
-                        if (hologram.validateArmorStands()) {
-                            healthyHolograms++;
-                        } else {
-                            unhealthyHolograms++;
-                        }
-                    } else {
-                        invalidHolograms++;
-                    }
-                }
-            }
-
-            return String.format("Health Check Results:\nTotal: %d | Valid: %d | Invalid: %d | Healthy: %d | Unhealthy: %d",
-                    totalHolograms, validHolograms, invalidHolograms, healthyHolograms, unhealthyHolograms);
-
-        } finally {
-            hologramLock.readLock().unlock();
-        }
-    }
-
     // ================ LEGACY COMPATIBILITY ================
 
-    /**
-     * Legacy method - redirects to enhanced version
-     */
     public static synchronized void createOrUpdateHologram(String id, Location location, List<String> lines, double lineSpacing) {
-        updateHologramEfficiently(id, location, lines, lineSpacing, "legacy");
+        updateHologramEfficiently(id, location, lines, lineSpacing, null);
     }
 
-    /**
-     * Legacy method - redirects to enhanced version
-     */
     public static synchronized void createOrUpdateHologram(String id, Location location, List<String> lines) {
-        updateHologramEfficiently(id, location, lines, 0.25, "legacy");
+        updateHologramEfficiently(id, location, lines, 0.25, null);
     }
 
-    /**
-     * Legacy method - basic text update
-     */
     public static synchronized void updateHologram(String id, List<String> newLines) {
         hologramLock.readLock().lock();
         try {
@@ -1148,9 +1328,6 @@ public class HologramManager {
         }
     }
 
-    /**
-     * Legacy method - basic move
-     */
     public static synchronized boolean moveHologram(String id, Location newLocation) {
         hologramLock.readLock().lock();
         try {
@@ -1164,23 +1341,9 @@ public class HologramManager {
         }
     }
 
-    /**
-     * Get all hologram IDs
-     */
-    public static synchronized List<String> getAllHologramIds() {
-        hologramLock.readLock().lock();
-        try {
-            return new ArrayList<>(holograms.keySet());
-        } finally {
-            hologramLock.readLock().unlock();
-        }
-    }
-
-    /**
-     * Maintenance method for external calls
-     */
     public static synchronized void performMaintenance() {
         performPeriodicCleanup();
         performOrphanScan();
+        performEmergencyCleanup();
     }
 }

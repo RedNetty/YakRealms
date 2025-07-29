@@ -1,8 +1,11 @@
 package com.rednetty.server.commands.party;
 
 import com.rednetty.server.mechanics.player.social.party.PartyMechanics;
+import com.rednetty.server.utils.messaging.MessageUtil;
+import com.rednetty.server.utils.sounds.SoundUtil;
+import com.rednetty.server.utils.permissions.PermissionUtil;
+import com.rednetty.server.utils.cooldowns.CooldownManager;
 import org.bukkit.ChatColor;
-import org.bukkit.Sound;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
@@ -10,15 +13,18 @@ import org.bukkit.command.TabCompleter;
 import org.bukkit.entity.Player;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 /**
- *  Party Quit Command with comprehensive feedback and leadership handling
- * Integrates fully with the advanced PartyMechanics system including role transitions
+ *  Party Quit Command with unified utility integration and confirmation system
+ * Uses MessageUtil, SoundUtil, PermissionUtil, and CooldownManager for consistency
+ * Demonstrates the confirmation system for destructive actions
  */
 public class PQuitCommand implements CommandExecutor, TabCompleter {
 
     private final PartyMechanics partyMechanics;
+    private static final String QUIT_ACTION = "party_quit";
 
     public PQuitCommand() {
         this.partyMechanics = PartyMechanics.getInstance();
@@ -28,171 +34,274 @@ public class PQuitCommand implements CommandExecutor, TabCompleter {
     public boolean onCommand(CommandSender sender, Command cmd, String label, String[] args) {
         // Ensure command is executed by a player
         if (!(sender instanceof Player)) {
-            sender.sendMessage(ChatColor.RED + "❌ This command can only be used by players.");
+            MessageUtil.sendError(null, "This command can only be used by players.");
             return true;
         }
 
         Player player = (Player) sender;
 
+        // Check permission
+        if (!PermissionUtil.checkPartyPermissionWithMessage(player, "quit")) {
+            return true;
+        }
+
+        // Check if player is in a party
+        if (!partyMechanics.isInParty(player)) {
+            MessageUtil.sendError(player, "You are not in a party!");
+            MessageUtil.sendTip(player, "Join a party first with /pinvite <player> or /paccept");
+            return true;
+        }
+
+        // Check cooldown
+        if (!CooldownManager.checkPartyCooldown(player, "quit")) {
+            return true;
+        }
+
+        // Handle confirmation argument
+        if (args.length == 1 && args[0].equalsIgnoreCase("confirm")) {
+            return handleConfirmedQuit(player);
+        }
+
         // Validate command syntax
-        if (args.length != 0) {
+        if (args.length > 1) {
             sendUsageMessage(player);
             return true;
         }
 
-        // Validate player is in a party
-        if (!partyMechanics.isInParty(player)) {
-            player.sendMessage(ChatColor.RED + "❌ You are not in a party!");
-            player.sendMessage(ChatColor.GRAY + "💡 Join a party first with " + ChatColor.YELLOW + "/pinvite <player>"
-                    + ChatColor.GRAY + " or accept an invitation with " + ChatColor.YELLOW + "/paccept");
-            player.playSound(player.getLocation(), Sound.ENTITY_VILLAGER_NO, 0.5f, 1.0f);
+        // Check if confirmation is required
+        if (!CooldownManager.hasRecentConfirmation(player, QUIT_ACTION)) {
+            requestConfirmation(player);
             return true;
         }
 
-        // Show pre-quit information and warnings
-        showQuitInformation(player);
+        // This shouldn't happen if confirmation system is working properly
+        return handleConfirmedQuit(player);
+    }
 
-        // Attempt to quit party
-        player.sendMessage(ChatColor.RED + "✓ You have left the party.");
-        boolean success = partyMechanics.removePlayerFromParty(player);
+    /**
+     * Request confirmation for leaving the party
+     */
+    private void requestConfirmation(Player player) {
+        try {
+            // Get party information for context
+            List<Player> partyMembers = partyMechanics.getPartyMembers(player);
+            boolean isLeader = partyMechanics.isPartyLeader(player);
+
+            MessageUtil.sendHeader(player, "LEAVE PARTY CONFIRMATION");
+
+            // Show what they're leaving
+            player.sendMessage(ChatColor.GRAY + "Party Size: " + ChatColor.WHITE + partyMembers.size() + " members");
+            player.sendMessage(ChatColor.GRAY + "Your Role: " + ChatColor.WHITE +
+                    (isLeader ? ChatColor.GOLD + "Leader" : "Member"));
+
+            MessageUtil.sendBlankLine(player);
+
+            // Warn about consequences
+            MessageUtil.sendWarning(player, "Are you sure you want to leave your party?");
+
+            if (isLeader) {
+                if (partyMembers.size() > 1) {
+                    player.sendMessage(ChatColor.RED + "⚠ As the leader, leaving will transfer leadership");
+                    player.sendMessage(ChatColor.RED + "  to another party member automatically.");
+                } else {
+                    player.sendMessage(ChatColor.RED + "⚠ As the only member, the party will be disbanded.");
+                }
+            } else {
+                player.sendMessage(ChatColor.YELLOW + "⚠ You will lose party bonuses and chat access.");
+            }
+
+            MessageUtil.sendBlankLine(player);
+
+            // Show confirmation command
+            MessageUtil.sendConfirmationRequest(player, "leave the party", "/pquit confirm");
+
+            // Set confirmation requirement
+            CooldownManager.setConfirmationRequired(player, QUIT_ACTION);
+
+            // Play warning sound
+            SoundUtil.playWarning(player);
+
+            // Show alternatives
+            showAlternatives(player);
+
+        } catch (Exception e) {
+            MessageUtil.sendError(player, "Error processing quit request.");
+        }
+    }
+
+    /**
+     * Handle confirmed quit action
+     */
+    private boolean handleConfirmedQuit(Player player) {
+        // Check if confirmation is valid
+        if (!CooldownManager.consumeConfirmation(player, QUIT_ACTION)) {
+            MessageUtil.sendError(player, "Confirmation expired or invalid.");
+            MessageUtil.sendTip(player, "Use /pquit again to get a new confirmation request.");
+            return true;
+        }
+
+        // Get party information before leaving
+        List<Player> partyMembers = partyMechanics.getPartyMembers(player);
+        boolean wasLeader = partyMechanics.isPartyLeader(player);
+        int partySize = partyMembers.size();
+
+        // Attempt to leave the party
+        boolean success = partyMechanics.leaveParty(player);
 
         if (success) {
-            //  feedback after leaving
-            player.sendMessage(ChatColor.GRAY + "You are no longer part of a party group.");
+            // Success feedback
+            MessageUtil.sendSuccess(player, ChatColor.BOLD + "You have left the party.");
 
-            // Play farewell sound
-            player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_BASS, 1.0f, 1.0f);
+            // Provide context about what happened
+            if (wasLeader && partySize > 1) {
+                player.sendMessage(ChatColor.GRAY + "Leadership has been transferred to another member.");
+            } else if (wasLeader && partySize == 1) {
+                player.sendMessage(ChatColor.GRAY + "The party has been disbanded.");
+            }
 
-            // Provide helpful next steps
-            sendPostQuitOptions(player);
+            MessageUtil.sendBlankLine(player);
+
+            // Show what they can do now
+            player.sendMessage(ChatColor.GRAY + "You can now:");
+            player.sendMessage(ChatColor.GRAY + "• " + ChatColor.YELLOW + "/pinvite <player>" +
+                    ChatColor.GRAY + " - Create a new party");
+            player.sendMessage(ChatColor.GRAY + "• " + ChatColor.YELLOW + "/paccept" +
+                    ChatColor.GRAY + " - Accept future invitations");
+            player.sendMessage(ChatColor.GRAY + "• Continue your solo adventure");
+
+            // Play leave sound
+            SoundUtil.playPartyLeave(player);
+
+            // Apply cooldown
+            CooldownManager.applyPartyCooldown(player, "quit");
+
+            // Send encouragement
+            sendEncouragementMessage(player);
+
+        } else {
+            // Handle failure
+            MessageUtil.sendError(player, "Failed to leave the party.");
+            MessageUtil.sendTip(player, "Please try again or contact staff if the issue persists.");
         }
 
         return true;
     }
 
     /**
-     * Show information about quitting and potential consequences
+     * Send usage message with helpful context
      */
-    private void showQuitInformation(Player player) {
-        PartyMechanics.Party party = partyMechanics.getParty(player);
-        if (party == null) return;
+    private void sendUsageMessage(Player player) {
+        MessageUtil.sendCommandUsageMultiple(player,
+                new String[]{"/pquit", "/pquit confirm"},
+                "Leaves your current party.");
 
-        boolean isLeader = party.isLeader(player.getUniqueId());
-        boolean isOfficer = party.isOfficer(player.getUniqueId());
-        int partySize = party.getSize();
-
-        // Show role-specific warnings
-        if (isLeader) {
-            if (partySize > 1) {
-                player.sendMessage(ChatColor.YELLOW + "⚠ " + ChatColor.BOLD + "Leadership Transfer Warning!");
-                player.sendMessage(ChatColor.GRAY + "As the party leader, your departure will promote another member to leader.");
-
-                // Show who will become the new leader
-                List<Player> members = partyMechanics.getPartyMembers(player);
-                if (members != null && members.size() > 1) {
-                    Player nextLeader = null;
-                    // Find the first officer or first member who isn't the current leader
-                    for (Player member : members) {
-                        if (!member.equals(player)) {
-                            if (party.isOfficer(member.getUniqueId())) {
-                                nextLeader = member;
-                                break;
-                            } else if (nextLeader == null) {
-                                nextLeader = member;
-                            }
-                        }
-                    }
-
-                    if (nextLeader != null) {
-                        String roleTransfer = party.isOfficer(nextLeader.getUniqueId()) ? "officer" : "member";
-                        player.sendMessage(ChatColor.GRAY + "New leader will be: " + ChatColor.WHITE + ChatColor.BOLD
-                                + nextLeader.getName() + ChatColor.GRAY + " (current " + roleTransfer + ")");
-                    }
-                }
-            } else {
-                player.sendMessage(ChatColor.YELLOW + "⚠ " + ChatColor.BOLD + "Party Disbanding Warning!");
-                player.sendMessage(ChatColor.GRAY + "You are the only member, so the party will be disbanded.");
-            }
-        } else if (isOfficer) {
-            player.sendMessage(ChatColor.YELLOW + "⚠ You are leaving as a party officer.");
-            player.sendMessage(ChatColor.GRAY + "Your officer privileges will be lost.");
-        }
-
-        // Show party statistics if meaningful
-        if (partySize > 2) {
-            player.sendMessage(ChatColor.GRAY + "Leaving a party of " + ChatColor.WHITE + partySize
-                    + ChatColor.GRAY + " members.");
-        }
-
-        // Show experience sharing warning if applicable
-        if (partyMechanics.isExperienceSharing() && partySize > 1) {
-            player.sendMessage(ChatColor.GRAY + "💡 You will lose party experience sharing benefits.");
-        }
+        MessageUtil.sendBlankLine(player);
+        MessageUtil.sendTip(player, "This action requires confirmation to prevent accidental use.");
     }
 
     /**
-     * Provide options and suggestions after leaving a party
+     * Show alternatives to leaving the party
      */
-    private void sendPostQuitOptions(Player player) {
+    private void showAlternatives(Player player) {
         org.bukkit.Bukkit.getScheduler().runTaskLater(
-                com.rednetty.server.YakRealms.getInstance(),
+                org.bukkit.Bukkit.getPluginManager().getPlugin("YakRealms"),
                 () -> {
-                    if (player.isOnline() && !partyMechanics.isInParty(player)) {
-                        player.sendMessage("");
-                        player.sendMessage(ChatColor.AQUA + "🎯 " + ChatColor.BOLD + "What's Next?");
-                        player.sendMessage(ChatColor.GRAY + "• " + ChatColor.GREEN + "/pinvite <player>" + ChatColor.GRAY + " - Create a new party");
-                        player.sendMessage(ChatColor.GRAY + "• " + ChatColor.YELLOW + "Wait for party invitations");
-                        player.sendMessage(ChatColor.GRAY + "• " + ChatColor.BLUE + "Continue playing solo");
-                        player.sendMessage("");
-                        player.sendMessage(ChatColor.GRAY + "💬 " + ChatColor.ITALIC + "Remember: Parties provide experience bonuses and team features!");
+                    if (player.isOnline()) {
+                        MessageUtil.sendBlankLine(player);
+                        player.sendMessage(ChatColor.GRAY + "💡 " + ChatColor.WHITE + "Consider these alternatives:");
+                        player.sendMessage(ChatColor.GRAY + "  • Take a break but stay in party");
+                        player.sendMessage(ChatColor.GRAY + "  • Ask party members about any issues");
+                        player.sendMessage(ChatColor.GRAY + "  • Use " + ChatColor.YELLOW + "/p help" +
+                                ChatColor.GRAY + " to learn more party features");
+                        player.sendMessage(ChatColor.GRAY + "  • Transfer leadership with " +
+                                ChatColor.YELLOW + "/ppromote <player>");
 
-                        // Show party statistics if the player has meaningful history
-                        PartyMechanics.PartyStatistics stats = partyMechanics.getPartyStatistics(player.getUniqueId());
-                        if (stats.getTotalPartiesJoined() > 0) {
-                            player.sendMessage("");
-                            player.sendMessage(ChatColor.DARK_GRAY + "📊 Your party history: "
-                                    + stats.getTotalPartiesJoined() + " parties joined, "
-                                    + stats.getTotalPartiesCreated() + " parties created");
-                        }
+                        MessageUtil.sendBlankLine(player);
+                        MessageUtil.sendTip(player, "Parties are often more fun once you get used to them!");
                     }
-                }, 80L // 4 seconds delay
+                },
+                60L // 3 second delay
         );
     }
 
     /**
-     * Send  usage message
+     * Send encouraging message after leaving
      */
-    private void sendUsageMessage(Player player) {
-        player.sendMessage(ChatColor.RED + "❌ " + ChatColor.BOLD + "Invalid Syntax");
-        player.sendMessage(ChatColor.GRAY + "Usage: " + ChatColor.YELLOW + "/pquit");
-        player.sendMessage(ChatColor.GRAY + "Leaves your current party.");
-        player.sendMessage("");
+    private void sendEncouragementMessage(Player player) {
+        org.bukkit.Bukkit.getScheduler().runTaskLater(
+                org.bukkit.Bukkit.getPluginManager().getPlugin("YakRealms"),
+                () -> {
+                    if (player.isOnline()) {
+                        MessageUtil.sendBlankLine(player);
 
-        if (partyMechanics.isInParty(player)) {
-            PartyMechanics.Party party = partyMechanics.getParty(player);
-            if (party != null) {
-                player.sendMessage(ChatColor.GRAY + "Current party size: " + ChatColor.WHITE + party.getSize());
+                        // Randomize encouragement messages
+                        String[] encouragements = {
+                                "Solo adventures await! Don't forget you can always party up again. 🌟",
+                                "Sometimes a change of pace is exactly what you need! 🔄",
+                                "The world is full of new people to meet and party with! 🌍",
+                                "Take your time - the right party will come along when you're ready! ⏰",
+                                "Every ending is a new beginning. Happy adventuring! 🎯"
+                        };
 
-                if (party.isLeader(player.getUniqueId())) {
-                    player.sendMessage(ChatColor.YELLOW + "⚠ You are the party leader!");
-                    if (party.getSize() > 1) {
-                        player.sendMessage(ChatColor.GRAY + "Leadership will be transferred to another member.");
-                    } else {
-                        player.sendMessage(ChatColor.GRAY + "The party will be disbanded.");
+                        int randomIndex = (int) (Math.random() * encouragements.length);
+                        player.sendMessage(ChatColor.GRAY + encouragements[randomIndex]);
+
+                        SoundUtil.playNotification(player);
                     }
-                }
-            }
-        } else {
-            player.sendMessage(ChatColor.GRAY + "💡 You are not currently in a party.");
-        }
+                },
+                100L // 5 second delay
+        );
+    }
 
-        // Play error sound
-        player.playSound(player.getLocation(), Sound.ENTITY_VILLAGER_NO, 0.5f, 1.0f);
+    /**
+     * Show party statistics before leaving (if available)
+     */
+    private void showPartyStatistics(Player player) {
+        try {
+            // This would integrate with party statistics if they exist
+            MessageUtil.sendBlankLine(player);
+            player.sendMessage(ChatColor.GRAY + "📊 " + ChatColor.WHITE + "Your Party Stats:");
+            player.sendMessage(ChatColor.GRAY + "  • Time in party: " + ChatColor.YELLOW + "Coming Soon");
+            player.sendMessage(ChatColor.GRAY + "  • Messages sent: " + ChatColor.YELLOW + "Coming Soon");
+            player.sendMessage(ChatColor.GRAY + "  • Combat assists: " + ChatColor.YELLOW + "Coming Soon");
+            player.sendMessage(ChatColor.GRAY + "  • Items shared: " + ChatColor.YELLOW + "Coming Soon");
+
+        } catch (Exception e) {
+            // Ignore errors in statistics display
+        }
     }
 
     @Override
-    public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
-        // No tab completion options for this command as it takes no arguments
-        return new ArrayList<>();
+    public List<String> onTabComplete(CommandSender sender, Command cmd, String label, String[] args) {
+        List<String> completions = new ArrayList<>();
+
+        if (!(sender instanceof Player)) {
+            return completions;
+        }
+
+        Player player = (Player) sender;
+
+        // Check permission
+        if (!PermissionUtil.hasPartyPermission(player, "quit")) {
+            return completions;
+        }
+
+        // Check if player is in a party
+        if (!partyMechanics.isInParty(player)) {
+            return completions;
+        }
+
+        if (args.length == 1) {
+            String input = args[0].toLowerCase();
+
+            // Suggest confirm if they need confirmation
+            if (!CooldownManager.hasRecentConfirmation(player, QUIT_ACTION)) {
+                if ("confirm".startsWith(input)) {
+                    completions.add("confirm");
+                }
+            }
+        }
+
+        return completions;
     }
 }

@@ -403,7 +403,7 @@ public class MerchantSystem {
 
             // Check if moderation mechanics are available
             try {
-                Class.forName("com.rednetty.server.mechanics.moderation.ModerationMechanics");
+                Class.forName("com.rednetty.server.mechanics.player.moderation.ModerationMechanics");
             } catch (ClassNotFoundException e) {
                 logger.warning("Moderation mechanics not available - bonus multipliers may not work");
                 // Don't return false here as it's not critical
@@ -460,7 +460,7 @@ public class MerchantSystem {
      * Get version information
      */
     public String getVersionInfo() {
-        return "YakRealms Merchant System v2.1.0 - Modern Trading Platform (Fixed)";
+        return "YakRealms Merchant System v2.1.0 - Modern Trading Platform ()";
     }
 
     /**

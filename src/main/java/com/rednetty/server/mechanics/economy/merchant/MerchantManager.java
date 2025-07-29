@@ -3,7 +3,7 @@ package com.rednetty.server.mechanics.economy.merchant;
 import com.rednetty.server.YakRealms;
 import com.rednetty.server.mechanics.economy.EconomyManager;
 import com.rednetty.server.mechanics.economy.TransactionResult;
-import com.rednetty.server.mechanics.moderation.ModerationMechanics;
+import com.rednetty.server.mechanics.player.moderation.ModerationMechanics;
 import com.rednetty.server.mechanics.player.YakPlayer;
 import com.rednetty.server.mechanics.player.YakPlayerManager;
 import com.rednetty.server.utils.text.TextUtil;
@@ -522,10 +522,10 @@ public class MerchantManager implements Listener {
             String bonusType = "";
 
             if (yakPlayer != null) {
-                if (ModerationMechanics.isStaff(player)) {
+                if (ModerationMechanics.getInstance().isStaff(player)) {
                     multiplier = MerchantConfig.getInstance().getStaffMultiplier();
                     bonusType = "staff";
-                } else if (ModerationMechanics.isDonator(player)) {
+                } else if (ModerationMechanics.getInstance().isDonator(player)) {
                     multiplier = MerchantConfig.getInstance().getDonorMultiplier();
                     bonusType = "donor";
                 }

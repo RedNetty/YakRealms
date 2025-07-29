@@ -1,7 +1,7 @@
 package com.rednetty.server.commands.staff;
 
-import com.rednetty.server.mechanics.moderation.ModerationMechanics;
-import com.rednetty.server.mechanics.moderation.Rank;
+import com.rednetty.server.mechanics.player.moderation.ModerationMechanics;
+import com.rednetty.server.mechanics.player.moderation.Rank;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.command.Command;
@@ -18,7 +18,7 @@ import java.util.stream.Collectors;
 
 /**
  * Command to set a player's rank
- * Fixed to not block the main thread
+ *  to not block the main thread
  */
 public class SetRankCommand implements CommandExecutor, TabCompleter {
 

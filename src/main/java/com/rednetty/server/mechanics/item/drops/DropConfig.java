@@ -88,7 +88,7 @@ public class DropConfig {
         // Load default item type configurations -  Changed SPADE to SHOVEL for spears
         itemTypeConfigs.clear();
         itemTypeConfigs.put("1", new ItemTypeConfig(1, "HOE", true));     // Staff
-        itemTypeConfigs.put("2", new ItemTypeConfig(2, "SHOVEL", true));  // Spear - FIXED from SPADE
+        itemTypeConfigs.put("2", new ItemTypeConfig(2, "SHOVEL", true));  // Spear -  from SPADE
         itemTypeConfigs.put("3", new ItemTypeConfig(3, "SWORD", true));   // Sword
         itemTypeConfigs.put("4", new ItemTypeConfig(4, "AXE", true));     // Axe
         itemTypeConfigs.put("5", new ItemTypeConfig(5, "HELMET", false)); // Helmet

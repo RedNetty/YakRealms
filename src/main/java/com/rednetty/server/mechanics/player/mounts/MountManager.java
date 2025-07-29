@@ -254,7 +254,7 @@ public class MountManager {
      *  Validates a player's mount state and fixes issues if found
      *
      * @param player The player to validate
-     * @return True if the mount state is valid or was successfully fixed
+     * @return True if the mount state is valid or was successfully 
      */
     public boolean validateMountState(Player player) {
         UUID playerUUID = player.getUniqueId();
@@ -444,10 +444,6 @@ public class MountManager {
                 return true;
             }
             case ELYTRA -> {
-                if (!player.hasPermission("yakrp.mount.elytra")) {
-                    player.sendMessage("§cYou don't have permission to use elytra mounts.");
-                    return false;
-                }
                 return true;
             }
             default -> {

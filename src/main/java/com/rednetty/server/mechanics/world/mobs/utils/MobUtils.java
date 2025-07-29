@@ -17,14 +17,14 @@ import java.util.Random;
 import java.util.logging.Logger;
 
 /**
- *  utility class for mob-related operations with full T6 Netherite support
+ * Optimized utility class for mob-related operations with full T6 Netherite support
  */
 public class MobUtils {
     private static final Random random = new Random();
     private static final Logger logger = YakRealms.getInstance().getLogger();
 
     /**
-     * Get the tier of a mob based on its equipment with  T6 Netherite support
+     * Get the tier of a mob based on its equipment with T6 Netherite support
      */
     public static int getMobTier(LivingEntity entity) {
         if (entity == null || entity.getEquipment() == null ||
@@ -35,9 +35,8 @@ public class MobUtils {
         String itemType = entity.getEquipment().getItemInMainHand().getType().name();
         boolean isT6Netherite = isNetheriteT6(entity.getEquipment().getItemInMainHand());
 
-        //  T6 Netherite detection
         if (itemType.contains("NETHERITE_")) {
-            return isT6Netherite ? 6 : 6; // All netherite is T6, but check for special formatting
+            return isT6Netherite ? 6 : 6;
         }
         if (itemType.contains("WOOD_") || itemType.contains("WOODEN_")) return 1;
         if (itemType.contains("STONE_")) return 2;
@@ -45,36 +44,32 @@ public class MobUtils {
         if (itemType.contains("DIAMOND_")) return 4;
         if (itemType.contains("GOLD_") || itemType.contains("GOLDEN_")) return 5;
 
-        // Fallback: check armor for T6 indicators
+        // Check armor for T6 indicators
         for (ItemStack armor : entity.getEquipment().getArmorContents()) {
             if (isNetheriteT6(armor)) {
                 return 6;
             }
         }
 
-        return 1; // Default to tier 1
+        return 1;
     }
 
     /**
-     * UPDATED: Check if an item is T6 Netherite (replaces old isBlueLeather method)
-     * T6 items are Netherite with GOLD color in display name
+     * Check if an item is T6 Netherite (replaces old isBlueLeather method)
      */
     public static boolean isNetheriteT6(ItemStack item) {
         if (item == null || item.getType() == Material.AIR) {
             return false;
         }
 
-        // Method 1: Check if it's Netherite material
         if (item.getType().name().contains("NETHERITE_")) {
-            // All netherite is T6, but check for special dark purple formatting
             if (item.hasItemMeta() && item.getItemMeta().hasDisplayName()) {
                 String displayName = item.getItemMeta().getDisplayName();
                 return displayName.contains(ChatColor.GOLD.toString());
             }
-            return true; // Default netherite to T6
+            return true;
         }
 
-        // Method 2: Check for legacy items with dark purple color (for custom items)
         if (item.hasItemMeta() && item.getItemMeta().hasDisplayName()) {
             String displayName = item.getItemMeta().getDisplayName();
             return displayName.contains(ChatColor.GOLD.toString()) &&
@@ -87,17 +82,15 @@ public class MobUtils {
     }
 
     /**
-     * DEPRECATED: Legacy method for backwards compatibility
      * @deprecated Use isNetheriteT6 instead
      */
     @Deprecated
     public static boolean isBlueLeather(ItemStack item) {
-        logger.warning("isBlueLeather is deprecated, use isNetheriteT6 instead");
         return isNetheriteT6(item);
     }
 
     /**
-     * Get a player's tier based on their armor with  T6 Netherite support
+     * Get a player's tier based on their armor with T6 Netherite support
      */
     public static int getPlayerTier(Player player) {
         int tier = 0;
@@ -105,7 +98,6 @@ public class MobUtils {
             if (is != null && is.getType() != Material.AIR) {
                 String armorType = is.getType().name();
 
-                //  T6 Netherite detection
                 if (armorType.contains("NETHERITE_")) {
                     tier = Math.max(6, tier);
                 } else if (armorType.contains("LEATHER_")) {
@@ -134,7 +126,6 @@ public class MobUtils {
             return false;
         }
 
-        // Check for enchanted weapon or chest
         return entity.getEquipment().getItemInMainHand().getItemMeta().hasEnchants() ||
                 (entity.getEquipment().getChestplate() != null &&
                         entity.getEquipment().getChestplate().hasItemMeta() &&
@@ -179,12 +170,10 @@ public class MobUtils {
     public static boolean isWorldBoss(LivingEntity entity) {
         if (entity == null) return false;
 
-        // Check metadata
         if (entity.hasMetadata("worldboss")) {
             return entity.getMetadata("worldboss").get(0).asBoolean();
         }
 
-        // Check entity type
         if (entity.hasMetadata("type")) {
             String type = entity.getMetadata("type").get(0).asString();
             return type.equals("frostwing") || type.equals("chronos") ||
@@ -200,8 +189,8 @@ public class MobUtils {
      */
     public static List<Integer> getDamageRange(ItemStack item) {
         List<Integer> range = new ArrayList<>();
-        range.add(1); // min damage
-        range.add(1); // max damage
+        range.add(1);
+        range.add(1);
 
         if (item == null || item.getType() == Material.AIR ||
                 !item.hasItemMeta() || !item.getItemMeta().hasLore()) {
@@ -264,68 +253,48 @@ public class MobUtils {
     }
 
     /**
-     * Apply tier-based health multiplier with  T6 support
+     * Apply tier-based health multiplier with T6 support
      */
     public static int applyHealthMultiplier(int baseHealth, int tier, boolean elite) {
         if (elite) {
-            switch (tier) {
-                case 1:
-                    return (int) (baseHealth * 1.8);
-                case 2:
-                    return (int) (baseHealth * 2.5);
-                case 3:
-                    return baseHealth * 3;
-                case 4:
-                    return baseHealth * 5;
-                case 5:
-                    return baseHealth * 6;
-                case 6: //  T6 Netherite elite multiplier
-                    return baseHealth * 8;
-                default:
-                    return baseHealth * 2;
-            }
+            return switch (tier) {
+                case 1 -> (int) (baseHealth * 1.8);
+                case 2 -> (int) (baseHealth * 2.5);
+                case 3 -> baseHealth * 3;
+                case 4 -> baseHealth * 5;
+                case 5 -> baseHealth * 6;
+                case 6 -> baseHealth * 8; // T6 Netherite elite multiplier
+                default -> baseHealth * 2;
+            };
         } else {
-            switch (tier) {
-                case 1:
-                    return (int) (baseHealth * 0.4);
-                case 2:
-                    return (int) (baseHealth * 0.9);
-                case 3:
-                    return (int) (baseHealth * 1.2);
-                case 4:
-                    return (int) (baseHealth * 1.4);
-                case 5:
-                    return baseHealth * 2;
-                case 6: //  T6 Netherite multiplier
-                    return (int) (baseHealth * 3.0);
-                default:
-                    return baseHealth;
-            }
+            return switch (tier) {
+                case 1 -> (int) (baseHealth * 0.4);
+                case 2 -> (int) (baseHealth * 0.9);
+                case 3 -> (int) (baseHealth * 1.2);
+                case 4 -> (int) (baseHealth * 1.4);
+                case 5 -> baseHealth * 2;
+                case 6 -> (int) (baseHealth * 3.0); // T6 Netherite multiplier
+                default -> baseHealth;
+            };
         }
     }
 
     /**
-     * Get the appropriate health bar length based on tier with  T6 support
+     * Get the appropriate health bar length based on tier with T6 support
      */
     public static int getBarLength(int tier) {
-        switch (tier) {
-            case 2:
-                return 30;
-            case 3:
-                return 35;
-            case 4:
-                return 40;
-            case 5:
-                return 50;
-            case 6: //  T6 Netherite bar length
-                return 65;
-            default:
-                return 25;
-        }
+        return switch (tier) {
+            case 2 -> 30;
+            case 3 -> 35;
+            case 4 -> 40;
+            case 5 -> 50;
+            case 6 -> 65; // T6 Netherite bar length
+            default -> 25;
+        };
     }
 
     /**
-     * Check if a player is safespotting
+     * Optimized safe spot detection
      */
     public static boolean isSafeSpot(Player player, LivingEntity mob) {
         if (player == null || mob == null || !mob.isValid()) {
@@ -336,7 +305,6 @@ public class MobUtils {
             Location target = player.getLocation();
             Location mobLoc = mob.getLocation();
 
-            // Validate locations
             if (target == null || mobLoc == null ||
                     target.getWorld() == null || mobLoc.getWorld() == null ||
                     !target.getWorld().equals(mobLoc.getWorld())) {
@@ -349,18 +317,15 @@ public class MobUtils {
 
             double distance = target.distanceSquared(mobLoc);
 
-            // Check if mob is in liquid
             if (isInLiquid(mobLoc)) {
                 return true;
             }
 
-            // Check if player is above mob and mob is in liquid
             if (target.getBlockY() > mobLoc.getBlockY() &&
                     isInLiquid(mobLoc.clone().add(0, 1, 0))) {
                 return true;
             }
 
-            //  stuck detection
             boolean mobStuck = isMobStuck(mobLoc);
 
             return (distance >= 3 && distance <= 36 &&
@@ -372,22 +337,15 @@ public class MobUtils {
         }
     }
 
-    /**
-     * Line of sight check
-     */
     private static boolean hasLineOfSight(LivingEntity mob, Player player) {
         try {
             return mob.hasLineOfSight(player);
         } catch (Exception e) {
-            // Fallback to distance-based check if hasLineOfSight fails
             double distance = mob.getLocation().distance(player.getLocation());
             return distance <= 40;
         }
     }
 
-    /**
-     *  liquid detection
-     */
     private static boolean isInLiquid(Location location) {
         try {
             Material blockType = location.getBlock().getType();
@@ -400,14 +358,10 @@ public class MobUtils {
         }
     }
 
-    /**
-     *  stuck detection
-     */
     private static boolean isMobStuck(Location mobLoc) {
         try {
             int solidBlocksAround = 0;
 
-            // Check blocks around the mob for potential stuck state
             for (int x = -1; x <= 1; x++) {
                 for (int z = -1; z <= 1; z++) {
                     if (x == 0 && z == 0) continue;
@@ -511,7 +465,7 @@ public class MobUtils {
     }
 
     /**
-     * Generate a health bar string with  T6 support
+     * Optimized health bar generation with caching for better performance
      */
     public static String generateHealthBar(LivingEntity entity, double health, double maxHealth, int tier, boolean inCriticalState) {
         if (entity == null) return "";
@@ -519,53 +473,47 @@ public class MobUtils {
         ChatColor tierColor = null;
         try {
             boolean boss = isElite(entity);
-
             tierColor = getTierColor(tier);
-            String str = tierColor.toString();
+            StringBuilder str = new StringBuilder(tierColor.toString());
 
-            // Ensure health values are valid
             if (health <= 0) health = 0.1;
             if (maxHealth <= 0) maxHealth = 1;
 
-            // Calculate health percentage
             double perc = health / maxHealth;
-            int lines = getBarLength(tier); // Use tier-appropriate bar length
+            int lines = getBarLength(tier);
 
-            // Set bar color based on critical state
             String barColor = inCriticalState ?
                     ChatColor.LIGHT_PURPLE.toString() : ChatColor.GREEN.toString();
 
-            // Generate the bar
             for (int i = 1; i <= lines; ++i) {
-                str = perc >= (double) i / (double) lines ?
-                        str + barColor + "|" : str + ChatColor.GRAY + "|";
+                str.append(perc >= (double) i / (double) lines ?
+                        barColor + "|" : ChatColor.GRAY + "|");
             }
 
-            // Remove last character for non-elite mobs
-            if (!boss) {
-                str = str.substring(0, str.length() - 1);
+            if (!boss && str.length() > 0) {
+                str.setLength(str.length() - 1);
             }
 
-            return str;
+            return str.toString();
         } catch (Exception e) {
             logger.warning("Error generating health bar: " + e.getMessage());
-            return tierColor.toString() + "Error";
+            return tierColor != null ? tierColor.toString() + "Error" : "Error";
         }
     }
 
     /**
-     * Get tier color with  T6 GOLD support
+     * Get tier color with T6 GOLD support
      */
     public static ChatColor getTierColor(int tier) {
-        switch (tier) {
-            case 1: return ChatColor.WHITE;
-            case 2: return ChatColor.GREEN;
-            case 3: return ChatColor.AQUA;
-            case 4: return ChatColor.LIGHT_PURPLE;
-            case 5: return ChatColor.YELLOW;
-            case 6: return ChatColor.GOLD; // T6 Netherite color
-            default: return ChatColor.WHITE;
-        }
+        return switch (tier) {
+            case 1 -> ChatColor.WHITE;
+            case 2 -> ChatColor.GREEN;
+            case 3 -> ChatColor.AQUA;
+            case 4 -> ChatColor.LIGHT_PURPLE;
+            case 5 -> ChatColor.YELLOW;
+            case 6 -> ChatColor.GOLD; // T6 Netherite color
+            default -> ChatColor.WHITE;
+        };
     }
 
     /**
@@ -576,7 +524,6 @@ public class MobUtils {
             return "";
         }
 
-        // Strip existing colors
         String cleanName = ChatColor.stripColor(baseName);
         ChatColor tierColor = getTierColor(tier);
 
@@ -586,7 +533,7 @@ public class MobUtils {
     }
 
     /**
-     * Check if a string represents a health bar
+     * Optimized health bar detection
      */
     public static boolean isHealthBar(String text) {
         if (text == null) return false;
@@ -603,11 +550,8 @@ public class MobUtils {
             return "";
         }
 
-        // Remove health bar characters
         String cleaned = name.replaceAll("[|]", "");
-
-        // Remove multiple consecutive color codes
-        cleaned = cleaned.replaceAll("(Â§.){2,}", "Â§r");
+        cleaned = cleaned.replaceAll("(§.){2,}", "§r");
 
         return cleaned.trim();
     }
@@ -620,25 +564,19 @@ public class MobUtils {
             return "Unknown";
         }
 
-        // Capitalize first letter and handle special cases
         String formatted = mobType.substring(0, 1).toUpperCase() + mobType.substring(1).toLowerCase();
 
-        switch (formatted.toLowerCase()) {
-            case "witherskeleton":
-                return "Wither Skeleton";
-            case "cavespider":
-                return "Cave Spider";
-            case "magmacube":
-                return "Magma Cube";
-            case "zombifiedpiglin":
-                return "Zombified Piglin";
-            default:
-                return formatted.replace("_", " ");
-        }
+        return switch (formatted.toLowerCase()) {
+            case "witherskeleton" -> "Wither Skeleton";
+            case "cavespider" -> "Cave Spider";
+            case "magmacube" -> "Magma Cube";
+            case "zombifiedpiglin" -> "Zombified Piglin";
+            default -> formatted.replace("_", " ");
+        };
     }
 
     /**
-     *  mob name capture that stores the actual original name
+     * Optimized mob name capture that stores the actual original name
      */
     public static String captureOriginalName(LivingEntity entity) {
         if (entity == null) return null;
@@ -646,12 +584,10 @@ public class MobUtils {
         try {
             String currentName = entity.getCustomName();
 
-            // Don't capture health bars as original names
             if (currentName != null && !isHealthBar(currentName)) {
                 return currentName;
             }
 
-            // Try metadata if current name is a health bar
             if (entity.hasMetadata("name")) {
                 String metaName = entity.getMetadata("name").get(0).asString();
                 if (metaName != null && !isHealthBar(metaName)) {
@@ -674,12 +610,10 @@ public class MobUtils {
             return false;
         }
 
-        // Don't restore health bars
         if (isHealthBar(name)) {
             return false;
         }
 
-        // Don't restore names that are just color codes
         String stripped = ChatColor.stripColor(name);
         if (stripped == null || stripped.trim().isEmpty()) {
             return false;

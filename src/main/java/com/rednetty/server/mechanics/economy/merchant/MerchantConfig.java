@@ -480,7 +480,7 @@ public class MerchantConfig {
         if (needsSave) {
             setDefaultValues();
             saveConfig();
-            logger.info("Fixed invalid configuration values");
+            logger.info(" invalid configuration values");
         }
     }
 }

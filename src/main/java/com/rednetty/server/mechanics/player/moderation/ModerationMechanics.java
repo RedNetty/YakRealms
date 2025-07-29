@@ -1,4 +1,4 @@
-package com.rednetty.server.mechanics.moderation;
+package com.rednetty.server.mechanics.player.moderation;
 
 import com.rednetty.server.YakRealms;
 import com.rednetty.server.core.database.YakPlayerRepository;
@@ -26,16 +26,17 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
- *  moderation functionality including:
+ * FIXED: Complete moderation functionality including:
  * - Comprehensive player ranks management with proper permission hierarchies
  * - Advanced banning and muting system with duration tracking
  * - Robust chat tag management with validation
  * - Performance optimized permission caching
- * -  error handling and recovery
+ * - Enhanced error handling and recovery
  * - Staff activity monitoring and important staff protection
  * - Automatic rank validation and correction
  * - Permission debugging and audit capabilities
- * -  Robust permission attachment management with proper validation
+ * - FIXED: Proper rank loading coordination with ChatMechanics
+ * - Robust permission attachment management with proper validation
  */
 public class ModerationMechanics implements Listener {
 
@@ -45,13 +46,16 @@ public class ModerationMechanics implements Listener {
     private final AtomicBoolean isShuttingDown = new AtomicBoolean(false);
     private final AtomicInteger permissionUpdates = new AtomicInteger(0);
 
-    //  caching with performance tracking
+    // Enhanced caching with performance tracking
     public static final Map<UUID, Rank> rankMap = new ConcurrentHashMap<>();
     private final Map<UUID, PermissionAttachment> permissionMap = new ConcurrentHashMap<>();
     private final Map<UUID, Long> lastPermissionUpdate = new ConcurrentHashMap<>();
     private final Map<UUID, String> permissionDebugLog = new ConcurrentHashMap<>();
 
-    //  Track player instances to ensure attachment validity
+    // FIXED: Track players currently loading ranks to prevent race conditions
+    private final Set<UUID> playersLoadingRank = ConcurrentHashMap.newKeySet();
+
+    // Enhanced Track player instances to ensure attachment validity
     private final Map<UUID, Player> trackedPlayers = new ConcurrentHashMap<>();
     private final Map<PermissionAttachment, UUID> attachmentPlayerMap = new ConcurrentHashMap<>();
 
@@ -64,7 +68,7 @@ public class ModerationMechanics implements Listener {
     private BukkitTask performanceTask;
     private BukkitTask staffActivityTask;
 
-    //  constants
+    // Enhanced constants
     private static final List<String> IMPORTANT_STAFF = Arrays.asList("Red");
     private static final long PERMISSION_UPDATE_COOLDOWN = 1000L; // 1 second cooldown
     private static final long STAFF_ACTIVITY_TIMEOUT = 300000L; // 5 minutes
@@ -91,7 +95,7 @@ public class ModerationMechanics implements Listener {
     }
 
     /**
-     *  initialization with performance monitoring
+     * Enhanced initialization with performance monitoring
      */
     public void onEnable() {
         long startTime = System.currentTimeMillis();
@@ -100,7 +104,7 @@ public class ModerationMechanics implements Listener {
             // Register events
             Bukkit.getServer().getPluginManager().registerEvents(this, YakRealms.getInstance());
 
-            // Initialize ranks for online players with  error handling
+            // Initialize ranks for online players with enhanced error handling
             int successCount = 0;
             int failureCount = 0;
 
@@ -135,7 +139,7 @@ public class ModerationMechanics implements Listener {
     }
 
     /**
-     *  cleanup with comprehensive data saving
+     * Enhanced cleanup with comprehensive data saving
      */
     public void onDisable() {
         long startTime = System.currentTimeMillis();
@@ -164,7 +168,7 @@ public class ModerationMechanics implements Listener {
                 }
             }
 
-            // Save all ranks with  error handling
+            // Save all ranks with enhanced error handling
             saveAllRanks();
 
             // Log performance statistics
@@ -180,6 +184,7 @@ public class ModerationMechanics implements Listener {
             operationTimes.clear();
             trackedPlayers.clear();
             attachmentPlayerMap.clear();
+            playersLoadingRank.clear(); // Clear the loading tracking set
 
             long shutdownTime = System.currentTimeMillis() - startTime;
 
@@ -195,7 +200,65 @@ public class ModerationMechanics implements Listener {
     }
 
     /**
-     *  rank saving with comprehensive error handling and retry logic
+     * FIXED: Enhanced getPlayerRank method that ensures rank is loaded and prevents race conditions
+     */
+    public Rank getPlayerRank(UUID uuid) {
+        // First check if rank is already loaded
+        if (rankMap.containsKey(uuid)) {
+            return rankMap.get(uuid);
+        }
+
+        // If rank is currently being loaded, return DEFAULT temporarily
+        if (playersLoadingRank.contains(uuid)) {
+            return Rank.DEFAULT;
+        }
+
+        // Try to load rank synchronously if player is online
+        Player player = Bukkit.getPlayer(uuid);
+        if (player != null && player.isOnline()) {
+            return loadRankSynchronously(player);
+        }
+
+        return Rank.DEFAULT;
+    }
+
+    /**
+     * NEW: Load rank synchronously when needed by ChatMechanics
+     */
+    private Rank loadRankSynchronously(Player player) {
+        UUID uuid = player.getUniqueId();
+
+        try {
+            // Mark as loading to prevent infinite recursion
+            playersLoadingRank.add(uuid);
+
+            YakPlayer yakPlayer = playerManager.getPlayer(player);
+            if (yakPlayer != null) {
+                String storedRank = yakPlayer.getRank();
+                if (storedRank != null && !storedRank.isEmpty()) {
+                    Rank rank = validateAndParseRank(storedRank, player.getName());
+                    rankMap.put(uuid, rank);
+                    logger.info("Synchronously loaded rank " + rank.name() + " for " + player.getName());
+                    return rank;
+                }
+            }
+
+            // Set default if no rank found
+            rankMap.put(uuid, Rank.DEFAULT);
+            return Rank.DEFAULT;
+
+        } catch (Exception e) {
+            logger.log(Level.WARNING, "Error synchronously loading rank for " + player.getName(), e);
+            rankMap.put(uuid, Rank.DEFAULT);
+            return Rank.DEFAULT;
+        } finally {
+            // Always remove from loading set
+            playersLoadingRank.remove(uuid);
+        }
+    }
+
+    /**
+     * Enhanced rank saving with comprehensive error handling and retry logic
      */
     private void saveAllRanks() {
         YakPlayerRepository repository = YakPlayerManager.getInstance().getRepository();
@@ -256,7 +319,7 @@ public class ModerationMechanics implements Listener {
     }
 
     /**
-     *  player join handler with comprehensive initialization
+     * Enhanced player join handler with comprehensive initialization
      */
     @EventHandler(priority = EventPriority.MONITOR)
     public void onPlayerJoin(PlayerJoinEvent event) {
@@ -264,7 +327,7 @@ public class ModerationMechanics implements Listener {
         final UUID uuid = player.getUniqueId();
 
         try {
-            //  Track the player instance
+            // Enhanced Track the player instance
             trackedPlayers.put(uuid, player);
 
             // Set default rank immediately to prevent null pointer exceptions
@@ -284,7 +347,7 @@ public class ModerationMechanics implements Listener {
                 }
             }
 
-            // Schedule delayed initialization with  error handling
+            // Schedule delayed initialization with enhanced error handling
             Bukkit.getScheduler().runTaskLater(YakRealms.getInstance(), () -> {
                 try {
                     initializePlayer(player);
@@ -312,7 +375,7 @@ public class ModerationMechanics implements Listener {
     }
 
     /**
-     *  player quit handler with comprehensive cleanup and data synchronization
+     * Enhanced player quit handler with comprehensive cleanup and data synchronization
      */
     @EventHandler
     public void onPlayerQuit(PlayerQuitEvent event) {
@@ -320,6 +383,9 @@ public class ModerationMechanics implements Listener {
         UUID uuid = player.getUniqueId();
 
         try {
+            // Clean up loading tracking
+            playersLoadingRank.remove(uuid);
+
             long startTime = System.currentTimeMillis();
 
             // Remove from staff tracking
@@ -335,7 +401,7 @@ public class ModerationMechanics implements Listener {
             YakPlayer yakPlayer = playerManager.getPlayer(player);
 
             if (yakPlayer != null) {
-                //  rank synchronization
+                // Enhanced rank synchronization
                 if (rankMap.containsKey(uuid)) {
                     Rank memoryRank = rankMap.get(uuid);
                     String currentRankStr = yakPlayer.getRank();
@@ -360,7 +426,7 @@ public class ModerationMechanics implements Listener {
                 YakRealms.log("WARNING: No player data found for quitting player: " + player.getName());
             }
 
-            //  Clean up permission attachment with  validation
+            // Enhanced Clean up permission attachment with enhanced validation
             cleanupPermissionAttachment(uuid, player);
 
             // Clean up caches (do this last)
@@ -384,18 +450,21 @@ public class ModerationMechanics implements Listener {
     }
 
     /**
-     *  player initialization with comprehensive validation
+     * UPDATED: Enhanced player initialization with comprehensive validation and coordination
      */
     private void initializePlayer(Player player) {
         UUID uuid = player.getUniqueId();
         YakPlayer yakPlayer = playerManager.getPlayer(player);
 
         try {
+            // Mark player as loading
+            playersLoadingRank.add(uuid);
+
             if (yakPlayer != null) {
-                //  rank loading with validation
+                // Enhanced rank loading with validation
                 initializePlayerRank(player, yakPlayer);
 
-                //  chat tag loading with validation
+                // Enhanced chat tag loading with validation
                 initializePlayerChatTag(player, yakPlayer, uuid);
 
                 // Save any corrections made during initialization
@@ -416,11 +485,14 @@ public class ModerationMechanics implements Listener {
         } catch (Exception e) {
             logger.log(Level.SEVERE, "Failed to initialize player " + player.getName(), e);
             throw e; // Re-throw to trigger fallback handling
+        } finally {
+            // Always remove from loading set when done
+            playersLoadingRank.remove(uuid);
         }
     }
 
     /**
-     * Initialize player rank with  validation and error recovery
+     * Initialize player rank with enhanced validation and error recovery
      */
     private void initializePlayerRank(Player player, YakPlayer yakPlayer) {
         UUID uuid = player.getUniqueId();
@@ -446,27 +518,27 @@ public class ModerationMechanics implements Listener {
     }
 
     /**
-     * Initialize player chat tag with validation
+     * UPDATED: Initialize player chat tag with validation and proper ChatMechanics integration
      */
     private void initializePlayerChatTag(Player player, YakPlayer yakPlayer, UUID uuid) {
         try {
             String chatTagStr = yakPlayer.getChatTag();
             if (chatTagStr != null && !chatTagStr.isEmpty()) {
                 ChatTag tag = ChatTag.valueOf(chatTagStr);
-                ChatMechanics.getPlayerTags().put(uuid, tag);
+                ChatMechanics.setPlayerTag(player, tag); // Use the static method properly
             } else {
-                ChatMechanics.getPlayerTags().put(uuid, ChatTag.DEFAULT);
+                ChatMechanics.setPlayerTag(player, ChatTag.DEFAULT);
                 yakPlayer.setChatTag(ChatTag.DEFAULT.name());
             }
         } catch (IllegalArgumentException e) {
-            ChatMechanics.getPlayerTags().put(uuid, ChatTag.DEFAULT);
+            ChatMechanics.setPlayerTag(player, ChatTag.DEFAULT);
             yakPlayer.setChatTag(ChatTag.DEFAULT.name());
             YakRealms.log("Invalid chat tag found for " + player.getName() + ", set to DEFAULT");
         }
     }
 
     /**
-     * Validate and parse rank with  error handling
+     * Validate and parse rank with enhanced error handling
      */
     private Rank validateAndParseRank(String rankStr, String playerName) {
         try {
@@ -507,13 +579,13 @@ public class ModerationMechanics implements Listener {
      */
     private void handleMissingPlayerData(Player player, UUID uuid) {
         rankMap.put(uuid, Rank.DEFAULT);
-        ChatMechanics.getPlayerTags().put(uuid, ChatTag.DEFAULT);
+        ChatMechanics.setPlayerTag(player, ChatTag.DEFAULT);
         YakRealms.log("WARNING: Player data not loaded yet for " + player.getName() +
                 " during rank initialization - using defaults");
     }
 
     /**
-     *  permission setup with comprehensive rank-based permissions
+     * Enhanced:  permission setup with comprehensive rank-based permissions
      */
     private void setupPermissions(Player player) {
         UUID uuid = player.getUniqueId();
@@ -528,14 +600,14 @@ public class ModerationMechanics implements Listener {
         try {
             long startTime = System.currentTimeMillis();
 
-            //  Remove existing attachment safely
+            // Enhanced Remove existing attachment safely
             cleanupPermissionAttachment(uuid, player);
 
             // Create new attachment
             PermissionAttachment attachment = player.addAttachment(YakRealms.getInstance());
             permissionMap.put(uuid, attachment);
 
-            //  Track the attachment and its associated player
+            // Enhanced Track the attachment and its associated player
             attachmentPlayerMap.put(attachment, uuid);
             trackedPlayers.put(uuid, player);
 
@@ -616,10 +688,10 @@ public class ModerationMechanics implements Listener {
         attachment.setPermission("yakrealms.donator", true);
         attachment.setPermission("yakrealms.vip", true);
 
-        //  market permissions for donators
+        // Enhanced market permissions for donators
         attachment.setPermission("yakrealms.market.featured", true);
 
-        //  crate permissions for donators
+        // Enhanced crate permissions for donators
         attachment.setPermission("yakrealms.crate.preview", true);
 
         // Premium donator benefits
@@ -658,7 +730,7 @@ public class ModerationMechanics implements Listener {
             attachment.setPermission("yakrealms.moderator", true);
             attachment.setPermission("yakrealms.mod", true);
 
-            //  staff permissions
+            // Enhanced staff permissions
             attachment.setPermission("yakrealms.setrank.staff", true);
             attachment.setPermission("yakrealms.admin.invsee", true);
             attachment.setPermission("yakrealms.admin.alignment", true);
@@ -720,7 +792,7 @@ public class ModerationMechanics implements Listener {
         attachment.setPermission("yakrealms.lootchest.reload", true);
         attachment.setPermission("yakrealms.lootchest.cleanup", true);
 
-        //  setrank permissions
+        // Enhanced setrank permissions
         attachment.setPermission("yakrealms.setrank.mod", true);
         attachment.setPermission("yakrealms.setrank.admin", true);
 
@@ -742,7 +814,7 @@ public class ModerationMechanics implements Listener {
     }
 
     /**
-     *  rank checking methods with null safety
+     * Enhanced rank checking methods with null safety
      */
     private boolean isPremiumDonator(Rank rank) {
         if (rank == null) return false;
@@ -797,7 +869,7 @@ public class ModerationMechanics implements Listener {
     }
 
     /**
-     *  utility methods for better functionality
+     * Enhanced utility methods for better functionality
      */
 
     /**
@@ -812,7 +884,7 @@ public class ModerationMechanics implements Listener {
     }
 
     /**
-     *  getRank method with comprehensive error handling and caching
+     * Enhanced getRank method with comprehensive error handling and caching
      */
     public static Rank getRank(Player player) {
         if (player == null) return Rank.DEFAULT;
@@ -824,7 +896,7 @@ public class ModerationMechanics implements Listener {
             return rankMap.get(uuid);
         }
 
-        // Try to get from YakPlayer data with  error handling
+        // Try to get from YakPlayer data with enhanced error handling
         try {
             YakPlayer yakPlayer = YakPlayerManager.getInstance().getPlayer(player);
             if (yakPlayer == null) {
@@ -885,7 +957,7 @@ public class ModerationMechanics implements Listener {
     }
 
     /**
-     *  setRank method with immediate permission updates and validation
+     * Enhanced setRank method with immediate permission updates and validation
      */
     public void setRank(Player player, Rank rank) {
         if (player == null || rank == null) {
@@ -912,7 +984,7 @@ public class ModerationMechanics implements Listener {
             // Update staff tracking
             updateStaffTracking(player, rank);
 
-            // Save to player data asynchronously with  error handling
+            // Save to player data asynchronously with enhanced error handling
             updateAndSaveRank(uuid, rank, () -> {
                 // Post-rank-change operations
                 handlePostRankChange(player, rank);
@@ -937,7 +1009,7 @@ public class ModerationMechanics implements Listener {
     }
 
     /**
-     *  updateAndSaveRank with better error handling and retry logic
+     * Enhanced updateAndSaveRank with better error handling and retry logic
      */
     public void updateAndSaveRank(UUID uuid, Rank rank, Runnable callback) {
         // Update the memory cache immediately
@@ -978,7 +1050,7 @@ public class ModerationMechanics implements Listener {
      * Validate if a rank change is allowed (can be overridden for custom logic)
      */
     private boolean validateRankChange(Rank oldRank, Rank newRank) {
-        // Basic validation - can be  based on business rules
+        // Basic validation - can be enhanced based on business rules
         return newRank != null;
     }
 
@@ -1055,7 +1127,7 @@ public class ModerationMechanics implements Listener {
     }
 
     /**
-     *  utility methods for staff management
+     * Enhanced utility methods for staff management
      */
 
     /**
@@ -1081,7 +1153,7 @@ public class ModerationMechanics implements Listener {
     }
 
     /**
-     *  staff checking methods
+     * Enhanced staff checking methods
      */
     public static boolean isStaff(Player player) {
         if (player == null) return false;
@@ -1128,13 +1200,15 @@ public class ModerationMechanics implements Listener {
     }
 
     /**
-     *  moderation methods with better error handling
+     * Enhanced moderation methods with better error handling
      */
 
     public void banPlayer(UUID targetUuid, String reason, long durationSeconds, String banner) {
         playerManager.withPlayer(targetUuid, player -> {
             long expiryTime = durationSeconds > 0 ? System.currentTimeMillis() / 1000 + durationSeconds : 0;
-            player.setBanned(true, reason, expiryTime);
+            player.setBanned(true);
+            player.setBanExpiry(expiryTime);
+            player.setBanReason(reason);
 
             logger.info(banner + " banned " + player.getUsername() +
                     (durationSeconds > 0 ? " for " + formatDuration(durationSeconds) : " permanently") +
@@ -1165,7 +1239,9 @@ public class ModerationMechanics implements Listener {
     public void unbanPlayer(UUID targetUuid, String unbanner) {
         playerManager.withPlayer(targetUuid, player -> {
             if (player.isBanned()) {
-                player.setBanned(false, "", 0);
+                player.setBanned(false);
+                player.setBanExpiry(0);
+                player.setBanReason(null);
                 logger.info(unbanner + " unbanned " + player.getUsername());
 
                 // Notify staff
@@ -1206,7 +1282,7 @@ public class ModerationMechanics implements Listener {
     }
 
     /**
-     *  helper methods
+     * Enhanced helper methods
      */
 
     private void unlockAllChatTags(Player player) {
@@ -1246,11 +1322,11 @@ public class ModerationMechanics implements Listener {
     }
 
     /**
-     *   cleanup and utility methods with proper validation
+     * Enhanced   cleanup and utility methods with proper validation
      */
 
     /**
-     *  Safe permission attachment cleanup with comprehensive validation
+     * Enhanced Safe permission attachment cleanup with comprehensive validation
      */
     private void cleanupPermissionAttachment(UUID uuid, Player player) {
         try {
@@ -1264,7 +1340,7 @@ public class ModerationMechanics implements Listener {
     }
 
     /**
-     *  Safely remove permission attachment with proper validation
+     * Enhanced Safely remove permission attachment with proper validation
      */
     private void cleanupPermissionAttachmentSafely(UUID uuid, Player player, PermissionAttachment attachment) {
         try {
@@ -1336,6 +1412,7 @@ public class ModerationMechanics implements Listener {
         staffLastActivity.remove(uuid);
         onlineStaff.remove(uuid);
         trackedPlayers.remove(uuid);
+        playersLoadingRank.remove(uuid); // Clean up loading tracking
 
         // Clean up attachment tracking
         attachmentPlayerMap.entrySet().removeIf(entry -> entry.getValue().equals(uuid));

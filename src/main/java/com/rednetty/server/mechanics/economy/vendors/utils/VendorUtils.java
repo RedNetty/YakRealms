@@ -12,7 +12,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * FIXED vendor utilities with proper item cleaning that removes ALL vendor-added content
+ *  vendor utilities with proper item cleaning that removes ALL vendor-added content
  * Players receive the exact same items that the original item classes generate
  */
 public class VendorUtils {

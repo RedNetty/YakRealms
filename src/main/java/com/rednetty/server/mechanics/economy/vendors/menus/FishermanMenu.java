@@ -22,7 +22,7 @@ import java.util.Map;
 import java.util.logging.Level;
 
 /**
- * FIXED Fisherman vendor menu that stores original fish items separately from display items
+ *  Fisherman vendor menu that stores original fish items separately from display items
  * Players receive the exact same items that SpeedfishMechanics generates
  */
 public class FishermanMenu implements Listener {

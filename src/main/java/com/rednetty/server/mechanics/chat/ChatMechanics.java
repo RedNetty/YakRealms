@@ -1,7 +1,8 @@
 package com.rednetty.server.mechanics.chat;
 
 import com.rednetty.server.YakRealms;
-import com.rednetty.server.mechanics.moderation.ModerationMechanics;
+import com.rednetty.server.mechanics.player.moderation.ModerationMechanics;
+import com.rednetty.server.mechanics.player.moderation.Rank;
 import com.rednetty.server.mechanics.player.YakPlayer;
 import com.rednetty.server.mechanics.player.YakPlayerManager;
 import com.rednetty.server.utils.text.TextUtil;
@@ -34,18 +35,21 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
- *  ChatMechanics system for YakRealms
+ * ChatMechanics system for YakRealms
  *
  * Handles all chat-related functionality including:
- * - Advanced chat formatting and display
+ * - Advanced chat formatting and display with legacy compatibility
  * - Chat tags management with animations
  * - Multi-layer chat filtering and moderation
  * - Interactive item display in chat with hover effects
  * - Intelligent cooldown management
  * - Guild tag integration with permissions
  * - Real-time mute system with persistence
+ * - Alignment-based name coloring
+ * - Buddy system integration
+ * - Proper rank display with formatting
  *
- * @version 2.0
+ * @version 2.2 -  Rank Display
  * @author YakRealms Development Team
  */
 public class ChatMechanics implements Listener {
@@ -155,7 +159,7 @@ public class ChatMechanics implements Listener {
             loadOnlinePlayerData();
 
             isEnabled.set(true);
-            logger.info("ChatMechanics v2.0 enabled successfully");
+            logger.info("ChatMechanics v2.2 ( Rank Display) enabled successfully");
             logger.info("Chat system compatibility: " + getCompatibilityInfo());
 
         } catch (Exception e) {
@@ -235,7 +239,7 @@ public class ChatMechanics implements Listener {
     // === BACKGROUND TASKS ===
 
     /**
-     *   cooldown management with proper ConcurrentHashMap handling
+     *  cooldown management with proper ConcurrentHashMap handling
      */
     private void startCooldownTask() {
         cooldownTask = new BukkitRunnable() {
@@ -263,7 +267,7 @@ public class ChatMechanics implements Listener {
     }
 
     /**
-     *   mute timer with proper ConcurrentHashMap handling
+     *  mute timer with proper ConcurrentHashMap handling
      */
     private void startMuteTimerTask() {
         muteTimerTask = new BukkitRunnable() {
@@ -514,7 +518,7 @@ public class ChatMechanics implements Listener {
     }
 
     private boolean handleRestrictedCommands(Player player, PlayerCommandPreprocessEvent event, String command) {
-        if (player.isOp() || ModerationMechanics.isStaff(player)) {
+        if (player.isOp() || ModerationMechanics.getInstance().isStaff(player)) {
             return false;
         }
 
@@ -609,7 +613,7 @@ public class ChatMechanics implements Listener {
     private boolean isPlayerMuted(Player player) {
         try {
             YakPlayer yakPlayer = playerManager.getPlayer(player);
-            if (yakPlayer != null && yakPlayer.isMuted()) {
+            if (yakPlayer != null && yakPlayer.getMuteTime() > 0) {
                 int muteTime = yakPlayer.getMuteTime();
                 player.sendMessage(Messages.MUTED_MESSAGE);
 
@@ -639,14 +643,242 @@ public class ChatMechanics implements Listener {
         return message.contains("@i@");
     }
 
+    // ===  LEGACY-COMPATIBLE FORMATTING METHODS ===
+
+    /**
+     * Get the chat tag and rank tag for a player with proper rank formatting
+     */
+    public static String getTag(Player player) {
+        if (player == null) {
+            return "";
+        }
+
+        try {
+            StringBuilder tagBuilder = new StringBuilder();
+
+            // Get chat tag
+            String chatTag = Optional.ofNullable(playerTags.get(player.getUniqueId()))
+                    .filter(t -> t != ChatTag.DEFAULT)
+                    .map(ChatTag::getTag)
+                    .map(t -> t + " ")
+                    .orElse("");
+
+            // Get rank tag using ModerationMechanics for proper formatting
+            String rankTag = "";
+            try {
+                Rank playerRank = ModerationMechanics.getInstance().getPlayerRank(player.getUniqueId());
+                if (playerRank != null && playerRank != Rank.DEFAULT) {
+                    String formattedRankTag = playerRank.getTag();
+                    if (formattedRankTag != null && !formattedRankTag.trim().isEmpty()) {
+                        // Apply color codes and add proper spacing
+                        rankTag = ChatColor.translateAlternateColorCodes('&', formattedRankTag) + " ";
+                    }
+                }
+            } catch (Exception e) {
+                getInstance().logger.log(Level.WARNING, "Error getting rank tag for " + player.getName(), e);
+            }
+
+            // Build the complete tag string
+            tagBuilder.append(chatTag).append(rankTag);
+
+            return tagBuilder.toString();
+
+        } catch (Exception e) {
+            getInstance().logger.log(Level.WARNING, "Error getting tag for " + player.getName(), e);
+            return "";
+        }
+    }
+
+    /**
+     * Get display name for a player as seen by another player with  formatting
+     * Handles alignment colors and buddy colors with rank consideration
+     */
+    public static String getDisplayNameFor(Player player, Player viewer) {
+        if (player == null || viewer == null) {
+            return player != null ? player.getName() : "[Unknown]";
+        }
+
+        try {
+            String nameColor = ChatColor.GRAY.toString(); // Default color
+            String endColor = ChatColor.GRAY.toString(); // Default end color
+
+            // Get YakPlayer instances
+            YakPlayer yakPlayer = YakPlayerManager.getInstance().getPlayer(player);
+            YakPlayer viewerYakPlayer = YakPlayerManager.getInstance().getPlayer(viewer);
+
+            if (yakPlayer != null && viewerYakPlayer != null) {
+                // Check if player is staff first (staff get special coloring)
+                if (ModerationMechanics.getInstance().isStaff(player)) {
+                    Rank playerRank = ModerationMechanics.getInstance().getPlayerRank(player.getUniqueId());
+                    nameColor = getStaffNameColor(playerRank);
+                    endColor = ChatColor.WHITE.toString();
+                } else {
+                    // Check alignment for non-staff players
+                    String alignment = yakPlayer.getAlignment();
+                    if (alignment != null) {
+                        switch (alignment.toLowerCase()) {
+                            case "chaotic":
+                                nameColor = ChatColor.RED.toString();
+                                break;
+                            case "neutral":
+                                nameColor = ChatColor.YELLOW.toString();
+                                break;
+                            default:
+                                // For lawful or unknown, check buddy status
+                                if (viewerYakPlayer.isBuddy(player.getName())) {
+                                    nameColor = ChatColor.GREEN.toString();
+                                } else {
+                                    nameColor = ChatColor.GRAY.toString();
+                                }
+                                break;
+                        }
+                    }
+                }
+            }
+
+            return nameColor + player.getName() + endColor;
+
+        } catch (Exception e) {
+            getInstance().logger.log(Level.WARNING, "Error getting display name for " + player.getName(), e);
+            return ChatColor.GRAY + player.getName();
+        }
+    }
+
+    /**
+     * Get staff-specific name color based on rank
+     */
+    private static String getStaffNameColor(Rank rank) {
+        if (rank == null) {
+            return ChatColor.GRAY.toString();
+        }
+
+        switch (rank) {
+            case DEV:
+                return ChatColor.RED.toString();
+            case MANAGER:
+                return ChatColor.GOLD.toString();
+            case GM:
+                return ChatColor.AQUA.toString();
+            case PMOD:
+                return ChatColor.WHITE.toString();
+            case QUALITY:
+                return ChatColor.LIGHT_PURPLE.toString();
+            case BUILDER:
+                return ChatColor.BLUE.toString();
+            default:
+                return ChatColor.GRAY.toString();
+        }
+    }
+
+    /**
+     * Get full display name for a player with  rank formatting
+     * Format: [Guild] ChatTag RankTag ColoredPlayerName
+     */
+    public static String getFullDisplayName(Player player) {
+        if (player == null) {
+            return "[Unknown]";
+        }
+
+        try {
+            StringBuilder name = new StringBuilder();
+
+            // Get guild tag if player is in a guild
+            YakPlayer yakPlayer = YakPlayerManager.getInstance().getPlayer(player);
+            if (yakPlayer != null) {
+                String guildName = yakPlayer.getGuildName();
+                if (guildName != null && !guildName.isEmpty()) {
+                    String guildTag = getGuildTag(guildName);
+                    if (guildTag != null && !guildTag.isEmpty()) {
+                        name.append(ChatColor.WHITE).append("[").append(guildTag).append("] ");
+                    }
+                }
+            }
+
+            // Add chat tag and rank tag
+            String tagString = getTag(player);
+            if (tagString != null && !tagString.trim().isEmpty()) {
+                name.append(tagString);
+            }
+
+            // Add colored player name (as seen by themselves)
+            String playerName = getDisplayNameFor(player, player);
+            name.append(playerName);
+
+            return name.toString();
+
+        } catch (Exception e) {
+            getInstance().logger.log(Level.WARNING, "Error getting full display name for " + player.getName(), e);
+            return ChatColor.GRAY + player.getName();
+        }
+    }
+
+    /**
+     * Get full display name for a player as seen by another player with  formatting
+     */
+    public static String getFullDisplayNameFor(Player player, Player viewer) {
+        if (player == null || viewer == null) {
+            return player != null ? player.getName() : "[Unknown]";
+        }
+
+        try {
+            StringBuilder name = new StringBuilder();
+
+            // Get guild tag if player is in a guild
+            YakPlayer yakPlayer = YakPlayerManager.getInstance().getPlayer(player);
+            if (yakPlayer != null) {
+                String guildName = yakPlayer.getGuildName();
+                if (guildName != null && !guildName.isEmpty()) {
+                    String guildTag = getGuildTag(guildName);
+                    if (guildTag != null && !guildTag.isEmpty()) {
+                        name.append(ChatColor.WHITE).append("[").append(guildTag).append("] ");
+                    }
+                }
+            }
+
+            // Add chat tag and rank tag
+            String tagString = getTag(player);
+            if (tagString != null && !tagString.trim().isEmpty()) {
+                name.append(tagString);
+            }
+
+            // Add colored player name as seen by the viewer
+            String playerName = getDisplayNameFor(player, viewer);
+            name.append(playerName);
+
+            return name.toString();
+
+        } catch (Exception e) {
+            getInstance().logger.log(Level.WARNING, "Error getting full display name for " + player.getName() + " viewed by " + viewer.getName(), e);
+            return ChatColor.GRAY + player.getName();
+        }
+    }
+
+    /**
+     *  guild tag method with better formatting
+     */
+    private static String getGuildTag(String guildName) {
+        if (guildName == null || guildName.isEmpty()) {
+            return null;
+        }
+
+        try {
+            // Try to get actual guild tag if guild system is available
+            // For now, return a formatted version of the guild name
+            String cleanName = guildName.replaceAll("[^a-zA-Z0-9]", "");
+            return cleanName.length() > 4 ? cleanName.substring(0, 4).toUpperCase() : cleanName.toUpperCase();
+        } catch (Exception e) {
+            return guildName.length() > 4 ? guildName.substring(0, 4) : guildName;
+        }
+    }
+
     // === MESSAGE PROCESSING ===
 
     /**
-     *  normal message sending with improved recipient handling
+     *  normal message sending with legacy-compatible formatting
      */
     private void sendNormalMessage(Player player, String message) {
         try {
-            String formattedName = getFormattedPlayerName(player);
+            String formattedName = getFullDisplayName(player);
             String fullMessage = formattedName + ChatColor.WHITE + ": " + message;
 
             // Send to sender
@@ -670,7 +902,7 @@ public class ChatMechanics implements Listener {
     }
 
     /**
-     *  item message with improved error handling and fallbacks
+     *  item message with legacy-compatible formatting
      */
     private void sendItemMessage(Player player, String message) {
         try {
@@ -681,7 +913,7 @@ public class ChatMechanics implements Listener {
                 return;
             }
 
-            String formattedName = getFormattedPlayerName(player);
+            String formattedName = getFullDisplayName(player);
 
             // Try modern chat component approach
             if (supportsModernChat()) {
@@ -726,7 +958,7 @@ public class ChatMechanics implements Listener {
         for (Player recipient : recipients) {
             if (recipient != null && recipient.isOnline()) {
                 try {
-                    String recipientSpecificName = getFormattedNameFor(sender, recipient);
+                    String recipientSpecificName = getFullDisplayNameFor(sender, recipient);
                     recipient.sendMessage(recipientSpecificName + ChatColor.WHITE + ": " + message);
                 } catch (Exception e) {
                     logger.log(Level.WARNING, "Error sending message to " + recipient.getName(), e);
@@ -742,7 +974,7 @@ public class ChatMechanics implements Listener {
         for (Player recipient : recipients) {
             if (recipient != null && recipient.isOnline()) {
                 try {
-                    String recipientSpecificName = getFormattedNameFor(sender, recipient);
+                    String recipientSpecificName = getFullDisplayNameFor(sender, recipient);
                     boolean success = sendItemHoverMessage(sender, item, recipientSpecificName, message, recipient);
 
                     if (success) {
@@ -923,100 +1155,6 @@ public class ChatMechanics implements Listener {
         } catch (Exception e) {
             logger.log(Level.WARNING, "Error saving chat tag for " + player.getName(), e);
         }
-    }
-
-    // === FORMATTING AND DISPLAY ===
-
-    /**
-     *  player name formatting with caching
-     */
-    private String getFormattedPlayerName(Player player) {
-        if (player == null) {
-            return "[Unknown]";
-        }
-
-        try {
-            YakPlayer yakPlayer = playerManager.getPlayer(player);
-            if (yakPlayer != null) {
-                return yakPlayer.getFormattedDisplayName();
-            }
-
-            // Fallback if YakPlayer not available
-            return buildBasicFormattedName(player);
-
-        } catch (Exception e) {
-            logger.log(Level.WARNING, "Error formatting name for " + player.getName(), e);
-            return ChatColor.GRAY + player.getName();
-        }
-    }
-
-    private String buildBasicFormattedName(Player player) {
-        StringBuilder name = new StringBuilder();
-
-        try {
-            // Add chat tag if not default
-            ChatTag tag = playerTags.getOrDefault(player.getUniqueId(), ChatTag.DEFAULT);
-            if (tag != ChatTag.DEFAULT) {
-                String tagString = tag.getTag();
-                if (tagString != null && !tagString.isEmpty()) {
-                    name.append(tagString).append(" ");
-                }
-            }
-
-            // Add player name with basic color
-            name.append(ChatColor.GRAY).append(player.getName());
-
-        } catch (Exception e) {
-            logger.log(Level.WARNING, "Error building basic formatted name", e);
-            name.setLength(0);
-            name.append(ChatColor.GRAY).append(player.getName());
-        }
-
-        return name.toString();
-    }
-
-    /**
-     *  player name formatting for specific recipients (considers buddy status)
-     */
-    private String getFormattedNameFor(Player player, Player recipient) {
-        if (player == null || recipient == null) {
-            return player != null ? player.getName() : "[Unknown]";
-        }
-
-        try {
-            YakPlayer yakPlayer = playerManager.getPlayer(player);
-            YakPlayer recipientYakPlayer = playerManager.getPlayer(recipient);
-
-            if (yakPlayer != null) {
-                // Use the base display name but potentially modify name color based on recipient relationship
-                String baseName = yakPlayer.getFormattedDisplayName();
-
-                // Check if we need to modify the name color based on buddy status
-                if (recipientYakPlayer != null && recipientYakPlayer.isBuddy(player.getName())) {
-                    // Replace the final color code with buddy color
-                    return replaceFinalNameColor(baseName, ChatColor.GREEN);
-                }
-
-                return baseName;
-            }
-
-            return buildBasicFormattedName(player);
-
-        } catch (Exception e) {
-            logger.log(Level.WARNING, "Error formatting name for recipient", e);
-            return ChatColor.GRAY + player.getName();
-        }
-    }
-
-    private String replaceFinalNameColor(String formattedName, ChatColor newColor) {
-        // Simple implementation - replace the last color code with buddy color
-        // This is a basic implementation; you might want more sophisticated logic
-        int lastColorIndex = formattedName.lastIndexOf('§');
-        if (lastColorIndex != -1 && lastColorIndex < formattedName.length() - 1) {
-            return formattedName.substring(0, lastColorIndex) + newColor +
-                    formattedName.substring(lastColorIndex + 2);
-        }
-        return newColor + formattedName;
     }
 
     // === ITEM DISPLAY SYSTEM ===
@@ -1280,7 +1418,7 @@ public class ChatMechanics implements Listener {
                 return;
             }
 
-            String formattedName = getFormattedPlayerName(player);
+            String formattedName = getFullDisplayName(player);
             String itemDisplay = formatItemDisplay(getItemDisplayName(item));
             String finalMessage = message.replace("@i@", itemDisplay);
 
@@ -1378,6 +1516,8 @@ public class ChatMechanics implements Listener {
 
         info.append("Modern Chat Support: ").append(supportsModernChat() ? "Yes" : "No").append(" | ");
 
+        info.append("Rank Display:  | ");
+
         info.append("Players Online: ").append(Bukkit.getOnlinePlayers().size());
 
         return info.toString();
@@ -1447,7 +1587,7 @@ public class ChatMechanics implements Listener {
 
         try {
             YakPlayer yakPlayer = YakPlayerManager.getInstance().getPlayer(player);
-            return yakPlayer != null && yakPlayer.isMuted();
+            return yakPlayer != null && yakPlayer.getMuteTime() > 0;
         } catch (Exception e) {
             getInstance().logger.log(Level.WARNING, "Error checking mute status for " + player.getName(), e);
             return false;
@@ -1669,6 +1809,7 @@ public class ChatMechanics implements Listener {
         stats.put("replyTargets", replyTargets.size());
         stats.put("supportsModernChat", supportsModernChat());
         stats.put("isEnabled", getInstance().isEnabled.get());
+        stats.put("version", "2.2-");
         return stats;
     }
 
@@ -1703,6 +1844,23 @@ public class ChatMechanics implements Listener {
             boolean hasCooldown = chatCooldown.containsKey(player.getUniqueId());
             player.sendMessage(ChatColor.YELLOW + "Chat Cooldown Active: " + ChatColor.WHITE + (hasCooldown ? "Yes" : "No"));
 
+            //  rank information
+            Rank playerRank = ModerationMechanics.getInstance().getPlayerRank(player.getUniqueId());
+            player.sendMessage(ChatColor.YELLOW + "Your Rank: " + ChatColor.WHITE + playerRank.name());
+            player.sendMessage(ChatColor.YELLOW + "Rank Tag: " + ChatColor.WHITE +
+                    ChatColor.translateAlternateColorCodes('&', playerRank.getTag()));
+
+            // Test formatting
+            player.sendMessage(ChatColor.YELLOW + "Full Display Name: " + ChatColor.WHITE + getFullDisplayName(player));
+            player.sendMessage(ChatColor.YELLOW + "Tag String: " + ChatColor.WHITE + getTag(player));
+            player.sendMessage(ChatColor.YELLOW + "Display Name For Self: " + ChatColor.WHITE + getDisplayNameFor(player, player));
+
+            // Staff status
+            boolean isStaff = ModerationMechanics.getInstance().isStaff(player);;
+            boolean isDonator = ModerationMechanics.getInstance().isDonator(player);
+            player.sendMessage(ChatColor.YELLOW + "Is Staff: " + ChatColor.WHITE + (isStaff ? "Yes" : "No"));
+            player.sendMessage(ChatColor.YELLOW + "Is Donator: " + ChatColor.WHITE + (isDonator ? "Yes" : "No"));
+
             // Statistics
             Map<String, Object> stats = getStatistics();
             player.sendMessage(ChatColor.YELLOW + "Active Statistics:");
@@ -1713,7 +1871,7 @@ public class ChatMechanics implements Listener {
             player.sendMessage(ChatColor.RED + "✗ ChatMechanics instance not found");
         }
 
-        player.sendMessage(ChatColor.GOLD + "=== End Debug Info ===");
+        player.sendMessage(ChatColor.GOLD + "=== End  Debug Info ===");
     }
 
     /**
@@ -1731,7 +1889,7 @@ public class ChatMechanics implements Listener {
                 return;
             }
 
-            instance.logger.info("Testing item display for " + player.getName());
+            instance.logger.info("Testing  item display for " + player.getName());
 
             // Check if player is holding an item
             ItemStack item = player.getInventory().getItemInMainHand();
@@ -1753,6 +1911,12 @@ public class ChatMechanics implements Listener {
             } else {
                 player.sendMessage(ChatColor.RED + "✗ BungeeCord Chat API is NOT available - using fallback mode");
             }
+
+            // Test rank display
+            Rank playerRank = ModerationMechanics.getInstance().getPlayerRank(player.getUniqueId());
+            player.sendMessage(ChatColor.YELLOW + "Your Rank: " + playerRank.name());
+            player.sendMessage(ChatColor.YELLOW + "Formatted Rank Tag: " +
+                    ChatColor.translateAlternateColorCodes('&', playerRank.getTag()));
 
             // Test hover message creation
             try {
@@ -1806,5 +1970,22 @@ public class ChatMechanics implements Listener {
             getInstance().loadPlayerChatTag(player);
             getInstance().logger.info("Reloaded chat data for player: " + player.getName());
         }
+    }
+
+    /**
+     *  method to refresh rank display for all online players
+     */
+    public static void refreshAllRankDisplays() {
+        int refreshed = 0;
+        for (Player player : Bukkit.getOnlinePlayers()) {
+            try {
+                // Force reload of chat tag to pick up any rank changes
+                getInstance().loadPlayerChatTag(player);
+                refreshed++;
+            } catch (Exception e) {
+                getInstance().logger.log(Level.WARNING, "Error refreshing rank display for " + player.getName(), e);
+            }
+        }
+        getInstance().logger.info("Refreshed rank displays for " + refreshed + " players");
     }
 }

@@ -8,8 +8,6 @@ import com.mongodb.client.result.DeleteResult;
 import com.rednetty.server.YakRealms;
 import com.rednetty.server.mechanics.player.YakPlayer;
 import org.bson.Document;
-import org.bukkit.Bukkit;
-import org.bukkit.plugin.Plugin;
 
 import java.io.File;
 import java.nio.file.Files;
@@ -17,14 +15,13 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
- * Complete YakPlayer repository with ALL player data fields properly saved and loaded
- * Physical gem economy support (no virtual player balance)
+ *  YakPlayerRepository with NO CACHING for cross-server compatibility
+ * Always loads fresh from database to ensure data consistency between servers
  */
 public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
     private static final String COLLECTION_NAME = "players";
@@ -34,7 +31,7 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
 
     // Core dependencies
     private final Logger logger;
-    private final Plugin plugin;
+    private final YakRealms plugin;
     private final File backupDir;
     private final DocumentConverter documentConverter;
 
@@ -44,14 +41,6 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
 
     // Repository state
     private final AtomicBoolean repositoryInitialized = new AtomicBoolean(false);
-
-    // Simple caching
-    private final Map<UUID, YakPlayer> playerCache = new ConcurrentHashMap<>();
-    private final Map<String, UUID> nameToUuidCache = new ConcurrentHashMap<>();
-
-    // Background tasks
-    private int cacheCleanupTaskId = -1;
-    private int autoSaveTaskId = -1;
 
     public YakPlayerRepository() {
         this.plugin = YakRealms.getInstance();
@@ -73,7 +62,7 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
      */
     private void initializeRepository() {
         try {
-            logger.info("Initializing YakPlayerRepository...");
+            logger.info("Initializing YakPlayerRepository (NO CACHING)...");
 
             // Get MongoDB manager
             MongoDBManager mongoDBManager = MongoDBManager.getInstance();
@@ -93,10 +82,7 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
             testConnection();
 
             repositoryInitialized.set(true);
-            logger.info("YakPlayerRepository initialized successfully");
-
-            // Start background tasks
-            startBackgroundTasks();
+            logger.info("YakPlayerRepository initialized successfully (NO CACHING for cross-server sync)");
 
         } catch (Exception e) {
             logger.log(Level.SEVERE, "Failed to initialize YakPlayerRepository", e);
@@ -117,27 +103,6 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
         }
     }
 
-    /**
-     * Start background maintenance tasks
-     */
-    private void startBackgroundTasks() {
-        // Cache cleanup task
-        cacheCleanupTaskId = Bukkit.getScheduler().runTaskTimerAsynchronously(plugin,
-                this::performCacheCleanup,
-                20L * 60 * 5, // 5 minutes initial delay
-                20L * 60 * 5  // 5 minutes interval
-        ).getTaskId();
-
-        // Auto-save dirty players task
-        autoSaveTaskId = Bukkit.getScheduler().runTaskTimerAsynchronously(plugin,
-                this::performAutoSave,
-                20L * 60,     // 1 minute initial delay
-                20L * 60 * 3  // 3 minutes interval
-        ).getTaskId();
-
-        logger.info("Repository background tasks started");
-    }
-
     @Override
     public CompletableFuture<Optional<YakPlayer>> findById(UUID id) {
         return CompletableFuture.supplyAsync(() -> {
@@ -146,41 +111,34 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
                 return Optional.empty();
             }
 
-            // Check cache first
-            YakPlayer cachedPlayer = playerCache.get(id);
-            if (cachedPlayer != null) {
-                logger.fine("Found player in cache: " + id);
-                return Optional.of(cachedPlayer);
-            }
-
             if (!repositoryInitialized.get()) {
                 logger.severe("Repository not initialized - cannot find player: " + id);
                 return Optional.empty();
             }
 
+            // ALWAYS load fresh from database - NO CACHING
             return performDatabaseFind(id);
         });
     }
 
     /**
-     * Perform database find operation with retries
+     * Perform database find operation with retries - ALWAYS fresh from database
      */
     private Optional<YakPlayer> performDatabaseFind(UUID id) {
         for (int attempt = 1; attempt <= MAX_RETRY_ATTEMPTS; attempt++) {
             try {
-                logger.fine("Finding player by UUID (attempt " + attempt + "): " + id);
+                logger.fine("Loading FRESH player data from database (attempt " + attempt + "): " + id);
 
                 Document doc = MongoDBManager.getInstance().performSafeOperation(() ->
                         collection.find(Filters.eq("uuid", id.toString())).first()
                 );
 
                 if (doc != null) {
-                    logger.fine("Found player document in database: " + id);
+                    logger.info("Found FRESH player document in database: " + id);
                     YakPlayer player = documentConverter.documentToPlayer(doc);
 
                     if (player != null) {
-                        cachePlayer(player);
-                        logger.fine("Successfully loaded and cached player: " + id);
+                        logger.info("Successfully loaded FRESH player data from database: " + id);
                         return Optional.of(player);
                     } else {
                         logger.warning("Failed to convert document to player: " + id);
@@ -222,9 +180,6 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
                 return player;
             }
 
-            // Update cache
-            cachePlayer(player);
-
             if (!repositoryInitialized.get()) {
                 logger.warning("Repository not initialized - creating local backup only: " + player.getUsername());
                 createLocalBackup(player);
@@ -245,7 +200,7 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
 
         for (int attempt = 1; attempt <= MAX_RETRY_ATTEMPTS; attempt++) {
             try {
-                logger.fine("Saving player to database (attempt " + attempt + "): " + player.getUsername());
+                logger.info("Saving FRESH player to database (attempt " + attempt + "): " + player.getUsername());
 
                 Document doc = documentConverter.playerToDocument(player);
                 if (doc == null) {
@@ -267,7 +222,7 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
                     return null;
                 });
 
-                logger.fine("Successfully saved player to database: " + player.getUsername());
+                logger.info("Successfully saved FRESH player to database: " + player.getUsername());
                 return player;
 
             } catch (Exception e) {
@@ -291,7 +246,7 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
     }
 
     /**
-     * Synchronous save for shutdown scenarios
+     * Synchronous save for shutdown scenarios and cross-server sync
      */
     public YakPlayer saveSync(YakPlayer player) {
         if (player == null || !validatePlayerData(player)) {
@@ -300,8 +255,6 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
             }
             return player;
         }
-
-        cachePlayer(player);
 
         if (!repositoryInitialized.get()) {
             createLocalBackup(player);
@@ -325,7 +278,7 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
                     new ReplaceOptions().upsert(true)
             );
 
-            logger.fine("Successfully performed sync save for player: " + player.getUsername());
+            logger.info("Successfully performed IMMEDIATE sync save for player: " + player.getUsername());
             return player;
 
         } catch (Exception e) {
@@ -346,7 +299,7 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
             }
 
             try {
-                logger.info("Loading all players from database...");
+                logger.info("Loading all players FRESH from database...");
 
                 FindIterable<Document> docs = MongoDBManager.getInstance().performSafeOperation(() ->
                         collection.find().batchSize(100)
@@ -361,7 +314,6 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
                             YakPlayer player = documentConverter.documentToPlayer(doc);
                             if (player != null) {
                                 players.add(player);
-                                cachePlayer(player);
                                 loadedCount++;
                             } else {
                                 errorCount++;
@@ -372,7 +324,7 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
                         }
                     }
 
-                    logger.info("Loaded " + loadedCount + " players successfully, " + errorCount + " errors");
+                    logger.info("Loaded " + loadedCount + " players FRESH from database, " + errorCount + " errors");
                 }
             } catch (Exception e) {
                 logger.log(Level.SEVERE, "Error finding all players", e);
@@ -396,15 +348,6 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
             if (id == null) {
                 return false;
             }
-
-            // Create backup before deletion
-            YakPlayer cachedPlayer = playerCache.get(id);
-            if (cachedPlayer != null) {
-                createLocalBackup(cachedPlayer);
-            }
-
-            // Remove from cache
-            removeFromCache(id);
 
             if (!repositoryInitialized.get()) {
                 logger.severe("Repository not initialized - cannot delete player: " + id);
@@ -438,11 +381,6 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
                 return false;
             }
 
-            // Check cache first
-            if (playerCache.containsKey(id)) {
-                return true;
-            }
-
             if (!repositoryInitialized.get()) {
                 logger.severe("Repository not initialized - cannot check if player exists: " + id);
                 return false;
@@ -459,82 +397,6 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
                 return false;
             }
         });
-    }
-
-    /**
-     * Cache player data
-     */
-    private void cachePlayer(YakPlayer player) {
-        if (player == null || player.getUUID() == null) {
-            logger.warning("Attempted to cache null player or player with null UUID");
-            return;
-        }
-
-        playerCache.put(player.getUUID(), player);
-
-        // Update name cache
-        if (player.getUsername() != null) {
-            nameToUuidCache.put(player.getUsername().toLowerCase(), player.getUUID());
-        }
-
-        logger.fine("Cached player: " + player.getUUID() + " (" + player.getUsername() + ")");
-    }
-
-    /**
-     * Remove player from cache
-     */
-    private void removeFromCache(UUID playerId) {
-        YakPlayer removed = playerCache.remove(playerId);
-        if (removed != null) {
-            if (removed.getUsername() != null) {
-                nameToUuidCache.remove(removed.getUsername().toLowerCase());
-            }
-        }
-    }
-
-    /**
-     * Perform cache cleanup
-     */
-    private void performCacheCleanup() {
-        int removedCount = 0;
-
-        // Remove offline players from cache
-        List<UUID> toRemove = new ArrayList<>();
-        for (UUID playerId : playerCache.keySet()) {
-            if (Bukkit.getPlayer(playerId) == null) {
-                toRemove.add(playerId);
-            }
-        }
-
-        for (UUID playerId : toRemove) {
-            removeFromCache(playerId);
-            removedCount++;
-        }
-
-        if (removedCount > 0) {
-            logger.fine("Cache cleanup: removed " + removedCount + " offline players");
-        }
-    }
-
-    /**
-     * Perform auto-save of cached players
-     */
-    private void performAutoSave() {
-        int savedCount = 0;
-        for (YakPlayer player : playerCache.values()) {
-            if (Bukkit.getPlayer(player.getUUID()) != null) {
-                try {
-                    savePlayerToDatabase(player);
-                    savedCount++;
-                } catch (Exception e) {
-                    logger.log(Level.WARNING, "Error during auto-save", e);
-                }
-            }
-        }
-
-        if (savedCount > 0) {
-            logger.fine("Auto-save completed: " + savedCount + " players saved");
-        }
     }
 
     /**
@@ -638,38 +500,9 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
         return repositoryInitialized.get() && collection != null;
     }
 
-    public YakPlayer getFromCache(UUID playerId) {
-        return playerCache.get(playerId);
-    }
-
-    public YakPlayer getFromCache(String playerName) {
-        UUID playerId = nameToUuidCache.get(playerName.toLowerCase());
-        return playerId != null ? getFromCache(playerId) : null;
-    }
-
     public void shutdown() {
-        logger.info("Shutting down YakPlayerRepository...");
-
-        // Cancel background tasks
-        if (cacheCleanupTaskId != -1) {
-            Bukkit.getScheduler().cancelTask(cacheCleanupTaskId);
-        }
-        if (autoSaveTaskId != -1) {
-            Bukkit.getScheduler().cancelTask(autoSaveTaskId);
-        }
-
-        // Save all cached players
-        int savedCount = 0;
-        for (YakPlayer player : playerCache.values()) {
-            try {
-                saveSync(player);
-                savedCount++;
-            } catch (Exception e) {
-                logger.log(Level.WARNING, "Error saving player during shutdown", e);
-            }
-        }
-
-        logger.info("Repository shutdown completed. Saved " + savedCount + " players.");
+        logger.info("Shutting down YakPlayerRepository (NO CACHING)...");
+        logger.info("Repository shutdown completed - no cache to clear");
     }
 
     /**
@@ -722,7 +555,6 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
 
                 // Load bank data
                 player.setBankPages(doc.getInteger("bank_pages", 1));
-                player.setBankAuthorizedUsers(doc.getList("bank_authorized_users", String.class, new ArrayList<>()));
 
                 List<String> bankLog = doc.getList("bank_access_log", String.class);
                 if (bankLog != null) {
@@ -789,7 +621,6 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
                 // Load quest system data
                 player.setCurrentQuest(doc.getString("current_quest") != null ? doc.getString("current_quest") : "");
                 player.setQuestProgress(doc.getInteger("quest_progress", 0));
-                player.setCompletedQuests(doc.getList("completed_quests", String.class, new ArrayList<>()));
                 player.setQuestPoints(doc.getInteger("quest_points", 0));
                 player.setDailyQuestsCompleted(doc.getInteger("daily_quests_completed", 0));
                 player.setLastDailyQuestReset(doc.getLong("last_daily_quest_reset") != null ? doc.getLong("last_daily_quest_reset") : 0);
@@ -825,7 +656,7 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
                             damageMap.put(key, value);
                         }
                     }
-                    player.setWorldBossDamage(damageMap);
+                    //player.setWorldBossDamage(damageMap);
                 }
 
                 Document worldBossKills = doc.get("world_boss_kills", Document.class);
@@ -875,7 +706,6 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
                 player.setTotalExperience(doc.getInteger("total_experience", 0));
                 player.setBedSpawnLocation(doc.getString("bed_spawn_location"));
                 player.setGameMode(doc.getString("gamemode") != null ? doc.getString("gamemode") : "SURVIVAL");
-                player.setActivePotionEffects(doc.getList("active_potion_effects", String.class, new ArrayList<>()));
 
                 // Load achievement and reward tracking
                 player.getAchievements().addAll(doc.getList("achievements", String.class, new ArrayList<>()));
@@ -924,7 +754,8 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
                     player.setCombatLogoutState(YakPlayer.CombatLogoutState.NONE);
                 }
 
-                logger.fine("Successfully converted document to player: " + player.getUsername());
+                logger.info("Successfully converted FRESH document to player: " + player.getUsername() +
+                        " (State: " + player.getCombatLogoutState() + ")");
                 return player;
 
             } catch (Exception e) {
@@ -1155,7 +986,7 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
                 // Combat logout state management
                 doc.append("combat_logout_state", player.getCombatLogoutState().name());
 
-                logger.fine("Successfully converted player to document: " + player.getUsername());
+                logger.info("Successfully converted player to FRESH document: " + player.getUsername());
                 return doc;
 
             } catch (Exception e) {

@@ -454,7 +454,7 @@ public class LichKingBoss extends DungeonBoss {
 
                     if (minion != null) {
                         summonedMinions.add(minion.getUniqueId());
-                        minion.setMetadata("lich_minion", new org.bukkit.metadata.FixedMetadataValue(YakRealms.getInstance(), true));
+                        minion.setMetadata("lich_minion", new org.bukkit.metadata.MetadataValue(YakRealms.getInstance(), true));
 
                         // Give minions a speed boost
                         minion.addPotionEffect(new PotionEffect(PotionEffectType.SPEED, Integer.MAX_VALUE, 1));
@@ -749,10 +749,10 @@ public class LichKingBoss extends DungeonBoss {
 
                     if (minion != null) {
                         summonedMinions.add(minion.getUniqueId());
-                        minion.setMetadata("lich_minion", new org.bukkit.metadata.FixedMetadataValue(YakRealms.getInstance(), true));
+                        minion.setMetadata("lich_minion", new org.bukkit.metadata.MetadataValue(YakRealms.getInstance(), true));
 
                         if (explosiveMinions) {
-                            minion.setMetadata("explosive_minion", new org.bukkit.metadata.FixedMetadataValue(YakRealms.getInstance(), true));
+                            minion.setMetadata("explosive_minion", new org.bukkit.metadata.MetadataValue(YakRealms.getInstance(), true));
                             // Make minions faster and more aggressive
                             minion.addPotionEffect(new PotionEffect(PotionEffectType.SPEED, Integer.MAX_VALUE, 2));
                             minion.addPotionEffect(new PotionEffect(PotionEffectType.INCREASE_DAMAGE, Integer.MAX_VALUE, 1));

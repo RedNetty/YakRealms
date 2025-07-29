@@ -1,6 +1,6 @@
 package com.rednetty.server.commands.staff;
 
-import com.rednetty.server.mechanics.moderation.ModerationMechanics;
+import com.rednetty.server.mechanics.player.moderation.ModerationMechanics;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.OfflinePlayer;
@@ -57,7 +57,7 @@ public class UnbanCommand implements CommandExecutor, TabCompleter {
         String staffMessage = ChatColor.GREEN + targetName + " has been unbanned by " + sender.getName();
 
         for (Player staff : Bukkit.getOnlinePlayers()) {
-            if (staff.hasPermission("yakrealms.staff.ban") || ModerationMechanics.isStaff(staff)) {
+            if (staff.hasPermission("yakrealms.staff.ban") || ModerationMechanics.getInstance().isStaff(staff)) {
                 staff.sendMessage(staffMessage);
             }
         }

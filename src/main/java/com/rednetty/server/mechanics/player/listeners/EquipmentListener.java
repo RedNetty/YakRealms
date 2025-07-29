@@ -250,20 +250,4 @@ public class EquipmentListener extends BaseListener {
             }
         }.runTaskLater(plugin, 5L);
     }
-
-    /**
-     * Process tracking of death events for equipment
-     */
-    @EventHandler(priority = EventPriority.HIGH)
-    public void onPlayerDeath(PlayerDeathEvent event) {
-        Player player = event.getEntity();
-        YakPlayer yakPlayer = playerManager.getPlayer(player);
-
-        if (yakPlayer != null) {
-            // Save necessary equipment data for respawn
-            // This will be used during respawn
-            yakPlayer.setRespawnItems(player.getInventory().getArmorContents().clone());
-            playerManager.savePlayer(yakPlayer);
-        }
-    }
 }

@@ -1,8 +1,8 @@
 package com.rednetty.server.mechanics.player.social.party;
 
 import com.rednetty.server.YakRealms;
-import com.rednetty.server.mechanics.moderation.ModerationMechanics;
-import com.rednetty.server.mechanics.moderation.Rank;
+import com.rednetty.server.mechanics.player.moderation.ModerationMechanics;
+import com.rednetty.server.mechanics.player.moderation.Rank;
 import com.rednetty.server.mechanics.player.YakPlayer;
 import com.rednetty.server.mechanics.player.YakPlayerManager;
 import org.bukkit.Bukkit;
@@ -17,41 +17,38 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- *   party scoreboards with proper team handling and null safety
- * - Fixed immutable collection clear() error
- * - Added comprehensive null checking
- * - Improved team entry management
- * -  error handling and recovery
+ * FIXED Party scoreboards with proper team handling and health display
+ * - Fixed above head name colors to show alignment even in parties
+ * - Fixed health display conflicts between party/non-party modes
+ * - Simplified update logic to prevent throttling issues
+ * - Improved team management to handle both party roles and alignment colors
  */
 public class PartyScoreboards {
     private static final Map<UUID, Scoreboard> playerScoreboards = new ConcurrentHashMap<>();
     private static final Map<UUID, BossBar> partyHealthBars = new ConcurrentHashMap<>();
     private static final Map<UUID, Long> lastUpdateTimes = new ConcurrentHashMap<>();
 
-    // Track entries and player colors to detect alignment changes
+    // Track entries for cleanup
     private static final Map<UUID, Set<String>> activeScoreboardEntries = new ConcurrentHashMap<>();
-    private static final Map<UUID, Map<String, ChatColor>> playerLastColors = new ConcurrentHashMap<>();
 
-    //  visual system for party management
+    // Visual effects system
     private static final Map<UUID, PartyVisualEffects> partyVisuals = new ConcurrentHashMap<>();
 
-    // Update throttling to prevent spam
-    private static final long UPDATE_COOLDOWN = 100; // Increased to reduce spam
-    private static final long FORCE_REFRESH_INTERVAL = 5000; // Force full refresh every 5 seconds
+    // Reduced throttling for better responsiveness
+    private static final long UPDATE_COOLDOWN = 50; // Reduced from 100ms
+    private static final long FORCE_REFRESH_INTERVAL = 2000; // Reduced from 5000ms
 
-    // Team name constants for party members
-    private static final String PARTY_LEADER_TEAM = "party_leader";
-    private static final String PARTY_OFFICER_TEAM = "party_officer";
-    private static final String PARTY_MEMBER_TEAM = "party_member";
-
-    // Alignment team constants
+    // Team name constants - SIMPLIFIED to avoid conflicts
     private static final String CHAOTIC_TEAM = "chaotic";
     private static final String NEUTRAL_TEAM = "neutral";
     private static final String LAWFUL_TEAM = "lawful";
     private static final String DEFAULT_TEAM = "default";
+    private static final String ADMIN_DEV_TEAM = "admin_dev";
+    private static final String ADMIN_MANAGER_TEAM = "admin_manager";
+    private static final String ADMIN_GM_TEAM = "admin_gm";
 
     /**
-     *  visual effects system for party interactions
+     * Visual effects system for party interactions
      */
     private static class PartyVisualEffects {
         private final Player player;
@@ -117,7 +114,7 @@ public class PartyScoreboards {
     }
 
     /**
-     *  Get or create a player's  scoreboard with proper error handling
+     * Get or create a player's scoreboard with proper error handling
      */
     public static Scoreboard getPlayerScoreboard(Player player) {
         if (player == null || !player.isOnline()) {
@@ -145,13 +142,12 @@ public class PartyScoreboards {
                 return null;
             }
 
-            //  team setup with modern styling
+            // Setup teams and health display
             setupTeams(scoreboard);
             setupHealthDisplay(scoreboard);
 
             playerScoreboards.put(playerId, scoreboard);
             activeScoreboardEntries.put(playerId, ConcurrentHashMap.newKeySet());
-            playerLastColors.put(playerId, new ConcurrentHashMap<>());
 
             return scoreboard;
         } catch (Exception e) {
@@ -161,13 +157,13 @@ public class PartyScoreboards {
     }
 
     /**
-     *  Setup  teams with proper error handling
+     * FIXED: Setup teams with alignment-based coloring and party role prefixes
      */
     private static void setupTeams(Scoreboard scoreboard) {
         if (scoreboard == null) return;
 
         try {
-            // Clear any existing teams first - SAFELY
+            // Clear existing teams safely
             Set<Team> existingTeams = new HashSet<>(scoreboard.getTeams());
             for (Team team : existingTeams) {
                 try {
@@ -177,39 +173,25 @@ public class PartyScoreboards {
                 }
             }
 
-            // Party member teams with special visibility for party members only
-            createTeamSafely(scoreboard, PARTY_LEADER_TEAM, ChatColor.GOLD,
-                    ChatColor.GOLD + "★" + ChatColor.LIGHT_PURPLE + "[P] " + ChatColor.GOLD,
-                    ChatColor.GOLD + " ★");
+            // SIMPLIFIED: Only alignment and admin teams
+            // Admin teams (highest priority)
+            createTeamSafely(scoreboard, ADMIN_DEV_TEAM, ChatColor.GOLD,
+                    ChatColor.GOLD + "⚡ DEV " + ChatColor.GOLD, "");
 
-            createTeamSafely(scoreboard, PARTY_OFFICER_TEAM, ChatColor.YELLOW,
-                    ChatColor.YELLOW + "♦" + ChatColor.LIGHT_PURPLE + "[P] " + ChatColor.YELLOW,
-                    ChatColor.YELLOW + " ♦");
+            createTeamSafely(scoreboard, ADMIN_MANAGER_TEAM, ChatColor.YELLOW,
+                    ChatColor.YELLOW + "★ MANAGER " + ChatColor.YELLOW, "");
 
-            createTeamSafely(scoreboard, PARTY_MEMBER_TEAM, ChatColor.AQUA,
-                    ChatColor.LIGHT_PURPLE + "[P] " + ChatColor.AQUA, "");
+            createTeamSafely(scoreboard, ADMIN_GM_TEAM, ChatColor.AQUA,
+                    ChatColor.AQUA + "♦ GM " + ChatColor.AQUA, "");
 
-            // Admin teams with  styling
-            createTeamSafely(scoreboard, "dev", ChatColor.GOLD,
-                    ChatColor.GOLD + "⚡ DEV " + ChatColor.GOLD,
-                    ChatColor.GOLD + " ⚡");
-
-            createTeamSafely(scoreboard, "manager", ChatColor.YELLOW,
-                    ChatColor.YELLOW + "★ MANAGER " + ChatColor.YELLOW,
-                    ChatColor.YELLOW + " ★");
-
-            createTeamSafely(scoreboard, "gm", ChatColor.AQUA,
-                    ChatColor.AQUA + "♦ GM " + ChatColor.AQUA,
-                    ChatColor.AQUA + " ♦");
-
-            // Alignment teams with proper colors for above-head display
+            // Alignment teams with colors but NO prefixes (party prefixes added dynamically)
             createTeamSafely(scoreboard, CHAOTIC_TEAM, ChatColor.RED, "", "");
             createTeamSafely(scoreboard, NEUTRAL_TEAM, ChatColor.YELLOW, "", "");
             createTeamSafely(scoreboard, LAWFUL_TEAM, ChatColor.GRAY, "", "");
             createTeamSafely(scoreboard, DEFAULT_TEAM, ChatColor.WHITE, "", "");
 
         } catch (Exception e) {
-            Bukkit.getLogger().warning("Error setting up  teams: " + e.getMessage());
+            Bukkit.getLogger().warning("Error setting up teams: " + e.getMessage());
         }
     }
 
@@ -237,7 +219,7 @@ public class PartyScoreboards {
     }
 
     /**
-     *  Setup health display using BELOW_NAME for above-head display
+     * FIXED: Setup health display with proper conflict handling
      */
     private static void setupHealthDisplay(Scoreboard scoreboard) {
         if (scoreboard == null) return;
@@ -254,7 +236,7 @@ public class PartyScoreboards {
                     "health", "health", ChatColor.RED + "❤");
             healthObjective.setDisplaySlot(DisplaySlot.BELOW_NAME);
 
-            // Initialize health for all online players
+            // Initialize health for all online players immediately
             for (Player player : Bukkit.getOnlinePlayers()) {
                 try {
                     if (player != null && player.isOnline()) {
@@ -271,7 +253,7 @@ public class PartyScoreboards {
     }
 
     /**
-     *  Update a player's scoreboard with comprehensive error handling
+     * FIXED: Update player scoreboard with simplified logic
      */
     public static void updatePlayerScoreboard(Player player) {
         if (player == null || !player.isOnline()) {
@@ -279,28 +261,8 @@ public class PartyScoreboards {
         }
 
         UUID playerId = player.getUniqueId();
-        long currentTime = System.currentTimeMillis();
-        Long lastUpdate = lastUpdateTimes.get(playerId);
-
-        // Check if any party member's alignment has changed
-        boolean alignmentChanged = hasAnyAlignmentChanged(player);
-        boolean forceRefresh = (lastUpdate == null ||
-                currentTime - lastUpdate > FORCE_REFRESH_INTERVAL ||
-                alignmentChanged);
-
-        // Throttle updates unless forced or alignment changed
-        if (!forceRefresh && lastUpdate != null && currentTime - lastUpdate < UPDATE_COOLDOWN) {
-            return;
-        }
-        lastUpdateTimes.put(playerId, currentTime);
-
         PartyMechanics partyMechanics = PartyMechanics.getInstance();
         if (partyMechanics == null) {
-            return;
-        }
-
-        if (!partyMechanics.isInParty(player)) {
-            clearPlayerScoreboard(player);
             return;
         }
 
@@ -310,26 +272,35 @@ public class PartyScoreboards {
                 return;
             }
 
-            // Force complete refresh if alignment changed
-            if (alignmentChanged || forceRefresh) {
-                forceCompleteRefresh(player, scoreboard, partyMechanics);
-            } else {
+            // Update team assignments first (for name colors)
+            updatePlayerTeamAssignments(player, scoreboard, partyMechanics);
+
+            if (partyMechanics.isInParty(player)) {
+                // Update party sidebar
                 updatePartyObjective(player, scoreboard, partyMechanics);
+                updatePartyHealthBar(player, partyMechanics);
+            } else {
+                // Clear party sidebar
+                clearPartyObjective(player, scoreboard);
+                clearPartyHealthBar(playerId);
             }
 
-            updatePartyHealthBar(player, partyMechanics);
+            // Ensure health display is working
+            updateHealthDisplay(scoreboard);
 
-            // Ensure player gets the updated scoreboard
+            // Apply scoreboard to player
             if (player.getScoreboard() != scoreboard) {
                 player.setScoreboard(scoreboard);
             }
+
+            lastUpdateTimes.put(playerId, System.currentTimeMillis());
+
         } catch (Exception e) {
             Bukkit.getLogger().warning("Error updating scoreboard for " + player.getName() + ": " + e.getMessage());
 
-            // Try to recover by clearing and recreating
+            // Recovery: clear and recreate
             try {
                 cleanupPlayer(player);
-                // Don't immediately recreate to avoid infinite loops
             } catch (Exception ex) {
                 Bukkit.getLogger().severe("Failed to cleanup after scoreboard error for " + player.getName());
             }
@@ -337,89 +308,147 @@ public class PartyScoreboards {
     }
 
     /**
-     * Check if any party member's alignment has changed since last update
+     * FIXED: Update team assignments with party role prefixes AND alignment colors
      */
-    private static boolean hasAnyAlignmentChanged(Player viewer) {
-        if (viewer == null || !viewer.isOnline()) {
-            return false;
-        }
-
-        UUID viewerId = viewer.getUniqueId();
-        PartyMechanics partyMechanics = PartyMechanics.getInstance();
-
-        if (partyMechanics == null || !partyMechanics.isInParty(viewer)) {
-            return false;
-        }
-
-        try {
-            List<Player> partyMembers = partyMechanics.getPartyMembers(viewer);
-            if (partyMembers == null) {
-                return false;
-            }
-
-            Map<String, ChatColor> lastColors = playerLastColors.computeIfAbsent(viewerId, k -> new ConcurrentHashMap<>());
-
-            for (Player member : partyMembers) {
-                if (member == null || !member.isOnline()) continue;
-
-                ChatColor currentColor = getPlayerDisplayColor(member);
-                ChatColor lastColor = lastColors.get(member.getName());
-
-                if (lastColor == null || !lastColor.equals(currentColor)) {
-                    // Color changed - update stored color and return true
-                    lastColors.put(member.getName(), currentColor);
-                    return true;
-                }
-            }
-        } catch (Exception e) {
-            Bukkit.getLogger().warning("Error checking alignment changes for " + viewer.getName() + ": " + e.getMessage());
-        }
-
-        return false;
-    }
-
-    /**
-     * Force complete refresh when alignment changes are detected
-     */
-    private static void forceCompleteRefresh(Player player, Scoreboard scoreboard, PartyMechanics partyMechanics) {
-        if (player == null || !player.isOnline() || scoreboard == null || partyMechanics == null) {
+    private static void updatePlayerTeamAssignments(Player viewer, Scoreboard scoreboard, PartyMechanics partyMechanics) {
+        if (viewer == null || !viewer.isOnline() || scoreboard == null || partyMechanics == null) {
             return;
         }
 
-        UUID playerId = player.getUniqueId();
-
         try {
-            // Get current active entries
-            Set<String> currentEntries = activeScoreboardEntries.computeIfAbsent(playerId, k -> ConcurrentHashMap.newKeySet());
-
-            // Clear ALL existing entries completely
-            for (String entry : new HashSet<>(currentEntries)) {
+            // Clear all team entries safely
+            for (Team team : scoreboard.getTeams()) {
                 try {
-                    scoreboard.resetScores(entry);
+                    Set<String> entries = new HashSet<>(team.getEntries());
+                    for (String entry : entries) {
+                        try {
+                            team.removeEntry(entry);
+                        } catch (Exception e) {
+                            // Ignore individual entry removal errors
+                        }
+                    }
                 } catch (Exception e) {
-                    // Ignore errors when cleaning up
+                    // Ignore team clearing errors
                 }
             }
-            currentEntries.clear();
 
-            // Remove and recreate sidebar objective
-            Objective existing = scoreboard.getObjective(DisplaySlot.SIDEBAR);
-            if (existing != null) {
-                existing.unregister();
+            // Get viewer's party members
+            List<Player> viewerPartyMembers = null;
+            if (partyMechanics.isInParty(viewer)) {
+                viewerPartyMembers = partyMechanics.getPartyMembers(viewer);
             }
 
-            // Recreate the objective fresh
-            updatePartyObjective(player, scoreboard, partyMechanics);
+            // Assign teams for all online players
+            for (Player target : Bukkit.getOnlinePlayers()) {
+                if (target == null || !target.isOnline()) continue;
 
-            // Update team assignments for all players
-            updatePlayerTeamAssignments(player);
+                try {
+                    // Determine team and apply party prefix if needed
+                    String teamName = determinePlayerTeam(target);
+                    Team team = scoreboard.getTeam(teamName);
+
+                    if (team != null) {
+                        // FIXED: Add party role prefix dynamically
+                        String partyPrefix = getPartyRolePrefix(target, viewer, viewerPartyMembers, partyMechanics);
+                        if (partyPrefix != null && !partyPrefix.isEmpty()) {
+                            // Update team prefix to include party role
+                            String currentPrefix = team.getPrefix();
+                            if (currentPrefix == null) currentPrefix = "";
+
+                            // Only add party prefix if not already an admin
+                            if (!currentPrefix.contains("DEV") && !currentPrefix.contains("MANAGER") && !currentPrefix.contains("GM")) {
+                                team.setPrefix(partyPrefix);
+                            }
+                        }
+
+                        team.addEntry(target.getName());
+                    }
+                } catch (Exception e) {
+                    // Skip this player if assignment fails
+                }
+            }
+
+            viewer.setScoreboard(scoreboard);
         } catch (Exception e) {
-            Bukkit.getLogger().warning("Error in force complete refresh for " + player.getName() + ": " + e.getMessage());
+            Bukkit.getLogger().warning("Error updating team assignments for " + viewer.getName() + ": " + e.getMessage());
         }
     }
 
     /**
-     *  Update the party objective with proper cleanup and unique entry names
+     * FIXED: Determine player team based on rank and alignment only
+     */
+    private static String determinePlayerTeam(Player target) {
+        if (target == null) {
+            return DEFAULT_TEAM;
+        }
+
+        try {
+            // Check admin rank first
+            Rank rank = ModerationMechanics.getInstance().getPlayerRank(target.getUniqueId());
+            if (rank != null) {
+                switch (rank) {
+                    case DEV:
+                        return ADMIN_DEV_TEAM;
+                    case MANAGER:
+                        return ADMIN_MANAGER_TEAM;
+                    case GM:
+                        return ADMIN_GM_TEAM;
+                }
+            }
+
+            // Check alignment for regular players
+            YakPlayerManager playerManager = YakPlayerManager.getInstance();
+            if (playerManager != null) {
+                YakPlayer yakPlayer = playerManager.getPlayer(target);
+                if (yakPlayer != null) {
+                    String alignment = yakPlayer.getAlignment();
+                    if (alignment != null) {
+                        switch (alignment) {
+                            case "CHAOTIC":
+                                return CHAOTIC_TEAM;
+                            case "NEUTRAL":
+                                return NEUTRAL_TEAM;
+                            case "LAWFUL":
+                                return LAWFUL_TEAM;
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            // Fall back to default team on any error
+        }
+
+        return DEFAULT_TEAM;
+    }
+
+    /**
+     * NEW: Get party role prefix for display
+     */
+    private static String getPartyRolePrefix(Player target, Player viewer, List<Player> viewerPartyMembers, PartyMechanics partyMechanics) {
+        if (target == null || viewer == null || partyMechanics == null) {
+            return "";
+        }
+
+        try {
+            // Only show party prefixes if both players are in the same party
+            if (viewerPartyMembers != null && viewerPartyMembers.contains(target)) {
+                if (partyMechanics.isPartyLeader(target)) {
+                    return ChatColor.GOLD + "★" + ChatColor.LIGHT_PURPLE + "[P] ";
+                } else if (partyMechanics.isPartyOfficer(target)) {
+                    return ChatColor.YELLOW + "♦" + ChatColor.LIGHT_PURPLE + "[P] ";
+                } else {
+                    return ChatColor.LIGHT_PURPLE + "[P] ";
+                }
+            }
+        } catch (Exception e) {
+            // Return empty on error
+        }
+
+        return "";
+    }
+
+    /**
+     * FIXED: Update party objective with cleaner entry management
      */
     private static void updatePartyObjective(Player player, Scoreboard scoreboard, PartyMechanics partyMechanics) {
         if (player == null || !player.isOnline() || scoreboard == null || partyMechanics == null) {
@@ -429,16 +458,17 @@ public class PartyScoreboards {
         UUID playerId = player.getUniqueId();
 
         try {
-            // Get current active entries for this player
-            Set<String> currentEntries = activeScoreboardEntries.computeIfAbsent(playerId, k -> ConcurrentHashMap.newKeySet());
-
-            // Remove existing sidebar objective if it exists
+            // Clear existing party objective
             Objective existing = scoreboard.getObjective(DisplaySlot.SIDEBAR);
             if (existing != null) {
                 existing.unregister();
             }
 
-            // Create  party objective
+            // Clear tracked entries
+            Set<String> currentEntries = activeScoreboardEntries.computeIfAbsent(playerId, k -> ConcurrentHashMap.newKeySet());
+            currentEntries.clear();
+
+            // Create new party objective
             Objective partyObjective = scoreboard.registerNewObjective(
                     "party_data", "dummy",
                     ChatColor.LIGHT_PURPLE + "✦ " + ChatColor.BOLD + "PARTY" + ChatColor.LIGHT_PURPLE + " ✦"
@@ -447,17 +477,15 @@ public class PartyScoreboards {
 
             List<Player> partyMembers = partyMechanics.getPartyMembers(player);
             if (partyMembers != null && !partyMembers.isEmpty()) {
-                // Add separator - make it unique with invisible characters
-                String separator = " " + ChatColor.RESET;
-                partyObjective.getScore(separator).setScore(0);
-                currentEntries.add(separator);
-
-                // Add party size indicator at the top
+                // Add party size indicator
                 String sizeIndicator = ChatColor.GRAY + "Members: " + ChatColor.WHITE + partyMembers.size();
-                partyObjective.getScore(sizeIndicator).setScore(0);
+                partyObjective.getScore(sizeIndicator).setScore(15);
                 currentEntries.add(sizeIndicator);
 
-
+                // Add separator
+                String separator = " ";
+                partyObjective.getScore(separator).setScore(14);
+                currentEntries.add(separator);
 
                 // Sort members: leader first, then officers, then regular members
                 partyMembers.sort((p1, p2) -> {
@@ -481,18 +509,15 @@ public class PartyScoreboards {
                 for (Player member : partyMembers) {
                     if (member == null || !member.isOnline()) continue;
 
-                    // Create truly unique display name using current alignment colors
                     String displayName = formatPartyMemberName(member, partyMechanics, scoreIndex, usedNames);
                     if (displayName == null) continue;
 
                     int health = (int) Math.ceil(member.getHealth());
-
                     partyObjective.getScore(displayName).setScore(health);
                     currentEntries.add(displayName);
                     usedNames.add(displayName);
                     scoreIndex--;
 
-                    // Prevent going below 0
                     if (scoreIndex < 0) break;
                 }
             }
@@ -502,7 +527,7 @@ public class PartyScoreboards {
     }
 
     /**
-     * Format party member name with current alignment colors and guaranteed uniqueness
+     * Format party member name with role and health indicators
      */
     private static String formatPartyMemberName(Player member, PartyMechanics partyMechanics, int index, Set<String> usedNames) {
         if (member == null || !member.isOnline() || partyMechanics == null) {
@@ -521,23 +546,23 @@ public class PartyScoreboards {
                 nameBuilder.append(ChatColor.GRAY).append("• ");
             }
 
-            // Add player name with CURRENT alignment color
+            // Add player name with alignment color
             ChatColor nameColor = getPlayerDisplayColor(member);
             nameBuilder.append(nameColor).append(member.getName());
 
             // Add health status indicator
             double healthPercentage = member.getHealth() / member.getMaxHealth();
-            if (healthPercentage <= 0.3) { // Low health (30% or less)
+            if (healthPercentage <= 0.3) {
                 nameBuilder.append(ChatColor.RED).append(" ♥");
-            } else if (healthPercentage >= 1.0) { // Full health
+            } else if (healthPercentage >= 1.0) {
                 nameBuilder.append(ChatColor.GREEN).append(" ♥");
-            } else if (healthPercentage <= 0.6) { // Medium health
+            } else if (healthPercentage <= 0.6) {
                 nameBuilder.append(ChatColor.YELLOW).append(" ♥");
             }
 
             String result = nameBuilder.toString();
 
-            // Ensure complete uniqueness by adding index if name is used
+            // Ensure uniqueness
             String finalName = result;
             int suffix = 0;
             while (usedNames.contains(finalName)) {
@@ -545,7 +570,7 @@ public class PartyScoreboards {
                 suffix++;
             }
 
-            // Truncate if too long for scoreboard (max 40 characters)
+            // Truncate if too long
             if (finalName.length() > 35) {
                 finalName = finalName.substring(0, 32) + "...";
             }
@@ -553,12 +578,12 @@ public class PartyScoreboards {
             return finalName;
         } catch (Exception e) {
             Bukkit.getLogger().warning("Error formatting party member name for " + member.getName() + ": " + e.getMessage());
-            return member.getName(); // Fallback to simple name
+            return member.getName();
         }
     }
 
     /**
-     * Get appropriate display color for a player using CURRENT alignment
+     * Get appropriate display color for a player
      */
     private static ChatColor getPlayerDisplayColor(Player player) {
         if (player == null) {
@@ -567,29 +592,37 @@ public class PartyScoreboards {
 
         try {
             // Check rank first for admins
-            Rank rank = ModerationMechanics.getRank(player);
+            Rank rank = ModerationMechanics.getInstance().getPlayerRank(player.getUniqueId());
             if (rank != null && rank != Rank.DEFAULT) {
-                return switch (rank) {
-                    case DEV -> ChatColor.GOLD;
-                    case MANAGER -> ChatColor.YELLOW;
-                    case GM -> ChatColor.AQUA;
-                    default -> ChatColor.WHITE;
-                };
+                switch (rank) {
+                    case DEV:
+                        return ChatColor.GOLD;
+                    case MANAGER:
+                        return ChatColor.YELLOW;
+                    case GM:
+                        return ChatColor.AQUA;
+                    default:
+                        return ChatColor.WHITE;
+                }
             }
 
-            // Get CURRENT alignment color
+            // Get alignment color
             YakPlayerManager playerManager = YakPlayerManager.getInstance();
             if (playerManager != null) {
                 YakPlayer yakPlayer = playerManager.getPlayer(player);
                 if (yakPlayer != null) {
                     String alignment = yakPlayer.getAlignment();
                     if (alignment != null) {
-                        return switch (alignment) {
-                            case "CHAOTIC" -> ChatColor.RED;
-                            case "NEUTRAL" -> ChatColor.YELLOW;
-                            case "LAWFUL" -> ChatColor.GRAY;
-                            default -> ChatColor.WHITE;
-                        };
+                        switch (alignment) {
+                            case "CHAOTIC":
+                                return ChatColor.RED;
+                            case "NEUTRAL":
+                                return ChatColor.YELLOW;
+                            case "LAWFUL":
+                                return ChatColor.GRAY;
+                            default:
+                                return ChatColor.WHITE;
+                        }
                     }
                 }
             }
@@ -601,7 +634,63 @@ public class PartyScoreboards {
     }
 
     /**
-     *  party health bar system using boss bars
+     * FIXED: Clear party objective properly
+     */
+    private static void clearPartyObjective(Player player, Scoreboard scoreboard) {
+        if (player == null || scoreboard == null) return;
+
+        UUID playerId = player.getUniqueId();
+
+        try {
+            // Remove sidebar objective
+            Objective sidebarObjective = scoreboard.getObjective(DisplaySlot.SIDEBAR);
+            if (sidebarObjective != null) {
+                sidebarObjective.unregister();
+            }
+
+            // Clear tracked entries
+            Set<String> currentEntries = activeScoreboardEntries.get(playerId);
+            if (currentEntries != null) {
+                currentEntries.clear();
+            }
+        } catch (Exception e) {
+            Bukkit.getLogger().warning("Error clearing party objective for " + player.getName() + ": " + e.getMessage());
+        }
+    }
+
+    /**
+     * FIXED: Update health display to work properly
+     */
+    private static void updateHealthDisplay(Scoreboard scoreboard) {
+        if (scoreboard == null) return;
+
+        try {
+            Objective healthObjective = scoreboard.getObjective("health");
+            if (healthObjective == null) {
+                setupHealthDisplay(scoreboard);
+                healthObjective = scoreboard.getObjective("health");
+            }
+
+            if (healthObjective != null) {
+                for (Player player : Bukkit.getOnlinePlayers()) {
+                    if (player == null || !player.isOnline()) continue;
+
+                    try {
+                        int health = (int) Math.ceil(player.getHealth());
+                        Score score = healthObjective.getScore(player.getName());
+                        score.setScore(health);
+                    } catch (Exception e) {
+                        // Skip this player
+                    }
+                }
+            }
+        } catch (Exception e) {
+            Bukkit.getLogger().warning("Error updating health display: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Update party health bar
      */
     private static void updatePartyHealthBar(Player player, PartyMechanics partyMechanics) {
         if (player == null || !player.isOnline() || partyMechanics == null) {
@@ -611,16 +700,11 @@ public class PartyScoreboards {
         UUID playerId = player.getUniqueId();
 
         try {
-            if (!partyMechanics.isInParty(player)) {
-                BossBar existingBar = partyHealthBars.remove(playerId);
-                if (existingBar != null) {
-                    existingBar.removeAll();
-                }
+            List<Player> partyMembers = partyMechanics.getPartyMembers(player);
+            if (partyMembers == null || partyMembers.isEmpty()) {
+                clearPartyHealthBar(playerId);
                 return;
             }
-
-            List<Player> partyMembers = partyMechanics.getPartyMembers(player);
-            if (partyMembers == null || partyMembers.isEmpty()) return;
 
             // Calculate party health statistics
             double totalHealth = 0;
@@ -639,7 +723,7 @@ public class PartyScoreboards {
 
             double healthPercentage = totalHealth / maxTotalHealth;
 
-            // Create  title
+            // Create title
             String title = ChatColor.LIGHT_PURPLE + "✦ " + ChatColor.BOLD + "PARTY" +
                     ChatColor.LIGHT_PURPLE + " (" + aliveMembersCount + "/" + partyMembers.size() +
                     ") " + ChatColor.WHITE + (int)totalHealth + "/" + (int)maxTotalHealth + " ❤";
@@ -662,6 +746,20 @@ public class PartyScoreboards {
     }
 
     /**
+     * Clear party health bar
+     */
+    private static void clearPartyHealthBar(UUID playerId) {
+        try {
+            BossBar bossBar = partyHealthBars.remove(playerId);
+            if (bossBar != null) {
+                bossBar.removeAll();
+            }
+        } catch (Exception e) {
+            // Ignore cleanup errors
+        }
+    }
+
+    /**
      * Determine boss bar color based on party health status
      */
     private static BarColor getPartyHealthBarColor(double healthPercentage, int aliveCount, int totalCount) {
@@ -678,124 +776,7 @@ public class PartyScoreboards {
     }
 
     /**
-     *  Update team assignments with proper error handling and safe team entry management
-     */
-    public static void updatePlayerTeamAssignments(Player viewer) {
-        if (viewer == null || !viewer.isOnline()) {
-            return;
-        }
-
-        try {
-            Scoreboard scoreboard = getPlayerScoreboard(viewer);
-            if (scoreboard == null) {
-                return;
-            }
-
-            PartyMechanics partyMechanics = PartyMechanics.getInstance();
-            if (partyMechanics == null) {
-                return;
-            }
-
-            
-            for (Team team : scoreboard.getTeams()) {
-                try {
-                    // Create a copy of entries to avoid concurrent modification
-                    Set<String> entries = new HashSet<>(team.getEntries());
-                    for (String entry : entries) {
-                        try {
-                            team.removeEntry(entry); // Use removeEntry instead of clear()
-                        } catch (Exception e) {
-                            // Ignore individual entry removal errors
-                        }
-                    }
-                } catch (Exception e) {
-                    // Ignore team clearing errors and continue
-                }
-            }
-
-            // Get viewer's party info
-            List<Player> viewerPartyMembers = null;
-            if (partyMechanics.isInParty(viewer)) {
-                viewerPartyMembers = partyMechanics.getPartyMembers(viewer);
-            }
-
-            for (Player target : Bukkit.getOnlinePlayers()) {
-                if (target == null || !target.isOnline()) continue;
-
-                try {
-                    String teamName = determinePlayerTeam(target, viewer, viewerPartyMembers, partyMechanics);
-                    Team team = scoreboard.getTeam(teamName);
-                    if (team != null) {
-                        team.addEntry(target.getName());
-                    }
-                } catch (Exception e) {
-                    // Skip this player's team assignment if it fails
-                }
-            }
-
-            viewer.setScoreboard(scoreboard);
-        } catch (Exception e) {
-            Bukkit.getLogger().warning("Error updating team assignments for " + viewer.getName() + ": " + e.getMessage());
-        }
-    }
-
-    /**
-     * Determine which team a player should be assigned to with current alignment
-     */
-    private static String determinePlayerTeam(Player target, Player viewer, List<Player> viewerPartyMembers, PartyMechanics partyMechanics) {
-        if (target == null || viewer == null || partyMechanics == null) {
-            return DEFAULT_TEAM;
-        }
-
-        try {
-            // If viewer is in a party and target is in the same party, use party teams
-            if (viewerPartyMembers != null && viewerPartyMembers.contains(target)) {
-                if (partyMechanics.isPartyLeader(target)) {
-                    return PARTY_LEADER_TEAM;
-                } else if (partyMechanics.isPartyOfficer(target)) {
-                    return PARTY_OFFICER_TEAM;
-                } else {
-                    return PARTY_MEMBER_TEAM;
-                }
-            }
-
-            // Check rank for non-party members or when viewer is not in party
-            Rank rank = ModerationMechanics.getRank(target);
-            if (rank != null) {
-                if (rank == Rank.DEV) {
-                    return "dev";
-                } else if (rank == Rank.MANAGER) {
-                    return "manager";
-                } else if (rank == Rank.GM) {
-                    return "gm";
-                }
-            }
-
-            // Check CURRENT alignment for regular players
-            YakPlayerManager playerManager = YakPlayerManager.getInstance();
-            if (playerManager != null) {
-                YakPlayer yakPlayer = playerManager.getPlayer(target);
-                if (yakPlayer != null) {
-                    String alignment = yakPlayer.getAlignment();
-                    if (alignment != null) {
-                        return switch (alignment) {
-                            case "CHAOTIC" -> CHAOTIC_TEAM;
-                            case "NEUTRAL" -> NEUTRAL_TEAM;
-                            case "LAWFUL" -> LAWFUL_TEAM;
-                            default -> DEFAULT_TEAM;
-                        };
-                    }
-                }
-            }
-        } catch (Exception e) {
-            // Fall back to default team on any error
-        }
-
-        return DEFAULT_TEAM;
-    }
-
-    /**
-     * Refresh all party scoreboards efficiently
+     * SIMPLIFIED: Update all player scoreboards
      */
     public static void refreshAllPartyScoreboards() {
         PartyMechanics partyMechanics = PartyMechanics.getInstance();
@@ -803,31 +784,31 @@ public class PartyScoreboards {
 
         for (Player player : Bukkit.getOnlinePlayers()) {
             try {
-                if (player != null && player.isOnline() && partyMechanics.isInParty(player)) {
-                    refreshPlayerScoreboard(player);
+                if (player != null && player.isOnline()) {
+                    updatePlayerScoreboard(player);
                 }
             } catch (Exception e) {
-                Bukkit.getLogger().warning("Error refreshing party scoreboard for " +
+                Bukkit.getLogger().warning("Error refreshing scoreboard for " +
                         (player != null ? player.getName() : "unknown") + ": " + e.getMessage());
             }
         }
     }
 
     /**
-     * Refresh player scoreboard with alignment change detection
+     * Force refresh player scoreboard
      */
     public static void refreshPlayerScoreboard(Player player) {
         if (player == null || !player.isOnline()) {
             return;
         }
 
-        // Force update by clearing last update time
+        // Clear cache and force update
         lastUpdateTimes.remove(player.getUniqueId());
         updatePlayerScoreboard(player);
     }
 
     /**
-     *  Clear a player's party scoreboard with proper cleanup
+     * Clear a player's party scoreboard
      */
     public static void clearPlayerScoreboard(Player player) {
         if (player == null) {
@@ -839,40 +820,24 @@ public class PartyScoreboards {
         try {
             Scoreboard scoreboard = getPlayerScoreboard(player);
             if (scoreboard != null) {
-                // Clear all active entries
-                Set<String> currentEntries = activeScoreboardEntries.get(playerId);
-                if (currentEntries != null) {
-                    for (String entry : new HashSet<>(currentEntries)) {
-                        try {
-                            scoreboard.resetScores(entry);
-                        } catch (Exception e) {
-                            // Ignore cleanup errors
-                        }
+                clearPartyObjective(player, scoreboard);
+                clearPartyHealthBar(playerId);
+
+                // Reset to main scoreboard
+                ScoreboardManager manager = Bukkit.getScoreboardManager();
+                if (manager != null && player.isOnline()) {
+                    Scoreboard mainScoreboard = manager.getMainScoreboard();
+                    if (mainScoreboard != null) {
+                        player.setScoreboard(mainScoreboard);
                     }
-                    currentEntries.clear();
                 }
-
-                // Remove sidebar objective
-                Objective sidebarObjective = scoreboard.getObjective(DisplaySlot.SIDEBAR);
-                if (sidebarObjective != null) {
-                    sidebarObjective.unregister();
-                }
-            }
-
-            // Remove party health bar
-            BossBar bossBar = partyHealthBars.remove(playerId);
-            if (bossBar != null) {
-                bossBar.removeAll();
             }
 
             // Show leave effect
             if (player.isOnline()) {
                 PartyVisualEffects visuals = partyVisuals.computeIfAbsent(
                         playerId, k -> new PartyVisualEffects(player));
-
-                if (scoreboard != null) {
-                    player.setScoreboard(scoreboard);
-                }
+                visuals.showPartyLeaveEffect();
             }
         } catch (Exception e) {
             Bukkit.getLogger().warning("Error clearing party scoreboard for " + player.getName() + ": " + e.getMessage());
@@ -907,69 +872,46 @@ public class PartyScoreboards {
         try {
             PartyVisualEffects visuals = partyVisuals.computeIfAbsent(
                     player.getUniqueId(), k -> new PartyVisualEffects(player));
-            visuals.showLeaderPromotionEffect();
         } catch (Exception e) {
             // Ignore visual effect errors
         }
     }
 
     /**
-     * Update health display for all players with alignment awareness
+     * SIMPLIFIED: Update health for all players
      */
     public static void updateAllPlayerHealth() {
         for (Player viewer : Bukkit.getOnlinePlayers()) {
             if (viewer == null || !viewer.isOnline()) continue;
 
             try {
-                Scoreboard scoreboard = getPlayerScoreboard(viewer);
-                if (scoreboard == null) continue;
-
-                Objective healthObjective = scoreboard.getObjective("health");
-                if (healthObjective != null) {
-                    for (Player target : Bukkit.getOnlinePlayers()) {
-                        if (target == null || !target.isOnline()) continue;
-
-                        try {
-                            int health = (int) Math.ceil(target.getHealth());
-                            Score score = healthObjective.getScore(target.getName());
-                            if (score.getScore() != health) {
-                                score.setScore(health);
-                            }
-                        } catch (Exception e) {
-                            // Skip this player's health update if it fails
-                        }
-                    }
-                }
-
-                // Ensure the viewer has the updated scoreboard
-                if (viewer.getScoreboard() != scoreboard) {
-                    viewer.setScoreboard(scoreboard);
+                Scoreboard scoreboard = viewer.getScoreboard();
+                if (scoreboard != null) {
+                    updateHealthDisplay(scoreboard);
                 }
             } catch (Exception e) {
-                Bukkit.getLogger().warning("Error updating health display for " + viewer.getName() + ": " + e.getMessage());
+                // Continue with other players
             }
         }
     }
 
     /**
-     * Update color teams for all players with  team management
+     * SIMPLIFIED: Update all player colors and team assignments
      */
     public static void updateAllPlayerColors() {
         for (Player viewer : Bukkit.getOnlinePlayers()) {
             if (viewer == null || !viewer.isOnline()) continue;
 
             try {
-                updatePlayerTeamAssignments(viewer);
-                // Force scoreboard refresh to pick up color changes
-                refreshPlayerScoreboard(viewer);
+                updatePlayerScoreboard(viewer);
             } catch (Exception e) {
-                Bukkit.getLogger().warning("Error updating team assignments for " + viewer.getName() + ": " + e.getMessage());
+                Bukkit.getLogger().warning("Error updating colors for " + viewer.getName() + ": " + e.getMessage());
             }
         }
     }
 
     /**
-     * Clean up resources for a player with complete cleanup
+     * Clean up resources for a player
      */
     public static void cleanupPlayer(Player player) {
         if (player == null) {
@@ -982,15 +924,8 @@ public class PartyScoreboards {
             playerScoreboards.remove(playerId);
             lastUpdateTimes.remove(playerId);
             partyVisuals.remove(playerId);
-
-            // Clean up tracking maps
             activeScoreboardEntries.remove(playerId);
-            playerLastColors.remove(playerId);
-
-            BossBar bossBar = partyHealthBars.remove(playerId);
-            if (bossBar != null) {
-                bossBar.removeAll();
-            }
+            clearPartyHealthBar(playerId);
         } catch (Exception e) {
             Bukkit.getLogger().warning("Error cleaning up player " + player.getName() + ": " + e.getMessage());
         }
@@ -1014,36 +949,62 @@ public class PartyScoreboards {
             lastUpdateTimes.clear();
             partyVisuals.clear();
             activeScoreboardEntries.clear();
-            playerLastColors.clear();
         } catch (Exception e) {
             Bukkit.getLogger().warning("Error cleaning up all party scoreboards: " + e.getMessage());
         }
     }
 
     /**
-     * Force refresh all scoreboards with alignment updates
+     * FIXED: Handle alignment changes properly
+     */
+    public static void handleAlignmentChange(Player player) {
+        if (player == null || !player.isOnline()) {
+            return;
+        }
+
+        try {
+            // Force refresh for the changed player
+            refreshPlayerScoreboard(player);
+
+            // Update all other players' views of this player
+            for (Player onlinePlayer : Bukkit.getOnlinePlayers()) {
+                if (onlinePlayer != null && onlinePlayer.isOnline() && !onlinePlayer.equals(player)) {
+                    try {
+                        refreshPlayerScoreboard(onlinePlayer);
+                    } catch (Exception e) {
+                        // Continue with other players
+                    }
+                }
+            }
+
+            // Schedule a delayed update to ensure all changes are applied
+            Bukkit.getScheduler().runTaskLater(YakRealms.getInstance(), () -> {
+                try {
+                    updateAllPlayerColors();
+                } catch (Exception e) {
+                    Bukkit.getLogger().warning("Error in delayed alignment update: " + e.getMessage());
+                }
+            }, 2L);
+
+        } catch (Exception e) {
+            Bukkit.getLogger().warning("Error handling alignment change for " + player.getName() + ": " + e.getMessage());
+        }
+    }
+
+    /**
+     * Force refresh all scoreboards
      */
     public static void forceRefreshAll() {
         try {
-            // Clear all cached data
+            // Clear all caches
             lastUpdateTimes.clear();
-            playerLastColors.clear();
 
             // Update all players
             for (Player player : Bukkit.getOnlinePlayers()) {
                 if (player == null || !player.isOnline()) continue;
 
                 try {
-                    PartyMechanics partyMechanics = PartyMechanics.getInstance();
-                    if (partyMechanics == null) continue;
-
-                    if (partyMechanics.isInParty(player)) {
-                        updatePlayerScoreboard(player);
-                    } else {
-                        clearPlayerScoreboard(player);
-                    }
-
-                    updatePlayerTeamAssignments(player);
+                    updatePlayerScoreboard(player);
                 } catch (Exception e) {
                     Bukkit.getLogger().warning("Error force refreshing scoreboard for " + player.getName() + ": " + e.getMessage());
                 }
@@ -1057,72 +1018,40 @@ public class PartyScoreboards {
     }
 
     /**
-     *  Public method to handle alignment changes
-     * Call this whenever a player's alignment changes
-     * Now updates ALL players' team assignments, not just party members
+     * Validate and repair scoreboard integrity
      */
-    public static void handleAlignmentChange(Player player) {
-        if (player == null || !player.isOnline()) {
-            return;
-        }
+    public static void validateAndRepairScoreboards() {
+        PartyMechanics partyMechanics = PartyMechanics.getInstance();
+        if (partyMechanics == null) return;
 
-        UUID playerId = player.getUniqueId();
+        for (Player player : Bukkit.getOnlinePlayers()) {
+            if (player == null || !player.isOnline()) continue;
 
-        try {
-            // Clear color cache to force refresh
-            Map<String, ChatColor> playerColors = playerLastColors.get(playerId);
-            if (playerColors != null) {
-                playerColors.clear();
-            }
+            try {
+                Scoreboard scoreboard = player.getScoreboard();
 
-            // Clear last update time to force refresh
-            lastUpdateTimes.remove(playerId);
-
-            // Update team assignments and scoreboard for the changed player
-            updatePlayerTeamAssignments(player);
-            updatePlayerScoreboard(player);
-
-            
-            // This is crucial because name colors above heads are controlled by team assignments
-            for (Player onlinePlayer : Bukkit.getOnlinePlayers()) {
-                if (onlinePlayer != null && onlinePlayer.isOnline() && !onlinePlayer.equals(player)) {
-                    try {
-                        // Update this player's team assignments so they see the correct color for the changed player
-                        updatePlayerTeamAssignments(onlinePlayer);
-
-                        // If this player is in a party, also update their scoreboard
-                        PartyMechanics partyMechanics = PartyMechanics.getInstance();
-                        if (partyMechanics != null && partyMechanics.isInParty(onlinePlayer)) {
-                            // Check if the changed player is in their party
-                            List<Player> partyMembers = partyMechanics.getPartyMembers(onlinePlayer);
-                            if (partyMembers != null && partyMembers.contains(player)) {
-                                // Clear their cache since they see this player in their party
-                                Map<String, ChatColor> memberColors = playerLastColors.get(onlinePlayer.getUniqueId());
-                                if (memberColors != null) {
-                                    memberColors.clear();
-                                }
-                                lastUpdateTimes.remove(onlinePlayer.getUniqueId());
-                                updatePlayerScoreboard(onlinePlayer);
-                            }
-                        }
-                    } catch (Exception e) {
-                        // Continue with other players if one fails
-                        Bukkit.getLogger().fine("Error updating team assignments for " + onlinePlayer.getName() + " during alignment change: " + e.getMessage());
+                // Check if player's scoreboard needs repair
+                if (scoreboard == null || scoreboard == Bukkit.getScoreboardManager().getMainScoreboard()) {
+                    updatePlayerScoreboard(player);
+                } else {
+                    // Validate health objective
+                    Objective healthObj = scoreboard.getObjective("health");
+                    if (healthObj == null) {
+                        setupHealthDisplay(scoreboard);
+                        player.setScoreboard(scoreboard);
                     }
                 }
-            }
 
-            
-            Bukkit.getScheduler().runTaskLater(YakRealms.getInstance(), () -> {
+            } catch (Exception e) {
+                Bukkit.getLogger().warning("Error validating scoreboard for " + player.getName() + ": " + e.getMessage());
+
                 try {
-                    updateAllPlayerColors();
-                } catch (Exception e) {
-                    Bukkit.getLogger().warning("Error in delayed color update after alignment change: " + e.getMessage());
+                    cleanupPlayer(player);
+                    updatePlayerScoreboard(player);
+                } catch (Exception ex) {
+                    Bukkit.getLogger().severe("Failed to reset scoreboard for " + player.getName() + ": " + ex.getMessage());
                 }
-            }, 2L); // Small delay to ensure all updates are processed
-
-        } catch (Exception e) {
-            Bukkit.getLogger().warning("Error handling alignment change for " + player.getName() + ": " + e.getMessage());
+            }
         }
     }
 
@@ -1136,53 +1065,6 @@ public class PartyScoreboards {
         stats.put("cached_visuals", partyVisuals.size());
         stats.put("tracked_updates", lastUpdateTimes.size());
         stats.put("active_entries", activeScoreboardEntries.size());
-        stats.put("player_colors", playerLastColors.size());
         return stats;
-    }
-
-    /**
-     * Validate and repair scoreboard integrity with alignment support
-     */
-    public static void validateAndRepairScoreboards() {
-        PartyMechanics partyMechanics = PartyMechanics.getInstance();
-        if (partyMechanics == null) return;
-
-        for (Player player : Bukkit.getOnlinePlayers()) {
-            if (player == null || !player.isOnline()) continue;
-
-            try {
-                Scoreboard scoreboard = player.getScoreboard();
-
-                // Check if player's scoreboard is corrupted or missing
-                if (scoreboard == null || scoreboard == Bukkit.getScoreboardManager().getMainScoreboard()) {
-                    // Reset to proper party scoreboard
-                    if (partyMechanics.isInParty(player)) {
-                        updatePlayerScoreboard(player);
-                    }
-                    updatePlayerTeamAssignments(player);
-                }
-
-                // Validate health objective
-                Objective healthObj = scoreboard.getObjective("health");
-                if (healthObj == null) {
-                    setupHealthDisplay(scoreboard);
-                    player.setScoreboard(scoreboard);
-                }
-
-            } catch (Exception e) {
-                Bukkit.getLogger().warning("Error validating scoreboard for " + player.getName() + ": " + e.getMessage());
-
-                // Try to reset the player's scoreboard completely
-                try {
-                    cleanupPlayer(player);
-                    if (partyMechanics.isInParty(player)) {
-                        updatePlayerScoreboard(player);
-                    }
-                    updatePlayerTeamAssignments(player);
-                } catch (Exception ex) {
-                    Bukkit.getLogger().severe("Failed to reset scoreboard for " + player.getName() + ": " + ex.getMessage());
-                }
-            }
-        }
     }
 }

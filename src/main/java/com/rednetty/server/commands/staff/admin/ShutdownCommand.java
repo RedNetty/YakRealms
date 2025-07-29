@@ -3,8 +3,8 @@ package com.rednetty.server.commands.staff.admin;
 import com.rednetty.server.YakRealms;
 import com.rednetty.server.commands.player.LogoutCommand;
 import com.rednetty.server.mechanics.combat.logout.CombatLogoutMechanics;
-import com.rednetty.server.mechanics.moderation.ModerationMechanics;
-import com.rednetty.server.mechanics.moderation.Rank;
+import com.rednetty.server.mechanics.player.moderation.ModerationMechanics;
+import com.rednetty.server.mechanics.player.moderation.Rank;
 import com.rednetty.server.mechanics.player.YakPlayer;
 import com.rednetty.server.mechanics.player.YakPlayerManager;
 import com.rednetty.server.utils.text.TextUtil;
@@ -408,7 +408,7 @@ public class ShutdownCommand implements CommandExecutor, TabCompleter {
         }
 
         Player player = (Player) sender;
-        Rank rank = ModerationMechanics.getRank(player);
+        Rank rank = ModerationMechanics.getInstance().getPlayerRank(player.getUniqueId());
 
         // Only DEV, MANAGER, and GM can shutdown
         return rank == Rank.DEV || rank == Rank.MANAGER || rank == Rank.GM;

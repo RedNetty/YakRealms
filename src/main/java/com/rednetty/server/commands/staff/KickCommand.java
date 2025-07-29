@@ -1,6 +1,6 @@
 package com.rednetty.server.commands.staff;
 
-import com.rednetty.server.mechanics.moderation.ModerationMechanics;
+import com.rednetty.server.mechanics.player.moderation.ModerationMechanics;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.command.Command;
@@ -62,7 +62,7 @@ public class KickCommand implements CommandExecutor, TabCompleter {
                 sender.getName() + ChatColor.GREEN + " for: " + ChatColor.GRAY + reason;
 
         for (Player staff : Bukkit.getOnlinePlayers()) {
-            if (staff.hasPermission("yakrealms.staff") || ModerationMechanics.isStaff(staff)) {
+            if (staff.hasPermission("yakrealms.staff") || ModerationMechanics.getInstance().isStaff(staff)) {
                 staff.sendMessage(staffNotification);
             }
         }

@@ -135,7 +135,7 @@ public class PInviteCommand implements CommandExecutor, TabCompleter {
      * Show current party status to the inviter
      */
     private void showPartyStatus(Player player) {
-        PartyMechanics.Party party = partyMechanics.getParty(player);
+        PartyMechanics.Party party = partyMechanics.getParty(player.getUniqueId());
         if (party != null) {
             int currentSize = party.getSize();
             int maxSize = party.getMaxSize();

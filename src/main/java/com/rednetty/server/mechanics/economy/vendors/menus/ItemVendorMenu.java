@@ -20,7 +20,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
 
 /**
- * FIXED ItemVendorMenu that stores original clean items separately from display items
+ *  ItemVendorMenu that stores original clean items separately from display items
  * Players receive the exact same items that the original item classes generate
  */
 public class ItemVendorMenu extends Menu {
@@ -276,10 +276,8 @@ public class ItemVendorMenu extends Menu {
             ItemStack originalNormalOrb = orbManager.createNormalOrb(true);
             if (originalNormalOrb != null) {
                 int price = calculateDynamicPrice(NORMAL_ORB_BASE_PRICE, "normal_orb");
-                String description = "A magical orb that randomizes item statistics\nGreat for improving lower-tier equipment\nRecommended for beginners";
-
                 storeOriginalItemWithPrice(DISPLAY_SLOTS[0], originalNormalOrb, price);
-                ItemStack displayItem = VendorUtils.createVendorDisplayItem(originalNormalOrb, price, description);
+                ItemStack displayItem = VendorUtils.createVendorDisplayItem(originalNormalOrb, price, "");
                 addShopItemFromDisplay(DISPLAY_SLOTS[0], displayItem);
             }
 
@@ -290,7 +288,7 @@ public class ItemVendorMenu extends Menu {
                 String description = "A legendary orb that guarantees high-tier results\nBest for enhancing valuable equipment\nExperienced adventurers only";
 
                 storeOriginalItemWithPrice(DISPLAY_SLOTS[1], originalLegendaryOrb, price);
-                ItemStack displayItem = VendorUtils.createVendorDisplayItem(originalLegendaryOrb, price, description);
+                ItemStack displayItem = VendorUtils.createVendorDisplayItem(originalLegendaryOrb, price, "");
                 addShopItemFromDisplay(DISPLAY_SLOTS[1], displayItem);
             }
 
@@ -322,7 +320,7 @@ public class ItemVendorMenu extends Menu {
 
                     int slot = DISPLAY_SLOTS[displayIndex];
                     storeOriginalItemWithPrice(slot, originalPouch, price);
-                    ItemStack displayItem = VendorUtils.createVendorDisplayItem(originalPouch, price, description);
+                    ItemStack displayItem = VendorUtils.createVendorDisplayItem(originalPouch, price, "");
                     addShopItemFromDisplay(slot, displayItem);
                     displayIndex++;
                 }
@@ -356,7 +354,7 @@ public class ItemVendorMenu extends Menu {
 
                     int slot = DISPLAY_SLOTS[displayIndex];
                     storeOriginalItemWithPrice(slot, originalScroll, price);
-                    ItemStack displayItem = VendorUtils.createVendorDisplayItem(originalScroll, price, description);
+                    ItemStack displayItem = VendorUtils.createVendorDisplayItem(originalScroll, price, "");
                     addShopItemFromDisplay(slot, displayItem);
                     displayIndex++;
                 }
@@ -388,7 +386,7 @@ public class ItemVendorMenu extends Menu {
 
                     int slot = DISPLAY_SLOTS[displayIndex];
                     storeOriginalItemWithPrice(slot, originalScroll, price);
-                    ItemStack displayItem = VendorUtils.createVendorDisplayItem(originalScroll, price, description);
+                    ItemStack displayItem = VendorUtils.createVendorDisplayItem(originalScroll, price, "");
                     addShopItemFromDisplay(slot, displayItem);
                     displayIndex++;
                 }
@@ -420,7 +418,7 @@ public class ItemVendorMenu extends Menu {
 
                     int slot = DISPLAY_SLOTS[displayIndex];
                     storeOriginalItemWithPrice(slot, originalScroll, price);
-                    ItemStack displayItem = VendorUtils.createVendorDisplayItem(originalScroll, price, description);
+                    ItemStack displayItem = VendorUtils.createVendorDisplayItem(originalScroll, price, "");
                     addShopItemFromDisplay(slot, displayItem);
                     displayIndex++;
                 }

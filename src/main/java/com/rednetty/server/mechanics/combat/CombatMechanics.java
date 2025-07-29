@@ -33,6 +33,7 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.material.MaterialData;
 import org.bukkit.metadata.FixedMetadataValue;
+import org.bukkit.metadata.MetadataValue;
 import org.bukkit.potion.PotionEffect;
 import org.bukkit.potion.PotionEffectType;
 import org.bukkit.scheduler.BukkitRunnable;
@@ -43,15 +44,16 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
 
 /**
- * UPDATED:  combat mechanics with improved hologram system and balanced stat calculations
+ * UPDATED: Combat mechanics with improved hologram system, balanced stat calculations, and proper mob crit display
  * - Damage calculation and application with balanced legacy calculations
  * - Armor, block, and dodge mechanics with proper scaling
  * - Critical hits and combat effects
  * - Advanced animated hologram system with arcing trajectories
- * -  PVP protection system
- * - Proper mob-to-player damage calculations
+ * - PVP protection system
+ * - Proper mob-to-player damage calculations with crit tracking
  * - Elite mob explosion damage bypass system
  * - BALANCED stat calculations to prevent overpowered builds
+ * - Enhanced debug display for mob crit damage
  */
 public class CombatMechanics implements Listener {
     // Constants
@@ -577,13 +579,34 @@ public class CombatMechanics implements Listener {
         return new double[]{dps, vit, str, intel, dex};
     }
 
-
     // =============  MOB-TO-PLAYER DAMAGE CALCULATION SYSTEM =============
 
     /**
-     * Calculate proper mob damage based on mob's weapon and stats
+     * Result class for mob damage calculation to track crit information
      */
-    private double calculateMobDamage(LivingEntity mobAttacker, Player victim) {
+    private static class MobDamageResult {
+        private final double damage;
+        private final boolean isCritical;
+        private final double originalDamage;
+        private final double critMultiplier;
+
+        public MobDamageResult(double damage, boolean isCritical, double originalDamage, double critMultiplier) {
+            this.damage = damage;
+            this.isCritical = isCritical;
+            this.originalDamage = originalDamage;
+            this.critMultiplier = critMultiplier;
+        }
+
+        public double getDamage() { return damage; }
+        public boolean isCritical() { return isCritical; }
+        public double getOriginalDamage() { return originalDamage; }
+        public double getCritMultiplier() { return critMultiplier; }
+    }
+
+    /**
+     * Calculate proper mob damage based on mob's weapon and stats with crit tracking
+     */
+    private MobDamageResult calculateMobDamageWithCritInfo(LivingEntity mobAttacker, Player victim) {
         try {
             // Get mob's weapon
             ItemStack weapon = null;
@@ -593,7 +616,8 @@ public class CombatMechanics implements Listener {
 
             // If no weapon, use tier-based fallback
             if (weapon == null || weapon.getType() == Material.AIR) {
-                return calculateTierBasedDamage(mobAttacker);
+                double fallbackDamage = calculateTierBasedDamage(mobAttacker);
+                return new MobDamageResult(fallbackDamage, false, fallbackDamage, 1.0);
             }
 
             // Calculate damage from weapon stats
@@ -633,23 +657,35 @@ public class CombatMechanics implements Listener {
                 baseDamage = (int) (baseDamage * (1 + bonus));
             }
 
-            // Check for critical hit via CritManager
+            double originalDamage = baseDamage;
+
+            // Check for critical hit via CritManager with new result system
             CustomMob customMob = MobManager.getInstance().getCustomMob(mobAttacker);
             if (customMob != null) {
-                double critDamage = CritManager.getInstance().handleCritAttack(customMob, victim, baseDamage);
-                if (critDamage > baseDamage) {
+                CritManager.CritResult critResult = CritManager.getInstance().handleCritAttack(customMob, victim, baseDamage);
+
+                if (critResult.isCritical()) {
                     // Show critical hit hologram
-                    hologramHandler.showCombatHologram(mobAttacker, victim, CombatHologramHandler.HologramType.CRITICAL_DAMAGE, (int) critDamage);
-                    return critDamage;
+                    hologramHandler.showCombatHologram(mobAttacker, victim, CombatHologramHandler.HologramType.CRITICAL_DAMAGE, (int) critResult.getDamage());
+
+                    return new MobDamageResult(critResult.getDamage(), true, originalDamage, critResult.getMultiplier());
                 }
             }
 
-            return Math.max(1, baseDamage);
+            return new MobDamageResult(Math.max(1, baseDamage), false, originalDamage, 1.0);
 
         } catch (Exception e) {
             YakRealms.getInstance().getLogger().warning("Error calculating mob damage: " + e.getMessage());
-            return calculateTierBasedDamage(mobAttacker);
+            double fallbackDamage = calculateTierBasedDamage(mobAttacker);
+            return new MobDamageResult(fallbackDamage, false, fallbackDamage, 1.0);
         }
+    }
+
+    /**
+     * Legacy method for compatibility - extracts damage value only
+     */
+    private double calculateMobDamage(LivingEntity mobAttacker, Player victim) {
+        return calculateMobDamageWithCritInfo(mobAttacker, victim).getDamage();
     }
 
     /**
@@ -1094,7 +1130,7 @@ public class CombatMechanics implements Listener {
     // ============= UTILITY METHODS =============
 
     private boolean isGodModeDisabled(Player player) {
-        return Toggles.isToggled(player, "God Mode Disabled");
+        return true;
     }
 
 
@@ -1223,7 +1259,7 @@ public class CombatMechanics implements Listener {
     // =============  MOB-TO-PLAYER DAMAGE HANDLING =============
 
     /**
-     * Handle mob-to-player damage with proper weapon-based calculations
+     * Handle mob-to-player damage with proper weapon-based calculations and enhanced crit display
      */
     @EventHandler(priority = EventPriority.LOW)
     public void onMobToPlayerDamage(EntityDamageByEntityEvent event) {
@@ -1258,8 +1294,9 @@ public class CombatMechanics implements Listener {
             return;
         }
 
-        // Calculate proper mob damage
-        double calculatedDamage = calculateMobDamage(mobAttacker, victim);
+        // Calculate proper mob damage with crit tracking
+        MobDamageResult damageResult = calculateMobDamageWithCritInfo(mobAttacker, victim);
+        double calculatedDamage = damageResult.getDamage();
 
         // Apply armor reduction
         double armorReduction = calculateArmorReduction(victim, mobAttacker);
@@ -1269,20 +1306,38 @@ public class CombatMechanics implements Listener {
         // Set the calculated damage
         event.setDamage(finalDamage);
 
-        // Show damage hologram
-        hologramHandler.showCombatHologram(mobAttacker, victim, CombatHologramHandler.HologramType.DAMAGE, (int) finalDamage);
+        // Show damage hologram (crit hologram already shown in calculateMobDamageWithCritInfo if applicable)
+        if (!damageResult.isCritical()) {
+            hologramHandler.showCombatHologram(mobAttacker, victim, CombatHologramHandler.HologramType.DAMAGE, (int) finalDamage);
+        }
 
-        // Debug display
+        // Enhanced debug display with crit information
         if (Toggles.isToggled(victim, "Debug")) {
             String mobName = getMobName(mobAttacker);
             int expectedHealth = Math.max(0, (int) (victim.getHealth() - finalDamage));
             double effectiveReduction = ((calculatedDamage - finalDamage) / calculatedDamage) * 100;
 
-            victim.sendMessage(ChatColor.RED + "            -" + (int) finalDamage + ChatColor.RED + ChatColor.BOLD + "HP " +
-                    ChatColor.GRAY + "[" + String.format("%.1f", effectiveReduction) + "%A -> -" +
-                    (int) (calculatedDamage - finalDamage) + ChatColor.BOLD + "DMG" + ChatColor.GRAY + "] " +
-                    ChatColor.GREEN + "[" + expectedHealth + ChatColor.BOLD + "HP" + ChatColor.GREEN + "] " +
-                    ChatColor.RED + "-> " + ChatColor.RESET + mobName);
+            StringBuilder debugMessage = new StringBuilder();
+            debugMessage.append(ChatColor.RED).append("            -").append((int) finalDamage)
+                    .append(ChatColor.RED).append(ChatColor.BOLD).append("HP ");
+
+            // Add crit information if applicable
+            if (damageResult.isCritical()) {
+                debugMessage.append(ChatColor.GOLD).append(ChatColor.BOLD).append("[CRIT ")
+                        .append(String.format("%.1fx", damageResult.getCritMultiplier()))
+                        .append(": ").append((int) damageResult.getOriginalDamage())
+                        .append("->").append((int) calculatedDamage).append("] ");
+            }
+
+            debugMessage.append(ChatColor.GRAY).append("[")
+                    .append(String.format("%.1f", effectiveReduction)).append("%A -> -")
+                    .append((int) (calculatedDamage - finalDamage)).append(ChatColor.BOLD).append("DMG")
+                    .append(ChatColor.GRAY).append("] ")
+                    .append(ChatColor.GREEN).append("[").append(expectedHealth)
+                    .append(ChatColor.BOLD).append("HP").append(ChatColor.GREEN).append("] ")
+                    .append(ChatColor.RED).append("-> ").append(ChatColor.RESET).append(mobName);
+
+            victim.sendMessage(debugMessage.toString());
         }
     }
 
@@ -1707,7 +1762,7 @@ public class CombatMechanics implements Listener {
             } else {
                 // Play hurt sound for mob targets
                 if (MobManager.getInstance().getCustomMob(target) != null) {
-                    MobManager.getInstance().getCustomMob(target).updateNameVisibility();
+                    MobManager.getInstance().getCustomMob(target).updateHealthBar();
                 }
                 Sound mobHurtSound = SoundUtil.getMobHurtSound(target);
                 target.getWorld().playSound(target.getLocation(), mobHurtSound, 1.0f, 1.0f);

@@ -1,6 +1,6 @@
 package com.rednetty.server.commands.staff;
 
-import com.rednetty.server.mechanics.moderation.ModerationMechanics;
+import com.rednetty.server.mechanics.player.moderation.ModerationMechanics;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.command.Command;
@@ -80,7 +80,7 @@ public class MuteCommand implements CommandExecutor, TabCompleter {
 
         // Broadcast to staff
         for (Player staff : Bukkit.getOnlinePlayers()) {
-            if (staff.hasPermission("yakrealms.staff.mute") || ModerationMechanics.isStaff(staff)) {
+            if (staff.hasPermission("yakrealms.staff.mute") || ModerationMechanics.getInstance().isStaff(staff)) {
                 staff.sendMessage(staffMessage);
             }
         }

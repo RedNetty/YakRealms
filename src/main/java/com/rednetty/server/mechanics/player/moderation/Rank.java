@@ -1,4 +1,4 @@
-package com.rednetty.server.mechanics.moderation;
+package com.rednetty.server.mechanics.player.moderation;
 
 import lombok.Getter;
 

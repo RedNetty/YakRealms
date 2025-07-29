@@ -82,8 +82,8 @@ public class LogoutCommand implements CommandExecutor, TabCompleter, Listener {
         }
 
         // Check if player is combat tagged
-        if (alignmentMechanics.isPlayerTagged(player)) {
-            long combatTime = CombatLogoutMechanics.getInstance().getTimeSinceLastTag(player);
+        if (CombatLogoutMechanics.getInstance().isPlayerTagged(player.getUniqueId())) {
+            long combatTime = CombatLogoutMechanics.getInstance().getCombatTimeRemaining(player);
             int timeLeft = (int) ((10000 - combatTime) / 1000); // 10 second combat tag
             timeLeft = Math.max(0, timeLeft);
 

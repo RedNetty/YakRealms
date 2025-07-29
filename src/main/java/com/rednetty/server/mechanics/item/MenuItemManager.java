@@ -20,7 +20,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Logger;
 
 /**
- * Complete fixed MenuItemManager with journal, mount integration and toggles functionality.
+ * Complete  MenuItemManager with journal, mount integration and toggles functionality.
  */
 public class MenuItemManager {
 

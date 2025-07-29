@@ -32,7 +32,7 @@ import java.util.UUID;
 
 /**
  * ULTRA ROBUST event handler for all mount-related events
- * Fixed to prevent desync between mount tracking and actual vehicle state
+ *  to prevent desync between mount tracking and actual vehicle state
  */
 public class MountEvents implements Listener {
     private final MountManager manager;
@@ -338,7 +338,7 @@ public class MountEvents implements Listener {
 
                         // Don't dismount if attacker has Chaotic toggle and owner is lawful
                         if (owner != null && Toggles.isToggled(attackingPlayer, "Chaotic") &&
-                                AlignmentMechanics.getInstance().isPlayerLawful(yakOwner)) {
+                                AlignmentMechanics.isPlayerLawful(yakOwner)) {
                             return;
                         }
 

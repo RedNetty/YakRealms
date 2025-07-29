@@ -4,7 +4,6 @@ import com.rednetty.server.YakRealms;
 import com.rednetty.server.core.config.ConfigManager;
 import com.rednetty.server.mechanics.item.drops.buff.LootBuffManager;
 import com.rednetty.server.mechanics.item.drops.types.*;
-import com.rednetty.server.mechanics.item.orb.OrbManager;
 import com.rednetty.server.mechanics.world.mobs.MobManager;
 import org.bukkit.ChatColor;
 import org.bukkit.Material;
@@ -33,7 +32,8 @@ import java.util.logging.Logger;
 /**
  * Central manager for item drops from mobs and bosses
  * CRITICAL FIX: Properly implements named elite drops from elite_drops.yml
- *   elite drop creation with proper YAML configuration usage and damage variation
+ * MAJOR FIX: Prevents duplicate stats by removing automatic orb application
+ * MAJOR FIX: Clean drops with no automatic orb effects
  */
 public class DropsManager {
 
@@ -74,7 +74,7 @@ public class DropsManager {
         if (config == null) {
             if (logger.isLoggable(java.util.logging.Level.FINE)) {
                 logger.fine("§6[DropsManager] §7No elite drop configuration found for mob type: " + mobType +
-                        " - falling back to  drop");
+                        " - falling back to standard drop");
             }
             return createFallbackEliteDrop(actualMobTier, itemType);
         }
@@ -153,7 +153,7 @@ public class DropsManager {
     private final NamespacedKey keyItemType;
     private final NamespacedKey keyEliteDrop;
     private final NamespacedKey keyDropProtection;
-    private final NamespacedKey keyFixedGear;
+    private final NamespacedKey keyGear;
 
     /**
      * Private constructor for singleton pattern
@@ -168,7 +168,7 @@ public class DropsManager {
         this.keyItemType = new NamespacedKey(plugin, "item_type");
         this.keyEliteDrop = new NamespacedKey(plugin, "elite_drop");
         this.keyDropProtection = new NamespacedKey(plugin, "drop_protection");
-        this.keyFixedGear = new NamespacedKey(plugin, "fixedgear");
+        this.keyGear = new NamespacedKey(plugin, "gear");
 
         // Initialize components
         this.lootNotifier = LootNotifier.getInstance();
@@ -228,7 +228,7 @@ public class DropsManager {
     }
 
     /**
-     * Creates a drop with the specified tier, item type and rarity
+     * MAJOR FIX: Creates a drop with clean stats (NO automatic orb application)
      */
     public ItemStack createDrop(int tier, int itemType, int rarity) {
         tier = clamp(tier, 1, 6);
@@ -258,7 +258,7 @@ public class DropsManager {
     }
 
     /**
-     *  Creates a fallback elite drop when no specific config exists
+     * Creates a fallback elite drop when no specific config exists
      */
     private ItemStack createFallbackEliteDrop(int actualMobTier, int itemType) {
         int tier = (actualMobTier > 0) ? actualMobTier : 3;
@@ -272,7 +272,8 @@ public class DropsManager {
     }
 
     /**
-     * CRITICAL FIX: Creates an elite drop based on YAML configuration with  damage variation
+     * CRITICAL FIX: Creates an elite drop based on YAML configuration with damage variation
+     * MAJOR FIX: Now prevents duplicate stats from being added
      */
     private ItemStack createConfiguredEliteDrop(EliteDropConfig config, int itemType, String mobType) {
         try {
@@ -328,7 +329,7 @@ public class DropsManager {
 
             // Special metadata for certain elite types
             if (mobType.equalsIgnoreCase("spectralKnight")) {
-                container.set(keyFixedGear, PersistentDataType.INTEGER, 1);
+                container.set(keyGear, PersistentDataType.INTEGER, 1);
             }
 
             item.setItemMeta(meta);
@@ -433,7 +434,7 @@ public class DropsManager {
     // ===== PRIVATE HELPER METHODS =====
 
     /**
-     * Builds a weapon item with appropriate stats and lore
+     * MAJOR FIX: Builds a weapon item with appropriate stats and lore (NO automatic orb effects)
      */
     private ItemStack buildWeaponItem(ItemStack item, int tier, int itemType, int rarity, RarityConfig rarityConfig) {
         ItemMeta meta = item.getItemMeta();
@@ -458,7 +459,7 @@ public class DropsManager {
     }
 
     /**
-     * Builds an armor item with appropriate stats and lore
+     * MAJOR FIX: Builds an armor item with appropriate stats and lore (NO automatic orb effects)
      */
     private ItemStack buildArmorItem(ItemStack item, int tier, int itemType, int rarity, RarityConfig rarityConfig) {
         ItemMeta meta = item.getItemMeta();
@@ -487,7 +488,8 @@ public class DropsManager {
             finalItem = applyNetheriteGoldTrim(finalItem);
         }
 
-        return OrbManager.getInstance().applyOrbToItem(finalItem, false, 0);
+        // MAJOR FIX: Removed automatic orb application - items should have clean stats only
+        return finalItem;
     }
 
     /**
@@ -536,7 +538,7 @@ public class DropsManager {
      */
     private Material getFallbackMaterialByTier(int tier, int itemType) {
         String[] tierPrefixes = {"WOODEN", "STONE", "IRON", "DIAMOND", "GOLDEN", "NETHERITE"};
-        String[] weaponSuffixes = {"HOE", "SHOVEL", "SWORD", "AXE"}; //  Changed SPADE to SHOVEL
+        String[] weaponSuffixes = {"HOE", "SHOVEL", "SWORD", "AXE"}; // Changed SPADE to SHOVEL
         String[] armorSuffixes = {"HELMET", "CHESTPLATE", "LEGGINGS", "BOOTS"};
 
         String prefix = tier <= 6 ? tierPrefixes[tier - 1] : "STONE";
@@ -566,7 +568,7 @@ public class DropsManager {
     }
 
     /**
-     * Build elite weapon lore from YAML configuration with  damage variation
+     * MAJOR FIX: Build elite weapon lore from YAML configuration with damage variation and duplicate prevention
      */
     private void buildEliteWeaponLore(List<String> lore, EliteDropConfig config, ItemDetails details, int itemType, String mobType) {
         try {
@@ -606,10 +608,10 @@ public class DropsManager {
                 lore.add(ChatColor.RED + "DMG: " + minDmg + " - " + maxDmg);
             }
 
-            // Add elemental damage from configuration
+            // Add elemental damage from configuration (with duplicate check)
             addElementalDamageFromConfig(lore, config, details, itemType);
 
-            // Add special weapon stats from configuration
+            // Add special weapon stats from configuration (with duplicate check)
             addSpecialStatsFromConfig(lore, config, details, true, itemType);
 
         } catch (Exception e) {
@@ -658,7 +660,7 @@ public class DropsManager {
     }
 
     /**
-     * Build elite armor lore from YAML configuration with  HP variation
+     * MAJOR FIX: Build elite armor lore from YAML configuration with HP variation and duplicate prevention
      */
     private void buildEliteArmorLore(List<String> lore, EliteDropConfig config, ItemDetails details, int itemType, String mobType) {
         try {
@@ -697,10 +699,10 @@ public class DropsManager {
                 lore.add(ChatColor.RED + "HP: +" + hp);
             }
 
-            // Add regeneration stats from configuration
+            // Add regeneration stats from configuration (with duplicate check)
             addRegenStatsFromConfig(lore, config, details, itemType);
 
-            // Add special armor stats from configuration
+            // Add special armor stats from configuration (with duplicate check)
             addSpecialStatsFromConfig(lore, config, details, false, itemType);
 
         } catch (Exception e) {
@@ -744,7 +746,7 @@ public class DropsManager {
     }
 
     /**
-     * Add elemental damage from elite configuration
+     * MAJOR FIX: Add elemental damage from elite configuration with duplicate checking
      */
     private void addElementalDamageFromConfig(List<String> lore, EliteDropConfig config, ItemDetails details, int itemType) {
         try {
@@ -757,8 +759,13 @@ public class DropsManager {
                 if (elementRange != null && elementRange.getMax() > 0) {
                     int damage = elementRange.getRandomValue();
                     String displayName = elementType.replace("Damage", "").toUpperCase() + " DMG";
-                    lore.add(ChatColor.RED + displayName + ": +" + damage);
-                    break; // Only add one elemental type
+                    String statLine = ChatColor.RED + displayName + ": +" + damage;
+
+                    // MAJOR FIX: Check for duplicates before adding
+                    if (!loreContainsElement(lore, displayName)) {
+                        lore.add(statLine);
+                        break; // Only add one elemental type
+                    }
                 }
             }
         } catch (Exception e) {
@@ -767,7 +774,7 @@ public class DropsManager {
     }
 
     /**
-     * Add regeneration stats from elite configuration
+     * MAJOR FIX: Add regeneration stats from elite configuration with duplicate checking
      */
     private void addRegenStatsFromConfig(List<String> lore, EliteDropConfig config, ItemDetails details, int itemType) {
         try {
@@ -776,8 +783,12 @@ public class DropsManager {
             if (energyRange != null && energyRange.getMax() > 0) {
                 int value = energyRange.getRandomValue();
                 if (value > 0) {
-                    lore.add(ChatColor.RED + "ENERGY REGEN: +" + value + "%");
-                    return;
+                    String statLine = ChatColor.RED + "ENERGY REGEN: +" + value + "%";
+                    // MAJOR FIX: Check for duplicates before adding
+                    if (!loreContainsElement(lore, "ENERGY REGEN")) {
+                        lore.add(statLine);
+                        return;
+                    }
                 }
             }
 
@@ -786,7 +797,11 @@ public class DropsManager {
             if (hpsRange != null && hpsRange.getMax() > 0) {
                 int value = hpsRange.getRandomValue();
                 if (value > 0) {
-                    lore.add(ChatColor.RED + "HP REGEN: +" + value + "/s");
+                    String statLine = ChatColor.RED + "HP REGEN: +" + value + "/s";
+                    // MAJOR FIX: Check for duplicates before adding
+                    if (!loreContainsElement(lore, "HP REGEN")) {
+                        lore.add(statLine);
+                    }
                 }
             }
         } catch (Exception e) {
@@ -795,7 +810,7 @@ public class DropsManager {
     }
 
     /**
-     * Add special stats from elite configuration
+     * MAJOR FIX: Add special stats from elite configuration with duplicate checking
      */
     private void addSpecialStatsFromConfig(List<String> lore, EliteDropConfig config, ItemDetails details, boolean isWeapon, int itemType) {
         try {
@@ -811,7 +826,12 @@ public class DropsManager {
                         if (value > 0) {
                             String displayName = formatStatName(statName);
                             String suffix = (statName.equals("accuracy") || statName.equals("lifeSteal") || statName.equals("criticalHit")) ? "%" : "";
-                            lore.add(ChatColor.RED + displayName + ": " + value + suffix);
+                            String statLine = ChatColor.RED + displayName + ": " + value + suffix;
+
+                            // MAJOR FIX: Check for duplicates before adding
+                            if (!loreContainsElement(lore, displayName)) {
+                                lore.add(statLine);
+                            }
                         }
                     }
                 }
@@ -825,7 +845,12 @@ public class DropsManager {
                         if (value > 0) {
                             String displayName = formatStatName(statName);
                             String suffix = (statName.contains("Chance")) ? "%" : "";
-                            lore.add(ChatColor.RED + displayName + ": +" + value + suffix);
+                            String statLine = ChatColor.RED + displayName + ": +" + value + suffix;
+
+                            // MAJOR FIX: Check for duplicates before adding
+                            if (!loreContainsElement(lore, displayName)) {
+                                lore.add(statLine);
+                            }
                         }
                     }
                 }
@@ -1065,8 +1090,57 @@ public class DropsManager {
         return 1;
     }
 
+    /**
+     * MAJOR FIX:  lore contains check for better duplicate detection
+     */
     private boolean loreContains(List<String> lore, String attribute) {
         return lore.stream().anyMatch(line -> ChatColor.stripColor(line).contains(attribute));
+    }
+
+    /**
+     * MAJOR FIX: New method for more precise element checking to prevent duplicates
+     */
+    private boolean loreContainsElement(List<String> lore, String statName) {
+        String normalizedStatName = statName.toLowerCase().trim();
+        return lore.stream().anyMatch(line -> {
+            String cleanLine = ChatColor.stripColor(line).toLowerCase().trim();
+
+            // Check for exact stat name matches
+            if (cleanLine.contains(normalizedStatName)) {
+                return true;
+            }
+
+            // Check for common stat variations
+            switch (normalizedStatName) {
+                case "dmg":
+                case "damage":
+                    return cleanLine.contains("dmg:") || cleanLine.contains("damage:");
+                case "hp":
+                case "health":
+                    return cleanLine.contains("hp:") || cleanLine.contains("health:");
+                case "energy regen":
+                case "energyregen":
+                    return cleanLine.contains("energy regen:") || cleanLine.contains("energy:");
+                case "hp regen":
+                case "hpregen":
+                    return cleanLine.contains("hp regen:") || cleanLine.contains("regen:");
+                case "fire dmg":
+                case "firedamage":
+                    return cleanLine.contains("fire dmg:") || cleanLine.contains("fire:");
+                case "poison dmg":
+                case "poisondamage":
+                    return cleanLine.contains("poison dmg:") || cleanLine.contains("poison:");
+                case "ice dmg":
+                case "icedamage":
+                    return cleanLine.contains("ice dmg:") || cleanLine.contains("ice:");
+                case "dps":
+                    return cleanLine.contains("dps:");
+                case "armor":
+                    return cleanLine.contains("armor:");
+                default:
+                    return false;
+            }
+        });
     }
 
     private ChatColor getTierColor(int tier) {
@@ -1292,7 +1366,7 @@ public class DropsManager {
     }
 
     /**
-     * Handles item building and meta application
+     * MAJOR FIX: Handles item building and meta application (NO automatic orb effects)
      */
     private static class ItemBuilder {
 
@@ -1327,7 +1401,9 @@ public class DropsManager {
             container.set(keyItemType, PersistentDataType.INTEGER, itemType);
 
             item.setItemMeta(meta);
-            return OrbManager.getInstance().applyOrbToItem(item, false, 0);
+
+            // MAJOR FIX: Removed automatic orb application - returns clean item with finalized stats only
+            return item;
         }
     }
 
@@ -1342,7 +1418,7 @@ public class DropsManager {
                 {"Wizard Staff", "Magic Polearm", "Magic Sword", "War Axe", "Full Helmet", "Platemail", "Platemail Leggings", "Platemail Boots"},
         };
 
-        private static final String[] TIER_PREFIXES = {"", "", "", "Ancient", "Legendary", "Netherite"};
+        private static final String[] TIER_PREFIXES = {"", "", "", "Ancient", "Legendary", "Nether-Forged"};
         private static final String[] ITEM_SUFFIXES = {"Staff", "Polearm", "Sword", "Axe", "Helmet", "Chestplate", "Leggings", "Boots"};
 
         public String getItemName(int itemType, int tier) {

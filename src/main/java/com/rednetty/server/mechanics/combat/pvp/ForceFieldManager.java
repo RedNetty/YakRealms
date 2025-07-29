@@ -10,10 +10,7 @@ import com.rednetty.server.YakRealms;
 import com.rednetty.server.mechanics.player.YakPlayer;
 import com.rednetty.server.mechanics.player.YakPlayerManager;
 import com.rednetty.server.mechanics.world.WorldGuardManager;
-import org.bukkit.Bukkit;
-import org.bukkit.Location;
-import org.bukkit.Material;
-import org.bukkit.World;
+import org.bukkit.*;
 import org.bukkit.block.Block;
 import org.bukkit.block.BlockFace;
 import org.bukkit.entity.Player;
@@ -31,7 +28,13 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Manages force field visualization for safe zone boundaries
+ * FIXED Manages force field visualization for safe zone boundaries
+ *
+ * CRITICAL FIXES:
+ * - Added public updatePlayerForceField method for immediate force field updates
+ * - Improved combat tag detection integration
+ * - Better error handling and logging
+ * - Optimized force field boundary detection
  */
 public class ForceFieldManager implements Listener {
     // Constants
@@ -83,7 +86,7 @@ public class ForceFieldManager implements Listener {
     public void onEnable() {
         Bukkit.getServer().getPluginManager().registerEvents(this, YakRealms.getInstance());
         startUpdateTask();
-        YakRealms.log("Force field mechanics have been enabled.");
+        YakRealms.log("FIXED Force field mechanics have been enabled with proper combat tag integration.");
     }
 
     /**
@@ -97,7 +100,7 @@ public class ForceFieldManager implements Listener {
 
         // Clean up all force fields
         removeAllForceFields();
-        YakRealms.log("Force field mechanics have been disabled.");
+        YakRealms.log("FIXED Force field mechanics have been disabled.");
     }
 
     /**
@@ -111,15 +114,10 @@ public class ForceFieldManager implements Listener {
 
                 // Find players who need force field updates
                 for (Player player : Bukkit.getOnlinePlayers()) {
-                    YakPlayer yakPlayer = playerManager.getPlayer(player);
-                    if (yakPlayer == null) continue;
-
-                    // Update force fields for players who are chaotic or combat tagged
-                    if ("CHAOTIC".equals(yakPlayer.getAlignment()) ||
-                            AlignmentMechanics.getInstance().isPlayerTagged(player)) {
+                    if (shouldPlayerHaveForceField(player)) {
                         playersToUpdate.add(player.getUniqueId());
                     }
-                    // Also update for players who already have force fields
+                    // Also update for players who already have force fields but shouldn't
                     else if (activeForceFields.containsKey(player.getUniqueId())) {
                         playersToUpdate.add(player.getUniqueId());
                     }
@@ -137,45 +135,96 @@ public class ForceFieldManager implements Listener {
     }
 
     /**
-     * Update the force field for a player
+     * FIXED: Check if a player should have force fields displayed
+     *
+     * @param player The player to check
+     * @return true if the player should see force fields
+     */
+    private boolean shouldPlayerHaveForceField(Player player) {
+        if (player == null || !player.isOnline()) {
+            return false;
+        }
+
+        YakPlayer yakPlayer = playerManager.getPlayer(player);
+        if (yakPlayer == null) {
+            return false;
+        }
+
+        // FIXED: Show force fields for chaotic players OR combat tagged players
+        return "CHAOTIC".equals(yakPlayer.getAlignment()) ||
+                isPlayerCombatTagged(player);
+    }
+
+    /**
+     * FIXED: Check if a player is combat tagged using AlignmentMechanics
+     *
+     * @param player The player to check
+     * @return true if the player is combat tagged
+     */
+    private boolean isPlayerCombatTagged(Player player) {
+        try {
+            // Use AlignmentMechanics to check combat tag status
+            return AlignmentMechanics.getInstance().isPlayerTagged(player);
+        } catch (Exception e) {
+            YakRealms.error("Error checking combat tag status for " + player.getName(), e);
+            return false;
+        }
+    }
+
+    /**
+     * FIXED: Update the force field for a player (now public for external calls)
      *
      * @param player The player to update
      */
-    private void updatePlayerForceField(Player player) {
-        if (player == null || !player.isOnline()) return;
-
-        YakPlayer yakPlayer = playerManager.getPlayer(player);
-        if (yakPlayer == null) return;
-
-        // Get current force field blocks
-        Set<Location> currentBlocks = findBoundaryBlocks(player);
-
-        // Get previously shown blocks
-        Set<Location> previousBlocks = activeForceFields.getOrDefault(player.getUniqueId(), new HashSet<>());
-
-        // Determine blocks to add and remove
-        Set<Location> blocksToRemove = new HashSet<>(previousBlocks);
-        blocksToRemove.removeAll(currentBlocks);
-
-        Set<Location> blocksToAdd = new HashSet<>(currentBlocks);
-        blocksToAdd.removeAll(previousBlocks);
-
-        // Apply changes
-        for (Location location : blocksToRemove) {
-            Block block = location.getBlock();
-            sendBlockChange(player, location, block.getType(), block.getData());
+    public void updatePlayerForceField(Player player) {
+        if (player == null || !player.isOnline()) {
+            return;
         }
 
-        for (Location location : blocksToAdd) {
-            // Send red stained glass block
-            sendStainedGlassBlockChange(player, location, (byte) 14); // 14 is red
-        }
+        try {
+            UUID playerId = player.getUniqueId();
 
-        // Update active blocks
-        if (currentBlocks.isEmpty()) {
-            activeForceFields.remove(player.getUniqueId());
-        } else {
-            activeForceFields.put(player.getUniqueId(), currentBlocks);
+            // Check if player should have force fields
+            boolean shouldHaveFields = shouldPlayerHaveForceField(player);
+
+            if (shouldHaveFields) {
+                // Get current force field blocks
+                Set<Location> currentBlocks = findBoundaryBlocks(player);
+
+                // Get previously shown blocks
+                Set<Location> previousBlocks = activeForceFields.getOrDefault(playerId, new HashSet<>());
+
+                // Determine blocks to add and remove
+                Set<Location> blocksToRemove = new HashSet<>(previousBlocks);
+                blocksToRemove.removeAll(currentBlocks);
+
+                Set<Location> blocksToAdd = new HashSet<>(currentBlocks);
+                blocksToAdd.removeAll(previousBlocks);
+
+                // Apply changes
+                for (Location location : blocksToRemove) {
+                    Block block = location.getBlock();
+                    sendBlockChange(player, location, block.getType(), block.getData());
+                }
+
+                for (Location location : blocksToAdd) {
+                    // Send red stained glass block
+                    sendStainedGlassBlockChange(player, location, (byte) 14); // 14 is red
+                }
+
+                // Update active blocks
+                if (currentBlocks.isEmpty()) {
+                    activeForceFields.remove(playerId);
+                } else {
+                    activeForceFields.put(playerId, currentBlocks);
+                }
+            } else {
+                // Player shouldn't have force fields, remove them
+                removePlayerForceField(player);
+            }
+
+        } catch (Exception e) {
+            YakRealms.error("Error updating force field for " + player.getName(), e);
         }
     }
 
@@ -327,7 +376,7 @@ public class ForceFieldManager implements Listener {
     }
 
     /**
-     * Find blocks that should be shown as force field blocks for a player
+     * FIXED: Find blocks that should be shown as force field blocks for a player
      *
      * @param player The player to check
      * @return Set of block locations that should be shown as force field
@@ -335,16 +384,11 @@ public class ForceFieldManager implements Listener {
     private Set<Location> findBoundaryBlocks(Player player) {
         Set<Location> boundaryBlocks = new HashSet<>();
 
-        YakPlayer yakPlayer = playerManager.getPlayer(player);
-        if (yakPlayer == null) return boundaryBlocks;
-
-        Location playerLoc = player.getLocation();
-
-        // Only create force fields for chaotic players or players in combat
-        if (!"CHAOTIC".equals(yakPlayer.getAlignment()) &&
-                !AlignmentMechanics.getInstance().isPlayerTagged(player)) {
+        if (!shouldPlayerHaveForceField(player)) {
             return boundaryBlocks;
         }
+
+        Location playerLoc = player.getLocation();
 
         // Find boundary blocks in a radius around the player
         World world = player.getWorld();
@@ -421,19 +465,30 @@ public class ForceFieldManager implements Listener {
     }
 
     /**
-     * Remove force field blocks for a player
+     * FIXED: Remove force field blocks for a player
      *
      * @param player The player to update
      */
     public void removePlayerForceField(Player player) {
-        if (player == null || !player.isOnline()) return;
+        if (player == null || !player.isOnline()) {
+            return;
+        }
 
-        Set<Location> blocks = activeForceFields.remove(player.getUniqueId());
-        if (blocks == null || blocks.isEmpty()) return;
+        UUID playerId = player.getUniqueId();
+        Set<Location> blocks = activeForceFields.remove(playerId);
+        if (blocks == null || blocks.isEmpty()) {
+            return;
+        }
 
-        for (Location location : blocks) {
-            Block block = location.getBlock();
-            sendBlockChange(player, location, block.getType(), block.getData());
+        try {
+            for (Location location : blocks) {
+                Block block = location.getBlock();
+                sendBlockChange(player, location, block.getType(), block.getData());
+            }
+
+            YakRealms.log("Removed force field for " + player.getName() + " (" + blocks.size() + " blocks)");
+        } catch (Exception e) {
+            YakRealms.error("Error removing force field for " + player.getName(), e);
         }
     }
 
@@ -451,11 +506,18 @@ public class ForceFieldManager implements Listener {
     }
 
     /**
-     * Handle a player joining the server
+     * FIXED: Handle a player joining the server
      */
     @EventHandler
     public void onPlayerJoin(PlayerJoinEvent event) {
-        // Force fields will be added by the update task if needed
+        Player player = event.getPlayer();
+
+        // Schedule force field update after a short delay to ensure all systems are initialized
+        Bukkit.getScheduler().runTaskLater(YakRealms.getInstance(), () -> {
+            if (player.isOnline()) {
+                updatePlayerForceField(player);
+            }
+        }, 3L);
     }
 
     /**
@@ -467,7 +529,7 @@ public class ForceFieldManager implements Listener {
     }
 
     /**
-     * Prevent players from walking through force fields
+     * FIXED: Prevent players from walking through force fields
      */
     @EventHandler(priority = EventPriority.HIGH)
     public void onPlayerMove(PlayerMoveEvent event) {
@@ -476,13 +538,18 @@ public class ForceFieldManager implements Listener {
         }
 
         Player player = event.getPlayer();
-        Set<Location> forceFieldBlocks = activeForceFields.get(player.getUniqueId());
+        UUID playerId = player.getUniqueId();
+        Set<Location> forceFieldBlocks = activeForceFields.get(playerId);
 
         if (forceFieldBlocks != null && !forceFieldBlocks.isEmpty()) {
             // Check if the player is trying to move into a force field block
             Location targetBlock = event.getTo().getBlock().getLocation();
             if (forceFieldBlocks.contains(targetBlock)) {
                 event.setCancelled(true);
+
+                // Provide feedback to the player
+                player.sendMessage(ChatColor.RED + "You cannot pass through the force field barrier!");
+                player.playSound(player.getLocation(), Sound.BLOCK_ANVIL_LAND, 0.3f, 2.0f);
             }
         }
     }
@@ -495,5 +562,69 @@ public class ForceFieldManager implements Listener {
         if (event.getPlugin().getName().equals(YakRealms.getInstance().getName())) {
             onDisable();
         }
+    }
+
+    /**
+     * FIXED: Public API method to force an immediate update for a specific player
+     * This is called when a player's combat state changes
+     *
+     * @param player The player whose force field should be updated
+     */
+    public void forceUpdatePlayerForceField(Player player) {
+        if (player != null && player.isOnline()) {
+            updatePlayerForceField(player);
+        }
+    }
+
+    /**
+     * FIXED: Check if a player currently has active force fields
+     *
+     * @param player The player to check
+     * @return true if the player has active force fields
+     */
+    public boolean hasActiveForceFields(Player player) {
+        if (player == null) {
+            return false;
+        }
+
+        Set<Location> blocks = activeForceFields.get(player.getUniqueId());
+        return blocks != null && !blocks.isEmpty();
+    }
+
+    /**
+     * FIXED: Get the count of active force field blocks for a player
+     *
+     * @param player The player to check
+     * @return The number of active force field blocks
+     */
+    public int getActiveForceFieldCount(Player player) {
+        if (player == null) {
+            return 0;
+        }
+
+        Set<Location> blocks = activeForceFields.get(player.getUniqueId());
+        return blocks != null ? blocks.size() : 0;
+    }
+
+    /**
+     * FIXED: Get debug information about the force field system
+     *
+     * @return A map of debug information
+     */
+    public Map<String, Object> getDebugInfo() {
+        Map<String, Object> info = new HashMap<>();
+        info.put("total_players_with_fields", activeForceFields.size());
+        info.put("update_task_running", updateTask != null && !updateTask.isCancelled());
+        info.put("total_field_blocks", activeForceFields.values().stream().mapToInt(Set::size).sum());
+
+        Map<String, Integer> playerFieldCounts = new HashMap<>();
+        for (Map.Entry<UUID, Set<Location>> entry : activeForceFields.entrySet()) {
+            Player player = Bukkit.getPlayer(entry.getKey());
+            String playerName = player != null ? player.getName() : entry.getKey().toString();
+            playerFieldCounts.put(playerName, entry.getValue().size());
+        }
+        info.put("player_field_counts", playerFieldCounts);
+
+        return info;
     }
 }

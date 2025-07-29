@@ -108,7 +108,7 @@ public class CrateHandler implements Listener {
             return;
         }
 
-        // Handle crate inventory interactions - fixed detection
+        // Handle crate inventory interactions -  detection
         if (isValidCrateInventoryClick(event) && isCrateItem(clickedItem)) {
             event.setCancelled(true);
             handleCrateInventoryClick(player, clickedItem, event);
@@ -197,7 +197,7 @@ public class CrateHandler implements Listener {
             public void run() {
                 checkAndNotifyCrates(player);
             }
-        }.runTaskLater(plugin, 40L); // 2 seconds after join
+        }.runTaskLater(plugin, 380L); // 2 seconds after join
     }
 
     /**
@@ -385,7 +385,7 @@ public class CrateHandler implements Listener {
         var result = economyManager.addBankGems(player.getUniqueId(), scrapValue);
 
         if (result.isSuccess()) {
-            // Remove the crate from hand - FIXED to prevent ghost items
+            // Remove the crate from hand -  to prevent ghost items
             ItemStack handItem = player.getInventory().getItemInMainHand();
             if (handItem.getAmount() > 1) {
                 ItemStack reducedItem = handItem.clone();
@@ -561,7 +561,7 @@ public class CrateHandler implements Listener {
     }
 
     /**
-     *  item manipulation methods - FIXED ghost item bug
+     *  item manipulation methods -  ghost item bug
      */
     private void consumeCrateItem(InventoryClickEvent event, ItemStack crateItem) {
         if (crateItem.getAmount() > 1) {

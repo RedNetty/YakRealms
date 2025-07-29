@@ -1,8 +1,7 @@
 package com.rednetty.server.mechanics.player.listeners;
 
-import com.rednetty.server.mechanics.moderation.ModerationMechanics;
-import com.rednetty.server.mechanics.moderation.Rank;
-import com.rednetty.server.mechanics.player.settings.Toggles;
+import com.rednetty.server.mechanics.player.moderation.ModerationMechanics;
+import com.rednetty.server.mechanics.player.moderation.Rank;
 import org.bukkit.*;
 import org.bukkit.entity.Item;
 import org.bukkit.entity.Player;
@@ -53,10 +52,6 @@ public class VisualEffectsListener extends BaseListener {
             // Process armor effects
             processArmorEffects(player);
 
-            // Process trail effects for donors
-            if (isDonator(player) && Toggles.isToggled(player, "Trail")) {
-                processTrailEffects(player);
-            }
         }
     }
 
@@ -102,7 +97,7 @@ public class VisualEffectsListener extends BaseListener {
      * Process trail effects based on donor rank
      */
     private void processTrailEffects(Player player) {
-        Rank rank = ModerationMechanics.getRank(player);
+        Rank rank = ModerationMechanics.getInstance().getPlayerRank(player.getUniqueId());
         Location playerLocation = player.getLocation().clone();
 
         // Generate random offsets for particles
@@ -249,7 +244,7 @@ public class VisualEffectsListener extends BaseListener {
      * Check if a player is a donator
      */
     private boolean isDonator(Player player) {
-        return ModerationMechanics.isDonator(player);
+        return ModerationMechanics.getInstance().isDonator(player);
     }
 
     /**
@@ -259,10 +254,6 @@ public class VisualEffectsListener extends BaseListener {
     public void onPlayerJoin(PlayerJoinEvent event) {
         Player player = event.getPlayer();
 
-        // Register for effect processing if needed
-        if (isDonator(player) && Toggles.isToggled(player, "Trail")) {
-            activeEffects.add(player.getUniqueId());
-        }
     }
 
     /**

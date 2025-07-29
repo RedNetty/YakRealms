@@ -419,8 +419,8 @@ public class DungeonRewards {
                         data.addMobReward(mobData);
 
                         // Add special marking for reward mobs
-                        spawnedMob.setMetadata("rewardMob", new org.bukkit.metadata.FixedMetadataValue(YakRealms.getInstance(), true));
-                        spawnedMob.setMetadata("rewardPlayer", new org.bukkit.metadata.FixedMetadataValue(YakRealms.getInstance(), player.getUniqueId().toString()));
+                        spawnedMob.setMetadata("rewardMob", new org.bukkit.metadata.MetadataValue(YakRealms.getInstance(), true));
+                        spawnedMob.setMetadata("rewardPlayer", new org.bukkit.metadata.MetadataValue(YakRealms.getInstance(), player.getUniqueId().toString()));
                     }
 
                 } catch (Exception e) {

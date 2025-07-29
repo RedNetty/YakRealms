@@ -14,1147 +14,600 @@ import org.bukkit.inventory.EntityEquipment;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.metadata.FixedMetadataValue;
+import org.bukkit.metadata.MetadataValue;
 import org.bukkit.potion.PotionEffect;
 import org.bukkit.potion.PotionEffectType;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Random;
+import java.util.*;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
- * CustomMob class with simplified, reliable spawning and enhanced hologram system
- * FIXED: Hologram system now prevents trails and updates efficiently
- * - Equipment never takes durability damage (unbreakable)
- * - Mobs never burn in sunlight
- * - All entity operations properly validated for main thread
- * - Fixed entity creation issues that caused "naked mob" fallbacks
- * - Enhanced hologram system with position tracking to prevent trails
- * - Optimized hologram updates to reduce lag
+ *  CustomMob class with improved architecture and cleaner code
+ * Key improvements:
+ * - Simplified state management with thread-safe operations
+ * - Cleaner display system with clear separation of concerns
+ * - Reduced code duplication and improved error handling
+ * - Better performance with optimized operations
+ * - Improved readability and maintainability
  */
 @Getter
 public class CustomMob {
 
-    protected static final Random RANDOM = new Random();
-    protected static final Logger LOGGER = YakRealms.getInstance().getLogger();
-    protected static final long NAME_VISIBILITY_TIMEOUT = 6500; // 6.5 seconds
+    // Constants
+    public static final Random RANDOM = ThreadLocalRandom.current();
+    public static final Logger LOGGER = YakRealms.getInstance().getLogger();
+    public static final long COMBAT_TIMEOUT_MS = 6500L;
+    public static final long HOLOGRAM_UPDATE_INTERVAL_MS = 5000L;
+    public static final double HEALTH_CHANGE_THRESHOLD = 0.05; // 5% health change
+    public static final int MAX_SPAWN_ATTEMPTS = 3;
+    public static final int HEALTH_BAR_LENGTH = 36;
 
-    // Make these package-private so MobManager can access them directly
-    public long lastDamageTime = 0;
-    public boolean nameVisible = true;
+    // Core properties
+    @Getter public final MobType type;
+    @Getter public final int tier;
+    @Getter public final boolean elite;
+    @Getter public final String uniqueMobId;
 
-    // ================ STATE VARIABLES ================
-    protected LivingEntity entity;
-    protected int lightningMultiplier = 0;
-    private boolean showingHealthBar = false;
+    // Entity reference
+    public volatile LivingEntity entity;
+    public final ReadWriteLock entityLock = new ReentrantReadWriteLock();
 
-    // ================ CORE PROPERTIES ================
-    protected final MobType type;
-    protected final int tier;
-    protected final boolean elite;
+    // Display system
+    public volatile String baseDisplayName;
+    public volatile String hologramId;
+    public volatile long lastHologramUpdate = 0;
 
-    // ================ NAME SYSTEM ================
-    private String originalName; // Proper tier-specific name
-    protected String currentDisplayName; // What's currently shown
-    private boolean originalNameStored = false;
+    // State management
+    public final AtomicBoolean valid = new AtomicBoolean(true);
+    public final AtomicBoolean removing = new AtomicBoolean(false);
+    public final AtomicBoolean hologramActive = new AtomicBoolean(false);
 
-    // ================ FIXED HOLOGRAM SYSTEM ================
-    private String hologramId;
-    private boolean hologramActive = false;
-    private double lastHologramHealth = -1;
-    private double lastHologramMaxHealth = -1;
-    private Location lastHologramLocation; // Track last hologram position
-    private List<String> lastHologramLines; // Track last hologram content
-    private long lastHologramUpdate = 0; // Track last update time
-    private static final long HOLOGRAM_UPDATE_INTERVAL = 2; // Update every 2 ticks (10 times per second)
-    private static final double POSITION_UPDATE_THRESHOLD = 0.15; // Only update if moved more than 0.15 blocks
+    // Combat tracking
+    public volatile long lastDamageTime = 0;
+    public volatile boolean inCombat = false;
 
-    // ================ HEALTH SYSTEM ================
-    private double baseHealth = 0;
+    // Health tracking
+    public volatile double lastKnownHealth = -1;
+    public volatile double lastKnownMaxHealth = -1;
 
-    /**
-     * Immediate health bar refresh method for external calls
-     */
-    public void refreshHealthBar() {
-        if (!isValid()) return;
-
-        // Force immediate update with current health
-        Bukkit.getScheduler().runTask(YakRealms.getInstance(), () -> {
-            if (isValid()) {
-                updateHealthBar();
-                forceUpdateHologram(); // Force hologram update
-            }
-        });
-    }
+    // Special modifiers
+    @Getter public int lightningMultiplier = 0;
 
     /**
-     * FIXED: Force update hologram regardless of timing constraints
-     */
-    public void forceUpdateHologram() {
-        lastHologramUpdate = 0; // Reset timing to force update
-        updateHologramOverlay();
-    }
-
-    /**
-     * Get current health percentage (useful for debugging)
-     */
-    public double getHealthPercentage() {
-        if (!isValid()) return 0.0;
-
-        try {
-            double current = entity.getHealth();
-            double max = entity.getMaxHealth();
-
-            if (max <= 0) return 0.0;
-            return (current / max) * 100.0;
-        } catch (Exception e) {
-            return 0.0;
-        }
-    }
-
-    /**
-     * Force health bar update with specific values (for special cases)
-     */
-    public void updateHealthBarWithValues(double health, double maxHealth) {
-        if (!isValid()) return;
-
-        try {
-            String healthBar = generateHealthBar(health, maxHealth);
-            if (!hologramActive) {
-                entity.setCustomName(healthBar);
-                entity.setCustomNameVisible(true);
-            }
-            currentDisplayName = healthBar;
-            showingHealthBar = true;
-            lastDamageTime = System.currentTimeMillis();
-
-            // Force update hologram as well
-            forceUpdateHologram();
-        } catch (Exception e) {
-            LOGGER.warning("[CustomMob] Forced health bar update failed: " + e.getMessage());
-        }
-    }
-
-    /**
-     * Create a new custom mob with basic validation
+     * Creates a new CustomMob instance
      */
     public CustomMob(MobType type, int tier, boolean elite) {
-        if (type == null) {
-            throw new IllegalArgumentException("MobType cannot be null");
-        }
+        Objects.requireNonNull(type, "MobType cannot be null");
 
         this.type = type;
         this.tier = Math.max(1, Math.min(6, tier));
         this.elite = elite;
+        this.uniqueMobId = generateUniqueMobId();
 
-        if (YakRealms.getInstance().isDebugMode()) {
-            LOGGER.info(String.format("[CustomMob] Creating %s mob: %s T%d%s",
-                    elite ? "elite" : "normal", type.getId(), this.tier, elite ? "+" : ""));
-        }
+        logDebug("Creating %s mob: %s T%d%s (ID: %s)",
+                elite ? "elite" : "normal", type.getId(), this.tier, elite ? "+" : "", uniqueMobId);
     }
 
-    // ================ LIFECYCLE SYSTEM ================
+    private String generateUniqueMobId() {
+        return String.format("mob_%s_%d_%d", type.getId(), System.currentTimeMillis(), RANDOM.nextInt(10000));
+    }
+
+    // ==================== LIFECYCLE MANAGEMENT ====================
 
     /**
-     * Main tick method called every game tick for active mobs
-     * FIXED: Now includes optimized hologram updates
+     * Main tick method - called periodically to update mob state
      */
     public void tick() {
         if (!isValid()) return;
 
+        entityLock.readLock().lock();
         try {
-            updateNameVisibility();
-            preventSunlightBurning(); // Ensure mobs don't burn in sunlight
-            updateHologramOverlayOptimized(); // FIXED: Optimized hologram updates
-            // Subclasses can override to add specific behavior
+            if (entity == null) return;
+
+            updateCombatState();
+            updateDisplayElements();
+            preventSunlightDamage();
+
         } catch (Exception e) {
-            LOGGER.warning("[CustomMob] Tick error for " + type.getId() + ": " + e.getMessage());
+            logError("Tick error", e);
+        } finally {
+            entityLock.readLock().unlock();
         }
     }
 
-    // ================ FIXED HOLOGRAM SYSTEM ================
+    /**
+     * Spawns the mob at the specified location
+     */
+    public boolean spawn(Location location) {
+        if (!Bukkit.isPrimaryThread()) {
+            LOGGER.severe("spawn() called from async thread!");
+            return false;
+        }
+
+        entityLock.writeLock().lock();
+        try {
+            Location spawnLoc = findSafeSpawnLocation(location);
+            if (spawnLoc == null) return false;
+
+            entity = createEntity(spawnLoc);
+            if (entity == null) return false;
+
+            if (!initializeMob()) {
+                cleanup();
+                return false;
+            }
+
+            MobManager.getInstance().registerMob(this);
+            logDebug("Successfully spawned %s", uniqueMobId);
+            return true;
+
+        } catch (Exception e) {
+            logError("Spawn error", e);
+            cleanup();
+            return false;
+        } finally {
+            entityLock.writeLock().unlock();
+        }
+    }
 
     /**
-     * FIXED: Optimized hologram overlay system that prevents trails and reduces lag
+     * Removes the mob and cleans up resources
      */
-    private void updateHologramOverlayOptimized() {
+    public void remove() {
+        if (!removing.compareAndSet(false, true)) return;
+
+        entityLock.writeLock().lock();
+        try {
+            valid.set(false);
+            removeHologram();
+
+            if (entity != null && entity.isValid()) {
+                MobManager.getInstance().recordMobDeath(type.getId(), tier, elite);
+                entity.remove();
+            }
+
+            MobManager.getInstance().unregisterMob(this);
+
+        } catch (Exception e) {
+            logError("Removal error", e);
+        } finally {
+            entity = null;
+            entityLock.writeLock().unlock();
+        }
+    }
+
+    // ==================== COMBAT MANAGEMENT ====================
+
+    /**
+     * Handles damage taken by the mob
+     */
+    public void handleDamage(double damage) {
         if (!isValid()) return;
+
+        lastDamageTime = System.currentTimeMillis();
+        updateDisplayElements();
+    }
+
+    /**
+     * Updates combat state based on recent damage
+     */
+    private void updateCombatState() {
+        long currentTime = System.currentTimeMillis();
+        boolean wasInCombat = inCombat;
+
+        inCombat = (currentTime - lastDamageTime) < COMBAT_TIMEOUT_MS;
+
+        if (inCombat != wasInCombat) {
+            if (inCombat) {
+                onEnterCombat();
+            } else {
+                scheduleExitCombat();
+            }
+        }
+    }
+
+    private void onEnterCombat() {
+        hologramActive.set(true);
+    }
+
+    private void scheduleExitCombat() {
+        Bukkit.getScheduler().runTaskLater(YakRealms.getInstance(), () -> {
+            if (!inCombat) {
+                hologramActive.set(false);
+                removeHologram();
+            }
+        }, 60L); // 3 seconds
+    }
+
+    // ==================== DISPLAY SYSTEM ====================
+
+    /**
+     * Updates all display elements (name and hologram)
+     */
+    private void updateDisplayElements() {
+        updateMobName();
+
+        if (shouldUpdateHologram()) {
+            updateHologram();
+        }
+    }
+
+    /**
+     * Updates the mob's display name based on current state
+     */
+    private void updateMobName() {
+        if (entity == null) return;
+
+        try {
+            if (baseDisplayName == null) {
+                baseDisplayName = generateBaseDisplayName();
+            }
+
+            String displayName = generateCurrentDisplayName();
+            if (!displayName.equals(entity.getCustomName())) {
+                entity.setCustomName(displayName);
+                entity.setCustomNameVisible(true);
+            }
+
+        } catch (Exception e) {
+            logError("Name update failed", e);
+        }
+    }
+
+    /**
+     * Generates the base display name for the mob
+     */
+    private String generateBaseDisplayName() {
+        String tierName = type.getTierSpecificName(tier);
+        return MobUtils.formatMobName(tierName, tier, elite);
+    }
+
+    /**
+     * Generates the current display name based on mob state
+     */
+    private String generateCurrentDisplayName() {
+        if (baseDisplayName == null) return type.getId();
+
+        // Show health percentage in combat
+        if(!inCombat) {
+            removeHologram();
+        }
+        if (inCombat && entity != null) {
+            try {
+                double healthPercent = (entity.getHealth() / entity.getMaxHealth()) * 100.0;
+                ChatColor healthColor = getHealthColor(healthPercent);
+                return String.format("%s %s(%.1f%%)", baseDisplayName, healthColor, healthPercent);
+            } catch (Exception e) {
+                // Fall back to base name
+            }
+        }
+
+        // Show critical state
+        if (isInCriticalState()) {
+            int countdown = getCritCountdown();
+            if (countdown > 0) {
+                return baseDisplayName + " §c⚠ " + countdown + " ⚠";
+            } else {
+                return baseDisplayName + " §5⚡ CHARGED ⚡";
+            }
+        }
+
+        return baseDisplayName;
+    }
+
+    /**
+     * Determines if hologram should be updated
+     */
+    private boolean shouldUpdateHologram() {
+        if (!hologramActive.get()) return false;
 
         long currentTime = System.currentTimeMillis();
 
-        // Throttle updates to reduce lag (update at most every HOLOGRAM_UPDATE_INTERVAL ticks)
-        if (currentTime - lastHologramUpdate < (HOLOGRAM_UPDATE_INTERVAL * 50)) { // 50ms per tick
-            return;
-        }
+        // Update in combat or periodically
+        return inCombat ||
+                (currentTime - lastHologramUpdate) > HOLOGRAM_UPDATE_INTERVAL_MS ||
+                hasHealthChangedSignificantly();
+    }
+
+    /**
+     * Updates the hologram display
+     */
+    // In CustomMob.java, update updateHologram()
+    private void updateHologram() {
+        if (entity == null || !hologramActive.get()) return;
 
         try {
             if (hologramId == null) {
-                hologramId = "mob_" + entity.getUniqueId().toString();
+                hologramId = "holo_" + uniqueMobId;
             }
 
-            // Get current values
-            Location currentLocation = entity.getLocation().add(0, entity.getHeight() + 0.4, 0);
-            double currentHealth = entity.getHealth();
-            double maxHealth = entity.getMaxHealth();
+            List<String> lines = createHologramLines();
+            if (lines.isEmpty()) return;
 
-            // Check if significant changes occurred
-            boolean positionChanged = hasSignificantPositionChange(currentLocation);
-            boolean healthChanged = hasSignificantHealthChange(currentHealth, maxHealth);
-            boolean contentChanged = hasContentChanged(currentHealth, maxHealth);
+            Location holoLoc = entity.getLocation().add(0, entity.getHeight() + 0.5, 0);
 
-            // Only update if there are significant changes
-            if (!positionChanged && !healthChanged && !contentChanged) {
-                return;
-            }
-
-            List<String> hologramLines = createHologramLines(currentHealth, maxHealth);
-
-            // Use efficient update method
-            boolean updated = HologramManager.updateHologramEfficiently(hologramId, currentLocation, hologramLines, 0.3);
+            boolean updated = HologramManager.updateHologramEfficiently(
+                    hologramId, holoLoc, lines, 0.25, getEntityUuid()  // Use entity UUID string
+            );
 
             if (updated) {
-                // Hide entity name when hologram is active
-                entity.setCustomNameVisible(false);
-                hologramActive = true;
-
-                // Store last values
-                lastHologramLocation = currentLocation.clone();
-                lastHologramHealth = currentHealth;
-                lastHologramMaxHealth = maxHealth;
-                lastHologramLines = new ArrayList<>(hologramLines);
-                lastHologramUpdate = currentTime;
-
-                if (YakRealms.getInstance().isDebugMode()) {
-                    LOGGER.fine("[CustomMob] Updated hologram for " + type.getId() +
-                            " - Pos: " + positionChanged + ", Health: " + healthChanged + ", Content: " + contentChanged);
-                }
+                lastHologramUpdate = System.currentTimeMillis();
             }
 
         } catch (Exception e) {
-            LOGGER.warning("[CustomMob] Hologram update failed: " + e.getMessage());
+            logError("Hologram update failed", e);
         }
     }
-
-    /**
-     * FIXED: Check if position has changed significantly
-     */
-    private boolean hasSignificantPositionChange(Location currentLocation) {
-        if (lastHologramLocation == null) {
-            return true; // First time, always update
-        }
-
-        if (!lastHologramLocation.getWorld().equals(currentLocation.getWorld())) {
-            return true; // World changed
-        }
-
-        double distance = lastHologramLocation.distance(currentLocation);
-        return distance > POSITION_UPDATE_THRESHOLD;
+    // In CustomMob.java, add this method
+    public String getEntityUuid() {
+        LivingEntity ent = getEntity();
+        return ent != null ? ent.getUniqueId().toString() : null;
     }
-
     /**
-     * FIXED: Check if health has changed significantly
+     * Creates hologram display lines
      */
-    private boolean hasSignificantHealthChange(double currentHealth, double maxHealth) {
-        return Math.abs(currentHealth - lastHologramHealth) > 0.1 ||
-                Math.abs(maxHealth - lastHologramMaxHealth) > 0.1;
-    }
-
-    /**
-     * FIXED: Check if hologram content has changed
-     */
-    private boolean hasContentChanged(double currentHealth, double maxHealth) {
-        if (lastHologramLines == null) {
-            return true; // First time
-        }
-
-        List<String> newLines = createHologramLines(currentHealth, maxHealth);
-        return !newLines.equals(lastHologramLines);
-    }
-
-    /**
-     * DEPRECATED: Use updateHologramOverlayOptimized instead
-     */
-    public void updateHologramOverlay() {
-        updateHologramOverlayOptimized();
-    }
-
-    /**
-     * Create hologram lines with enhanced visual design
-     */
-    private List<String> createHologramLines(double currentHealth, double maxHealth) {
+    private List<String> createHologramLines() {
         List<String> lines = new ArrayList<>();
 
+        if (!inCombat || entity == null) return lines;
+
         try {
-            // Line 1: Mob name with tier color
-            String mobName = getTierColoredName();
-            lines.add(mobName);
+            double health = entity.getHealth();
+            double maxHealth = entity.getMaxHealth();
 
-            // Line 2: Visual health bar
-            String healthBar = createVisualHealthBar(currentHealth, maxHealth);
-            lines.add(healthBar);
-
-            // Line 3: Elite/Tier status (if applicable)
-            if (elite || isInCriticalState()) {
-                String statusLine = createStatusLine();
-                if (!statusLine.isEmpty()) {
-                    lines.add(statusLine);
-                }
+            if (maxHealth > 0) {
+                lines.add(createHealthBar(health, maxHealth));
             }
 
         } catch (Exception e) {
-            LOGGER.warning("[CustomMob] Error creating hologram lines: " + e.getMessage());
-            // Fallback lines
-            lines.add(ChatColor.WHITE + getCustomName());
-            lines.add(ChatColor.RED + "Health: " + (int)currentHealth + "/" + (int)maxHealth);
+            logError("Hologram line creation failed", e);
         }
 
         return lines;
     }
 
     /**
-     * Get mob name with appropriate tier coloring
+     * Creates a visual health bar
      */
-    private String getTierColoredName() {
-        try {
-            String baseName = getCleanMobName();
-            ChatColor tierColor = getTierColor();
+    private String createHealthBar(double health, double maxHealth) {
+        double percentage = (health / maxHealth) * 100.0;
+        int filled = (int) Math.round((health / maxHealth) * HEALTH_BAR_LENGTH);
+        filled = Math.max(0, Math.min(HEALTH_BAR_LENGTH, filled));
 
-            if (elite) {
-                return tierColor.toString() + ChatColor.BOLD + baseName;
-            } else {
-                return tierColor + baseName;
+        ChatColor barColor = getHealthBarColor(percentage);
+
+        return String.format("§8[%s%s§7%s§8]",
+                barColor,
+                "|".repeat(filled),
+                "|".repeat(HEALTH_BAR_LENGTH - filled)
+        );
+    }
+
+    /**
+     * Removes the hologram display
+     */
+    private void removeHologram() {
+        if (hologramId == null) return;
+
+        try {
+            String entityUuidStr = entity.getUniqueId().toString();
+            if (entityUuidStr != null) {
+                HologramManager.removeHologramByMob(entityUuidStr);
             }
+            HologramManager.removeHologram(hologramId);
+            hologramActive.set(false);
         } catch (Exception e) {
-            return ChatColor.WHITE + type.getId();
+            logError("Hologram removal failed", e);
         }
     }
 
-    /**
-     * Get clean mob name without tier indicators
-     */
-    private String getCleanMobName() {
-        try {
-            String name = type.getTierSpecificName(tier);
-            // Remove any existing color codes and tier indicators
-            name = ChatColor.stripColor(name);
-            // Remove tier patterns like "T1", "T2", etc.
-            name = name.replaceAll("\\s*T[1-6]\\+?\\s*", "").trim();
-            return name;
-        } catch (Exception e) {
-            return type.getDefaultName();
-        }
-    }
+    // ==================== MOB INITIALIZATION ====================
 
     /**
-     * Get tier-appropriate color
+     * Creates the entity at the specified location
      */
-    private ChatColor getTierColor() {
-        switch (tier) {
-            case 1: return ChatColor.WHITE;
-            case 2: return ChatColor.GREEN;
-            case 3: return ChatColor.AQUA;
-            case 4: return ChatColor.LIGHT_PURPLE;
-            case 5: return ChatColor.YELLOW;
-            case 6: return ChatColor.GOLD;
-            default: return ChatColor.WHITE;
-        }
-    }
+    private LivingEntity createEntity(Location location) {
+        World world = location.getWorld();
+        if (world == null) return null;
 
-    /**
-     * Create visual health bar with colors and design
-     */
-    private String createVisualHealthBar(double currentHealth, double maxHealth) {
-        try {
-            if (maxHealth <= 0) {
-                return ChatColor.RED + "[||||||||||||||||||||||||] " + ChatColor.WHITE + "0%";
-            }
+        EntityType entityType = determineEntityType();
 
-            double healthPercentage = (currentHealth / maxHealth) * 100.0;
-            int barLength = 24; // Total bar length
-            int filledBars = (int) Math.round((currentHealth / maxHealth) * barLength);
-            filledBars = Math.max(0, Math.min(barLength, filledBars));
-            int emptyBars = barLength - filledBars;
-
-            // Determine health bar color based on percentage
-            ChatColor barColor = getHealthBarColor(healthPercentage);
-
-            // Build the visual bar
-            StringBuilder healthBar = new StringBuilder();
-            healthBar.append(ChatColor.GRAY).append("[");
-
-            // Filled portion
-            if (filledBars > 0) {
-                healthBar.append(barColor);
-                for (int i = 0; i < filledBars; i++) {
-                    healthBar.append("|");
-                }
-            }
-
-            // Empty portion
-            if (emptyBars > 0) {
-                healthBar.append(ChatColor.DARK_GRAY);
-                for (int i = 0; i < emptyBars; i++) {
-                    healthBar.append("|");
-                }
-            }
-
-            healthBar.append(ChatColor.GRAY).append("] ");
-
-            // Add percentage
-            ChatColor percentColor = getHealthPercentageColor(healthPercentage);
-            healthBar.append(percentColor).append(String.format("%.1f%%", healthPercentage));
-
-            return healthBar.toString();
-
-        } catch (Exception e) {
-            LOGGER.warning("[CustomMob] Error creating visual health bar: " + e.getMessage());
-            return ChatColor.RED + "[ERROR] Health Bar";
-        }
-    }
-
-    /**
-     * Get health bar color based on health percentage
-     */
-    private ChatColor getHealthBarColor(double percentage) {
-        if (isInCriticalState()) {
-            return ChatColor.DARK_PURPLE; // Purple for crit state
-        } else if (percentage > 75) {
-            return ChatColor.GREEN;
-        } else if (percentage > 50) {
-            return ChatColor.YELLOW;
-        } else if (percentage > 25) {
-            return ChatColor.GOLD;
-        } else {
-            return ChatColor.RED;
-        }
-    }
-
-    /**
-     * Get health percentage text color
-     */
-    private ChatColor getHealthPercentageColor(double percentage) {
-        if (isInCriticalState()) {
-            return ChatColor.LIGHT_PURPLE;
-        } else if (percentage > 60) {
-            return ChatColor.GREEN;
-        } else if (percentage > 30) {
-            return ChatColor.YELLOW;
-        } else {
-            return ChatColor.RED;
-        }
-    }
-
-    /**
-     * Create status line for elite/special states
-     */
-    private String createStatusLine() {
-        try {
-            List<String> statusParts = new ArrayList<>();
-
-            // Elite status
-            if (elite) {
-                statusParts.add(ChatColor.GOLD + "★ ELITE ★");
-            }
-
-            // Critical state
-            if (isInCriticalState()) {
-                if (isCritReadyToAttack()) {
-                    statusParts.add(ChatColor.DARK_PURPLE + "⚡ CHARGED ⚡");
-                } else {
-                    int countdown = getCritCountdown();
-                    if (countdown > 0) {
-                        statusParts.add(ChatColor.LIGHT_PURPLE + "⚠ CRITICAL " + countdown + " ⚠");
-                    }
-                }
-            }
-
-            // Lightning mob
-            if (lightningMultiplier > 0) {
-                statusParts.add(ChatColor.YELLOW + "⚡ LIGHTNING x" + lightningMultiplier + " ⚡");
-            }
-
-            return String.join(" ", statusParts);
-
-        } catch (Exception e) {
-            return "";
-        }
-    }
-
-    /**
-     * FIXED: Remove hologram when mob is removed - ensures complete cleanup
-     */
-    public void removeHologram() {
-        try {
-            if (hologramId != null) {
-                HologramManager.removeHologram(hologramId);
-                hologramActive = false;
-                lastHologramLocation = null;
-                lastHologramLines = null;
-                lastHologramHealth = -1;
-                lastHologramMaxHealth = -1;
-                lastHologramUpdate = 0;
-
-                if (YakRealms.getInstance().isDebugMode()) {
-                    LOGGER.info("[CustomMob] Removed hologram for " + type.getId() + " (ID: " + hologramId + ")");
-                }
-            }
-        } catch (Exception e) {
-            LOGGER.warning("[CustomMob] Error removing hologram: " + e.getMessage());
-        }
-    }
-
-    // ================ SIMPLIFIED SPAWNING SYSTEM ================
-
-    /**
-     * Simplified spawn method that focuses on success over perfection
-     */
-    public boolean spawn(Location location) {
-        if (!org.bukkit.Bukkit.isPrimaryThread()) {
-            LOGGER.severe("[CustomMob] CRITICAL: spawn() called from async thread!");
-            return false;
-        }
-
-        try {
-            if (YakRealms.getInstance().isDebugMode()) {
-                LOGGER.info(String.format("[CustomMob] Starting spawn for %s T%d%s at %s",
-                        type.getId(), tier, elite ? "+" : "", formatLocation(location)));
-            }
-
-            // Step 1: Get spawn location (with simple validation)
-            Location spawnLoc = getSpawnLocation(location);
-            if (spawnLoc == null) {
-                if (YakRealms.getInstance().isDebugMode()) {
-                    LOGGER.warning("[CustomMob] No spawn location available");
-                }
-                return false;
-            }
-
-            // Step 2: Create entity (simplified with multiple fallbacks)
-            entity = createEntity(spawnLoc);
-            if (entity == null) {
-                if (YakRealms.getInstance().isDebugMode()) {
-                    LOGGER.warning("[CustomMob] Entity creation failed");
-                }
-                return false;
-            }
-
-            // Step 3: Initialize mob (basic setup only)
-            if (!initializeMob()) {
-                if (YakRealms.getInstance().isDebugMode()) {
-                    LOGGER.warning("[CustomMob] Mob initialization failed");
-                }
-                cleanup();
-                return false;
-            }
-
-            // Step 4: Register with manager
+        for (int attempt = 1; attempt <= MAX_SPAWN_ATTEMPTS; attempt++) {
             try {
-                MobManager.getInstance().registerMob(this);
+                Entity spawned = world.spawnEntity(location, entityType);
+
+                if (spawned instanceof LivingEntity living && living.isValid()) {
+                    return living;
+                }
+
+                if (spawned != null) spawned.remove();
+
             } catch (Exception e) {
-                // Don't fail spawn for registration issues
-                LOGGER.warning("[CustomMob] Registration warning: " + e.getMessage());
+                logDebug("Entity creation attempt %d failed: %s", attempt, e.getMessage());
             }
 
-            if (YakRealms.getInstance().isDebugMode()) {
-                LOGGER.info(String.format("[CustomMob] Successfully spawned %s T%d%s with ID: %s",
-                        type.getId(), tier, elite ? "+" : "",
-                        entity.getUniqueId().toString().substring(0, 8)));
-            }
-
-            return true;
-
-        } catch (Exception e) {
-            LOGGER.warning("[CustomMob] Spawn error for " + type.getId() + ": " + e.getMessage());
-            if (YakRealms.getInstance().isDebugMode()) {
-                e.printStackTrace();
-            }
-            cleanup();
-            return false;
-        }
-    }
-
-    /**
-     * SIMPLIFIED: Get spawn location with basic validation only
-     */
-    private Location getSpawnLocation(Location baseLocation) {
-        if (baseLocation == null || baseLocation.getWorld() == null) {
-            return null;
-        }
-
-        // Try the base location first
-        if (isBasicSafeLocation(baseLocation)) {
-            return baseLocation.clone().add(0.5, 0, 0.5);
-        }
-
-        // Try a few nearby locations
-        for (int attempts = 0; attempts < 5; attempts++) {
-            Location candidate = baseLocation.clone().add(
-                    (RANDOM.nextDouble() * 4 - 2),
-                    (RANDOM.nextDouble() * 2),
-                    (RANDOM.nextDouble() * 4 - 2)
-            );
-
-            if (isBasicSafeLocation(candidate)) {
-                return candidate;
-            }
-        }
-
-        // Final fallback - just use a safe Y offset
-        return baseLocation.clone().add(0.5, 2, 0.5);
-    }
-
-    /**
-     * SIMPLIFIED: Basic safety check (not overly strict)
-     */
-    private boolean isBasicSafeLocation(Location loc) {
-        try {
-            if (loc == null || loc.getWorld() == null) {
-                return false;
-            }
-
-            // Just check Y bounds and basic block types
-            if (loc.getY() < 0 || loc.getY() > loc.getWorld().getMaxHeight() - 3) {
-                return false;
-            }
-
-            // Check if current block is obviously bad
-            Material currentBlock = loc.getBlock().getType();
-            if (currentBlock == Material.LAVA || currentBlock == Material.BEDROCK) {
-                return false;
-            }
-
-            return true;
-        } catch (Exception e) {
-            return true; // Default to safe if check fails
-        }
-    }
-
-    /**
-     * SIMPLIFIED: Entity creation with guaranteed fallbacks
-     */
-    protected LivingEntity createEntity(Location location) {
-        try {
-            World world = location.getWorld();
-            if (world == null) {
-                return null;
-            }
-
-            // Get EntityType with bulletproof fallback
-            EntityType entityType = getEntityType();
-            if (entityType == null) {
-                return null;
-            }
-
-            if (YakRealms.getInstance().isDebugMode()) {
-                LOGGER.info(String.format("[CustomMob] Creating entity type %s at %s",
-                        entityType, formatLocation(location)));
-            }
-
-            // Attempt entity creation with multiple tries
-            LivingEntity createdEntity = null;
-            for (int attempt = 1; attempt <= 3; attempt++) {
+            if (attempt < MAX_SPAWN_ATTEMPTS) {
                 try {
-                    Entity spawnedEntity = world.spawnEntity(location, entityType);
-
-                    if (spawnedEntity instanceof LivingEntity) {
-                        createdEntity = (LivingEntity) spawnedEntity;
-
-                        // Basic validation
-                        if (createdEntity.isValid() && !createdEntity.isDead()) {
-                            break; // Success!
-                        } else {
-                            createdEntity.remove();
-                            createdEntity = null;
-                        }
-                    } else if (spawnedEntity != null) {
-                        spawnedEntity.remove();
-                    }
-                } catch (Exception e) {
-                    if (YakRealms.getInstance().isDebugMode()) {
-                        LOGGER.warning("[CustomMob] Entity creation attempt " + attempt + " failed: " + e.getMessage());
-                    }
-                }
-
-                // Small delay between attempts
-                if (attempt < 3) {
-                    try {
-                        Thread.sleep(10);
-                    } catch (InterruptedException ie) {
-                        Thread.currentThread().interrupt();
-                        break;
-                    }
+                    Thread.sleep(10);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    break;
                 }
             }
-
-            if (createdEntity != null && YakRealms.getInstance().isDebugMode()) {
-                LOGGER.info(String.format("[CustomMob] Successfully created entity: %s (ID: %s)",
-                        createdEntity.getType(), createdEntity.getUniqueId().toString().substring(0, 8)));
-            }
-
-            return createdEntity;
-
-        } catch (Exception e) {
-            LOGGER.warning(String.format("[CustomMob] Critical error creating entity for %s: %s",
-                    type.getId(), e.getMessage()));
-            return null;
         }
+
+        return null;
     }
 
     /**
-     * BULLETPROOF: Get EntityType with guaranteed fallback
-     */
-    private EntityType getEntityType() {
-        try {
-            // Primary: use MobType system
-            EntityType entityType = type.getEntityType();
-            if (entityType != null && isValidEntityType(entityType)) {
-                return entityType;
-            }
-
-            // Fallback: use type-based mapping
-            EntityType fallbackType = getFallbackEntityType();
-            if (fallbackType != null && isValidEntityType(fallbackType)) {
-                if (YakRealms.getInstance().isDebugMode()) {
-                    LOGGER.info(String.format("[CustomMob] Using fallback EntityType %s for %s",
-                            fallbackType, type.getId()));
-                }
-                return fallbackType;
-            }
-
-            // Final fallback: skeleton (always works)
-            return EntityType.SKELETON;
-
-        } catch (Exception e) {
-            LOGGER.warning("[CustomMob] Error getting EntityType: " + e.getMessage());
-            return EntityType.SKELETON; // Safe fallback
-        }
-    }
-
-    /**
-     * Get fallback EntityType based on mob type ID
-     */
-    private EntityType getFallbackEntityType() {
-        String typeId = type.getId().toLowerCase();
-
-        switch (typeId) {
-            case "skeleton":
-                return EntityType.SKELETON;
-            case "witherskeleton":
-            case "wither_skeleton":
-                return EntityType.WITHER_SKELETON;
-            case "zombie":
-                return EntityType.ZOMBIE;
-            case "spider":
-                return EntityType.SPIDER;
-            case "cavespider":
-            case "cave_spider":
-                return EntityType.CAVE_SPIDER;
-            case "magmacube":
-            case "magma_cube":
-                return EntityType.MAGMA_CUBE;
-            case "zombifiedpiglin":
-            case "pigzombie":
-                return EntityType.ZOMBIFIED_PIGLIN;
-            case "enderman":
-                return EntityType.ENDERMAN;
-            case "creeper":
-                return EntityType.CREEPER;
-            case "blaze":
-                return EntityType.BLAZE;
-            case "warden":
-                return EntityType.WARDEN;
-            case "golem":
-            case "irongolem":
-                return EntityType.IRON_GOLEM;
-            case "imp":
-                return EntityType.ZOMBIE; // Imp is a baby zombie
-            case "frozenboss":
-            case "frozenelite":
-            case "bossskeleton":
-            case "bossSkeletonDungeon":
-                return EntityType.WITHER_SKELETON;
-            case "frozengolem":
-                return EntityType.IRON_GOLEM;
-            case "frostwing":
-                return EntityType.PHANTOM;
-            case "chronos":
-                return EntityType.WITHER;
-            default:
-                // Default to skeleton for unknown types
-                return EntityType.SKELETON;
-        }
-    }
-
-    /**
-     * Validate that an EntityType is usable
-     */
-    private boolean isValidEntityType(EntityType entityType) {
-        try {
-            if (entityType == null) {
-                return false;
-            }
-
-            Class<?> entityClass = entityType.getEntityClass();
-            if (entityClass == null) {
-                return false;
-            }
-
-            if (!LivingEntity.class.isAssignableFrom(entityClass)) {
-                return false;
-            }
-
-            return entityType.isSpawnable();
-        } catch (Exception e) {
-            return false;
-        }
-    }
-
-    /**
-     * SIMPLIFIED: Basic mob initialization
+     * Initializes the mob with properties and equipment
      */
     private boolean initializeMob() {
+        if (entity == null) return false;
+
         try {
-            if (entity == null) {
-                return false;
-            }
+            applyMetadata();
+            applyBaseProperties();
+            applyEquipment();
+            applyHealthAndStats();
 
-            if (YakRealms.getInstance().isDebugMode()) {
-                LOGGER.info(String.format("[CustomMob] Initializing mob %s T%d%s",
-                        type.getId(), tier, elite ? "+" : ""));
-            }
-
-            // Step 1: Basic properties
-            applyBasicProperties();
-
-            // Step 2: Sunlight protection - CRITICAL FIX
-            applySunlightProtection();
-
-            // Step 3: Equipment (don't fail if this doesn't work)
-            try {
-                applyEquipment();
-            } catch (Exception e) {
-                if (YakRealms.getInstance().isDebugMode()) {
-                    LOGGER.warning("[CustomMob] Equipment application failed (continuing): " + e.getMessage());
-                }
-            }
-
-            // Step 4: Health
-            calculateAndSetHealth();
-
-            // Step 5: Type-specific properties (don't fail if this doesn't work)
-            try {
-                applyTypeProperties();
-            } catch (Exception e) {
-                if (YakRealms.getInstance().isDebugMode()) {
-                    LOGGER.warning("[CustomMob] Type properties failed (continuing): " + e.getMessage());
-                }
-            }
-
-            // Step 6: Name and hologram setup
-            captureOriginalName();
-            lastDamageTime = 0;
-
-            // Step 7: Initialize hologram system with delay to ensure entity is fully ready
-            Bukkit.getScheduler().runTaskLater(YakRealms.getInstance(), () -> {
-                if (isValid()) {
-                    forceUpdateHologram();
-                }
-            }, 1L);
+            baseDisplayName = generateBaseDisplayName();
+            updateMobName();
 
             return true;
 
         } catch (Exception e) {
-            LOGGER.warning("[CustomMob] Initialization failed: " + e.getMessage());
+            logError("Initialization failed", e);
             return false;
         }
     }
 
     /**
-     * CRITICAL FIX: Apply sunlight protection to prevent burning
+     * Applies metadata to the entity
      */
-    private void applySunlightProtection() {
-        if (entity == null) return;
+    private void applyMetadata() {
+        YakRealms plugin = YakRealms.getInstance();
 
-        try {
-            // For undead mobs that normally burn in sunlight
-            if (isUndeadMob()) {
-                // Method 1: Give them a helmet (even if invisible) to prevent burning
-                if (entity.getEquipment() != null && entity.getEquipment().getHelmet() == null) {
-                    // Create an invisible helmet that prevents sunlight burning
-                    ItemStack protectionHelmet = new ItemStack(Material.LEATHER_HELMET);
-                    ItemMeta meta = protectionHelmet.getItemMeta();
-                    if (meta != null) {
-                        meta.setDisplayName("§fSunlight Protection");
-                        meta.setUnbreakable(true);
-                        protectionHelmet.setItemMeta(meta);
-                    }
+        entity.setMetadata("type", new FixedMetadataValue(plugin, type.getId()));
+        entity.setMetadata("tier", new FixedMetadataValue(plugin, tier));
+        entity.setMetadata("customTier", new FixedMetadataValue(plugin, tier));
+        entity.setMetadata("elite", new FixedMetadataValue(plugin, elite));
+        entity.setMetadata("mob_unique_id", new FixedMetadataValue(plugin, uniqueMobId));
 
-                    // Set it with no drop chance and make it invisible in some cases
-                    entity.getEquipment().setHelmet(protectionHelmet);
-                    entity.getEquipment().setHelmetDropChance(0.0f);
-                }
-
-                // Method 2: Additional protection through metadata
-                YakRealms plugin = YakRealms.getInstance();
-                entity.setMetadata("sunlight_immune", new FixedMetadataValue(plugin, true));
-
-                if (YakRealms.getInstance().isDebugMode()) {
-                    LOGGER.info("[CustomMob] Applied sunlight protection to " + type.getId());
-                }
-            }
-        } catch (Exception e) {
-            LOGGER.warning("[CustomMob] Failed to apply sunlight protection: " + e.getMessage());
+        if (type.isWorldBoss()) {
+            entity.setMetadata("worldboss", new FixedMetadataValue(plugin, true));
         }
     }
 
     /**
-     * Check if this mob is an undead type that would normally burn in sunlight
+     * Applies base properties to the entity
      */
-    private boolean isUndeadMob() {
-        if (entity == null) return false;
+    private void applyBaseProperties() {
+        entity.setCanPickupItems(false);
+        entity.setRemoveWhenFarAway(false);
+        entity.addPotionEffect(new PotionEffect(PotionEffectType.FIRE_RESISTANCE, Integer.MAX_VALUE, 2));
 
-        EntityType entityType = entity.getType();
-        return entityType == EntityType.SKELETON ||
-                entityType == EntityType.WITHER_SKELETON ||
-                entityType == EntityType.ZOMBIE ||
-                entityType == EntityType.ZOMBIE_VILLAGER ||
-                entityType == EntityType.HUSK ||
-                entityType == EntityType.DROWNED ||
-                entityType == EntityType.STRAY ||
-                entityType == EntityType.PHANTOM;
+        if (isUndead()) {
+            entity.setMetadata("sunlight_immune",
+                    new FixedMetadataValue(YakRealms.getInstance(), true));
+        }
+
+        applyTypeSpecificProperties();
     }
 
     /**
-     * Prevent sunlight burning during tick updates
+     * Applies type-specific properties
      */
-    private void preventSunlightBurning() {
-        if (!isValid() || !isUndeadMob()) return;
-
-        try {
-            // If the mob is on fire and it's daytime, extinguish them
-            if (entity.getFireTicks() > 0) {
-                World world = entity.getWorld();
-                if (world != null && world.getTime() >= 0 && world.getTime() < 12300) {
-                    // It's daytime, check if they're burning from sunlight
-                    Location loc = entity.getLocation();
-                    if (loc.getBlockY() < world.getHighestBlockYAt(loc) - 1) {
-                        // They're not under direct sunlight, but might be burning anyway
-                        // Extinguish them to be safe
-                        entity.setFireTicks(0);
-                    } else if (entity.getEquipment() != null && entity.getEquipment().getHelmet() != null) {
-                        // They have a helmet, shouldn't burn
-                        entity.setFireTicks(0);
-                    }
-                }
-            }
-        } catch (Exception e) {
-            // Silent fail for sunlight prevention
+    private void applyTypeSpecificProperties() {
+        if (entity instanceof Zombie zombie) {
+            zombie.setBaby(type.getId().equalsIgnoreCase("imp"));
+        } else if (entity instanceof PigZombie pigZombie) {
+            pigZombie.setAngry(true);
+            pigZombie.setBaby(type.getId().equalsIgnoreCase("imp"));
+        } else if (entity instanceof MagmaCube magmaCube) {
+            magmaCube.setSize(Math.max(1, Math.min(tier, 4)));
         }
     }
 
     /**
-     * Apply basic properties
+     * Applies equipment to the entity
      */
-    protected void applyBasicProperties() {
-        if (entity == null) return;
-
-        try {
-            // Basic metadata
-            YakRealms plugin = YakRealms.getInstance();
-            entity.setMetadata("type", new FixedMetadataValue(plugin, type.getId()));
-            entity.setMetadata("tier", new FixedMetadataValue(plugin, String.valueOf(tier)));
-            entity.setMetadata("customTier", new FixedMetadataValue(plugin, tier));
-            entity.setMetadata("elite", new FixedMetadataValue(plugin, elite));
-            entity.setMetadata("customName", new FixedMetadataValue(plugin, type.getId()));
-            entity.setMetadata("dropTier", new FixedMetadataValue(plugin, tier));
-            entity.setMetadata("dropElite", new FixedMetadataValue(plugin, elite));
-
-            if (type.isWorldBoss()) {
-                entity.setMetadata("worldboss", new FixedMetadataValue(plugin, true));
-            }
-
-            // Basic behavior
-            entity.setCanPickupItems(false);
-            entity.setRemoveWhenFarAway(false);
-
-            // Basic appearance - prepare name but don't show it (hologram will handle display)
-            String tierSpecificName = getTierSpecificNameSafe();
-            String formattedName = MobUtils.formatMobName(tierSpecificName, tier, elite);
-
-            // Set name but hide it (hologram will show instead)
-            //entity.setCustomName(formattedName);
-            entity.setCustomNameVisible(false); // Hide entity name - hologram will show instead
-            currentDisplayName = formattedName;
-
-            // Basic effects - including fire resistance
-            entity.addPotionEffect(new PotionEffect(PotionEffectType.FIRE_RESISTANCE, Integer.MAX_VALUE, 2));
-
-            // Type-specific behavior (basic)
-            configureBasicBehavior();
-
-            lastDamageTime = System.currentTimeMillis();
-
-        } catch (Exception e) {
-            LOGGER.warning("[CustomMob] Failed to apply basic properties: " + e.getMessage());
-        }
-    }
-
-    /**
-     * Configure basic mob-specific behavior
-     */
-    private void configureBasicBehavior() {
-        try {
-            if (entity instanceof Zombie zombie) {
-                zombie.setBaby(type.getId().equals("imp"));
-            } else if (entity instanceof PigZombie pigZombie) {
-                pigZombie.setAngry(true);
-                pigZombie.setBaby(type.getId().equals("imp"));
-            } else if (entity instanceof MagmaCube magmaCube) {
-                magmaCube.setSize(Math.max(1, Math.min(tier, 4)));
-            }
-        } catch (Exception e) {
-            // Silent fail for behavior configuration
-        }
-    }
-
-    /**
-     * Get tier-specific name with safe fallback
-     */
-    private String getTierSpecificNameSafe() {
-        try {
-            return type.getTierSpecificName(tier);
-        } catch (Exception e) {
-            return getDisplayNameForType(type.getId());
-        }
-    }
-
-    /**
-     * Get display name for mob type with fallbacks
-     */
-    private String getDisplayNameForType(String typeId) {
-        switch (typeId.toLowerCase()) {
-            case "witherskeleton":
-                return "Wither Skeleton";
-            case "cavespider":
-                return "Cave Spider";
-            case "magmacube":
-                return "Magma Cube";
-            case "zombifiedpiglin":
-                return "Zombified Piglin";
-            case "elderguardian":
-                return "Elder Guardian";
-            case "irongolem":
-                return "Iron Golem";
-            case "frozenboss":
-                return "Frozen Boss";
-            case "frozenelite":
-                return "Frozen Elite";
-            case "frozengolem":
-                return "Frozen Golem";
-            case "bossskeleton":
-                return "Boss Skeleton";
-            default:
-                return typeId.substring(0, 1).toUpperCase() + typeId.substring(1).toLowerCase();
-        }
-    }
-
-    /**
-     * CRITICAL FIX: Apply equipment with unbreakable items to prevent durability damage
-     */
-    protected void applyEquipment() {
-        if (entity == null) return;
-
+    private void applyEquipment() {
         EntityEquipment equipment = entity.getEquipment();
-        if (equipment == null) {
-            return; // No equipment slots
-        }
+        if (equipment == null) return;
 
-        try {
-            equipment.clear();
+        equipment.clear();
 
-            int gearPieces = calculateGearPieces();
-            ItemStack weapon = createWeapon();
-            ItemStack[] armor = createArmorSet(gearPieces);
-
-            if (weapon != null) {
-                // Make weapon unbreakable
-                makeItemUnbreakable(weapon);
-                equipment.setItemInMainHand(weapon);
-            }
-
-            // Apply armor pieces and make them unbreakable
-            if (armor[0] != null) {
-                makeItemUnbreakable(armor[0]);
-                equipment.setHelmet(armor[0]);
-            }
-            if (armor[1] != null) {
-                makeItemUnbreakable(armor[1]);
-                equipment.setChestplate(armor[1]);
-            }
-            if (armor[2] != null) {
-                makeItemUnbreakable(armor[2]);
-                equipment.setLeggings(armor[2]);
-            }
-            if (armor[3] != null) {
-                makeItemUnbreakable(armor[3]);
-                equipment.setBoots(armor[3]);
-            }
-
-            // Set drop chances to 0 - items never drop
+        // Weapon
+        ItemStack weapon = createWeapon();
+        if (weapon != null) {
+            makeUnbreakable(weapon);
+            equipment.setItemInMainHand(weapon);
             equipment.setItemInMainHandDropChance(0.0f);
-            equipment.setHelmetDropChance(0.0f);
-            equipment.setChestplateDropChance(0.0f);
-            equipment.setLeggingsDropChance(0.0f);
-            equipment.setBootsDropChance(0.0f);
-
-            if (YakRealms.getInstance().isDebugMode()) {
-                LOGGER.info("[CustomMob] Applied unbreakable equipment to " + type.getId());
-            }
-
-        } catch (Exception e) {
-            LOGGER.warning("[CustomMob] Equipment application failed: " + e.getMessage());
         }
+
+        // Armor
+        int gearPieces = calculateGearPieces();
+        ItemStack[] armor = createArmorSet(gearPieces);
+
+        for (int i = 0; i < armor.length; i++) {
+            if (armor[i] != null) {
+                makeUnbreakable(armor[i]);
+                setArmorPiece(equipment, i, armor[i]);
+            }
+        }
+
+        // No drops
+        equipment.setHelmetDropChance(0.0f);
+        equipment.setChestplateDropChance(0.0f);
+        equipment.setLeggingsDropChance(0.0f);
+        equipment.setBootsDropChance(0.0f);
     }
 
     /**
-     * CRITICAL FIX: Make an item unbreakable so it never takes durability damage
+     * Applies health and stats to the entity
      */
-    private void makeItemUnbreakable(ItemStack item) {
-        if (item == null || item.getType() == Material.AIR) {
-            return;
+    private void applyHealthAndStats() {
+        int health = calculateHealth();
+
+        if (lightningMultiplier > 0) {
+            health *= lightningMultiplier;
         }
 
-        try {
-            ItemMeta meta = item.getItemMeta();
-            if (meta != null) {
-                meta.setUnbreakable(true);
-                item.setItemMeta(meta);
-            }
-        } catch (Exception e) {
-            LOGGER.warning("[CustomMob] Failed to make item unbreakable: " + e.getMessage());
-        }
-    }
+        health = Math.max(1, Math.min(health, 2_000_000));
 
-    protected int calculateGearPieces() {
-        int gearPieces = RANDOM.nextInt(3) + 1;
+        entity.setMaxHealth(health);
+        entity.setHealth(health);
 
-        if (tier == 3) {
-            gearPieces = RANDOM.nextBoolean() ? 3 : 4;
-        } else if (tier >= 4 || elite) {
-            gearPieces = 4;
-        }
-
-        return gearPieces;
+        lastKnownHealth = health;
+        lastKnownMaxHealth = health;
     }
 
     /**
-     * Create weapon with fallback
+     * Calculates the mob's health based on tier and equipment
      */
-    protected ItemStack createWeapon() {
+    private int calculateHealth() {
+        int baseHealth = MobUtils.calculateArmorHealth(entity);
+        baseHealth = MobUtils.applyHealthMultiplier(baseHealth, tier, elite);
+
+        // Special mob health overrides
+        return switch (type.getId().toLowerCase()) {
+            case "warden" -> 85_000;
+            case "bossskeleton", "bossskeletondungeon" -> 115_000;
+            case "frostwing", "chronos" -> ThreadLocalRandom.current().nextInt(210_000, 234_444);
+            case "frozenelite" -> YakRealms.isT6Enabled() ? 200_000 : 100_000;
+            case "frozenboss" -> YakRealms.isT6Enabled() ? 300_000 : 200_000;
+            case "frozengolem" -> YakRealms.isT6Enabled() ? 400_000 : 200_000;
+            default -> baseHealth;
+        };
+    }
+
+    // ==================== EQUIPMENT CREATION ====================
+
+    /**
+     * Calculates number of gear pieces based on tier
+     */
+    private int calculateGearPieces() {
+        if (tier >= 4 || elite) return 4;
+        if (tier == 3) return RANDOM.nextBoolean() ? 3 : 4;
+        return RANDOM.nextInt(3) + 1;
+    }
+
+    /**
+     * Creates a weapon for the mob
+     */
+    private ItemStack createWeapon() {
         try {
-            if (DropsManager.getInstance() != null) {
-                ItemStack weapon = DropsManager.getInstance().createDrop(tier, getWeaponType());
+            DropsManager drops = DropsManager.getInstance();
+            if (drops != null) {
+                int weaponType = ThreadLocalRandom.current().nextInt(1, 5);
+                ItemStack weapon = drops.createDrop(tier, weaponType);
+
                 if (weapon != null) {
                     if (elite) {
                         weapon.addUnsafeEnchantment(Enchantment.LOOT_BONUS_MOBS, 1);
@@ -1163,687 +616,387 @@ public class CustomMob {
                 }
             }
         } catch (Exception e) {
-            // Fall back to simple weapon
+            // Fall through to default weapon
         }
 
-        // Fallback weapon creation
-        return createFallbackWeapon();
-    }
-
-    private ItemStack createFallbackWeapon() {
-        try {
-            Material weaponMaterial;
-            switch (tier) {
-                case 1:
-                    weaponMaterial = Material.WOODEN_SWORD;
-                    break;
-                case 2:
-                    weaponMaterial = Material.STONE_SWORD;
-                    break;
-                case 3:
-                    weaponMaterial = Material.IRON_SWORD;
-                    break;
-                case 4:
-                    weaponMaterial = Material.DIAMOND_SWORD;
-                    break;
-                case 5:
-                    weaponMaterial = Material.GOLDEN_SWORD;
-                    break;
-                case 6:
-                    weaponMaterial = Material.DIAMOND_SWORD;
-                    break;
-                default:
-                    weaponMaterial = Material.WOODEN_SWORD;
-            }
-
-            ItemStack weapon = new ItemStack(weaponMaterial);
-            if (elite) {
-                weapon.addUnsafeEnchantment(Enchantment.LOOT_BONUS_MOBS, 1);
-            }
-            return weapon;
-        } catch (Exception e) {
-            return new ItemStack(Material.WOODEN_SWORD);
-        }
-    }
-
-    protected int getWeaponType() {
-        int weaponType = RANDOM.nextInt(5);
-        if (weaponType == 0) weaponType = 1;
-        if (weaponType == 1) {
-            weaponType = ThreadLocalRandom.current().nextInt(1, 5);
-        }
-        return weaponType;
+        return createDefaultWeapon();
     }
 
     /**
-     * Create armor set with fallback
+     * Creates a default weapon based on tier
      */
-    protected ItemStack[] createArmorSet(int gearPieces) {
+    private ItemStack createDefaultWeapon() {
+        Material material = switch (tier) {
+            case 1 -> Material.WOODEN_SWORD;
+            case 2 -> Material.STONE_SWORD;
+            case 3 -> Material.IRON_SWORD;
+            case 4, 6 -> Material.DIAMOND_SWORD;
+            case 5 -> Material.GOLDEN_SWORD;
+            default -> Material.WOODEN_SWORD;
+        };
+
+        ItemStack weapon = new ItemStack(material);
+        if (elite) {
+            weapon.addUnsafeEnchantment(Enchantment.LOOT_BONUS_MOBS, 1);
+        }
+        return weapon;
+    }
+
+    /**
+     * Creates armor set for the mob
+     */
+    private ItemStack[] createArmorSet(int pieces) {
         ItemStack[] armor = new ItemStack[4];
+        Set<Integer> usedSlots = new HashSet<>();
 
         try {
-            if (DropsManager.getInstance() != null) {
-                while (gearPieces > 0) {
-                    int armorType = RANDOM.nextInt(4);
+            DropsManager drops = DropsManager.getInstance();
+            if (drops != null) {
+                while (pieces > 0 && usedSlots.size() < 4) {
+                    int slot = RANDOM.nextInt(4);
 
-                    if (armor[armorType] == null) {
-                        int dropType = armorType + 5;
-                        ItemStack piece = DropsManager.getInstance().createDrop(tier, dropType);
+                    if (!usedSlots.contains(slot)) {
+                        ItemStack piece = drops.createDrop(tier, slot + 5);
 
                         if (piece != null) {
                             if (elite) {
                                 piece.addUnsafeEnchantment(Enchantment.LOOT_BONUS_MOBS, 1);
                             }
-                            armor[armorType] = piece;
+                            armor[slot] = piece;
+                            usedSlots.add(slot);
                         }
-                        gearPieces--;
+                        pieces--;
                     }
-                }
-            } else {
-                armor = createFallbackArmor(gearPieces);
-            }
-        } catch (Exception e) {
-            armor = createFallbackArmor(gearPieces);
-        }
-
-        return armor;
-    }
-
-    private ItemStack[] createFallbackArmor(int gearPieces) {
-        ItemStack[] armor = new ItemStack[4];
-
-        try {
-            Material armorMaterial;
-            switch (tier) {
-                case 1:
-                case 2:
-                    armorMaterial = Material.LEATHER_HELMET;
-                    break;
-                case 3:
-                    armorMaterial = Material.IRON_HELMET;
-                    break;
-                case 4:
-                    armorMaterial = Material.DIAMOND_HELMET;
-                    break;
-                case 5:
-                    armorMaterial = Material.GOLDEN_HELMET;
-                    break;
-                case 6:
-                    armorMaterial = Material.LEATHER_HELMET;
-                    break;
-                default:
-                    armorMaterial = Material.LEATHER_HELMET;
-            }
-
-            String baseName = armorMaterial.name().replace("_HELMET", "");
-
-            while (gearPieces > 0) {
-                int armorType = RANDOM.nextInt(4);
-                if (armor[armorType] == null) {
-                    try {
-                        Material pieceType;
-                        switch (armorType) {
-                            case 0:
-                                pieceType = Material.valueOf(baseName + "_HELMET");
-                                break;
-                            case 1:
-                                pieceType = Material.valueOf(baseName + "_CHESTPLATE");
-                                break;
-                            case 2:
-                                pieceType = Material.valueOf(baseName + "_LEGGINGS");
-                                break;
-                            case 3:
-                                pieceType = Material.valueOf(baseName + "_BOOTS");
-                                break;
-                            default:
-                                continue;
-                        }
-
-                        armor[armorType] = new ItemStack(pieceType);
-                        if (elite && armor[armorType] != null) {
-                            armor[armorType].addUnsafeEnchantment(Enchantment.LOOT_BONUS_MOBS, 1);
-                        }
-                    } catch (IllegalArgumentException e) {
-                        // Material doesn't exist, skip
-                    }
-                    gearPieces--;
                 }
             }
         } catch (Exception e) {
-            // Return empty armor on failure
+            // Fall through to default armor
         }
 
         return armor;
     }
 
     /**
-     * SIMPLIFIED: Calculate and set health
+     * Sets an armor piece on the equipment
      */
-    protected void calculateAndSetHealth() {
-        if (entity == null) return;
-
-        try {
-            int hp = calculateBaseHealth();
-            hp = applyHealthModifiers(hp);
-            hp = applySpecialHealthValues(hp);
-
-            if (lightningMultiplier > 0) {
-                hp *= lightningMultiplier;
-            }
-
-            hp = Math.max(1, Math.min(hp, 2000000)); // Clamp between 1 and 2M
-
-            entity.setMaxHealth(hp);
-            entity.setHealth(hp);
-            baseHealth = hp;
-
-            if (YakRealms.getInstance().isDebugMode()) {
-                LOGGER.info(String.format("[CustomMob] Set health for %s T%d%s: %d HP",
-                        type.getId(), tier, elite ? "+" : "", hp));
-            }
-
-        } catch (Exception e) {
-            LOGGER.warning("[CustomMob] Health calculation failed: " + e.getMessage());
-            try {
-                entity.setMaxHealth(20);
-                entity.setHealth(20);
-                baseHealth = 20;
-            } catch (Exception fallbackError) {
-                // Even fallback failed
-            }
-        }
-    }
-
-    private int calculateBaseHealth() {
-        try {
-            return MobUtils.calculateArmorHealth(entity);
-        } catch (Exception e) {
-            return 20 + (tier * 10); // Simple fallback
-        }
-    }
-
-    private int applyHealthModifiers(int baseHp) {
-        try {
-            return MobUtils.applyHealthMultiplier(baseHp, tier, elite);
-        } catch (Exception e) {
-            // Manual fallback calculation
-            double multiplier = elite ? (1.5 + tier * 0.5) : (0.5 + tier * 0.2);
-            return (int) (baseHp * multiplier);
-        }
-    }
-
-    private int applySpecialHealthValues(int hp) {
-        try {
-            switch (type.getId().toLowerCase()) {
-                case "warden":
-                    return 85000;
-                case "bossskeleton":
-                case "bossSkeletonDungeon":
-                    return 115000;
-                case "frostwing":
-                case "chronos":
-                    return ThreadLocalRandom.current().nextInt(210000, 234444);
-                case "frozenelite":
-                    return YakRealms.isT6Enabled() ? 200000 : 100000;
-                case "frozenboss":
-                    return YakRealms.isT6Enabled() ? 300000 : 200000;
-                case "frozengolem":
-                    return YakRealms.isT6Enabled() ? 400000 : 200000;
-                default:
-                    return hp;
-            }
-        } catch (Exception e) {
-            return hp;
+    private void setArmorPiece(EntityEquipment equipment, int slot, ItemStack item) {
+        switch (slot) {
+            case 0 -> equipment.setHelmet(item);
+            case 1 -> equipment.setChestplate(item);
+            case 2 -> equipment.setLeggings(item);
+            case 3 -> equipment.setBoots(item);
         }
     }
 
     /**
-     * SIMPLIFIED: Apply type-specific properties
+     * Makes an item unbreakable
      */
-    protected void applyTypeProperties() {
-        if (entity == null) return;
+    private void makeUnbreakable(ItemStack item) {
+        if (item == null || item.getType() == Material.AIR) return;
 
-        try {
-            // Basic movement effects
-            if (elite && !type.getId().equals("frozenboss")) {
-                entity.addPotionEffect(new PotionEffect(PotionEffectType.SPEED, Integer.MAX_VALUE, 1));
-            }
-
-            if (tier > 2 && !type.getId().equals("frozenboss")) {
-                entity.addPotionEffect(new PotionEffect(PotionEffectType.SPEED, Integer.MAX_VALUE, 0));
-            }
-
-            // Special type effects
-            switch (type.getId().toLowerCase()) {
-                case "frozengolem":
-                    entity.addPotionEffect(new PotionEffect(PotionEffectType.SPEED, Integer.MAX_VALUE, 2));
-                    break;
-                case "weakskeleton":
-                    entity.addPotionEffect(new PotionEffect(PotionEffectType.INVISIBILITY, Integer.MAX_VALUE, 1));
-                    break;
-            }
-        } catch (Exception e) {
-            // Silent fail for type properties
+        ItemMeta meta = item.getItemMeta();
+        if (meta != null) {
+            meta.setUnbreakable(true);
+            item.setItemMeta(meta);
         }
     }
 
-    /**
-     * Capture original name
-     */
-    private void captureOriginalName() {
-        if (entity == null || originalNameStored) return;
-
-        try {
-            String capturedName = MobUtils.captureOriginalName(entity);
-
-            if (capturedName != null && MobUtils.isValidRestorationName(capturedName)) {
-                originalName = capturedName;
-                originalNameStored = true;
-            } else {
-                originalName = generateDefaultNameSafe();
-                originalNameStored = true;
-            }
-
-            if (YakRealms.getInstance().isDebugMode()) {
-                LOGGER.info("[CustomMob] Stored original name: '" + originalName + "'");
-            }
-        } catch (Exception e) {
-            originalName = generateDefaultNameSafe();
-            originalNameStored = true;
-        }
-    }
+    // ==================== SPECIAL FEATURES ====================
 
     /**
-     * Generate default name with safe fallbacks
+     * Enhances the mob as a lightning mob
      */
-    String generateDefaultNameSafe() {
-        try {
-            String tierSpecificName = getTierSpecificNameSafe();
-            return MobUtils.formatMobName(tierSpecificName, tier, elite);
-        } catch (Exception e) {
-            return "§7" + type.getId() + " T" + tier + (elite ? "+" : "");
-        }
-    }
-
-    /**
-     * FIXED: Clean up resources with proper hologram removal
-     */
-    private void cleanup() {
-        try {
-            removeHologram(); // Remove hologram first
-
-            if (entity != null && entity.isValid()) {
-                entity.remove();
-                entity = null;
-            }
-        } catch (Exception e) {
-            LOGGER.warning("[CustomMob] Cleanup error: " + e.getMessage());
-        }
-    }
-
-    // ================ NAME VISIBILITY MANAGEMENT ================
-
-    /**
-     * Enhanced name visibility management with hologram integration
-     */
-    public void updateNameVisibility() {
+    public void enhanceAsLightningMob(int multiplier) {
         if (!isValid()) return;
 
+        entityLock.writeLock().lock();
         try {
-            long now = System.currentTimeMillis();
-            boolean recentlyDamaged = (now - lastDamageTime) < NAME_VISIBILITY_TIMEOUT;
-            boolean inCritState = CritManager.getInstance().isInCritState(entity.getUniqueId());
-            boolean shouldShowHealthBar = recentlyDamaged || inCritState;
+            this.lightningMultiplier = multiplier;
 
-            // Always keep entity name hidden when hologram is active
-            if (hologramActive) {
-                entity.setCustomNameVisible(false);
-                nameVisible = false;
-            } else {
-                // Fallback to normal name visibility when hologram is not active
-                if (shouldShowHealthBar) {
-                    if (!showingHealthBar) {
-                        showingHealthBar = true;
-                        nameVisible = true;
-                        updateHealthBar();
-                    }
-                } else {
-                    if (showingHealthBar || nameVisible) {
-                        restoreOriginalName();
-                        showingHealthBar = false;
-                        nameVisible = false;
-                    }
-                }
-            }
+            double newHealth = entity.getMaxHealth() * multiplier;
+            entity.setMaxHealth(newHealth);
+            entity.setHealth(newHealth);
+            entity.setGlowing(true);
 
-            // Always update hologram regardless of entity name state
-            updateHologramOverlayOptimized();
+            baseDisplayName = String.format("§6⚡ Lightning %s ⚡",
+                    ChatColor.stripColor(baseDisplayName != null ? baseDisplayName : type.getId()));
+
+            updateMobName();
+
+            YakRealms plugin = YakRealms.getInstance();
+            entity.setMetadata("LightningMultiplier", new FixedMetadataValue(plugin, multiplier));
+            entity.setMetadata("LightningMob", new FixedMetadataValue(plugin, baseDisplayName));
+
+            logInfo(" %s as lightning mob (x%d)", uniqueMobId, multiplier);
 
         } catch (Exception e) {
-            LOGGER.warning("[CustomMob] Name visibility update failed: " + e.getMessage());
+            logError("Lightning enhancement failed", e);
+        } finally {
+            entityLock.writeLock().unlock();
         }
     }
 
-    /**
-     * Restore original name (fallback when hologram not active)
-     */
-    private void restoreOriginalName() {
-        if (!isValid() || CritManager.getInstance().isInCritState(entity.getUniqueId()) || hologramActive) return;
+    // ==================== CRITICAL HIT SYSTEM ====================
 
-        try {
-            String nameToRestore = originalName;
-            if (nameToRestore == null || nameToRestore.isEmpty()) {
-                nameToRestore = generateDefaultNameSafe();
-            }
-
-            if (nameToRestore != null && !nameToRestore.isEmpty()) {
-                entity.setCustomName(nameToRestore);
-                entity.setCustomNameVisible(true);
-                currentDisplayName = nameToRestore;
-            }
-        } catch (Exception e) {
-            LOGGER.warning("[CustomMob] Name restoration failed: " + e.getMessage());
-        }
-    }
-
-    // ================  CRITICAL HIT DELEGATION ================
-
-    /**
-     * Roll for critical hit using CritManager
-     */
     public boolean rollForCritical() {
         return CritManager.getInstance().initiateCrit(this);
     }
 
-    /**
-     * Handle crit attack using CritManager
-     */
     public double applyCritDamageToPlayer(Player player, double baseDamage) {
         return CritManager.getInstance().handleCritAttack(this, player, baseDamage);
     }
 
-    /**
-     * Check if mob is in critical state via CritManager
-     */
     public boolean isInCriticalState() {
-        return CritManager.getInstance().isInCritState(entity.getUniqueId());
+        return entity != null && CritManager.getInstance().isInCritState(entity.getUniqueId());
     }
 
-    /**
-     * Check if mob is ready for crit attack via CritManager
-     */
     public boolean isCritReadyToAttack() {
-        return CritManager.getInstance().isCritCharged(entity.getUniqueId());
+        return entity != null && CritManager.getInstance().isCritCharged(entity.getUniqueId());
     }
 
-    /**
-     * Get current crit countdown via CritManager
-     */
     public int getCritCountdown() {
-        return CritManager.getInstance().getCritCountdown(entity.getUniqueId());
+        return entity != null ? CritManager.getInstance().getCritCountdown(entity.getUniqueId()) : 0;
     }
 
-    // ================ DAMAGE PROCESSING ================
-
-    public double damage(double damage) {
-        if (!isValid()) {
-            return 0;
-        }
-
-        try {
-            double finalDamage = processDamage(damage);
-            updateHealthState(finalDamage);
-            return finalDamage;
-        } catch (Exception e) {
-            LOGGER.warning("[CustomMob] Damage processing error: " + e.getMessage());
-            return 0;
-        }
-    }
-
-    private double processDamage(double damage) {
-        return damage;
-    }
+    // ==================== UTILITY METHODS ====================
 
     /**
-     * Damage processing with immediate health bar update
+     * Finds a safe spawn location near the target
      */
-    private void updateHealthState(double damage) {
-        double currentHealth = entity.getHealth();
-        double newHealth = currentHealth - damage;
+    private Location findSafeSpawnLocation(Location target) {
+        if (target == null || target.getWorld() == null) return null;
 
-        if (newHealth <= 0) {
-            handleDeath();
-        } else {
-            // Apply damage first
-            entity.setHealth(newHealth);
-
-            // Update damage time
-            updateDamageTime();
-
-            // CRITICAL: Small delay to ensure health is fully updated
-            Bukkit.getScheduler().runTask(YakRealms.getInstance(), () -> {
-                if (isValid()) {
-                    updateHealthBar();
-                    forceUpdateHologram(); // Force immediate hologram update
-                }
-            });
+        if (isSafeLocation(target)) {
+            return target.clone().add(0.5, 0, 0.5);
         }
-    }
 
-    private void handleDeath() {
-        entity.setHealth(0);
-        MobManager.getInstance().recordMobDeath(type.getId(), tier, elite);
-    }
+        // Try nearby locations
+        for (int i = 0; i < 5; i++) {
+            Location candidate = target.clone().add(
+                    RANDOM.nextDouble() * 4 - 2,
+                    RANDOM.nextDouble() * 2,
+                    RANDOM.nextDouble() * 4 - 2
+            );
 
-    private void updateDamageTime() {
-        lastDamageTime = System.currentTimeMillis();
-        nameVisible = true;
-    }
-
-    // ================ HEALTH BAR SYSTEM ================
-
-    /**
-     * Health bar update system with validation and real-time accuracy
-     */
-    public void updateHealthBar() {
-        if (!isValid()) return;
-
-        try {
-            // CRITICAL FIX: Ensure we get the CURRENT health after any recent damage
-            double currentHealth = entity.getHealth();
-            double maxHealth = entity.getMaxHealth();
-
-            // Validate health values
-            if (currentHealth < 0) currentHealth = 0;
-            if (maxHealth <= 0) maxHealth = 1;
-
-            // Ensure current health doesn't exceed max health
-            if (currentHealth > maxHealth) {
-                currentHealth = maxHealth;
+            if (isSafeLocation(candidate)) {
+                return candidate;
             }
+        }
 
-            // Only update entity name if hologram is not active
-            if (!hologramActive) {
-                String healthBar = generateHealthBar(currentHealth, maxHealth);
-                entity.setCustomName(healthBar);
-                entity.setCustomNameVisible(true);
-                currentDisplayName = healthBar;
-            }
+        // Last resort - spawn above
+        return target.clone().add(0.5, 2, 0.5);
+    }
 
-            showingHealthBar = true;
-            lastDamageTime = System.currentTimeMillis();
+    /**
+     * Checks if a location is safe for spawning
+     */
+    private boolean isSafeLocation(Location loc) {
+        if (loc == null || loc.getWorld() == null) return false;
+        if (loc.getY() < 0 || loc.getY() > loc.getWorld().getMaxHeight() - 3) return false;
 
-            if (YakRealms.getInstance().isDebugMode()) {
-                LOGGER.fine("[CustomMob] Updated health bar: " + String.format("%.1f/%.1f (%.1f%%)",
-                        currentHealth, maxHealth, (currentHealth / maxHealth) * 100));
-            }
+        Material block = loc.getBlock().getType();
+        return block != Material.LAVA && block != Material.BEDROCK;
+    }
 
-        } catch (Exception e) {
-            LOGGER.warning("[CustomMob] Health bar update failed: " + e.getMessage());
+    /**
+     * Determines the entity type for spawning
+     */
+    private EntityType determineEntityType() {
+        EntityType configuredType = type.getEntityType();
+        if (configuredType != null && isValidEntityType(configuredType)) {
+            return configuredType;
+        }
+
+        // Fallback based on type ID
+        return switch (type.getId().toLowerCase()) {
+            case "skeleton" -> EntityType.SKELETON;
+            case "witherskeleton", "wither_skeleton" -> EntityType.WITHER_SKELETON;
+            case "zombie" -> EntityType.ZOMBIE;
+            case "spider" -> EntityType.SPIDER;
+            case "cavespider", "cave_spider" -> EntityType.CAVE_SPIDER;
+            case "magmacube", "magma_cube" -> EntityType.MAGMA_CUBE;
+            case "zombifiedpiglin", "pigzombie" -> EntityType.ZOMBIFIED_PIGLIN;
+            case "enderman" -> EntityType.ENDERMAN;
+            case "creeper" -> EntityType.CREEPER;
+            case "blaze" -> EntityType.BLAZE;
+            case "warden" -> EntityType.WARDEN;
+            case "golem", "irongolem" -> EntityType.IRON_GOLEM;
+            default -> EntityType.SKELETON;
+        };
+    }
+
+    /**
+     * Validates if an entity type can be used
+     */
+    private boolean isValidEntityType(EntityType type) {
+        return type != null &&
+                type.getEntityClass() != null &&
+                LivingEntity.class.isAssignableFrom(type.getEntityClass()) &&
+                type.isSpawnable();
+    }
+
+    /**
+     * Checks if the mob is undead
+     */
+    private boolean isUndead() {
+        if (entity == null) return false;
+
+        EntityType type = entity.getType();
+        return type == EntityType.SKELETON ||
+                type == EntityType.WITHER_SKELETON ||
+                type == EntityType.ZOMBIE ||
+                type == EntityType.ZOMBIE_VILLAGER ||
+                type == EntityType.HUSK ||
+                type == EntityType.DROWNED ||
+                type == EntityType.STRAY ||
+                type == EntityType.PHANTOM;
+    }
+
+    /**
+     * Prevents sunlight damage for undead mobs
+     */
+    private void preventSunlightDamage() {
+        if (!isUndead() || entity == null) return;
+
+        if (entity.getFireTicks() > 0) {
+            entity.setFireTicks(0);
         }
     }
 
     /**
-     * Generate health bar with current health values passed in
+     * Checks if health has changed significantly
      */
-    private String generateHealthBar(double health, double maxHealth) {
-        try {
-            if (health <= 0) health = 0.1;
-            if (maxHealth <= 0) maxHealth = 1;
-
-            boolean inCritState = CritManager.getInstance().isInCritState(entity.getUniqueId());
-
-            return MobUtils.generateHealthBar(entity, health, maxHealth, tier, inCritState);
-        } catch (Exception e) {
-            LOGGER.warning("[CustomMob] Health bar generation failed: " + e.getMessage());
-            return originalName != null ? originalName : generateDefaultNameSafe();
-        }
-    }
-
-    /**
-     * Health bar generation using MobUtils for consistency with real-time values
-     */
-    public String generateHealthBar() {
-        if (!isValid()) return "";
-
-        try {
-            // Get CURRENT health values
-            double health = entity.getHealth();
-            double maxHealth = entity.getMaxHealth();
-
-            return generateHealthBar(health, maxHealth);
-        } catch (Exception e) {
-            LOGGER.warning("[CustomMob] Health bar generation failed: " + e.getMessage());
-            return originalName != null ? originalName : generateDefaultNameSafe();
-        }
-    }
-
-    // ================ LIGHTNING ENHANCEMENT ================
-
-    public void enhanceAsLightningMob(int multiplier) {
-        if (!isValid()) return;
-
-        try {
-            this.lightningMultiplier = multiplier;
-
-            double newMaxHealth = entity.getMaxHealth() * multiplier;
-            entity.setMaxHealth(newMaxHealth);
-            entity.setHealth(newMaxHealth);
-
-            entity.setGlowing(true);
-
-            String tierSpecificName = getTierSpecificNameSafe();
-            String lightningName = String.format("§6⚡ Lightning %s ⚡",
-                    ChatColor.stripColor(tierSpecificName));
-
-            // Update hologram with lightning status
-            originalName = lightningName;
-            currentDisplayName = lightningName;
-            forceUpdateHologram();
-
-            YakRealms plugin = YakRealms.getInstance();
-            entity.setMetadata("LightningMultiplier", new FixedMetadataValue(plugin, multiplier));
-            entity.setMetadata("LightningMob", new FixedMetadataValue(plugin, lightningName));
-
-            LOGGER.info("[CustomMob] Enhanced " + type.getId() + " as lightning mob (x" + multiplier + ")");
-
-        } catch (Exception e) {
-            LOGGER.warning("[CustomMob] Lightning enhancement failed: " + e.getMessage());
-        }
-    }
-
-    // ================ UTILITY METHODS ================
-
-    public boolean isValid() {
+    private boolean hasHealthChangedSignificantly() {
         if (entity == null) return false;
 
         try {
-            return entity.isValid() && !entity.isDead() && entity.getWorld() != null;
-        } catch (Exception e) {
-            return false;
-        }
-    }
+            double currentHealth = entity.getHealth();
+            double maxHealth = entity.getMaxHealth();
 
-    public void remove() {
-        try {
-            // Remove hologram first - CRITICAL for preventing leftover holograms
-            removeHologram();
-
-            if (isValid()) {
-                MobManager.getInstance().recordMobDeath(type.getId(), tier, elite);
-                entity.remove();
+            if (Math.abs(currentHealth - lastKnownHealth) > (maxHealth * HEALTH_CHANGE_THRESHOLD)) {
+                lastKnownHealth = currentHealth;
+                lastKnownMaxHealth = maxHealth;
+                return true;
             }
+        } catch (Exception e) {
+            // Ignore
+        }
 
-            MobManager.getInstance().unregisterMob(this);
+        return false;
+    }
+
+    /**
+     * Gets color based on health percentage
+     */
+    private ChatColor getHealthColor(double percentage) {
+        if (percentage > 75) return ChatColor.GREEN;
+        if (percentage > 50) return ChatColor.YELLOW;
+        if (percentage > 25) return ChatColor.GOLD;
+        return ChatColor.RED;
+    }
+
+    /**
+     * Gets health bar color based on percentage
+     */
+    private ChatColor getHealthBarColor(double percentage) {
+        if (isInCriticalState()) return ChatColor.LIGHT_PURPLE;
+        return getHealthColor(percentage);
+    }
+
+    /**
+     * Cleans up resources
+     */
+    private void cleanup() {
+        valid.set(false);
+        removeHologram();
+
+        if (entity != null && entity.isValid()) {
+            entity.remove();
+        }
+        entity = null;
+    }
+
+    // ==================== STATE CHECKS ====================
+
+    /**
+     * Checks if the mob is still valid
+     */
+    public boolean isValid() {
+        if (!valid.get()) return false;
+
+        entityLock.readLock().lock();
+        try {
+            return entity != null && entity.isValid() && !entity.isDead();
+        } finally {
+            entityLock.readLock().unlock();
+        }
+    }
+
+    /**
+     * Gets the entity (thread-safe)
+     */
+    public LivingEntity getEntity() {
+        entityLock.readLock().lock();
+        try {
+            return entity;
+        } finally {
+            entityLock.readLock().unlock();
+        }
+    }
+
+    /**
+     * Gets the current health percentage
+     */
+    public double getHealthPercentage() {
+        entityLock.readLock().lock();
+        try {
+            if (entity == null) return 0.0;
+
+            double current = entity.getHealth();
+            double max = entity.getMaxHealth();
+            return max > 0 ? (current / max) * 100.0 : 0.0;
 
         } catch (Exception e) {
-            LOGGER.warning("[CustomMob] Removal failed: " + e.getMessage());
+            return 0.0;
+        } finally {
+            entityLock.readLock().unlock();
         }
     }
 
-    private String formatLocation(Location location) {
-        if (location == null || location.getWorld() == null) {
-            return "Unknown";
+    // ==================== LOGGING UTILITIES ====================
+
+    private void logDebug(String format, Object... args) {
+        if (YakRealms.getInstance().isDebugMode()) {
+            LOGGER.info(String.format("[CustomMob] " + format, args));
         }
-
-        return String.format("%s [%d, %d, %d]",
-                location.getWorld().getName(),
-                location.getBlockX(),
-                location.getBlockY(),
-                location.getBlockZ());
     }
 
-    // ================ GETTERS ================
-
-    public MobType getType() {
-        return type;
+    private void logInfo(String format, Object... args) {
+        LOGGER.info(String.format("[CustomMob] " + format, args));
     }
 
-    public int getTier() {
-        return tier;
+    private void logError(String message, Exception e) {
+        LOGGER.log(Level.WARNING, "[CustomMob] " + message + " for " + uniqueMobId, e);
     }
 
-    public boolean isElite() {
-        return elite;
+    // ==================== LEGACY COMPATIBILITY ====================
+
+    public String getCustomName() { return baseDisplayName; }
+    public String getOriginalName() { return baseDisplayName; }
+    public boolean isInCombat() { return inCombat; }
+    public boolean isHologramActive() { return hologramActive.get(); }
+
+    public void updateHealthBar() {
+        updateDisplayElements();
     }
 
-    public LivingEntity getEntity() {
-        return entity;
+    public void refreshHealthBar() {
+        if (isValid()) {
+            Bukkit.getScheduler().runTask(YakRealms.getInstance(), this::updateDisplayElements);
+        }
     }
 
-    public String getCustomName() {
-        return currentDisplayName;
-    }
-
-    public long getLastDamageTime() {
-        return lastDamageTime;
-    }
-
-    public boolean isNameVisible() {
-        return nameVisible;
-    }
-
-    public String getOriginalName() {
-        return originalName;
-    }
-
-    public String getFormattedOriginalName() {
-        return originalName;
-    }
-
-    public double getBaseHealth() {
-        return baseHealth;
-    }
-
-    public int getLightningMultiplier() {
-        return lightningMultiplier;
-    }
-
-    public boolean isShowingHealthBar() {
-        return showingHealthBar;
-    }
-
-    public boolean isHologramActive() {
-        return hologramActive;
+    public void updateDamageTime() {
+        lastDamageTime = System.currentTimeMillis();
     }
 }

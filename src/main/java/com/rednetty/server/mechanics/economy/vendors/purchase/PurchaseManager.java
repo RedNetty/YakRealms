@@ -22,7 +22,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
 
 /**
- * FIXED purchase manager that works with original clean items from vendor menus
+ *  purchase manager that works with original clean items from vendor menus
  * Now receives clean items directly and gives them to players without modification
  */
 public class PurchaseManager implements Listener {

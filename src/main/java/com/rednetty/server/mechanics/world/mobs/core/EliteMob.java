@@ -9,6 +9,7 @@ import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.metadata.FixedMetadataValue;
+import org.bukkit.metadata.MetadataValue;
 import org.bukkit.potion.PotionEffect;
 import org.bukkit.potion.PotionEffectType;
 import org.bukkit.scheduler.BukkitRunnable;
@@ -19,7 +20,7 @@ import java.util.logging.Logger;
 import java.util.stream.Collectors;
 
 /**
- * EliteMob class with enhanced protection systems.
+ * EliteMob class with  protection systems.
  * - Equipment is unbreakable to prevent durability damage.
  * - Mobs are immune to sunlight burning.
  * - Crit functionality handled by CritManager.
@@ -43,7 +44,7 @@ public class EliteMob extends CustomMob {
     @Override
     public boolean spawn(Location location) {
         boolean success = super.spawn(location);
-        if (success && entity != null) {
+        if (success && getEntity() != null) {
             applyEliteEnhancements();
         }
         return success;
@@ -66,11 +67,11 @@ public class EliteMob extends CustomMob {
     private void applyEliteSunlightProtection() {
         if (!isValid()) return;
 
-        entity.addPotionEffect(new PotionEffect(PotionEffectType.FIRE_RESISTANCE, Integer.MAX_VALUE, 3));
-        entity.setMetadata("elite_sunlight_immune", new FixedMetadataValue(YakRealms.getInstance(), true));
+        getEntity().addPotionEffect(new PotionEffect(PotionEffectType.FIRE_RESISTANCE, Integer.MAX_VALUE, 3));
+        getEntity().setMetadata("elite_sunlight_immune", new FixedMetadataValue(YakRealms.getInstance(), true));
 
         if (YakRealms.getInstance().isDebugMode()) {
-            LOGGER.info("[EliteMob] Applied sunlight protection to elite " + type.getId());
+            LOGGER.info("[EliteMob] Applied sunlight protection to elite " + getType().getId());
         }
     }
 
@@ -83,24 +84,24 @@ public class EliteMob extends CustomMob {
      * Enhance elite equipment with unbreakable guarantee and basic enchants.
      */
     private void enhanceEliteEquipment() {
-        if (!isValid() || entity.getEquipment() == null) return;
+        if (!isValid() || getEntity().getEquipment() == null) return;
 
         // Enhance weapon
-        ItemStack weapon = entity.getEquipment().getItemInMainHand();
+        ItemStack weapon = getEntity().getEquipment().getItemInMainHand();
         if (weapon != null && weapon.getType() != Material.AIR) {
             makeItemUnbreakable(weapon);
             if (!weapon.hasItemMeta() || !weapon.getItemMeta().hasEnchants()) {
                 weapon.addUnsafeEnchantment(Enchantment.LOOT_BONUS_MOBS, 1);
             }
-            entity.getEquipment().setItemInMainHand(weapon);
+            getEntity().getEquipment().setItemInMainHand(weapon);
         }
 
         // Enhance armor
         ItemStack[] armor = {
-                entity.getEquipment().getHelmet(),
-                entity.getEquipment().getChestplate(),
-                entity.getEquipment().getLeggings(),
-                entity.getEquipment().getBoots()
+                getEntity().getEquipment().getHelmet(),
+                getEntity().getEquipment().getChestplate(),
+                getEntity().getEquipment().getLeggings(),
+                getEntity().getEquipment().getBoots()
         };
 
         for (ItemStack piece : armor) {
@@ -113,7 +114,7 @@ public class EliteMob extends CustomMob {
         }
 
         if (YakRealms.getInstance().isDebugMode()) {
-            LOGGER.info("[EliteMob] Enhanced and secured equipment for elite " + type.getId());
+            LOGGER.info("[EliteMob]  and secured equipment for elite " + type.getId());
         }
     }
 
@@ -129,14 +130,14 @@ public class EliteMob extends CustomMob {
     }
 
     private void applyEliteAppearance() {
-        if (!isValid() || entity.getCustomName() == null) return;
+        if (!isValid() || getEntity().getCustomName() == null) return;
 
-        String name = entity.getCustomName();
+        String name = getEntity().getCustomName();
         String eliteName = ChatColor.LIGHT_PURPLE + "" + ChatColor.BOLD + ChatColor.stripColor(name);
 
         if (!name.startsWith(ChatColor.LIGHT_PURPLE.toString())) {
-            entity.setCustomName(eliteName);
-            currentDisplayName = eliteName;
+            getEntity().setCustomName(eliteName);
+            this.baseDisplayName = eliteName;
         }
     }
 
@@ -155,8 +156,8 @@ public class EliteMob extends CustomMob {
      * Elite-specific tick behavior.
      */
     private void performEliteTick() {
-        if (isUndeadElite() && entity.getFireTicks() > 0) {
-            entity.setFireTicks(0);
+        if (isUndeadElite() && getEntity().getFireTicks() > 0) {
+            getEntity().setFireTicks(0);
         }
 
         if (RANDOM.nextInt(100) < 2) {
@@ -165,7 +166,7 @@ public class EliteMob extends CustomMob {
     }
 
     private boolean isUndeadElite() {
-        EntityType entityType = entity.getType();
+        EntityType entityType = getEntity().getType();
         return entityType == EntityType.SKELETON ||
                 entityType == EntityType.WITHER_SKELETON ||
                 entityType == EntityType.ZOMBIE ||
@@ -182,7 +183,6 @@ public class EliteMob extends CustomMob {
         if (!isValid()) return;
 
         lastDamageTime = System.currentTimeMillis();
-        nameVisible = true;
         updateHealthBar();
 
         // Elite hit effects
@@ -199,11 +199,11 @@ public class EliteMob extends CustomMob {
      * Get damage from weapon range for whirlwind calculations.
      */
     public double getDamageFromWeaponRange() {
-        if (entity.getEquipment() == null || entity.getEquipment().getItemInMainHand() == null) {
+        if (getEntity().getEquipment() == null || getEntity().getEquipment().getItemInMainHand() == null) {
             return 20 + (tier * 10);
         }
 
-        List<Integer> damageRange = MobUtils.getDamageRange(entity.getEquipment().getItemInMainHand());
+        List<Integer> damageRange = MobUtils.getDamageRange(getEntity().getEquipment().getItemInMainHand());
         int min = damageRange.get(0);
         int max = damageRange.get(1);
 
@@ -215,7 +215,7 @@ public class EliteMob extends CustomMob {
     protected List<Player> getNearbyPlayers(double radius) {
         if (!isValid()) return Collections.emptyList();
 
-        return entity.getNearbyEntities(radius, radius, radius).stream()
+        return getEntity().getNearbyEntities(radius, radius, radius).stream()
                 .filter(e -> e instanceof Player)
                 .map(e -> (Player) e)
                 .filter(Player::isOnline)
@@ -291,8 +291,8 @@ public class EliteMob extends CustomMob {
                     return;
                 }
 
-                Location loc = entity.getLocation().add(0, 1 + Math.sin(ticks * 0.3) * 0.5, 0);
-                entity.getWorld().spawnParticle(particle, loc, count, offsetX, offsetY, offsetZ, speed);
+                Location loc = getEntity().getLocation().add(0, 1 + Math.sin(ticks * 0.3) * 0.5, 0);
+                getEntity().getWorld().spawnParticle(particle, loc, count, offsetX, offsetY, offsetZ, speed);
                 ticks++;
             }
         }.runTaskTimer(YakRealms.getInstance(), 0L, 1L);
@@ -317,8 +317,8 @@ public class EliteMob extends CustomMob {
 
     public boolean isInSpecialState() {
         return isInCriticalState() ||
-                entity.hasPotionEffect(PotionEffectType.SLOW) ||
-                entity.hasPotionEffect(PotionEffectType.GLOWING);
+                getEntity().hasPotionEffect(PotionEffectType.SLOW) ||
+                getEntity().hasPotionEffect(PotionEffectType.GLOWING);
     }
 
     public String getEliteStatus() {
@@ -345,18 +345,18 @@ public class EliteMob extends CustomMob {
     // ================ EQUIPMENT PROTECTION ================
 
     public void validateEquipmentIntegrity() {
-        if (!isValid() || entity.getEquipment() == null) return;
+        if (!isValid() || getEntity().getEquipment() == null) return;
 
-        ItemStack weapon = entity.getEquipment().getItemInMainHand();
+        ItemStack weapon = getEntity().getEquipment().getItemInMainHand();
         if (weapon != null && weapon.getType() != Material.AIR) {
             makeItemUnbreakable(weapon);
         }
 
         ItemStack[] armor = {
-                entity.getEquipment().getHelmet(),
-                entity.getEquipment().getChestplate(),
-                entity.getEquipment().getLeggings(),
-                entity.getEquipment().getBoots()
+                getEntity().getEquipment().getHelmet(),
+                getEntity().getEquipment().getChestplate(),
+                getEntity().getEquipment().getLeggings(),
+                getEntity().getEquipment().getBoots()
         };
 
         for (ItemStack piece : armor) {
@@ -377,16 +377,16 @@ public class EliteMob extends CustomMob {
     }
 
     private void applyEliteDeathEffects() {
-        Location loc = entity.getLocation();
-        entity.getWorld().playSound(loc, Sound.ENTITY_GENERIC_EXPLODE, 1.0f, 0.8f);
-        entity.getWorld().spawnParticle(Particle.EXPLOSION_LARGE, loc.add(0, 1, 0), 8, 1.0, 1.0, 1.0, 0.1);
+        Location loc = getEntity().getLocation();
+        getEntity().getWorld().playSound(loc, Sound.ENTITY_GENERIC_EXPLODE, 1.0f, 0.8f);
+        getEntity().getWorld().spawnParticle(Particle.EXPLOSION_LARGE, loc.add(0, 1, 0), 8, 1.0, 1.0, 1.0, 0.1);
 
         if (isFrozenType()) {
-            entity.getWorld().spawnParticle(Particle.SNOWFLAKE, loc, 30, 2.0, 2.0, 2.0, 0.1);
-            entity.getWorld().playSound(loc, Sound.BLOCK_GLASS_BREAK, 1.0f, 0.5f);
+            getEntity().getWorld().spawnParticle(Particle.SNOWFLAKE, loc, 30, 2.0, 2.0, 2.0, 0.1);
+            getEntity().getWorld().playSound(loc, Sound.BLOCK_GLASS_BREAK, 1.0f, 0.5f);
         } else if (isWardenType()) {
-            entity.getWorld().spawnParticle(Particle.SMOKE_LARGE, loc, 20, 1.5, 1.5, 1.5, 0.1);
-            entity.getWorld().playSound(loc, Sound.ENTITY_WARDEN_DEATH, 0.8f, 1.0f);
+            getEntity().getWorld().spawnParticle(Particle.SMOKE_LARGE, loc, 20, 1.5, 1.5, 1.5, 0.1);
+            getEntity().getWorld().playSound(loc, Sound.ENTITY_WARDEN_DEATH, 0.8f, 1.0f);
         }
     }
 
@@ -395,9 +395,9 @@ public class EliteMob extends CustomMob {
     public void extinguishCompletely() {
         if (!isValid()) return;
 
-        entity.setFireTicks(0);
-        if (entity.hasPotionEffect(PotionEffectType.WITHER)) {
-            entity.removePotionEffect(PotionEffectType.WITHER);
+        getEntity().setFireTicks(0);
+        if (getEntity().hasPotionEffect(PotionEffectType.WITHER)) {
+            getEntity().removePotionEffect(PotionEffectType.WITHER);
         }
     }
 
@@ -405,16 +405,16 @@ public class EliteMob extends CustomMob {
         if (!isValid()) return "INVALID";
 
         StringBuilder status = new StringBuilder();
-        status.append("Fire: ").append(entity.hasPotionEffect(PotionEffectType.FIRE_RESISTANCE) ? "PROTECTED" : "VULNERABLE");
+        status.append("Fire: ").append(getEntity().hasPotionEffect(PotionEffectType.FIRE_RESISTANCE) ? "PROTECTED" : "VULNERABLE");
 
         boolean hasUnbreakableWeapon = false;
-        ItemStack weapon = entity.getEquipment().getItemInMainHand();
+        ItemStack weapon = getEntity().getEquipment().getItemInMainHand();
         if (weapon != null && weapon.hasItemMeta()) {
             hasUnbreakableWeapon = weapon.getItemMeta().isUnbreakable();
         }
         status.append(", Equipment: ").append(hasUnbreakableWeapon ? "PROTECTED" : "VULNERABLE");
 
-        boolean hasSunlightProtection = entity.hasMetadata("elite_sunlight_immune");
+        boolean hasSunlightProtection = getEntity().hasMetadata("elite_sunlight_immune");
         status.append(", Sunlight: ").append(hasSunlightProtection ? "PROTECTED" : "VULNERABLE");
 
         return status.toString();

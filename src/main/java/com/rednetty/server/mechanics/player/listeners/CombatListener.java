@@ -320,46 +320,6 @@ public class CombatListener extends BaseListener {
     }
 
     /**
-     * COMBAT LOGOUT HANDLER - Apply penalties for logging out during combat
-     */
-    @EventHandler(priority = EventPriority.HIGHEST)
-    public void onCombatLogout(PlayerQuitEvent event) {
-        Player player = event.getPlayer();
-
-        // Check if this is a combat logout that should be penalized
-        boolean shouldPenalize = false;
-
-        try {
-            // Check multiple conditions for combat logout
-            boolean inSafeZone = AlignmentMechanics.isSafeZone(player.getLocation());
-            boolean isTagged = alignmentMechanics.isPlayerTagged(player);
-            boolean recentCombat = isInCombat(player) ||
-                    combatLogoutMechanics.getTimeSinceLastTag(player) < COMBAT_TAG_DURATION;
-
-            shouldPenalize = !inSafeZone && (isTagged || recentCombat);
-
-        } catch (Exception e) {
-            logger.fine("Error checking combat logout status for " + player.getName() + ": " + e.getMessage());
-        }
-
-        if (shouldPenalize) {
-            try {
-                // Apply PvP rating penalty for combat logging
-                pvpRatingManager.applyCombatLogPenalty(player);
-                logger.info("Applied combat logout penalty to " + player.getName());
-
-                // The combat logout mechanics will handle item dropping and other penalties
-
-            } catch (Exception e) {
-                logger.log(Level.WARNING, "Error applying combat logout penalty to " + player.getName(), e);
-            }
-        }
-
-        // Clear combat state regardless
-        clearCombatState(player);
-    }
-
-    /**
      * COMBAT TAGGING HANDLER - Tag players for PvP combat
      */
     @EventHandler(priority = EventPriority.NORMAL)

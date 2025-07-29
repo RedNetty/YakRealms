@@ -6,7 +6,7 @@ import org.bukkit.inventory.Inventory;
 import java.util.*;
 
 /**
- * Core entity representing a loot chest with simple state management
+ * Core entity representing a loot chest with state management and loot inventory storage.
  */
 public class Chest {
     private final ChestLocation location;
@@ -19,10 +19,15 @@ public class Chest {
     private long lastInteraction;
     private final Set<UUID> interactedPlayers;
     private final Map<String, Object> metadata;
-    private Inventory lootInventory; // NEW: Stores the generated loot inventory
+    private Inventory lootInventory; // Stores the generated loot inventory to prevent regeneration
 
     /**
-     * Creates a new chest with default state
+     * Creates a new chest with default state and no loot inventory.
+     * Loot inventory should be generated separately when needed.
+     *
+     * @param location The location of the chest.
+     * @param tier The tier of the chest.
+     * @param type The type of the chest.
      */
     public Chest(ChestLocation location, ChestTier tier, ChestType type) {
         if (location == null) {
@@ -43,11 +48,21 @@ public class Chest {
         this.lastInteraction = creationTime;
         this.interactedPlayers = new HashSet<>();
         this.metadata = new HashMap<>();
-        this.lootInventory = null; // Initialize lootInventory as null
+        this.lootInventory = null; // Loot inventory generated on demand
     }
 
     /**
-     * Creates a chest from loaded data (for persistence)
+     * Creates a chest from loaded data (for persistence).
+     * Loot inventory is not loaded here; it should be set separately if persisted.
+     *
+     * @param location The location of the chest.
+     * @param tier The tier of the chest.
+     * @param type The type of the chest.
+     * @param creationTime The creation time of the chest.
+     * @param state The state of the chest.
+     * @param respawnTime The respawn time of the chest.
+     * @param lastInteraction The last interaction time.
+     * @param interactions The set of interacted player UUIDs.
      */
     public Chest(ChestLocation location, ChestTier tier, ChestType type, long creationTime,
                  ChestState state, long respawnTime, long lastInteraction, Set<UUID> interactions) {
@@ -72,13 +87,15 @@ public class Chest {
         this.lastInteraction = lastInteraction;
         this.interactedPlayers = new HashSet<>(interactions != null ? interactions : new HashSet<>());
         this.metadata = new HashMap<>();
-        this.lootInventory = null; // Initialize lootInventory as null (will be set during loading if applicable)
+        this.lootInventory = null; // Loot inventory set separately if loaded
     }
 
     // === State Management ===
 
     /**
-     * Changes the chest state and updates interaction time
+     * Changes the chest state and updates the last interaction time.
+     *
+     * @param newState The new state to set.
      */
     public void setState(ChestState newState) {
         if (newState == null) {
@@ -89,7 +106,9 @@ public class Chest {
     }
 
     /**
-     * Records a player interaction
+     * Records a player interaction with the chest.
+     *
+     * @param player The player interacting.
      */
     public void addInteraction(Player player) {
         if (player == null) {
@@ -100,7 +119,9 @@ public class Chest {
     }
 
     /**
-     * Sets the respawn time for this chest
+     * Sets the respawn time for this chest.
+     *
+     * @param respawnTime The respawn time in milliseconds.
      */
     public void setRespawnTime(long respawnTime) {
         if (respawnTime < 0) {
@@ -111,7 +132,7 @@ public class Chest {
     }
 
     /**
-     * Resets respawn time to 0
+     * Resets the respawn time to 0.
      */
     public void resetRespawnTime() {
         this.respawnTime = 0;
@@ -121,8 +142,9 @@ public class Chest {
     // === Loot Inventory Management ===
 
     /**
-     * Sets the loot inventory for this chest
-     * NEW: Added to store the generated inventory to prevent double loot
+     * Sets the loot inventory for this chest and updates the last interaction time.
+     *
+     * @param inventory The inventory to set.
      */
     public void setLootInventory(Inventory inventory) {
         this.lootInventory = inventory;
@@ -130,16 +152,16 @@ public class Chest {
     }
 
     /**
-     * Gets the loot inventory for this chest
-     * NEW: Added to retrieve the stored inventory
+     * Gets the loot inventory for this chest.
+     *
+     * @return The loot inventory, or null if not set.
      */
     public Inventory getLootInventory() {
         return lootInventory;
     }
 
     /**
-     * Clears the loot inventory
-     * NEW: Added to clear inventory when chest respawns or is removed
+     * Clears the loot inventory and updates the last interaction time.
      */
     public void clearLootInventory() {
         this.lootInventory = null;
@@ -149,7 +171,9 @@ public class Chest {
     // === State Checks ===
 
     /**
-     * Checks if the chest is ready to respawn
+     * Checks if the chest is ready to respawn.
+     *
+     * @return True if ready to respawn, false otherwise.
      */
     public boolean isReadyToRespawn() {
         return state == ChestState.RESPAWNING &&
@@ -158,7 +182,9 @@ public class Chest {
     }
 
     /**
-     * Checks if the chest has expired based on type
+     * Checks if the chest has expired based on its type.
+     *
+     * @return True if expired, false otherwise.
      */
     public boolean isExpired() {
         long age = System.currentTimeMillis() - creationTime;
@@ -170,21 +196,27 @@ public class Chest {
     }
 
     /**
-     * Checks if the chest is available for interaction
+     * Checks if the chest is available for interaction.
+     *
+     * @return True if available, false otherwise.
      */
     public boolean isAvailable() {
         return state == ChestState.AVAILABLE;
     }
 
     /**
-     * Checks if the chest is currently opened
+     * Checks if the chest is currently opened.
+     *
+     * @return True if opened, false otherwise.
      */
     public boolean isOpened() {
         return state == ChestState.OPENED;
     }
 
     /**
-     * Checks if the chest is respawning
+     * Checks if the chest is respawning.
+     *
+     * @return True if respawning, false otherwise.
      */
     public boolean isRespawning() {
         return state == ChestState.RESPAWNING;
@@ -193,21 +225,27 @@ public class Chest {
     // === Time Utilities ===
 
     /**
-     * Gets the age of the chest in milliseconds
+     * Gets the age of the chest in milliseconds.
+     *
+     * @return The age in milliseconds.
      */
     public long getAge() {
         return System.currentTimeMillis() - creationTime;
     }
 
     /**
-     * Gets time since last interaction
+     * Gets the time since the last interaction in milliseconds.
+     *
+     * @return The time since last interaction.
      */
     public long getTimeSinceLastInteraction() {
         return System.currentTimeMillis() - lastInteraction;
     }
 
     /**
-     * Gets remaining time until respawn in milliseconds
+     * Gets the remaining time until respawn in milliseconds.
+     *
+     * @return The remaining respawn time, or 0 if not respawning.
      */
     public long getRespawnTimeRemaining() {
         if (state != ChestState.RESPAWNING || respawnTime <= 0) {
@@ -217,7 +255,9 @@ public class Chest {
     }
 
     /**
-     * Gets formatted respawn time remaining
+     * Gets a formatted string of the remaining respawn time.
+     *
+     * @return The formatted remaining time.
      */
     public String getRespawnTimeRemainingFormatted() {
         long remaining = getRespawnTimeRemaining();
@@ -239,7 +279,10 @@ public class Chest {
     // === Metadata Management ===
 
     /**
-     * Sets metadata value
+     * Sets a metadata value for the chest.
+     *
+     * @param key The metadata key.
+     * @param value The metadata value.
      */
     public void setMetadata(String key, Object value) {
         if (key != null) {
@@ -253,14 +296,20 @@ public class Chest {
     }
 
     /**
-     * Gets metadata value
+     * Gets a metadata value for the chest.
+     *
+     * @param key The metadata key.
+     * @return The metadata value, or null if not set.
      */
     public Object getMetadata(String key) {
         return metadata.get(key);
     }
 
     /**
-     * Checks if metadata key exists
+     * Checks if a metadata key exists.
+     *
+     * @param key The metadata key.
+     * @return True if the key exists, false otherwise.
      */
     public boolean hasMetadata(String key) {
         return metadata.containsKey(key);
@@ -269,14 +318,18 @@ public class Chest {
     // === Display Methods ===
 
     /**
-     * Gets display name with tier color
+     * Gets the display name of the chest with tier color.
+     *
+     * @return The display name.
      */
     public String getDisplayName() {
         return tier.getColor() + tier.getDisplayName() + " " + type.getDescription();
     }
 
     /**
-     * Gets status string with color coding
+     * Gets a color-coded status string for the chest.
+     *
+     * @return The status string.
      */
     public String getStatusString() {
         return switch (state) {
@@ -288,7 +341,9 @@ public class Chest {
     }
 
     /**
-     * Gets detailed status with interaction count
+     * Gets a detailed status string including interaction count.
+     *
+     * @return The detailed status string.
      */
     public String getDetailedStatusString() {
         StringBuilder status = new StringBuilder();
@@ -333,21 +388,27 @@ public class Chest {
     }
 
     /**
-     * Returns a copy of interacted players to prevent external modification
+     * Returns a copy of the interacted players set to prevent external modification.
+     *
+     * @return A copy of the interacted players.
      */
     public Set<UUID> getInteractedPlayers() {
         return new HashSet<>(interactedPlayers);
     }
 
     /**
-     * Returns a copy of metadata to prevent external modification
+     * Returns a copy of the metadata map to prevent external modification.
+     *
+     * @return A copy of the metadata.
      */
     public Map<String, Object> getMetadata() {
         return new HashMap<>(metadata);
     }
 
     /**
-     * Gets the number of unique player interactions
+     * Gets the number of unique player interactions.
+     *
+     * @return The interaction count.
      */
     public int getInteractionCount() {
         return interactedPlayers.size();
@@ -364,7 +425,7 @@ public class Chest {
                 ", state=" + state +
                 ", interactions=" + interactedPlayers.size() +
                 ", age=" + (getAge() / 1000) + "s" +
-                ", hasLootInventory=" + (lootInventory != null) + // NEW: Indicate if inventory exists
+                ", hasLootInventory=" + (lootInventory != null) +
                 '}';
     }
 

@@ -137,7 +137,7 @@ public class ItemInteractionListener extends BaseListener {
             String displayName = item.getItemMeta().getDisplayName();
 
             // Handle special items
-            if (displayName.contains("Spectral") && !nbtAccessor.hasKey("fixedgear")) {
+            if (displayName.contains("Spectral") && !nbtAccessor.hasKey("gear")) {
                 // TODO: Implement this when EliteDrops is converted
                 /*
                 In the original code, this would call:

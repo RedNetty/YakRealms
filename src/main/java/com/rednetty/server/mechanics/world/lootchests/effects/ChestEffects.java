@@ -11,7 +11,7 @@ import java.util.logging.Logger;
 
 /**
  * Handles visual and audio effects for loot chests
- * FIXED: Particle positioning and consistency issues
+ * : Particle positioning and consistency issues
  */
 public class ChestEffects {
     private final Logger logger;
@@ -36,7 +36,7 @@ public class ChestEffects {
             ChestTier.NETHER_FORGED, Sound.ENTITY_ENDER_DRAGON_GROWL
     );
 
-    // FIXED: Consistent particle positioning constants
+    // : Consistent particle positioning constants
     private static final double CHEST_CENTER_OFFSET_X = 0.5;
     private static final double CHEST_CENTER_OFFSET_Z = 0.5;
     private static final double CHEST_TOP_OFFSET_Y = 1.0;      // Just above the chest
@@ -63,14 +63,14 @@ public class ChestEffects {
 
     /**
      * Plays effects when a chest is created
-     * FIXED: Consistent particle positioning
+     * : Consistent particle positioning
      */
     public void playCreationEffects(Location location, ChestTier tier, ChestType type) {
         if (location == null || location.getWorld() == null) return;
 
         World world = location.getWorld();
 
-        // Spawn particles - FIXED: Consistent positioning
+        // Spawn particles - : Consistent positioning
         if (particleEffectsEnabled) {
             Particle particle = TIER_PARTICLES.getOrDefault(tier, Particle.WHITE_ASH);
             Location particleLoc = getChestParticleLocation(location, CHEST_CREATION_OFFSET_Y);
@@ -96,7 +96,7 @@ public class ChestEffects {
 
     /**
      * Plays special effects for care packages
-     * FIXED: Consistent particle positioning
+     * : Consistent particle positioning
      */
     public void playCarePackageEffects(Location location) {
         if (location == null || location.getWorld() == null) return;
@@ -125,7 +125,7 @@ public class ChestEffects {
 
     /**
      * Plays special effects for special chests
-     * FIXED: Consistent particle positioning
+     * : Consistent particle positioning
      */
     private void playSpecialChestEffects(Location location, ChestTier tier) {
         if (location == null || location.getWorld() == null) return;
@@ -134,7 +134,7 @@ public class ChestEffects {
         Location centerLoc = getChestParticleLocation(location, CHEST_CREATION_OFFSET_Y);
 
         if (particleEffectsEnabled) {
-            // Enhanced particles for special chests
+            //  particles for special chests
             Particle particle = TIER_PARTICLES.getOrDefault(tier, Particle.WHITE_ASH);
             world.spawnParticle(particle, centerLoc, 40, 0.8, 0.8, 0.8, 0.1);
 
@@ -180,7 +180,7 @@ public class ChestEffects {
 
     /**
      * Plays effects when a chest is broken
-     * FIXED: Consistent particle positioning
+     * : Consistent particle positioning
      */
     public void playBreakEffects(Location location, ChestTier tier) {
         if (location == null || location.getWorld() == null) return;
@@ -209,7 +209,7 @@ public class ChestEffects {
 
     /**
      * Plays effects when a chest respawns
-     * FIXED: Consistent particle positioning
+     * : Consistent particle positioning
      */
     public void playRespawnEffects(Location location, ChestTier tier) {
         if (location == null || location.getWorld() == null) return;
@@ -237,7 +237,7 @@ public class ChestEffects {
 
     /**
      * Plays effects when a chest is removed
-     * FIXED: Consistent particle positioning
+     * : Consistent particle positioning
      */
     public void playRemovalEffects(Location location, ChestTier tier) {
         if (location == null || location.getWorld() == null) return;
@@ -264,13 +264,13 @@ public class ChestEffects {
 
     /**
      * Spawns ambient particles around available chests
-     * FIXED: Proper positioning above chest
+     * : Proper positioning above chest
      */
     public void spawnAmbientParticles(Location location, ChestTier tier) {
         if (location == null || location.getWorld() == null || !particleEffectsEnabled) return;
 
         World world = location.getWorld();
-        // FIXED: Use consistent ambient particle height
+        // : Use consistent ambient particle height
         Location particleLoc = getChestParticleLocation(location, CHEST_AMBIENT_OFFSET_Y);
 
         // Gentle ambient particles
@@ -304,7 +304,7 @@ public class ChestEffects {
     // === Utility Methods ===
 
     /**
-     * FIXED: Helper method for consistent particle positioning
+     * : Helper method for consistent particle positioning
      */
     private Location getChestParticleLocation(Location chestLocation, double yOffset) {
         return chestLocation.clone().add(CHEST_CENTER_OFFSET_X, yOffset, CHEST_CENTER_OFFSET_Z);

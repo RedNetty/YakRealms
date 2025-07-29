@@ -73,7 +73,7 @@ public class ItemTypeConfig {
             case 1:
                 return "HOE";       // Staff
             case 2:
-                return "SHOVEL";    // Spear - FIXED from SPADE
+                return "SHOVEL";    // Spear -  from SPADE
             case 3:
                 return "SWORD";     // Sword
             case 4:

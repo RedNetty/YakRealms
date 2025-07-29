@@ -2,13 +2,12 @@ package com.rednetty.server.commands.player;
 
 import com.rednetty.server.mechanics.chat.ChatMechanics;
 import com.rednetty.server.mechanics.chat.ChatTag;
-import com.rednetty.server.mechanics.moderation.ModerationMechanics;
-import com.rednetty.server.mechanics.moderation.Rank;
+import com.rednetty.server.mechanics.player.moderation.ModerationMechanics;
+import com.rednetty.server.mechanics.player.moderation.Rank;
 import com.rednetty.server.mechanics.player.YakPlayer;
 import com.rednetty.server.mechanics.player.YakPlayerManager;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
-import org.bukkit.Material;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
@@ -38,7 +37,7 @@ public class GlobalChatCommand implements CommandExecutor {
 
         // Check if player is muted
         YakPlayer yakPlayer = playerManager.getPlayer(player);
-        if (yakPlayer != null && yakPlayer.isMuted()) {
+        if (yakPlayer != null && yakPlayer.getMuteTime() > 0) {
             int minutes = yakPlayer.getMuteTime() / 60;
             player.sendMessage(ChatColor.RED + "You are currently muted");
             if (yakPlayer.getMuteTime() > 0) {
@@ -165,7 +164,7 @@ public class GlobalChatCommand implements CommandExecutor {
             }
 
             // Add rank if not default
-            Rank rank = ModerationMechanics.getRank(player);
+            Rank rank = ModerationMechanics.getInstance().getPlayerRank(player.getUniqueId());
             if (rank != Rank.DEFAULT) {
                 name.append(ChatColor.translateAlternateColorCodes('&', rank.tag)).append(" ");
             }

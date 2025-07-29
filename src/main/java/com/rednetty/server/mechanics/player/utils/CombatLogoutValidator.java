@@ -7,66 +7,12 @@ import org.bukkit.inventory.ItemStack;
 
 /**
  *  validation and rollback system for combat logout processing
- * - Fixed overly strict online validation that caused race conditions
+ * -  overly strict online validation that caused race conditions
  * - Improved error handling and recovery mechanisms
  * - Better state validation for different processing phases
  */
 public class CombatLogoutValidator {
 
-    /**
-     * Validate player state for combat logout - improved validation logic
-     */
-    public static boolean validatePlayerState(Player player, YakPlayer yakPlayer) {
-        try {
-            // Basic null checks
-            if (player == null || yakPlayer == null) {
-                YakRealms.warn("Null player or yakPlayer in validation");
-                return false;
-            }
-
-            // Check that serialized inventory data is valid
-            if (yakPlayer.getSerializedInventory() != null) {
-                ItemStack[] items = yakPlayer.deserializeItemStacks(yakPlayer.getSerializedInventory());
-                if (items == null) {
-                    YakRealms.warn("Invalid serialized inventory for combat logout player: " + player.getName());
-                    return false;
-                }
-            }
-
-            // Check that serialized armor data is valid
-            if (yakPlayer.getSerializedArmor() != null) {
-                ItemStack[] armor = yakPlayer.deserializeItemStacks(yakPlayer.getSerializedArmor());
-                if (armor == null) {
-                    YakRealms.warn("Invalid serialized armor for combat logout player: " + player.getName());
-                    return false;
-                }
-            }
-
-            // Check that flags are consistent
-            YakPlayer.CombatLogoutState state = yakPlayer.getCombatLogoutState();
-            if (state == YakPlayer.CombatLogoutState.PROCESSED && player.isOnline() && player.getHealth() > 0) {
-                YakRealms.warn("Combat logout processed but player not dead: " + player.getName());
-                return false;
-            }
-
-            // Check for conflicting temporary data
-            boolean hasOldFlags = yakPlayer.hasTemporaryData("combat_logout_death_processed") ||
-                    yakPlayer.hasTemporaryData("combat_logout_needs_death") ||
-                    yakPlayer.hasTemporaryData("combat_logout_session") ||
-                    yakPlayer.hasTemporaryData("combat_logout_processing");
-
-            if (hasOldFlags && state == YakPlayer.CombatLogoutState.NONE) {
-                YakRealms.warn("Player has old combat logout flags but state is NONE: " + player.getName());
-                return false;
-            }
-
-            return true;
-
-        } catch (Exception e) {
-            YakRealms.error("Player state validation failed: " + player.getName(), e);
-            return false;
-        }
-    }
 
     /**
      * Rollback combat logout processing with  error handling
@@ -115,7 +61,7 @@ public class CombatLogoutValidator {
             // Test inventory serialization
             String inventoryData = yakPlayer.getSerializedInventory();
             if (inventoryData != null) {
-                ItemStack[] items = yakPlayer.deserializeItemStacks(inventoryData);
+                ItemStack[] items = YakPlayer.ItemSerializer.deserializeItemStacksWithValidation(inventoryData);
                 if (items == null) {
                     YakRealms.warn("Inventory serialization validation failed for: " + yakPlayer.getUsername());
                     return false;
@@ -125,7 +71,7 @@ public class CombatLogoutValidator {
             // Test armor serialization
             String armorData = yakPlayer.getSerializedArmor();
             if (armorData != null) {
-                ItemStack[] armor = yakPlayer.deserializeItemStacks(armorData);
+                ItemStack[] armor = YakPlayer.ItemSerializer.deserializeItemStacksWithValidation(armorData);
                 if (armor == null) {
                     YakRealms.warn("Armor serialization validation failed for: " + yakPlayer.getUsername());
                     return false;

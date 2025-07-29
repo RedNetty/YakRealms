@@ -31,7 +31,7 @@ public class StatRange {
     /**
      * Constructor for a single value (min == max)
      *
-     * @param value The fixed value
+     * @param value The  value
      */
     public StatRange(int value) {
         this.min = value;

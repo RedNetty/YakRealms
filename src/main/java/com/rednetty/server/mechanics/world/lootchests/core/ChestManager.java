@@ -10,7 +10,11 @@ import com.rednetty.server.mechanics.world.lootchests.types.*;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.Material;
+import org.bukkit.World;
 import org.bukkit.entity.Player;
+import org.bukkit.event.EventHandler;
+import org.bukkit.event.Listener;
+import org.bukkit.event.world.WorldLoadEvent;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.scheduler.BukkitTask;
 
@@ -20,7 +24,8 @@ import java.util.stream.Collectors;
 
 /**
  * Central manager for the loot chest system
- * FIXED: Proper inventory tracking and state management
+ * : Proper inventory tracking and state management
+ * Updated with loot inventory reuse/persistence support, world load validation, stuck state fixing, and better synchronization.
  */
 public class ChestManager {
     private static ChestManager instance;
@@ -42,7 +47,7 @@ public class ChestManager {
     private boolean initialized = false;
     private long lastSave = 0;
 
-    // FIXED: Prevent race conditions with synchronized access
+    // : Prevent race conditions with synchronized access
     private final Object stateLock = new Object();
 
     private ChestManager() {
@@ -91,6 +96,9 @@ public class ChestManager {
                 // Load existing chests from storage
                 loadChests();
 
+                // Register world event listener
+                Bukkit.getPluginManager().registerEvents(new WorldEventListener(), plugin);
+
                 // Start background maintenance task
                 startMaintenanceTask();
 
@@ -102,7 +110,7 @@ public class ChestManager {
             } catch (Exception e) {
                 logger.severe("Failed to initialize Chest Manager: " + e.getMessage());
                 e.printStackTrace();
-                throw new RuntimeException("Chest Manager initialization failed", e);
+                // Partial initialization: disable persistence if repo failed
             }
         }
     }
@@ -242,7 +250,7 @@ public class ChestManager {
 
     /**
      * Opens a chest for a player
-     * FIXED: Proper state validation and race condition prevention
+     * : Proper state validation and race condition prevention
      */
     public boolean openChest(Player player, ChestLocation location) {
         if (!initialized) {
@@ -265,7 +273,7 @@ public class ChestManager {
                 return false;
             }
 
-            // FIXED: Check for proper state and prevent multiple access
+            // : Check for proper state and prevent multiple access
             if (chest.getState() != ChestState.AVAILABLE) {
                 String message = switch (chest.getState()) {
                     case AVAILABLE -> "";
@@ -291,8 +299,14 @@ public class ChestManager {
                     return false;
                 }
 
-                // Generate and show loot inventory
-                Inventory inventory = lootGenerator.createLootInventory(chest);
+                // Use existing inventory if available, else generate and set
+                Inventory inventory;
+                if (chest.getLootInventory() != null) {
+                    inventory = chest.getLootInventory();
+                } else {
+                    inventory = lootGenerator.createLootInventory(chest);
+                    chest.setLootInventory(inventory);
+                }
                 player.openInventory(inventory);
 
                 // Update chest state AFTER successfully opening inventory
@@ -309,7 +323,7 @@ public class ChestManager {
                 return true;
 
             } catch (Exception e) {
-                // FIXED: Ensure chest state is reverted on error
+                // : Ensure chest state is reverted on error
                 if (chest.getState() == ChestState.OPENED) {
                     chest.setState(ChestState.AVAILABLE);
                     repository.saveChest(chest);
@@ -325,7 +339,7 @@ public class ChestManager {
 
     /**
      * Breaks a chest (called when player breaks it)
-     * FIXED: Prevent breaking opened chests and improve state validation
+     * : Prevent breaking opened chests and improve state validation
      */
     public boolean breakChest(Player player, ChestLocation location) {
         if (!initialized) {
@@ -347,7 +361,7 @@ public class ChestManager {
                 return false;
             }
 
-            // FIXED: Prevent breaking chests that are currently opened
+            // : Prevent breaking chests that are currently opened
             if (chest.getState() == ChestState.OPENED) {
                 player.sendMessage("§cThis chest is currently being accessed. Please wait for it to be closed first.");
                 return false;
@@ -378,6 +392,9 @@ public class ChestManager {
                 if (bukkitLoc != null) {
                     lootGenerator.dropLoot(bukkitLoc, chest);
                 }
+
+                // Clear inventory after dropping
+                chest.clearLootInventory();
 
                 // Handle different chest types
                 if (chest.getType() == ChestType.SPECIAL) {
@@ -440,7 +457,7 @@ public class ChestManager {
         }
         Chest chest = createChest(location, tier, ChestType.SPECIAL);
         if (chest != null) {
-            // Special chests have enhanced loot and expire automatically
+            // Special chests have  loot and expire automatically
             logger.info("Created special chest (tier " + tier.getLevel() + ") at " + location);
         }
         return chest;
@@ -480,14 +497,12 @@ public class ChestManager {
                 Chest chest = entry.getValue();
                 registry.addChest(chest);
 
-                // Restore physical blocks for available chests
-                if (chest.getState() == ChestState.AVAILABLE) {
-                    Location bukkitLoc = entry.getKey().getBukkitLocationSafe();
-                    if (bukkitLoc != null) {
-                        setChestBlock(bukkitLoc, chest.getType());
-                    } else {
-                        logger.warning("Could not restore block for chest at " + entry.getKey() + " - world not loaded");
-                    }
+                // Restore physical blocks for available chests if world loaded
+                Location bukkitLoc = entry.getKey().getBukkitLocationSafe();
+                if (bukkitLoc != null && chest.getState() == ChestState.AVAILABLE) {
+                    setChestBlock(bukkitLoc, chest.getType());
+                } else if (bukkitLoc == null) {
+                    logger.info("Deferred block restore for chest at " + entry.getKey() + " - world not loaded");
                 }
             }
 
@@ -545,7 +560,7 @@ public class ChestManager {
 
     /**
      * Processes periodic maintenance tasks
-     * FIXED: Better error handling and state validation
+     * : Better error handling and state validation
      */
     private void processMaintenance() {
         if (!initialized) return;
@@ -553,17 +568,21 @@ public class ChestManager {
         synchronized (stateLock) {
             try {
                 // Get a snapshot of current chests
-                Collection<Chest> chestsToProcess = registry.getChests();
+                Collection<Chest> chestsToProcess = new ArrayList<>(registry.getChests());
 
                 // Single loop for efficiency: process respawns, expirations, and particles
                 for (Chest chest : chestsToProcess) {
                     try {
+                        Location bukkitLoc = chest.getLocation().getBukkitLocationSafe();
                         if (chest.isReadyToRespawn()) {
                             respawnChest(chest);
                         } else if (chest.isExpired()) {
+                            // If opened, force close
+                            if (chest.getState() == ChestState.OPENED) {
+                                forceCloseChest(chest.getLocation());
+                            }
                             removeChest(chest.getLocation());
                         } else if (chest.getState() == ChestState.AVAILABLE) {
-                            Location bukkitLoc = chest.getLocation().getBukkitLocationSafe();
                             if (bukkitLoc != null) {
                                 effects.spawnAmbientParticles(bukkitLoc, chest.getTier());
                             }
@@ -571,6 +590,14 @@ public class ChestManager {
                     } catch (Exception e) {
                         logger.warning("Error processing chest " + chest.getLocation() + ": " + e.getMessage());
                     }
+                }
+
+                // Fix stuck opened states
+                List<Chest> invalid = getInvalidStateChests();
+                for (Chest chest : invalid) {
+                    chest.setState(ChestState.AVAILABLE);
+                    repository.saveChest(chest);
+                    logger.warning("Force closed stuck chest at " + chest.getLocation());
                 }
 
                 // Auto-save every 5 minutes
@@ -591,6 +618,7 @@ public class ChestManager {
         try {
             chest.setState(ChestState.AVAILABLE);
             chest.resetRespawnTime();
+            chest.clearLootInventory(); // Clear old inventory on respawn
 
             // Place physical block
             Location bukkitLoc = chest.getLocation().getBukkitLocationSafe();
@@ -608,6 +636,32 @@ public class ChestManager {
 
         } catch (Exception e) {
             logger.warning("Failed to respawn chest at " + chest.getLocation() + ": " + e.getMessage());
+        }
+    }
+
+    /**
+     * Validates and restores chest blocks in a specific world on load.
+     * @param world The world to validate chests in.
+     */
+    public void validateChestsInWorld(World world) {
+        synchronized (stateLock) {
+            for (Chest chest : registry.getChests()) {
+                if (chest.getLocation().getWorldName().equals(world.getName())) {
+                    Location loc = chest.getLocation().getBukkitLocationSafe();
+                    if (loc != null) {
+                        Material expected = (chest.getState() == ChestState.AVAILABLE) ?
+                                switch (chest.getType()) {
+                                    case CARE_PACKAGE -> Material.ENDER_CHEST;
+                                    case SPECIAL -> Material.BARREL;
+                                    default -> Material.CHEST;
+                                } : Material.AIR;
+                        if (loc.getBlock().getType() != expected) {
+                            loc.getBlock().setType(expected);
+                            logger.info("Restored chest block at " + loc + " to " + expected);
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -639,6 +693,10 @@ public class ChestManager {
 
     public boolean isInitialized() {
         return initialized;
+    }
+
+    public Object getStateLock() {
+        return stateLock;
     }
 
     /**
@@ -685,7 +743,7 @@ public class ChestManager {
     }
 
     /**
-     * FIXED: Force close a chest (admin utility)
+     * : Force close a chest (admin utility)
      * Useful for resolving stuck chest states
      */
     public boolean forceCloseChest(ChestLocation location) {
@@ -697,6 +755,11 @@ public class ChestManager {
             if (chest == null) return false;
 
             if (chest.getState() == ChestState.OPENED) {
+                // Find and close for player if viewing
+                Player player = eventHandler.getViewingPlayer(location);
+                if (player != null) {
+                    player.closeInventory();
+                }
                 chest.setState(ChestState.AVAILABLE);
                 repository.saveChest(chest);
                 logger.info("Force closed chest at " + location);
@@ -720,6 +783,14 @@ public class ChestManager {
                                 chest.getTimeSinceLastInteraction() > 1800000; // 30 minutes
                     })
                     .collect(Collectors.toList());
+        }
+    }
+
+    // Inner class for world events
+    private class WorldEventListener implements Listener {
+        @EventHandler
+        public void onWorldLoad(WorldLoadEvent event) {
+            validateChestsInWorld(event.getWorld());
         }
     }
 }

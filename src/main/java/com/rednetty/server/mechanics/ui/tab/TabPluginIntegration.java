@@ -1,8 +1,8 @@
 package com.rednetty.server.mechanics.ui.tab;
 
 import com.rednetty.server.YakRealms;
-import com.rednetty.server.mechanics.moderation.ModerationMechanics;
-import com.rednetty.server.mechanics.moderation.Rank;
+import com.rednetty.server.mechanics.player.moderation.ModerationMechanics;
+import com.rednetty.server.mechanics.player.moderation.Rank;
 import com.rednetty.server.mechanics.player.YakPlayer;
 import com.rednetty.server.mechanics.player.YakPlayerManager;
 import com.rednetty.server.mechanics.player.social.party.PartyMechanics;
@@ -694,7 +694,7 @@ public class TabPluginIntegration implements Listener {
 
     private String getPlayerNameColor(Player player) {
         try {
-            Rank rank = ModerationMechanics.getRank(player);
+            Rank rank = ModerationMechanics.getInstance().getPlayerRank(player.getUniqueId());
             if (rank != null && rank != Rank.DEFAULT) {
                 return switch (rank) {
                     case DEV -> "§6";

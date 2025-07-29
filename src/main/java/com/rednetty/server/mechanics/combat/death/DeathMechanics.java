@@ -2,27 +2,18 @@ package com.rednetty.server.mechanics.combat.death;
 
 import com.rednetty.server.YakRealms;
 import com.rednetty.server.mechanics.combat.death.remnant.DeathRemnantManager;
-import com.rednetty.server.mechanics.combat.logout.CombatLogoutData;
 import com.rednetty.server.mechanics.combat.logout.CombatLogoutMechanics;
 import com.rednetty.server.mechanics.player.YakPlayer;
 import com.rednetty.server.mechanics.player.YakPlayerManager;
 import com.rednetty.server.mechanics.player.listeners.PlayerListenerManager;
 import com.rednetty.server.mechanics.player.stamina.Energy;
 import com.rednetty.server.mechanics.world.WorldGuardManager;
-import com.rednetty.server.mechanics.world.mobs.MobManager;
-import com.rednetty.server.mechanics.world.mobs.core.CustomMob;
-import com.rednetty.server.mechanics.world.mobs.utils.MobUtils;
 import com.rednetty.server.utils.inventory.InventoryUtils;
-import com.rednetty.server.utils.text.TextUtil;
 import org.bukkit.*;
-import org.bukkit.entity.Entity;
-import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
-import org.bukkit.event.entity.EntityDamageByEntityEvent;
-import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.event.player.PlayerRespawnEvent;
 import org.bukkit.inventory.ItemStack;
@@ -32,42 +23,34 @@ import org.bukkit.scheduler.BukkitRunnable;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.locks.ReentrantLock;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * FIXED DeathMechanics system for Spigot 1.20.4 - CRITICAL PLAYER WIPE FIXES
- * - FIXED NullPointerException with comprehensive null validation
- * - FIXED race conditions with proper synchronization and state validation
- * - FIXED inventory clearing order to prevent item loss
- * - FIXED combat logout integration with atomic operations
- * - FIXED respawn item validation and error handling
- * - COMPREHENSIVE error recovery and rollback mechanisms
- * - FIXED logging methods to use YakRealms.log(), YakRealms.warn(), YakRealms.error() properly
- * -  integration with all subsystems
+ * UPDATED DeathMechanics - works with FIXED combat logout system
+ *
+ * UPDATED APPROACH:
+ * - Combat logout is handled completely by CombatLogoutMechanics
+ * - This class only handles normal deaths (not combat logout deaths)
+ * - Simplified item processing since combat logout is separate
+ * - Focus on normal death mechanics and respawn handling
+ * - Shows appropriate messages for combat logout consequences on respawn
  */
 public class DeathMechanics implements Listener {
 
-    // Death processing constants
-    private static final long DEATH_PROCESSING_TIMEOUT = 15000; // 15 seconds
-    private static final long MIN_DEATH_INTERVAL = 2000; // 2 seconds minimum between deaths
-    private static final long RESPAWN_RESTORE_DELAY = 20L; // 1 second after respawn
+    private static final long RESPAWN_RESTORE_DELAY = 20L;
     private static final int MAX_RETRY_ATTEMPTS = 3;
-    private static final long PLAYER_STATE_LOCK_TIMEOUT = 10000; // 10 seconds
+
     private static DeathMechanics instance;
-    //   dupe prevention with proper null validation
-    private final ConcurrentHashMap<UUID, Long> deathProcessingLock = new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<UUID, AtomicBoolean> deathInProgress = new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<UUID, Long> lastDeathTime = new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<UUID, String> deathBackups = new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<UUID, DeathData> deathDataCache = new ConcurrentHashMap<>();
-    //   lock management with timeout protection
-    private final Map<UUID, ReentrantLock> playerDeathLocks = new ConcurrentHashMap<>();
-    //  Prevent duplicate message/processing tracking
-    private final Set<UUID> combatLogoutMessagesShown = ConcurrentHashMap.newKeySet();
+
+    // Simplified tracking - only for normal deaths
+    private final Map<UUID, DeathInfo> recentDeaths = new ConcurrentHashMap<>();
     private final Set<UUID> respawnInProgress = ConcurrentHashMap.newKeySet();
-    private final Set<UUID> deathProcessed = ConcurrentHashMap.newKeySet();
+
+    // Performance tracking
+    private final AtomicInteger totalDeaths = new AtomicInteger(0);
+    private final AtomicInteger normalDeaths = new AtomicInteger(0);
+    private final AtomicInteger combatLogoutDeathMessages = new AtomicInteger(0);
+
     // Dependencies
     private final DeathRemnantManager remnantManager;
     private final YakPlayerManager playerManager;
@@ -88,423 +71,233 @@ public class DeathMechanics implements Listener {
 
     public void onEnable() {
         Bukkit.getServer().getPluginManager().registerEvents(this, YakRealms.getInstance());
-
-        //  cleanup task
-        new BukkitRunnable() {
-            @Override
-            public void run() {
-                cleanupStaleLocks();
-                performEmergencyCleanup();
-            }
-        }.runTaskTimerAsynchronously(YakRealms.getInstance(), 1200L, 1200L);
-
-        YakRealms.log("FIXED DeathMechanics enabled with comprehensive player wipe prevention");
+        YakRealms.log("UPDATED DeathMechanics enabled with combat logout coordination");
     }
 
     public void onDisable() {
         if (remnantManager != null) {
             remnantManager.shutdown();
         }
-        deathProcessingLock.clear();
-        deathInProgress.clear();
-        lastDeathTime.clear();
-        deathBackups.clear();
-        deathDataCache.clear();
-        playerDeathLocks.clear();
-        combatLogoutMessagesShown.clear();
+
+        recentDeaths.clear();
         respawnInProgress.clear();
-        deathProcessed.clear();
-        YakRealms.log("FIXED DeathMechanics disabled - all data cleared safely");
+
+        YakRealms.log("UPDATED DeathMechanics disabled");
     }
 
     /**
-     * Get or create player death lock with timeout protection
-     */
-    private ReentrantLock getPlayerDeathLock(UUID playerId) {
-        if (playerId == null) {
-            YakRealms.warn("CRITICAL: Attempted to get death lock for null UUID");
-            return new ReentrantLock(); // Return temporary lock to prevent crash
-        }
-        return playerDeathLocks.computeIfAbsent(playerId, k -> new ReentrantLock());
-    }
-
-    /**
-     *  COMPREHENSIVE death processing with player wipe prevention
+     * UPDATED death handler - only handles normal deaths now
      */
     @EventHandler(priority = EventPriority.LOWEST)
     public void onPlayerDeath(PlayerDeathEvent event) {
         Player player = event.getEntity();
         if (player == null) {
-            YakRealms.warn("CRITICAL: PlayerDeathEvent with null player");
+            YakRealms.warn("PlayerDeathEvent with null player");
             return;
         }
 
         UUID playerId = player.getUniqueId();
         if (playerId == null) {
-            YakRealms.warn("CRITICAL: Player " + player.getName() + " has null UUID");
+            YakRealms.warn("Player " + player.getName() + " has null UUID");
             return;
         }
 
-        long currentTime = System.currentTimeMillis();
-        YakRealms.log("=== DEATH EVENT START: " + player.getName() + " (" + playerId + ") ===");
+        totalDeaths.incrementAndGet();
+        YakRealms.log("=== UPDATED DEATH EVENT START: " + player.getName() + " ===");
 
-        //  Acquire death lock with null protection
-        ReentrantLock deathLock = getPlayerDeathLock(playerId);
-        if (deathLock == null) {
-            YakRealms.warn("CRITICAL: Could not acquire death lock for " + player.getName());
-            return;
-        }
-
-        //  Use tryLock with timeout to prevent deadlocks
-        boolean lockAcquired = false;
         try {
-            lockAcquired = deathLock.tryLock(PLAYER_STATE_LOCK_TIMEOUT, TimeUnit.MILLISECONDS);
-            if (!lockAcquired) {
-                YakRealms.warn("CRITICAL: Death lock timeout for " + player.getName());
-                return;
-            }
-
-            //  Check if already processed by combat logout (prevent double processing)
-            if (combatLogoutMechanics != null && combatLogoutMechanics.hasProcessedDeath(playerId)) {
-                YakRealms.log("Death already processed by combat logout for " + player.getName());
-                return;
-            }
-
-            //  Check if we've already processed this death
-            if (deathProcessed.contains(playerId)) {
-                YakRealms.log("Death already processed for " + player.getName());
-                return;
-            }
-
-            //  Create comprehensive inventory snapshot BEFORE any modifications
-            InventorySnapshot inventorySnapshot = createInventorySnapshot(player);
-            if (inventorySnapshot == null) {
-                YakRealms.warn("CRITICAL: Failed to create inventory snapshot for " + player.getName());
-                return;
-            }
-
-            //  Store death location with validation
-            Location deathLocation = player.getLocation();
-            if (deathLocation == null || deathLocation.getWorld() == null) {
-                YakRealms.warn("CRITICAL: Invalid death location for " + player.getName());
-                deathLocation = player.getWorld().getSpawnLocation(); // Fallback
-            }
-
-            //  Get YakPlayer with validation
+            // Get YakPlayer data
             YakPlayer yakPlayer = playerManager.getPlayer(player);
             if (yakPlayer == null) {
-                YakRealms.warn("CRITICAL: No YakPlayer data for " + player.getName() + " during death processing");
+                YakRealms.warn("No YakPlayer data for " + player.getName() + " during death");
                 return;
             }
 
-            //  Validate player alignment
+            // UPDATED: Check if this is related to combat logout
+            // Combat logout deaths are NOT processed here - they're handled by CombatLogoutMechanics
+            if (combatLogoutMechanics.hasActiveCombatLogout(playerId)) {
+                YakRealms.log("Skipping death processing - combat logout already handled for " + player.getName());
+                // Just create a decorative remnant and let the normal death process continue
+                createDecorativeRemnant(player.getLocation(), player);
+                return;
+            }
+
+            // Handle normal death
+            handleNormalDeath(event, player, yakPlayer);
+            normalDeaths.incrementAndGet();
+
+        } catch (Exception e) {
+            YakRealms.error("Error in updated death event for " + player.getName(), e);
+        } finally {
+            YakRealms.log("=== UPDATED DEATH EVENT END: " + player.getName() + " ===");
+        }
+    }
+
+    /**
+     * Handle normal death - process items normally
+     */
+    private void handleNormalDeath(PlayerDeathEvent event, Player player, YakPlayer yakPlayer) {
+        YakRealms.log("Handling normal death for " + player.getName());
+
+        try {
             String alignment = yakPlayer.getAlignment();
             if (alignment == null || alignment.trim().isEmpty()) {
-                alignment = "LAWFUL"; // Safe fallback
+                alignment = "LAWFUL";
                 yakPlayer.setAlignment(alignment);
-                YakRealms.log("Fixed null alignment for " + player.getName() + " - set to LAWFUL");
             }
 
-            //  Create death data with comprehensive validation
-            DeathData deathData = new DeathData(deathLocation, alignment, player.getName());
-            if (!deathData.isValid()) {
-                YakRealms.warn("CRITICAL: Invalid death data for " + player.getName());
-                return;
-            }
+            Location deathLocation = player.getLocation();
 
-            //  Store backup BEFORE clearing anything
-            String backupKey = createInventoryBackup(inventorySnapshot);
-            if (backupKey != null) {
-                deathBackups.put(playerId, backupKey);
-                YakRealms.log("Created inventory backup for " + player.getName());
-            }
+            // Get all player items
+            List<ItemStack> allItems = InventoryUtils.getAllPlayerItems(player);
+            if (allItems == null) allItems = new ArrayList<>();
 
-            //  IMMEDIATELY clear event drops and set flags BEFORE processing
+            YakRealms.log("Processing " + allItems.size() + " items for normal death (alignment: " + alignment + ")");
+
+            // Process items by alignment
+            ProcessResult result = processItemsByAlignment(allItems, alignment, player);
+
+            // Clear event drops and handle them ourselves
             event.getDrops().clear();
             event.setKeepInventory(true);
             event.setKeepLevel(true);
             event.setDroppedExp(0);
 
-            //  Atomic death processing lock with validation
-            if (!acquireDeathProcessingLock(playerId, currentTime)) {
-                YakRealms.log("Death processing already in progress or too recent for " + player.getName());
-                rollbackInventoryFromBackup(player, playerId);
-                return;
-            }
+            // Drop items that should be dropped
+            dropItemsAtLocation(deathLocation, result.droppedItems, player.getName());
 
-            try {
-                //  Store death data in cache with null protection
-                if (deathData != null && deathData.isValid()) {
-                    deathDataCache.put(playerId, deathData);
-                } else {
-                    YakRealms.warn("CRITICAL: Cannot store invalid death data for " + player.getName());
-                    return;
-                }
+            // Clear player inventory
+            InventoryUtils.clearPlayerInventory(player);
 
-                //  Mark as processed immediately to prevent duplicates
-                deathProcessed.add(playerId);
+            // Store kept items for respawn
+            storeKeptItemsForRespawn(yakPlayer, result.keptItems);
 
-                //  Handle death by type with proper error handling
-                boolean success = handleDeathByTypeWithValidation(player, yakPlayer, inventorySnapshot, deathData);
+            // Create death remnant
+            createDecorativeRemnant(deathLocation, player);
 
-                if (!success) {
-                    YakRealms.warn("Death processing failed for " + player.getName() + " - rolling back");
-                    deathProcessed.remove(playerId);
-                    rollbackInventoryFromBackup(player, playerId);
-                    deathDataCache.remove(playerId);
-                    return;
-                }
+            // Update death count
+            yakPlayer.setDeaths(yakPlayer.getDeaths() + 1);
 
-                //  Mark combat logout death as processed (prevent duplicate processing)
-                if (combatLogoutMechanics != null) {
-                    combatLogoutMechanics.markDeathProcessed(playerId);
-                }
+            // Save player data
+            savePlayerDataSafely(yakPlayer);
 
-                // Success - remove backup
-                deathBackups.remove(playerId);
-                YakRealms.log("Death processing completed successfully for " + player.getName());
+            // Store death info for respawn handling
+            DeathInfo deathInfo = new DeathInfo(
+                    deathLocation,
+                    alignment,
+                    false, // not combat logout death
+                    System.currentTimeMillis()
+            );
+            recentDeaths.put(player.getUniqueId(), deathInfo);
 
-            } catch (Exception e) {
-                YakRealms.error("CRITICAL ERROR in death processing for " + player.getName(), e);
-                deathProcessed.remove(playerId);
-                rollbackInventoryFromBackup(player, playerId);
-                deathDataCache.remove(playerId);
-            } finally {
-                releaseDeathProcessingLock(playerId);
-            }
+            YakRealms.log("Normal death processed for " + player.getName() +
+                    ". Kept: " + result.keptItems.size() + ", Dropped: " + result.droppedItems.size());
 
-        } catch (InterruptedException e) {
-            YakRealms.error("Death processing interrupted for " + player.getName(), e);
-            Thread.currentThread().interrupt();
         } catch (Exception e) {
-            YakRealms.error("CRITICAL ERROR in death event for " + player.getName(), e);
-        } finally {
-            if (lockAcquired) {
-                deathLock.unlock();
-            }
-            YakRealms.log("=== DEATH EVENT END: " + player.getName() + " ===");
+            YakRealms.error("Error handling normal death for " + player.getName(), e);
         }
     }
 
     /**
-     *  Comprehensive inventory snapshot creation
+     * Process items by alignment for normal deaths
      */
-    private InventorySnapshot createInventorySnapshot(Player player) {
-        if (player == null) {
-            return null;
+    private ProcessResult processItemsByAlignment(List<ItemStack> allItems, String alignment, Player player) {
+        ProcessResult result = new ProcessResult();
+
+        if (allItems.isEmpty()) {
+            return result;
         }
 
-        try {
-            YakRealms.log("Creating comprehensive inventory snapshot for " + player.getName());
+        // Get first hotbar item for weapon detection
+        ItemStack firstHotbarItem = getFirstHotbarItem(allItems);
 
-            // Use InventoryUtils to get all items with deduplication
-            List<ItemStack> allItems = InventoryUtils.getAllPlayerItems(player);
+        switch (alignment) {
+            case "LAWFUL":
+                processLawfulDeathItems(allItems, firstHotbarItem, player, result);
+                break;
+            case "NEUTRAL":
+                processNeutralDeathItems(allItems, firstHotbarItem, result);
+                break;
+            case "CHAOTIC":
+                processChaoticDeathItems(allItems, result);
+                break;
+            default:
+                YakRealms.warn("Unknown alignment: " + alignment + " - defaulting to lawful");
+                processLawfulDeathItems(allItems, firstHotbarItem, player, result);
+                break;
+        }
 
-            if (allItems.isEmpty()) {
-                YakRealms.log("No items found for " + player.getName());
-                return new InventorySnapshot(new ArrayList<>());
+        return result;
+    }
+
+    private void processLawfulDeathItems(List<ItemStack> allItems, ItemStack firstHotbarItem, Player player, ProcessResult result) {
+        List<ItemStack> equippedArmor = InventoryUtils.getEquippedArmor(player);
+
+        for (ItemStack item : allItems) {
+            if (!InventoryUtils.isValidItem(item)) continue;
+
+            ItemStack safeCopy = InventoryUtils.createSafeCopy(item);
+            if (safeCopy == null) continue;
+
+            // Keep equipped armor and first hotbar item
+            boolean isEquippedArmor = equippedArmor.stream().anyMatch(e -> e != null && e.isSimilar(item));
+            boolean isFirstHotbar = firstHotbarItem != null && item.isSimilar(firstHotbarItem);
+            boolean isPermanentUntradeable = InventoryUtils.isPermanentUntradeable(safeCopy);
+
+            if (isEquippedArmor || isFirstHotbar || isPermanentUntradeable) {
+                result.keptItems.add(safeCopy);
+                YakRealms.log("LAWFUL KEEPING: " + InventoryUtils.getItemDisplayName(safeCopy));
+            } else {
+                result.droppedItems.add(safeCopy);
+                YakRealms.log("LAWFUL DROPPING: " + InventoryUtils.getItemDisplayName(safeCopy));
             }
-
-            // Create defensive copies to prevent reference issues
-            List<ItemStack> safeCopies = new ArrayList<>();
-            for (ItemStack item : allItems) {
-                ItemStack safeCopy = InventoryUtils.createSafeCopy(item);
-                if (safeCopy != null) {
-                    safeCopies.add(safeCopy);
-                }
-            }
-
-            YakRealms.log("Created inventory snapshot with " + safeCopies.size() + " items for " + player.getName());
-            return new InventorySnapshot(safeCopies);
-
-        } catch (Exception e) {
-            YakRealms.error("CRITICAL: Failed to create inventory snapshot for " + player.getName(), e);
-            return null;
         }
     }
 
-    /**
-     *   death handling with comprehensive validation
-     */
-    private boolean handleDeathByTypeWithValidation(Player player, YakPlayer yakPlayer,
-                                                    InventorySnapshot snapshot, DeathData deathData) {
-        if (player == null || yakPlayer == null || snapshot == null || deathData == null) {
-            YakRealms.warn("CRITICAL: Null parameters in death handling");
-            return false;
-        }
+    private void processNeutralDeathItems(List<ItemStack> allItems, ItemStack firstHotbarItem, ProcessResult result) {
+        Random random = new Random();
+        boolean shouldDropWeapon = random.nextInt(2) == 0;
+        boolean shouldDropArmor = random.nextInt(4) == 0;
 
-        try {
-            YakPlayer.CombatLogoutState logoutState = yakPlayer.getCombatLogoutState();
-            YakRealms.log("Handling death for " + player.getName() + " with state: " + logoutState);
+        for (ItemStack item : allItems) {
+            if (!InventoryUtils.isValidItem(item)) continue;
 
-            switch (logoutState) {
-                case PROCESSED:
-                    return handleProcessedCombatLogoutDeathFixed(player, yakPlayer, deathData);
+            ItemStack safeCopy = InventoryUtils.createSafeCopy(item);
+            if (safeCopy == null) continue;
 
-                case PROCESSING:
-                    YakRealms.log("Player died while combat logout was processing: " + player.getName());
-                    return handleCombatLogoutCompletionDeathFixed(player, yakPlayer, deathData);
+            boolean shouldKeep = InventoryUtils.isPermanentUntradeable(safeCopy) ||
+                    (InventoryUtils.isArmorItem(safeCopy) && !shouldDropArmor) ||
+                    (firstHotbarItem != null && item.isSimilar(firstHotbarItem) && !shouldDropWeapon);
 
-                case COMPLETED:
-                    return handleCombatLogoutCompletionDeathFixed(player, yakPlayer, deathData);
-
-                case NONE:
-                default:
-                    return handleNormalDeathFixed(player, yakPlayer, snapshot, deathData);
+            if (shouldKeep) {
+                result.keptItems.add(safeCopy);
+                YakRealms.log("NEUTRAL KEEPING: " + InventoryUtils.getItemDisplayName(safeCopy));
+            } else {
+                result.droppedItems.add(safeCopy);
+                YakRealms.log("NEUTRAL DROPPING: " + InventoryUtils.getItemDisplayName(safeCopy));
             }
-
-        } catch (Exception e) {
-            YakRealms.error("CRITICAL: Error in death type handling for " + player.getName(), e);
-            return false;
         }
     }
 
-    /**
-     *  Normal death handling with comprehensive item processing
-     */
-    private boolean handleNormalDeathFixed(Player player, YakPlayer yakPlayer,
-                                           InventorySnapshot snapshot, DeathData deathData) {
-        String alignment = yakPlayer.getAlignment();
-        YakRealms.log("Processing NORMAL death for " + player.getName() + " (alignment: " + alignment + ")");
+    private void processChaoticDeathItems(List<ItemStack> allItems, ProcessResult result) {
+        for (ItemStack item : allItems) {
+            if (!InventoryUtils.isValidItem(item)) continue;
 
-        try {
-            List<ItemStack> allItems = snapshot.getAllItems();
-            if (allItems.isEmpty()) {
-                YakRealms.log("No items to process for " + player.getName());
-                clearPlayerInventorySafely(player);
-                createDecorativeRemnant(deathData.deathLocation, player);
-                yakPlayer.addDeath();
-                return savePlayerDataSafely(yakPlayer);
+            ItemStack safeCopy = InventoryUtils.createSafeCopy(item);
+            if (safeCopy == null) continue;
+
+            if (InventoryUtils.isPermanentUntradeable(safeCopy) || InventoryUtils.isQuestItem(safeCopy)) {
+                result.keptItems.add(safeCopy);
+                YakRealms.log("CHAOTIC KEEPING: " + InventoryUtils.getItemDisplayName(safeCopy));
+            } else {
+                result.droppedItems.add(safeCopy);
+                YakRealms.log("CHAOTIC DROPPING: " + InventoryUtils.getItemDisplayName(safeCopy));
             }
-
-            //  Process items with comprehensive error handling
-            if (!processItemsByAlignmentFixed(allItems, alignment, player, deathData)) {
-                YakRealms.warn("Item processing failed for " + player.getName());
-                return false;
-            }
-
-            //  Clear inventory AFTER processing (prevent item loss)
-            clearPlayerInventorySafely(player);
-
-            //  Drop items atomically with validation
-            if (!dropItemsAtomicallyFixed(deathData.deathLocation, deathData.droppedItems, player.getName())) {
-                YakRealms.warn("Failed to drop items for " + player.getName());
-                return false;
-            }
-
-            //  Store kept items permanently with comprehensive validation
-            if (!storeRespawnItemsPermanentlyFixed(yakPlayer, deathData.keptItems)) {
-                YakRealms.warn("Failed to store respawn items for " + player.getName());
-                return false;
-            }
-
-            // Create decorative remnant
-            createDecorativeRemnant(deathData.deathLocation, player);
-
-            // Update player stats
-            yakPlayer.addDeath();
-
-            //  Save with comprehensive error handling
-            boolean saveSuccess = savePlayerDataSafely(yakPlayer);
-            if (!saveSuccess) {
-                YakRealms.warn("Failed to save player data after death for " + player.getName());
-                return false;
-            }
-
-            YakRealms.log("Normal death processing complete for " + player.getName() +
-                    ". Kept: " + deathData.keptItems.size() + ", Dropped: " + deathData.droppedItems.size());
-            return true;
-
-        } catch (Exception e) {
-            YakRealms.error("CRITICAL: Error in normal death processing for " + player.getName(), e);
-            return false;
         }
     }
 
-    /**
-     *  Process items by alignment with  validation
-     */
-    private boolean processItemsByAlignmentFixed(List<ItemStack> allItems, String alignment,
-                                                 Player player, DeathData deathData) {
-        if (allItems == null || deathData == null) {
-            YakRealms.warn("CRITICAL: Null parameters in item processing");
-            return false;
-        }
-
+    private ItemStack getFirstHotbarItem(List<ItemStack> allItems) {
         try {
-            YakRealms.log("Processing " + allItems.size() + " items for " + alignment + " alignment");
-
-            // Get first hotbar item for weapon detection
-            ItemStack firstHotbarItem = getFirstHotbarItemSafely(allItems);
-
-            // Generate random chances for neutral alignment
-            Random random = new Random();
-            boolean neutralShouldDropWeapon = random.nextInt(2) == 0; // 50% chance
-            boolean neutralShouldDropArmor = random.nextInt(4) == 0; // 25% chance
-
-            if ("NEUTRAL".equals(alignment)) {
-                YakRealms.log("Neutral death decisions - Drop weapon: " + neutralShouldDropWeapon +
-                        ", Drop armor: " + neutralShouldDropArmor);
-            }
-
-            // Process each item with comprehensive validation
-            for (ItemStack item : allItems) {
-                if (!InventoryUtils.isValidItem(item)) {
-                    continue;
-                }
-
-                try {
-                    // Create safe copy to prevent reference issues
-                    ItemStack safeCopy = InventoryUtils.createSafeCopy(item);
-                    if (safeCopy == null) {
-                        YakRealms.warn("Could not create safe copy of item: " + InventoryUtils.getItemDisplayName(item));
-                        continue;
-                    }
-
-                    // Determine if item should be kept using InventoryUtils
-                    boolean shouldKeep = InventoryUtils.determineIfItemShouldBeKept(
-                            safeCopy, alignment, player, firstHotbarItem,
-                            neutralShouldDropArmor, neutralShouldDropWeapon
-                    );
-
-                    if (shouldKeep) {
-                        deathData.keptItems.add(safeCopy);
-                        YakRealms.log("KEEPING: " + InventoryUtils.getItemDisplayName(safeCopy) + " x" + safeCopy.getAmount());
-                    } else {
-                        deathData.droppedItems.add(safeCopy);
-                        YakRealms.log("DROPPING: " + InventoryUtils.getItemDisplayName(safeCopy) + " x" + safeCopy.getAmount());
-                    }
-
-                } catch (Exception e) {
-                    YakRealms.error("Error processing individual item: " + InventoryUtils.getItemDisplayName(item), e);
-                    // Add to dropped items as fallback
-                    ItemStack safeCopy = InventoryUtils.createSafeCopy(item);
-                    if (safeCopy != null) {
-                        deathData.droppedItems.add(safeCopy);
-                    }
-                }
-            }
-
-            YakRealms.log("Item processing complete - Kept: " + deathData.keptItems.size() +
-                    ", Dropped: " + deathData.droppedItems.size());
-            return true;
-
-        } catch (Exception e) {
-            YakRealms.error("CRITICAL: Error in item processing by alignment", e);
-            return false;
-        }
-    }
-
-    /**
-     *  Safely get first hotbar item
-     */
-    private ItemStack getFirstHotbarItemSafely(List<ItemStack> allItems) {
-        if (allItems == null || allItems.isEmpty()) {
-            return null;
-        }
-
-        try {
-            // First 9 items in the list should be hotbar items from InventoryUtils
             for (int i = 0; i < Math.min(9, allItems.size()); i++) {
                 ItemStack item = allItems.get(i);
                 if (InventoryUtils.isValidItem(item)) {
@@ -512,7 +305,6 @@ public class DeathMechanics implements Listener {
                 }
             }
             return null;
-
         } catch (Exception e) {
             YakRealms.error("Error getting first hotbar item", e);
             return null;
@@ -520,345 +312,133 @@ public class DeathMechanics implements Listener {
     }
 
     /**
-     *  Store respawn items permanently with  validation
+     * Drop items at death location
      */
-    private boolean storeRespawnItemsPermanentlyFixed(YakPlayer yakPlayer, List<ItemStack> keptItems) {
-        if (yakPlayer == null) {
-            YakRealms.warn("CRITICAL: Cannot store respawn items for null YakPlayer");
-            return false;
+    private void dropItemsAtLocation(Location location, List<ItemStack> items, String playerName) {
+        if (location == null || location.getWorld() == null || items.isEmpty()) {
+            return;
         }
 
+        YakRealms.log("Dropping " + items.size() + " items at death location for " + playerName);
+
+        for (ItemStack item : items) {
+            if (!InventoryUtils.isValidItem(item)) continue;
+
+            try {
+                location.getWorld().dropItemNaturally(location, item);
+                YakRealms.log("Dropped: " + InventoryUtils.getItemDisplayName(item));
+            } catch (Exception e) {
+                YakRealms.warn("Failed to drop item: " + InventoryUtils.getItemDisplayName(item) + " - " + e.getMessage());
+            }
+        }
+    }
+
+    /**
+     * Store kept items for respawn using YakPlayer's respawn item system
+     */
+    private void storeKeptItemsForRespawn(YakPlayer yakPlayer, List<ItemStack> keptItems) {
         try {
-            if (keptItems == null || keptItems.isEmpty()) {
+            if (keptItems.isEmpty()) {
                 yakPlayer.clearRespawnItems();
-                YakRealms.log("No items to keep - cleared respawn items for " + yakPlayer.getUsername());
-                return true;
+                YakRealms.log("No items to keep for respawn: " + yakPlayer.getUsername());
+                return;
             }
 
-            //  Validate and filter items before storing
+            // Filter valid items
             List<ItemStack> validItems = new ArrayList<>();
             for (ItemStack item : keptItems) {
                 if (InventoryUtils.isValidItem(item)) {
-                    ItemStack safeCopy = InventoryUtils.createSafeCopy(item);
-                    if (safeCopy != null) {
-                        validItems.add(safeCopy);
-                    }
+                    validItems.add(item);
                 }
             }
 
             if (validItems.isEmpty()) {
                 yakPlayer.clearRespawnItems();
-                YakRealms.log("No valid items to keep for " + yakPlayer.getUsername());
-                return true;
+                return;
             }
 
-            //  Retry mechanism for serialization
-            for (int attempt = 1; attempt <= MAX_RETRY_ATTEMPTS; attempt++) {
-                try {
-                    boolean success = yakPlayer.setRespawnItems(validItems);
-                    if (success) {
-                        YakRealms.log("Successfully stored " + validItems.size() +
-                                " respawn items permanently for " + yakPlayer.getUsername() +
-                                " (attempt " + attempt + ")");
-                        return true;
-                    }
-                } catch (Exception e) {
-                    YakRealms.warn("Respawn item storage attempt " + attempt + " failed for " +
-                            yakPlayer.getUsername() + ": " + e.getMessage());
-
-                    if (attempt == MAX_RETRY_ATTEMPTS) {
-                        YakRealms.error("CRITICAL: All respawn item storage attempts failed for " +
-                                yakPlayer.getUsername(), e);
-                        return false;
-                    }
-
-                    // Wait before retry
-                    try {
-                        Thread.sleep(100 * attempt);
-                    } catch (InterruptedException ie) {
-                        Thread.currentThread().interrupt();
-                        return false;
-                    }
-                }
+            boolean success = yakPlayer.setRespawnItems(validItems);
+            if (success) {
+                YakRealms.log("Stored " + validItems.size() + " items for respawn: " + yakPlayer.getUsername());
+            } else {
+                YakRealms.warn("Failed to store respawn items for: " + yakPlayer.getUsername());
             }
-
-            return false;
 
         } catch (Exception e) {
-            YakRealms.error("CRITICAL: Error storing respawn items for " + yakPlayer.getUsername(), e);
-            return false;
+            YakRealms.error("Error storing kept items for respawn: " + yakPlayer.getUsername(), e);
         }
     }
 
     /**
-     *  Atomic item dropping with comprehensive validation
-     */
-    private boolean dropItemsAtomicallyFixed(Location deathLocation, List<ItemStack> droppedItems, String playerName) {
-        if (deathLocation == null || deathLocation.getWorld() == null) {
-            YakRealms.warn("CRITICAL: Invalid death location for item dropping");
-            return false;
-        }
-
-        if (droppedItems == null || droppedItems.isEmpty()) {
-            YakRealms.log("No items to drop for " + playerName);
-            return true;
-        }
-
-        YakRealms.log("=== ATOMIC ITEM DROPPING START ===");
-        YakRealms.log("Dropping " + droppedItems.size() + " items for " + playerName);
-
-        int successCount = 0;
-        int failCount = 0;
-
-        try {
-            for (ItemStack item : droppedItems) {
-                if (!InventoryUtils.isValidItem(item)) {
-                    continue;
-                }
-
-                try {
-                    // Create safe copy to prevent reference issues
-                    ItemStack itemToDrop = InventoryUtils.createSafeCopy(item);
-                    if (itemToDrop == null) {
-                        failCount++;
-                        continue;
-                    }
-
-                    // Drop with retry mechanism
-                    boolean dropped = false;
-                    for (int attempt = 1; attempt <= 3; attempt++) {
-                        try {
-                            deathLocation.getWorld().dropItemNaturally(deathLocation, itemToDrop);
-                            dropped = true;
-                            break;
-                        } catch (Exception e) {
-                            YakRealms.warn("Drop attempt " + attempt + " failed for " +
-                                    InventoryUtils.getItemDisplayName(itemToDrop) + ": " + e.getMessage());
-                            if (attempt < 3) {
-                                Thread.sleep(10); // Brief wait before retry
-                            }
-                        }
-                    }
-
-                    if (dropped) {
-                        successCount++;
-                        YakRealms.log("DROPPED: " + InventoryUtils.getItemDisplayName(itemToDrop) +
-                                " x" + itemToDrop.getAmount());
-                    } else {
-                        failCount++;
-                        YakRealms.warn("FAILED to drop item: " + InventoryUtils.getItemDisplayName(itemToDrop));
-                    }
-
-                } catch (Exception e) {
-                    failCount++;
-                    YakRealms.error("Error dropping item: " + InventoryUtils.getItemDisplayName(item), e);
-                }
-            }
-
-            YakRealms.log("Item dropping complete - Success: " + successCount + ", Failed: " + failCount);
-            YakRealms.log("=== ATOMIC ITEM DROPPING END ===");
-
-            return failCount == 0; // Success only if no failures
-
-        } catch (Exception e) {
-            YakRealms.error("CRITICAL: Error in atomic item dropping", e);
-            return false;
-        }
-    }
-
-    /**
-     *  Handle processed combat logout death with validation
-     */
-    private boolean handleProcessedCombatLogoutDeathFixed(Player player, YakPlayer yakPlayer, DeathData deathData) {
-        if (player == null || yakPlayer == null || deathData == null) {
-            YakRealms.warn("CRITICAL: Null parameters in processed combat logout death");
-            return false;
-        }
-
-        YakRealms.log("Processing death for already-processed combat logout: " + player.getName());
-
-        try {
-            //  Validate respawn items exist before death
-            if (!yakPlayer.hasRespawnItems()) {
-                YakRealms.warn("CRITICAL: No respawn items found for processed combat logout death: " + player.getName());
-
-                //  Try to recover from combat logout data
-                if (combatLogoutMechanics != null) {
-                    CombatLogoutData logoutData = combatLogoutMechanics.getCombatLogoutData(player.getUniqueId());
-                    if (logoutData != null && logoutData.respawnItemsBackup != null) {
-                        boolean restored = yakPlayer.restoreRespawnItemsFromBackup(logoutData.respawnItemsBackup);
-                        if (restored) {
-                            YakRealms.log("Successfully restored respawn items from combat logout backup");
-                        } else {
-                            YakRealms.warn("Failed to restore respawn items from backup");
-                            return false;
-                        }
-                    } else {
-                        YakRealms.warn("No backup available for respawn items recovery");
-                        return false;
-                    }
-                } else {
-                    YakRealms.warn("CombatLogoutMechanics not available for recovery");
-                    return false;
-                }
-            }
-
-            // Clear inventory safely
-            clearPlayerInventorySafely(player);
-
-            // Create decorative remnant only
-            createDecorativeRemnant(deathData.deathLocation, player);
-
-            // Update state
-            yakPlayer.setCombatLogoutState(YakPlayer.CombatLogoutState.COMPLETED);
-            yakPlayer.addDeath();
-
-            //  Save with error handling
-            boolean saveSuccess = savePlayerDataSafely(yakPlayer);
-            if (!saveSuccess) {
-                YakRealms.warn("Failed to save player data for processed combat logout death: " + player.getName());
-                return false;
-            }
-
-            YakRealms.log("Completed processed combat logout death: " + player.getName() +
-                    " (Respawn items: " + yakPlayer.getRespawnItemCount() + ")");
-            return true;
-
-        } catch (Exception e) {
-            YakRealms.error("CRITICAL: Error handling processed combat logout death for " + player.getName(), e);
-            return false;
-        }
-    }
-
-    /**
-     *  Handle combat logout completion death
-     */
-    private boolean handleCombatLogoutCompletionDeathFixed(Player player, YakPlayer yakPlayer, DeathData deathData) {
-        if (player == null || yakPlayer == null || deathData == null) {
-            YakRealms.warn("CRITICAL: Null parameters in combat logout completion death");
-            return false;
-        }
-
-        YakRealms.log("Processing completion death for combat logout: " + player.getName());
-
-        try {
-            // Clear inventory safely
-            clearPlayerInventorySafely(player);
-
-            // Create decorative remnant only
-            createDecorativeRemnant(deathData.deathLocation, player);
-
-            //  Ensure state is properly reset
-            yakPlayer.setCombatLogoutState(YakPlayer.CombatLogoutState.NONE);
-            yakPlayer.removeTemporaryData("prevent_healing");
-            yakPlayer.removeTemporaryData("combat_logout_processing");
-            yakPlayer.removeTemporaryData("combat_logout_needs_death");
-            yakPlayer.removeTemporaryData("combat_logout_death_processed");
-
-            // Update stats
-            yakPlayer.addDeath();
-
-            // Remove combat logout data
-            if (combatLogoutMechanics != null) {
-                combatLogoutMechanics.removeCombatLogoutData(player.getUniqueId());
-            }
-
-            //  Save with error handling
-            boolean saveSuccess = savePlayerDataSafely(yakPlayer);
-            if (!saveSuccess) {
-                YakRealms.warn("Failed to save player data for combat logout completion death: " + player.getName());
-                return false;
-            }
-
-            YakRealms.log("Completed combat logout punishment: " + player.getName());
-            return true;
-
-        } catch (Exception e) {
-            YakRealms.error("CRITICAL: Error handling combat logout completion death for " + player.getName(), e);
-            return false;
-        }
-    }
-
-    /**
-     *   respawn handler with comprehensive validation
+     * UPDATED respawn handler - coordinates with combat logout system
      */
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onPlayerRespawn(PlayerRespawnEvent event) {
         Player player = event.getPlayer();
         if (player == null) {
-            YakRealms.warn("CRITICAL: PlayerRespawnEvent with null player");
+            YakRealms.warn("PlayerRespawnEvent with null player");
             return;
         }
 
         UUID playerId = player.getUniqueId();
         if (playerId == null) {
-            YakRealms.warn("CRITICAL: Player " + player.getName() + " has null UUID during respawn");
-            return;
-        }
-
-        YakPlayer yakPlayer = playerManager.getPlayer(player);
-        if (yakPlayer == null) {
-            YakRealms.warn("CRITICAL: No YakPlayer data for " + player.getName() + " during respawn");
+            YakRealms.warn("Player " + player.getName() + " has null UUID during respawn");
             return;
         }
 
         YakRealms.log("Processing respawn for " + player.getName());
 
-        //  Check if already processing respawn
+        // Check if already processing respawn
         if (!respawnInProgress.add(playerId)) {
             YakRealms.log("Respawn already in progress for " + player.getName());
             return;
         }
 
         try {
-            // Get death data for context
-            DeathData deathData = deathDataCache.get(playerId);
+            YakPlayer yakPlayer = playerManager.getPlayer(player);
+            if (yakPlayer == null) {
+                YakRealms.warn("No YakPlayer data for " + player.getName() + " during respawn");
+                respawnInProgress.remove(playerId);
+                return;
+            }
 
-            //  Set respawn location based on alignment
-            setRespawnLocationByAlignmentFixed(event, yakPlayer, player);
+            DeathInfo deathInfo = recentDeaths.get(playerId);
 
-            //  Ensure inventory is clear immediately
-            Bukkit.getScheduler().runTask(YakRealms.getInstance(), () -> {
-                clearPlayerInventorySafely(player);
-            });
+            // UPDATED: Check if this player had a combat logout
+            boolean wasCombatLogout = yakPlayer.getCombatLogoutState() == YakPlayer.CombatLogoutState.COMPLETED;
 
-            //  Schedule post-respawn initialization with  error handling
+            // Set respawn location based on alignment
+            setRespawnLocation(event, yakPlayer, player);
+
+            // Schedule post-respawn processing
             new BukkitRunnable() {
                 @Override
                 public void run() {
                     if (player.isOnline() && !player.isDead()) {
-                        handlePostRespawnFixed(player, yakPlayer);
-                        // Clean up
-                        respawnInProgress.remove(playerId);
-                        deathDataCache.remove(playerId);
-                    } else {
-                        respawnInProgress.remove(playerId);
+                        handlePostRespawn(player, yakPlayer, deathInfo, wasCombatLogout);
                     }
+                    respawnInProgress.remove(playerId);
+                    recentDeaths.remove(playerId);
                 }
             }.runTaskLater(YakRealms.getInstance(), RESPAWN_RESTORE_DELAY);
 
             // Add respawn effects
-            addRespawnEffectsFixed(player);
+            addRespawnEffects(player);
 
         } catch (Exception e) {
-            YakRealms.error("CRITICAL: Error handling respawn for " + player.getName(), e);
+            YakRealms.error("Error handling respawn for " + player.getName(), e);
             respawnInProgress.remove(playerId);
         }
     }
 
     /**
-     *  Set respawn location with comprehensive validation
+     * Set respawn location based on alignment
      */
-    private void setRespawnLocationByAlignmentFixed(PlayerRespawnEvent event, YakPlayer yakPlayer, Player player) {
-        if (event == null || yakPlayer == null || player == null) {
-            YakRealms.warn("CRITICAL: Null parameters in respawn location setting");
-            return;
-        }
-
+    private void setRespawnLocation(PlayerRespawnEvent event, YakPlayer yakPlayer, Player player) {
         try {
             World world = Bukkit.getWorlds().get(0);
             if (world == null) {
-                YakRealms.warn("CRITICAL: No world available for respawn");
+                YakRealms.warn("No world available for respawn");
                 return;
             }
 
@@ -867,35 +447,134 @@ public class DeathMechanics implements Listener {
                 alignment = "LAWFUL";
             }
 
-            if ("CHAOTIC".equals(alignment)) {
-                Location randomLocation = generateRandomSpawnPointFixed(player.getName(), world);
-                event.setRespawnLocation(randomLocation);
-                YakRealms.log("Set random respawn location for chaotic player: " + player.getName());
-            } else {
-                // Lawful and Neutral players respawn at main spawn
-                Location spawnLocation = world.getSpawnLocation();
-                if (spawnLocation != null) {
-                    spawnLocation.setY(world.getHighestBlockYAt(spawnLocation) + 1);
-                    event.setRespawnLocation(spawnLocation);
-                    YakRealms.log("Set standard spawn location for " + alignment + " player: " + player.getName());
-                } else {
-                    YakRealms.warn("CRITICAL: World spawn location is null");
-                }
+            // UPDATED: All players respawn at spawn for now (combat logout players already at spawn)
+            // Chaotic players get random location in post-respawn
+            Location spawnLocation = world.getSpawnLocation();
+            if (spawnLocation != null) {
+                spawnLocation.setY(world.getHighestBlockYAt(spawnLocation) + 1);
+                event.setRespawnLocation(spawnLocation);
+                YakRealms.log("Set spawn location for respawn: " + player.getName() + " (alignment: " + alignment + ")");
             }
 
         } catch (Exception e) {
-            YakRealms.error("CRITICAL: Error setting respawn location for " + player.getName(), e);
+            YakRealms.error("Error setting respawn location for " + player.getName(), e);
         }
     }
 
     /**
-     *  Generate random spawn point with validation
+     * UPDATED: Handle post-respawn processing with combat logout awareness
      */
-    private Location generateRandomSpawnPointFixed(String playerName, World world) {
-        if (world == null) {
-            return null;
-        }
+    private void handlePostRespawn(Player player, YakPlayer yakPlayer, DeathInfo deathInfo, boolean wasCombatLogout) {
+        try {
+            YakRealms.log("Handling post-respawn for " + player.getName() +
+                    (wasCombatLogout ? " (combat logout completed)" : ""));
 
+            // UPDATED: Show combat logout completion message if applicable
+            if (wasCombatLogout) {
+                showCombatLogoutCompletionMessage(player, yakPlayer.getAlignment());
+                combatLogoutDeathMessages.incrementAndGet();
+
+                // Clear combat logout state now that respawn is complete
+                yakPlayer.setCombatLogoutState(YakPlayer.CombatLogoutState.NONE);
+                playerManager.savePlayer(yakPlayer);
+            } else {
+                // Show normal death message if it was a combat logout death
+                if (deathInfo != null && deathInfo.wasCombatLogout) {
+                    showCombatLogoutDeathMessage(player, deathInfo.alignment);
+                }
+            }
+
+            // Restore kept items if this was a normal death
+            if (yakPlayer.hasRespawnItems()) {
+                restoreRespawnItems(player, yakPlayer);
+            } else {
+                YakRealms.log("No respawn items to restore for " + player.getName());
+            }
+
+            // Handle chaotic player random teleportation
+            String alignment = yakPlayer.getAlignment();
+            if ("CHAOTIC".equals(alignment) && !wasCombatLogout) {
+                teleportChaoticPlayerToRandomLocation(player, yakPlayer);
+            }
+
+            // Initialize respawned player
+            initializeRespawnedPlayer(player, yakPlayer);
+
+            // Recalculate health
+            try {
+                if (PlayerListenerManager.getInstance() != null &&
+                        PlayerListenerManager.getInstance().getHealthListener() != null) {
+                    PlayerListenerManager.getInstance().getHealthListener().recalculateHealth(player);
+                }
+            } catch (Exception e) {
+                YakRealms.warn("Could not recalculate health for " + player.getName());
+            }
+
+        } catch (Exception e) {
+            YakRealms.error("Error in post-respawn handling for " + player.getName(), e);
+        }
+    }
+
+    /**
+     * UPDATED: Show combat logout completion message
+     */
+    private void showCombatLogoutCompletionMessage(Player player, String alignment) {
+        try {
+            Bukkit.getScheduler().runTaskLater(YakRealms.getInstance(), () -> {
+                if (player.isOnline()) {
+                    player.sendMessage("");
+                    player.sendMessage(ChatColor.RED + "" + ChatColor.BOLD + "COMBAT LOGOUT CONSEQUENCES COMPLETE");
+                    player.sendMessage(ChatColor.GRAY + "Your items were processed according to your " + alignment.toLowerCase() + " alignment.");
+                    player.sendMessage(ChatColor.GRAY + "You have respawned at the spawn location.");
+                    player.sendMessage(ChatColor.YELLOW + "You may now continue playing normally.");
+                    player.sendMessage("");
+
+                    player.playSound(player.getLocation(), Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 1.0f, 1.0f);
+                }
+            }, 40L);
+        } catch (Exception e) {
+            YakRealms.error("Error showing combat logout completion message", e);
+        }
+    }
+
+    private void showCombatLogoutDeathMessage(Player player, String alignment) {
+        try {
+            Bukkit.getScheduler().runTaskLater(YakRealms.getInstance(), () -> {
+                if (player.isOnline()) {
+                    player.sendMessage("");
+                    player.sendMessage(ChatColor.RED + "" + ChatColor.BOLD + "COMBAT LOGOUT PUNISHMENT COMPLETED!");
+                    player.sendMessage(ChatColor.GRAY + "Items were processed according to your " + alignment.toLowerCase() + " alignment.");
+                    player.sendMessage(ChatColor.GRAY + "You have respawned at the appropriate location.");
+                    player.sendMessage("");
+
+                    player.playSound(player.getLocation(), Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 1.0f, 0.8f);
+                }
+            }, 40L);
+        } catch (Exception e) {
+            YakRealms.error("Error showing combat logout death message", e);
+        }
+    }
+
+    /**
+     * Teleport chaotic player to random location
+     */
+    private void teleportChaoticPlayerToRandomLocation(Player player, YakPlayer yakPlayer) {
+        try {
+            World world = player.getWorld();
+            Location randomLocation = generateRandomSpawnPoint(player.getName(), world);
+
+            player.teleport(randomLocation);
+            yakPlayer.updateLocation(randomLocation);
+
+            player.sendMessage(ChatColor.RED + "As a chaotic player, you have been sent to a random location!");
+            YakRealms.log("Teleported chaotic player " + player.getName() + " to random location");
+
+        } catch (Exception e) {
+            YakRealms.error("Error teleporting chaotic player to random location", e);
+        }
+    }
+
+    private Location generateRandomSpawnPoint(String playerName, World world) {
         try {
             Random random = new Random(playerName.hashCode() + System.currentTimeMillis());
 
@@ -905,7 +584,6 @@ public class DeathMechanics implements Listener {
                 int y = world.getHighestBlockYAt((int) x, (int) z) + 1;
                 Location loc = new Location(world, x, y, z);
 
-                // Check if safe zone through WorldGuardManager
                 if (WorldGuardManager.getInstance() != null &&
                         !WorldGuardManager.getInstance().isSafeZone(loc)) {
                     return loc;
@@ -924,405 +602,66 @@ public class DeathMechanics implements Listener {
     }
 
     /**
-     *  Handle post-respawn with comprehensive validation
+     * Restore items that were kept from death
      */
-    private void handlePostRespawnFixed(Player player, YakPlayer yakPlayer) {
-        if (player == null || yakPlayer == null) {
-            YakRealms.warn("CRITICAL: Null parameters in post-respawn handling");
-            return;
-        }
-
-        UUID playerId = player.getUniqueId();
-        if (playerId == null) {
-            YakRealms.warn("CRITICAL: Player has null UUID in post-respawn");
-            return;
-        }
-
-        ReentrantLock deathLock = getPlayerDeathLock(playerId);
-        if (deathLock == null) {
-            YakRealms.warn("CRITICAL: Could not get death lock for post-respawn");
-            return;
-        }
-
-        boolean lockAcquired = false;
-        try {
-            lockAcquired = deathLock.tryLock(PLAYER_STATE_LOCK_TIMEOUT, TimeUnit.MILLISECONDS);
-            if (!lockAcquired) {
-                YakRealms.warn("CRITICAL: Post-respawn lock timeout for " + player.getName());
-                return;
-            }
-
-            YakPlayer.CombatLogoutState logoutState = yakPlayer.getCombatLogoutState();
-
-            //  Handle combat logout completion messages with duplicate prevention
-            if (logoutState == YakPlayer.CombatLogoutState.COMPLETED) {
-                YakRealms.log("Processing respawn for completed combat logout: " + player.getName());
-
-                // Only show message if not already shown
-                if (!combatLogoutMessagesShown.contains(playerId)) {
-                    combatLogoutMessagesShown.add(playerId);
-                    showCombatLogoutCompletionMessageFixed(player, yakPlayer);
-
-                    // Clean up message tracking after delay
-                    Bukkit.getScheduler().runTaskLater(YakRealms.getInstance(), () -> {
-                        combatLogoutMessagesShown.remove(playerId);
-                    }, 200L);
-                }
-
-                // Reset combat logout state
-                yakPlayer.setCombatLogoutState(YakPlayer.CombatLogoutState.NONE);
-
-                // Clean up combat logout data
-                if (combatLogoutMechanics != null) {
-                    combatLogoutMechanics.removeCombatLogoutData(playerId);
-                }
-
-                // Save state reset
-                savePlayerDataSafely(yakPlayer);
-            }
-
-            //  Check if items have already been restored
-            DeathData deathData = deathDataCache.get(playerId);
-            if (deathData != null && deathData.itemsRestored) {
-                YakRealms.log("Items already restored for " + player.getName() + ", skipping");
-                return;
-            }
-
-            //  Restore kept items with comprehensive validation
-            if (yakPlayer.hasRespawnItems()) {
-                YakRealms.log("Restoring " + yakPlayer.getRespawnItemCount() + " respawn items for " + player.getName());
-
-                boolean restoreSuccess = restoreRespawnItemsPermanentlyFixed(player, yakPlayer);
-                if (restoreSuccess && deathData != null) {
-                    deathData.itemsRestored = true;
-                }
-
-                if (!restoreSuccess) {
-                    YakRealms.warn("Failed to restore respawn items for " + player.getName());
-                }
-            } else {
-                YakRealms.log("No respawn items to restore for " + player.getName());
-            }
-
-            // Initialize respawned player
-            initializeRespawnedPlayerFixed(player, yakPlayer);
-
-            // Recalculate health
-            try {
-                if (PlayerListenerManager.getInstance() != null &&
-                        PlayerListenerManager.getInstance().getHealthListener() != null) {
-                    PlayerListenerManager.getInstance().getHealthListener().recalculateHealth(player);
-                }
-            } catch (Exception e) {
-                YakRealms.warn("Could not recalculate health for " + player.getName() + ": " + e.getMessage());
-            }
-
-        } catch (InterruptedException e) {
-            YakRealms.error("Post-respawn processing interrupted for " + player.getName(), e);
-            Thread.currentThread().interrupt();
-        } catch (Exception e) {
-            YakRealms.error("CRITICAL: Error in post-respawn handling for " + player.getName(), e);
-        } finally {
-            if (lockAcquired) {
-                deathLock.unlock();
-            }
-        }
-    }
-
-    /**
-     *  Restore respawn items with  1.20.4 compatibility
-     */
-    private boolean restoreRespawnItemsPermanentlyFixed(Player player, YakPlayer yakPlayer) {
-        if (player == null || yakPlayer == null) {
-            YakRealms.warn("CRITICAL: Null parameters in respawn item restoration");
-            return false;
-        }
-
+    private void restoreRespawnItems(Player player, YakPlayer yakPlayer) {
         try {
             List<ItemStack> items = yakPlayer.getRespawnItems();
             if (items == null || items.isEmpty()) {
-                YakRealms.log("No respawn items to restore for " + player.getName());
-                return true;
+                return;
             }
 
-            YakRealms.log("=== RESTORING RESPAWN ITEMS (PERMANENT) ===");
-            YakRealms.log("Restoring " + items.size() + " items for " + player.getName());
+            YakRealms.log("Restoring " + items.size() + " respawn items for " + player.getName());
 
-            //  Ensure inventory is clear before restoration
-            clearPlayerInventorySafely(player);
+            // Clear inventory first
+            InventoryUtils.clearPlayerInventory(player);
 
-            //  Separate armor and regular items using InventoryUtils
-            ItemStack[] armorContents = new ItemStack[4];
+            // Separate armor and regular items
+            ItemStack[] armor = new ItemStack[4];
             List<ItemStack> regularItems = new ArrayList<>();
 
             for (ItemStack item : items) {
-                if (!InventoryUtils.isValidItem(item)) {
-                    continue;
-                }
-
-                ItemStack safeCopy = InventoryUtils.createSafeCopy(item);
-                if (safeCopy == null) {
-                    continue;
-                }
-
-                if (InventoryUtils.isArmorItem(safeCopy)) {
-                    int armorSlot = InventoryUtils.getArmorSlot(safeCopy);
-                    if (armorSlot >= 0 && armorSlot < 4 && armorContents[armorSlot] == null) {
-                        armorContents[armorSlot] = safeCopy;
-                        YakRealms.log("Prepared armor for slot " + armorSlot + ": " +
-                                InventoryUtils.getItemDisplayName(safeCopy));
+                if (InventoryUtils.isArmorItem(item)) {
+                    int slot = InventoryUtils.getArmorSlot(item);
+                    if (slot >= 0 && slot < 4 && armor[slot] == null) {
+                        armor[slot] = item;
                     } else {
-                        regularItems.add(safeCopy);
-                        YakRealms.log("Added armor to regular items (slot occupied): " +
-                                InventoryUtils.getItemDisplayName(safeCopy));
+                        regularItems.add(item);
                     }
                 } else {
-                    regularItems.add(safeCopy);
+                    regularItems.add(item);
                 }
             }
 
-            //  Restore armor using setArmorContents with retry mechanism
-            boolean armorRestored = false;
-            for (int attempt = 1; attempt <= 3; attempt++) {
-                try {
-                    player.getInventory().setArmorContents(armorContents);
-                    armorRestored = true;
-                    YakRealms.log("Successfully restored armor using setArmorContents() (attempt " + attempt + ")");
-                    break;
-                } catch (Exception e) {
-                    YakRealms.warn("Armor restoration attempt " + attempt + " failed: " + e.getMessage());
-                    if (attempt == 3) {
-                        YakRealms.error("All armor restoration attempts failed", e);
-                        // Add armor to regular items as fallback
-                        for (ItemStack armor : armorContents) {
-                            if (armor != null) {
-                                regularItems.add(armor);
-                            }
-                        }
-                    } else {
-                        try {
-                            Thread.sleep(50); // Brief wait before retry
-                        } catch (InterruptedException ie) {
-                            Thread.currentThread().interrupt();
-                            break;
-                        }
-                    }
-                }
+            // Set armor
+            player.getInventory().setArmorContents(armor);
+
+            // Set regular items
+            for (int i = 0; i < regularItems.size() && i < 36; i++) {
+                player.getInventory().setItem(i, regularItems.get(i));
             }
 
-            // Log armor restoration details
-            if (armorRestored) {
-                for (int i = 0; i < armorContents.length; i++) {
-                    if (armorContents[i] != null) {
-                        String slotName = getArmorSlotNameFixed(i);
-                        YakRealms.log("Restored " + slotName + ": " +
-                                InventoryUtils.getItemDisplayName(armorContents[i]));
-                    }
-                }
-            }
-
-            //  Restore regular items with priority placement
-            int restoredRegularCount = restoreRegularItemsFixed(player, regularItems);
-
-            //  Clear respawn items after successful restoration
+            // Clear respawn items after restoration
             yakPlayer.clearRespawnItems();
             savePlayerDataSafely(yakPlayer);
 
-            YakRealms.log("=== PERMANENT RESPAWN RESTORATION COMPLETE ===");
-            YakRealms.log("Restored " + (armorRestored ? "armor and " : "") + restoredRegularCount +
-                    " regular items for " + player.getName());
-
-            return true;
+            player.updateInventory();
+            YakRealms.log("Successfully restored items for " + player.getName());
 
         } catch (Exception e) {
-            YakRealms.error("CRITICAL: Failed to restore respawn items permanently for " + player.getName(), e);
-            return false;
+            YakRealms.error("Error restoring respawn items for " + player.getName(), e);
         }
     }
 
     /**
-     *  Restore regular items with priority handling
+     * Initialize respawned player
      */
-    private int restoreRegularItemsFixed(Player player, List<ItemStack> regularItems) {
-        if (player == null || regularItems == null) {
-            return 0;
-        }
-
-        int restoredCount = 0;
-
-        try {
-            //  Sort items by priority (permanent items first)
-            regularItems.sort((a, b) -> {
-                boolean aPriority = InventoryUtils.isHighPriorityItem(a);
-                boolean bPriority = InventoryUtils.isHighPriorityItem(b);
-
-                if (aPriority && !bPriority) return -1;
-                if (!aPriority && bPriority) return 1;
-                return 0;
-            });
-
-            // First pass: try hotbar slots (0-8) for priority items
-            for (int i = 0; i < Math.min(9, regularItems.size()); i++) {
-                ItemStack item = regularItems.get(i);
-                if (InventoryUtils.isValidItem(item)) {
-                    try {
-                        player.getInventory().setItem(i, item);
-                        YakRealms.log("Restored to hotbar slot " + i + ": " +
-                                InventoryUtils.getItemDisplayName(item));
-                        restoredCount++;
-                    } catch (Exception e) {
-                        YakRealms.warn("Failed to restore to hotbar slot " + i + ": " + e.getMessage());
-                    }
-                }
-            }
-
-            // Second pass: remaining items to available slots
-            for (int i = 9; i < regularItems.size(); i++) {
-                ItemStack item = regularItems.get(i);
-                if (InventoryUtils.isValidItem(item)) {
-                    try {
-                        HashMap<Integer, ItemStack> leftover = player.getInventory().addItem(item);
-                        if (!leftover.isEmpty()) {
-                            // Drop overflow items
-                            for (ItemStack leftoverItem : leftover.values()) {
-                                player.getWorld().dropItemNaturally(player.getLocation(), leftoverItem);
-                                YakRealms.log("Dropped overflow: " + InventoryUtils.getItemDisplayName(leftoverItem));
-                            }
-                        } else {
-                            YakRealms.log("Restored: " + InventoryUtils.getItemDisplayName(item));
-                            restoredCount++;
-                        }
-                    } catch (Exception e) {
-                        YakRealms.warn("Failed to restore item: " + InventoryUtils.getItemDisplayName(item) +
-                                " - " + e.getMessage());
-
-                        // Try to drop as fallback
-                        try {
-                            player.getWorld().dropItemNaturally(player.getLocation(), item);
-                            YakRealms.log("Dropped as fallback: " + InventoryUtils.getItemDisplayName(item));
-                        } catch (Exception dropError) {
-                            YakRealms.error("Failed to drop item as fallback: " +
-                                    InventoryUtils.getItemDisplayName(item), dropError);
-                        }
-                    }
-                }
-            }
-
-        } catch (Exception e) {
-            YakRealms.error("Error restoring regular items", e);
-        }
-
-        return restoredCount;
-    }
-
-    /**
-     *  Get armor slot name for logging
-     */
-    private String getArmorSlotNameFixed(int slot) {
-        switch (slot) {
-            case 0:
-                return "boots";
-            case 1:
-                return "leggings";
-            case 2:
-                return "chestplate";
-            case 3:
-                return "helmet";
-            default:
-                return "unknown";
-        }
-    }
-
-    /**
-     *  Show combat logout completion message without duplicates
-     */
-    private void showCombatLogoutCompletionMessageFixed(Player player, YakPlayer yakPlayer) {
-        if (player == null || yakPlayer == null) {
-            return;
-        }
-
-        try {
-            String alignment = yakPlayer.getAlignment();
-            String punishmentMessage = getCombatLogoutPunishmentMessageFixed(alignment);
-
-            Bukkit.getScheduler().runTaskLater(YakRealms.getInstance(), () -> {
-                if (player.isOnline()) {
-                    player.sendMessage("");
-                    player.sendMessage(ChatColor.RED + "" + ChatColor.BOLD + "COMBAT LOGOUT PUNISHMENT COMPLETED!");
-                    player.sendMessage(ChatColor.GRAY + punishmentMessage);
-                    player.sendMessage(ChatColor.GRAY + "Your remaining items have been restored.");
-                    player.sendMessage("");
-
-                    try {
-                        player.playSound(player.getLocation(), Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 1.0f, 0.8f);
-                    } catch (Exception e) {
-                        YakRealms.warn("Could not play sound for " + player.getName());
-                    }
-                }
-            }, 40L);
-
-        } catch (Exception e) {
-            YakRealms.error("Error showing combat logout completion message", e);
-        }
-    }
-
-    /**
-     *  Get punishment message based on alignment
-     */
-    private String getCombatLogoutPunishmentMessageFixed(String alignment) {
-        if (alignment == null) {
-            alignment = "LAWFUL";
-        }
-
-        switch (alignment) {
-            case "LAWFUL":
-                return "As a lawful player, you kept your armor and first hotbar item but lost other inventory.";
-            case "NEUTRAL":
-                return "As a neutral player, you had chances to keep some gear based on luck.";
-            case "CHAOTIC":
-                return "As a chaotic player, you lost all items for combat logging.";
-            default:
-                return "Your items were handled according to your alignment rules.";
-        }
-    }
-
-    /**
-     *  Add respawn effects with validation
-     */
-    private void addRespawnEffectsFixed(Player player) {
-        if (player == null) {
-            return;
-        }
-
-        try {
-            Bukkit.getScheduler().runTaskLater(YakRealms.getInstance(), () -> {
-                if (player.isOnline() && !player.isDead()) {
-                    try {
-                        player.addPotionEffect(new PotionEffect(PotionEffectType.BLINDNESS, 60, 1));
-                        YakRealms.log("Applied respawn blindness to: " + player.getName());
-                    } catch (Exception e) {
-                        YakRealms.warn("Could not apply respawn effects to " + player.getName() + ": " + e.getMessage());
-                    }
-                }
-            }, 15L);
-        } catch (Exception e) {
-            YakRealms.error("Error scheduling respawn effects", e);
-        }
-    }
-
-    /**
-     *  Initialize respawned player safely
-     */
-    private void initializeRespawnedPlayerFixed(Player player, YakPlayer yakPlayer) {
-        if (player == null || yakPlayer == null) {
-            return;
-        }
-
+    private void initializeRespawnedPlayer(Player player, YakPlayer yakPlayer) {
         try {
             YakRealms.log("Initializing respawned player: " + player.getName());
 
-            //  Validate health values before setting
-            double maxHealth = Math.max(1.0, Math.min(2048.0, 50.0)); // Reasonable bounds
+            // Set health values
+            double maxHealth = Math.max(1.0, Math.min(2048.0, 50.0));
             double currentHealth = Math.max(1.0, Math.min(maxHealth, 50.0));
 
             player.setMaxHealth(maxHealth);
@@ -1330,7 +669,7 @@ public class DeathMechanics implements Listener {
             player.setLevel(100);
             player.setExp(1.0f);
 
-            //  Validate energy system integration
+            // Energy system integration
             if (yakPlayer.hasTemporaryData("energy")) {
                 yakPlayer.setTemporaryData("energy", 100);
             }
@@ -1340,616 +679,93 @@ public class DeathMechanics implements Listener {
                     Energy.getInstance().setEnergy(yakPlayer, 100);
                 }
             } catch (Exception e) {
-                YakRealms.warn("Could not set energy for " + player.getName() + ": " + e.getMessage());
+                YakRealms.warn("Could not set energy for " + player.getName());
             }
 
             player.getInventory().setHeldItemSlot(0);
 
-            YakRealms.log("Respawn initialization complete for " + player.getName());
-
         } catch (Exception e) {
-            YakRealms.error("CRITICAL: Error initializing respawned player " + player.getName(), e);
+            YakRealms.error("Error initializing respawned player " + player.getName(), e);
         }
     }
 
-    /**
-     * Safely clear player inventory with comprehensive validation
-     */
-    private void clearPlayerInventorySafely(Player player) {
-        if (player == null) {
-            YakRealms.warn("CRITICAL: Cannot clear inventory for null player");
-            return;
-        }
-
+    private void addRespawnEffects(Player player) {
         try {
-            InventoryUtils.clearPlayerInventory(player);
-        } catch (Exception e) {
-            YakRealms.error("CRITICAL: Error clearing inventory for " + player.getName(), e);
-        }
-    }
-
-    /**
-     *  Utility methods with comprehensive validation
-     */
-
-    /**
-     *  Save player data with retry mechanism
-     */
-    private boolean savePlayerDataSafely(YakPlayer yakPlayer) {
-        if (yakPlayer == null) {
-            YakRealms.warn("CRITICAL: Cannot save null YakPlayer data");
-            return false;
-        }
-
-        for (int attempt = 1; attempt <= MAX_RETRY_ATTEMPTS; attempt++) {
-            try {
-                boolean success = playerManager.savePlayer(yakPlayer).join();
-                if (success) {
-                    if (attempt > 1) {
-                        YakRealms.log("Successfully saved player data for " + yakPlayer.getUsername() +
-                                " on attempt " + attempt);
-                    }
-                    return true;
+            Bukkit.getScheduler().runTaskLater(YakRealms.getInstance(), () -> {
+                if (player.isOnline() && !player.isDead()) {
+                    player.addPotionEffect(new PotionEffect(PotionEffectType.BLINDNESS, 60, 1));
                 }
-            } catch (Exception e) {
-                YakRealms.warn("Save attempt " + attempt + " failed for " + yakPlayer.getUsername() +
-                        ": " + e.getMessage());
-
-                if (attempt == MAX_RETRY_ATTEMPTS) {
-                    YakRealms.error("CRITICAL: All save attempts failed for " + yakPlayer.getUsername(), e);
-                    return false;
-                }
-
-                // Wait before retry
-                try {
-                    Thread.sleep(100 * attempt);
-                } catch (InterruptedException ie) {
-                    Thread.currentThread().interrupt();
-                    return false;
-                }
-            }
-        }
-
-        return false;
-    }
-
-    /**
-     *  Acquire death processing lock with comprehensive validation
-     */
-    private boolean acquireDeathProcessingLock(UUID playerId, long currentTime) {
-        if (playerId == null) {
-            YakRealms.warn("CRITICAL: Cannot acquire death lock for null UUID");
-            return false;
-        }
-
-        try {
-            // Check minimum death interval
-            Long lastDeath = lastDeathTime.get(playerId);
-            if (lastDeath != null && currentTime - lastDeath < MIN_DEATH_INTERVAL) {
-                YakRealms.log("Death interval too short for " + playerId + ", blocking duplicate processing");
-                return false;
-            }
-
-            // Check if already processing
-            AtomicBoolean processing = deathInProgress.get(playerId);
-            if (processing != null && processing.get()) {
-                YakRealms.log("Death already in progress for " + playerId);
-                return false;
-            }
-
-            //  Check for null before putIfAbsent
-            Long existingLock = deathProcessingLock.putIfAbsent(playerId, currentTime);
-            if (existingLock != null) {
-                YakRealms.log("Death processing lock already held for " + playerId);
-                return false;
-            }
-
-            //  Initialize processing flag safely
-            AtomicBoolean newProcessing = new AtomicBoolean(true);
-            deathInProgress.put(playerId, newProcessing);
-            lastDeathTime.put(playerId, currentTime);
-
-            YakRealms.log("Acquired death processing lock for " + playerId);
-            return true;
-
+            }, 15L);
         } catch (Exception e) {
-            YakRealms.error("CRITICAL: Error acquiring death processing lock for " + playerId, e);
-            return false;
+            YakRealms.error("Error adding respawn effects", e);
         }
     }
 
-    /**
-     *  Release death processing lock with validation
-     */
-    private void releaseDeathProcessingLock(UUID playerId) {
-        if (playerId == null) {
-            YakRealms.warn("CRITICAL: Cannot release death lock for null UUID");
-            return;
-        }
-
-        try {
-            deathProcessingLock.remove(playerId);
-            AtomicBoolean processing = deathInProgress.get(playerId);
-            if (processing != null) {
-                processing.set(false);
-            }
-            YakRealms.log("Released death processing lock for " + playerId);
-
-        } catch (Exception e) {
-            YakRealms.error("Error releasing death processing lock for " + playerId, e);
-        }
-    }
-
-    /**
-     *  Create inventory backup with validation
-     */
-    private String createInventoryBackup(InventorySnapshot snapshot) {
-        if (snapshot == null) {
-            return null;
-        }
-
-        try {
-            List<ItemStack> items = snapshot.getAllItems();
-            if (items.isEmpty()) {
-                return null;
-            }
-
-            return InventoryUtils.serializeItemStacks(items.toArray(new ItemStack[0]));
-
-        } catch (Exception e) {
-            YakRealms.error("CRITICAL: Failed to create inventory backup", e);
-            return null;
-        }
-    }
-
-    /**
-     *  Rollback inventory from backup with validation
-     */
-    private void rollbackInventoryFromBackup(Player player, UUID playerId) {
-        if (player == null || playerId == null) {
-            YakRealms.warn("CRITICAL: Cannot rollback inventory - null parameters");
-            return;
-        }
-
-        String backup = deathBackups.remove(playerId);
-        if (backup != null) {
-            try {
-                ItemStack[] items = InventoryUtils.deserializeItemStacks(backup);
-                if (items != null && items.length > 0) {
-                    // Clear inventory first
-                    clearPlayerInventorySafely(player);
-
-                    // Restore items
-                    for (int i = 0; i < Math.min(items.length, player.getInventory().getSize()); i++) {
-                        if (items[i] != null) {
-                            player.getInventory().setItem(i, items[i]);
-                        }
-                    }
-                    YakRealms.log("Successfully rolled back inventory for " + player.getName());
-                } else {
-                    YakRealms.warn("Backup contained no valid items for " + player.getName());
-                }
-            } catch (Exception e) {
-                YakRealms.error("CRITICAL: Failed to rollback inventory for " + player.getName(), e);
-            }
-        } else {
-            YakRealms.warn("No backup found for inventory rollback: " + player.getName());
-        }
-    }
-
-    /**
-     *  Create decorative remnant with validation
-     */
     private void createDecorativeRemnant(Location location, Player player) {
-        if (location == null || player == null) {
-            return;
-        }
-
         try {
             if (remnantManager != null) {
                 remnantManager.createDeathRemnant(location, Collections.emptyList(), player);
                 YakRealms.log("Created decorative death remnant for " + player.getName());
             }
         } catch (Exception e) {
-            YakRealms.warn("Failed to create death remnant for " + player.getName() + ": " + e.getMessage());
+            YakRealms.warn("Failed to create death remnant for " + player.getName());
         }
     }
 
-    /**
-     *   cleanup with comprehensive validation
-     */
-    private void cleanupStaleLocks() {
+    private boolean savePlayerDataSafely(YakPlayer yakPlayer) {
         try {
-            long currentTime = System.currentTimeMillis();
-
-            // Clean up expired processing locks
-            deathProcessingLock.entrySet().removeIf(entry -> {
-                Long lockTime = entry.getValue();
-                return lockTime == null || currentTime - lockTime > DEATH_PROCESSING_TIMEOUT;
-            });
-
-            // Clean up expired progress flags
-            deathInProgress.entrySet().removeIf(entry -> {
-                UUID uuid = entry.getKey();
-                if (uuid == null) return true;
-
-                Long lockTime = deathProcessingLock.get(uuid);
-                return lockTime == null || currentTime - lockTime > DEATH_PROCESSING_TIMEOUT;
-            });
-
-            // Clean up old backups
-            deathBackups.entrySet().removeIf(entry -> {
-                UUID uuid = entry.getKey();
-                return uuid == null || !deathProcessingLock.containsKey(uuid);
-            });
-
-            // Clean up old message tracking
-            combatLogoutMessagesShown.removeIf(uuid -> {
-                if (uuid == null) return true;
-                Player player = Bukkit.getPlayer(uuid);
-                return player == null || !player.isOnline();
-            });
-
-            // Clean up old death data
-            deathDataCache.entrySet().removeIf(entry -> {
-                DeathData data = entry.getValue();
-                return data == null || currentTime - data.deathTime > 300000; // 5 minutes
-            });
-
-            // Clean up player locks for offline players
-            playerDeathLocks.entrySet().removeIf(entry -> {
-                UUID uuid = entry.getKey();
-                if (uuid == null) return true;
-
-                Player player = Bukkit.getPlayer(uuid);
-                return player == null || !player.isOnline();
-            });
-
+            return playerManager.savePlayer(yakPlayer).get();
         } catch (Exception e) {
-            YakRealms.error("Error during cleanup", e);
-        }
-    }
-
-    /**
-     *  Emergency cleanup to prevent memory leaks
-     */
-    private void performEmergencyCleanup() {
-        try {
-            // Remove any null keys that might have been added
-            deathProcessingLock.entrySet().removeIf(entry -> entry.getKey() == null || entry.getValue() == null);
-            deathInProgress.entrySet().removeIf(entry -> entry.getKey() == null || entry.getValue() == null);
-            lastDeathTime.entrySet().removeIf(entry -> entry.getKey() == null || entry.getValue() == null);
-            deathBackups.entrySet().removeIf(entry -> entry.getKey() == null || entry.getValue() == null);
-            deathDataCache.entrySet().removeIf(entry -> entry.getKey() == null || entry.getValue() == null);
-
-            // Remove processed flags for offline players
-            deathProcessed.removeIf(uuid -> {
-                if (uuid == null) return true;
-                Player player = Bukkit.getPlayer(uuid);
-                return player == null || !player.isOnline();
-            });
-
-            respawnInProgress.removeIf(uuid -> {
-                if (uuid == null) return true;
-                Player player = Bukkit.getPlayer(uuid);
-                return player == null || !player.isOnline();
-            });
-
-        } catch (Exception e) {
-            YakRealms.error("Error during emergency cleanup", e);
-        }
-    }
-
-    /**
-     *   death message handling with proper mob name display
-     */
-    @EventHandler(priority = EventPriority.HIGH)
-    public void onDeathMessage(PlayerDeathEvent event) {
-        if (event == null) return;
-
-        Player victim = event.getEntity();
-        if (victim == null) return;
-
-        try {
-            event.setDeathMessage(null);
-
-            String deathReason = " has died";
-            EntityDamageEvent lastDamage = victim.getLastDamageCause();
-
-            if (lastDamage != null) {
-                deathReason = buildDeathMessageSafely(victim, lastDamage);
-            }
-
-            // Update killer stats if applicable
-            Player killer = victim.getKiller();
-            if (killer != null) {
-                YakPlayer yakKiller = playerManager.getPlayer(killer);
-                if (yakKiller != null) {
-                    yakKiller.addPlayerKill();
-                    savePlayerDataSafely(yakKiller);
-                }
-            }
-
-            // Broadcast death message to nearby players
-            String finalMessage = victim.getDisplayName() + ChatColor.RESET + deathReason;
-            broadcastDeathMessageSafely(victim, finalMessage);
-
-        } catch (Exception e) {
-            YakRealms.error("Error handling death message for " + victim.getName(), e);
-        }
-    }
-
-    /**
-     *  Build death message safely
-     */
-    private String buildDeathMessageSafely(Player victim, EntityDamageEvent lastDamage) {
-        if (lastDamage == null) {
-            return " has died";
-        }
-
-        try {
-            EntityDamageEvent.DamageCause cause = lastDamage.getCause();
-            if (cause == null) {
-                return " has died";
-            }
-
-            switch (cause) {
-                case LAVA:
-                case FIRE:
-                case FIRE_TICK:
-                    return " burned to death";
-                case SUICIDE:
-                    return " ended their own life";
-                case FALL:
-                    return " fell to their death";
-                case SUFFOCATION:
-                    return " was crushed to death";
-                case DROWNING:
-                    return " drowned to death";
-                default:
-                    if (lastDamage instanceof EntityDamageByEntityEvent) {
-                        return buildEntityDeathMessageSafely(victim, (EntityDamageByEntityEvent) lastDamage);
-                    }
-                    return " has died";
-            }
-
-        } catch (Exception e) {
-            YakRealms.error("Error building death message", e);
-            return " has died";
-        }
-    }
-
-    /**
-     *  Build entity death message safely
-     */
-    private String buildEntityDeathMessageSafely(Player victim, EntityDamageByEntityEvent entityDamage) {
-        if (entityDamage == null) {
-            return " has died";
-        }
-
-        try {
-            Entity damager = entityDamage.getDamager();
-            if (damager == null) {
-                return " has died";
-            }
-
-            if (damager instanceof Player killer) {
-                String weaponInfo = getWeaponInfoSafely(killer);
-                return " was killed by " + killer.getDisplayName() + ChatColor.WHITE + weaponInfo;
-            } else if (damager instanceof LivingEntity livingDamager) {
-                String mobName = getProperMobNameSafely(livingDamager);
-                return " was killed by a(n) " + ChatColor.UNDERLINE + mobName;
-            }
-
-            return " has died";
-
-        } catch (Exception e) {
-            YakRealms.error("Error building entity death message", e);
-            return " has died";
-        }
-    }
-
-    /**
-     *  Get weapon info safely
-     */
-    private String getWeaponInfoSafely(Player killer) {
-        if (killer == null) {
-            return "";
-        }
-
-        try {
-            ItemStack weapon = killer.getInventory().getItemInMainHand();
-            if (weapon != null && weapon.getType() != Material.AIR) {
-                String weaponName;
-                if (weapon.hasItemMeta() && weapon.getItemMeta().hasDisplayName()) {
-                    weaponName = weapon.getItemMeta().getDisplayName();
-                } else {
-                    weaponName = TextUtil.formatItemName(weapon.getType().name());
-                }
-                return " with a(n) " + weaponName;
-            }
-            return "";
-
-        } catch (Exception e) {
-            YakRealms.error("Error getting weapon info", e);
-            return "";
-        }
-    }
-
-    /**
-     *  Get proper mob name safely
-     */
-    private String getProperMobNameSafely(LivingEntity livingDamager) {
-        if (livingDamager == null) {
-            return "Unknown";
-        }
-
-        try {
-            if (livingDamager.hasMetadata("type")) {
-                MobManager mobManager = MobManager.getInstance();
-                if (mobManager != null) {
-                    CustomMob customMob = mobManager.getCustomMob(livingDamager);
-                    if (customMob != null) {
-                        String originalName = customMob.getOriginalName();
-                        if (originalName != null && !originalName.isEmpty()) {
-                            return MobUtils.getTierColor(MobUtils.getMobTier(livingDamager)) +
-                                    ChatColor.stripColor(originalName);
-                        }
-                    }
-                }
-            }
-
-            if (livingDamager.getCustomName() != null) {
-                String customName = livingDamager.getCustomName();
-                if (!customName.contains("|") && !customName.contains("§")) {
-                    return MobUtils.getTierColor(MobUtils.getMobTier(livingDamager)) +
-                            ChatColor.stripColor(customName);
-                }
-            }
-
-            return MobUtils.getTierColor(MobUtils.getMobTier(livingDamager)) +
-                    formatEntityTypeNameSafely(livingDamager.getType().name());
-
-        } catch (Exception e) {
-            YakRealms.warn("Error getting mob name for " + livingDamager.getType() + ": " + e.getMessage());
-            return formatEntityTypeNameSafely(livingDamager.getType().name());
-        }
-    }
-
-    /**
-     *  Format entity type name safely
-     */
-    private String formatEntityTypeNameSafely(String entityTypeName) {
-        if (entityTypeName == null || entityTypeName.isEmpty()) {
-            return "Unknown";
-        }
-
-        try {
-            String formatted = entityTypeName.toLowerCase().replace("_", " ");
-            String[] words = formatted.split(" ");
-            StringBuilder result = new StringBuilder();
-
-            for (int i = 0; i < words.length; i++) {
-                if (i > 0) result.append(" ");
-                if (words[i].length() > 0) {
-                    result.append(words[i].substring(0, 1).toUpperCase());
-                    if (words[i].length() > 1) {
-                        result.append(words[i].substring(1));
-                    }
-                }
-            }
-
-            return result.toString();
-
-        } catch (Exception e) {
-            YakRealms.error("Error formatting entity type name", e);
-            return entityTypeName;
-        }
-    }
-
-    /**
-     *  Broadcast death message safely
-     */
-    private void broadcastDeathMessageSafely(Player victim, String message) {
-        if (victim == null || message == null) {
-            return;
-        }
-
-        try {
-            for (Entity entity : victim.getNearbyEntities(50, 50, 50)) {
-                if (entity instanceof Player) {
-                    entity.sendMessage(message);
-                }
-            }
-            victim.sendMessage(message);
-
-        } catch (Exception e) {
-            YakRealms.error("Error broadcasting death message", e);
-        }
-    }
-
-    public DeathRemnantManager getRemnantManager() {
-        return remnantManager;
-    }
-
-    // Public API methods with validation
-
-    public boolean hasRespawnItems(UUID playerId) {
-        if (playerId == null) {
+            YakRealms.error("Failed to save player data for " + yakPlayer.getUsername(), e);
             return false;
         }
+    }
 
+    // Public API methods
+    public boolean hasRespawnItems(UUID playerId) {
+        if (playerId == null) return false;
         YakPlayer yakPlayer = playerManager.getPlayer(playerId);
         return yakPlayer != null && yakPlayer.hasRespawnItems();
-    }
-
-    public boolean restoreRespawnItems(Player player) {
-        if (player == null) {
-            return false;
-        }
-
-        YakPlayer yakPlayer = playerManager.getPlayer(player);
-        if (yakPlayer != null && yakPlayer.hasRespawnItems()) {
-            return restoreRespawnItemsPermanentlyFixed(player, yakPlayer);
-        }
-        return false;
     }
 
     public boolean isProcessingRespawn(UUID playerId) {
         return playerId != null && respawnInProgress.contains(playerId);
     }
 
-    /**
-     *   death data class with comprehensive validation
-     */
-    private static class DeathData {
-        final Location deathLocation;
-        final long deathTime;
-        final String alignment;
-        final List<ItemStack> keptItems;
-        final List<ItemStack> droppedItems;
-        final String playerName;
-        volatile boolean itemsRestored = false;
-        volatile boolean processingComplete = false;
-
-        DeathData(Location deathLocation, String alignment, String playerName) {
-            //  Comprehensive null validation
-            this.deathLocation = deathLocation != null ? deathLocation.clone() : null;
-            this.deathTime = System.currentTimeMillis();
-            this.alignment = alignment != null ? alignment : "LAWFUL";
-            this.playerName = playerName != null ? playerName : "Unknown";
-            this.keptItems = new ArrayList<>();
-            this.droppedItems = new ArrayList<>();
-        }
-
-        boolean isValid() {
-            return deathLocation != null &&
-                    deathLocation.getWorld() != null &&
-                    alignment != null &&
-                    playerName != null;
-        }
+    public DeathRemnantManager getRemnantManager() {
+        return remnantManager;
     }
 
-    /**
-     *  Inventory snapshot class for safe storage
-     */
-    private static class InventorySnapshot {
-        private final List<ItemStack> allItems;
+    // Performance tracking
+    public int getTotalDeaths() {
+        return totalDeaths.get();
+    }
 
-        public InventorySnapshot(List<ItemStack> items) {
-            this.allItems = items != null ? new ArrayList<>(items) : new ArrayList<>();
-        }
+    public int getNormalDeaths() {
+        return normalDeaths.get();
+    }
 
-        public List<ItemStack> getAllItems() {
-            return new ArrayList<>(allItems);
-        }
+    public int getCombatLogoutDeathMessages() {
+        return combatLogoutDeathMessages.get();
+    }
 
-        public boolean isEmpty() {
-            return allItems.isEmpty();
-        }
+    // Helper classes
+    private static class ProcessResult {
+        final List<ItemStack> keptItems = new ArrayList<>();
+        final List<ItemStack> droppedItems = new ArrayList<>();
+    }
 
-        public int size() {
-            return allItems.size();
+    private static class DeathInfo {
+        final Location deathLocation;
+        final String alignment;
+        final boolean wasCombatLogout;
+        final long timestamp;
+
+        DeathInfo(Location deathLocation, String alignment, boolean wasCombatLogout, long timestamp) {
+            this.deathLocation = deathLocation != null ? deathLocation.clone() : null;
+            this.alignment = alignment;
+            this.wasCombatLogout = wasCombatLogout;
+            this.timestamp = timestamp;
         }
     }
 }

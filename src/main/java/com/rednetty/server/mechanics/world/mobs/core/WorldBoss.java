@@ -7,6 +7,7 @@ import org.bukkit.Sound;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
 import org.bukkit.metadata.FixedMetadataValue;
+import org.bukkit.metadata.MetadataValue;
 import org.bukkit.potion.PotionEffect;
 import org.bukkit.potion.PotionEffectType;
 import org.bukkit.util.Vector;
@@ -155,22 +156,6 @@ public class WorldBoss extends EliteMob {
     }
 
     protected void applyPhaseEffects(int phase) {
-        if (!isValid()) return;
-        // Apply effects based on phase
-        switch (phase) {
-            case 2 -> entity.addPotionEffect(new PotionEffect(PotionEffectType.SPEED, Integer.MAX_VALUE, 0, true));
-            case 3 -> {
-                entity.addPotionEffect(new PotionEffect(PotionEffectType.SPEED, Integer.MAX_VALUE, 0, true));
-                entity.addPotionEffect(new PotionEffect(PotionEffectType.INCREASE_DAMAGE, Integer.MAX_VALUE, 0, true));
-            }
-            case 4 -> {
-                entity.addPotionEffect(new PotionEffect(PotionEffectType.SPEED, Integer.MAX_VALUE, 0, true));
-                entity.addPotionEffect(new PotionEffect(PotionEffectType.INCREASE_DAMAGE, Integer.MAX_VALUE, 2, true));
-                if (!berserkMode) {
-                    activateBerserkMode();
-                }
-            }
-        }
     }
 
     public double getHealthPercentage() {
@@ -414,7 +399,6 @@ public class WorldBoss extends EliteMob {
 
     // ================  HEALTH BAR ================
 
-    @Override
     public String generateHealthBar() {
         if (!isValid()) return "";
 

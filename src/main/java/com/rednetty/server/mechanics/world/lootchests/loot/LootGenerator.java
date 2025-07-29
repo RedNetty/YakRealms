@@ -16,8 +16,8 @@ import java.util.concurrent.ThreadLocalRandom;
 import java.util.logging.Logger;
 
 /**
- * Generates loot for chests based on tier and type
- * Integrates with existing drop system while providing fallbacks
+ * Generates loot for chests based on tier and type.
+ * Integrates with existing drop systems and provides fallbacks.
  */
 public class LootGenerator {
     private final Logger logger;
@@ -35,16 +35,17 @@ public class LootGenerator {
     }
 
     /**
-     * Initializes the loot generator
+     * Initializes the loot generator.
      */
     public void initialize() {
         logger.info("Loot generator initialized successfully");
     }
 
     /**
-     * Creates a loot inventory for a chest
-     * @param chest The chest to generate loot for
-     * @return Inventory containing generated loot
+     * Creates a loot inventory for a chest.
+     *
+     * @param chest The chest to generate loot for.
+     * @return Inventory containing generated loot.
      */
     public Inventory createLootInventory(Chest chest) {
         if (chest == null) {
@@ -61,9 +62,10 @@ public class LootGenerator {
     }
 
     /**
-     * Drops loot directly into the world at the specified location
-     * @param location Where to drop the loot
-     * @param chest The chest to generate loot for
+     * Drops loot directly into the world at the specified location.
+     *
+     * @param location Where to drop the loot.
+     * @param chest The chest to generate loot for.
      */
     public void dropLoot(Location location, Chest chest) {
         if (location == null || chest == null) {
@@ -72,20 +74,29 @@ public class LootGenerator {
         }
 
         try {
-            int itemCount = calculateItemCount(chest);
-
-            for (int i = 0; i < itemCount; i++) {
-                ItemStack loot = generateLootItem(chest.getTier(), chest.getType());
-                if (loot != null && loot.getType() != Material.AIR) {
-                    location.getWorld().dropItemNaturally(location, loot);
+            Inventory lootInv = chest.getLootInventory();
+            if (lootInv != null) {
+                // Drop from existing inventory if available
+                for (ItemStack item : lootInv.getContents()) {
+                    if (item != null && item.getType() != Material.AIR) {
+                        location.getWorld().dropItemNaturally(location, item);
+                    }
                 }
+                logger.fine("Dropped existing loot from chest at " + chest.getLocation());
+            } else {
+                // Fallback: generate and drop new
+                int itemCount = calculateItemCount(chest);
+                for (int i = 0; i < itemCount; i++) {
+                    ItemStack loot = generateLootItem(chest.getTier(), chest.getType());
+                    if (loot != null && loot.getType() != Material.AIR) {
+                        location.getWorld().dropItemNaturally(location, loot);
+                    }
+                }
+                logger.fine("Dropped " + itemCount + " new items for " + chest.getTier() + " " + chest.getType() + " chest");
             }
-
-            logger.fine("Dropped " + itemCount + " items for " + chest.getTier() + " " + chest.getType() + " chest");
 
         } catch (Exception e) {
             logger.warning("Failed to drop loot for chest " + chest.getLocation() + ": " + e.getMessage());
-
             // Emergency fallback - drop a basic item
             ItemStack fallback = createFallbackItem(chest.getTier());
             location.getWorld().dropItemNaturally(location, fallback);
@@ -93,14 +104,17 @@ public class LootGenerator {
     }
 
     /**
-     * Fills an inventory with loot based on the chest
+     * Fills an inventory with loot based on the chest.
+     *
+     * @param inventory The inventory to fill.
+     * @param chest The chest providing tier and type.
      */
     private void fillInventoryWithLoot(Inventory inventory, Chest chest) {
         int itemCount = calculateItemCount(chest);
         int maxSlots = inventory.getSize();
 
-        // Generate items for each slot
-        for (int i = 0; i < itemCount && i < maxSlots; i++) {
+        // Generate items for slots
+        for (int i = 0; i < Math.min(itemCount, maxSlots); i++) {
             ItemStack loot = generateLootItem(chest.getTier(), chest.getType());
             if (loot != null && loot.getType() != Material.AIR) {
                 inventory.setItem(i, loot);
@@ -114,30 +128,60 @@ public class LootGenerator {
     }
 
     /**
-     * Generates a single loot item based on tier and type
+     * Generates a single loot item based on tier and type.
+     *
+     * @param tier The chest tier.
+     * @param type The chest type.
+     * @return The generated ItemStack, or null on failure.
      */
     private ItemStack generateLootItem(ChestTier tier, ChestType type) {
         try {
             double random = ThreadLocalRandom.current().nextDouble();
-            int tierLevel = tier.getLevel() - 1; // Convert to 0-based index
+            int tierLevel = tier.getLevel() - 1; // 0-based index
 
-            // Determine loot type based on probabilities
+            // Get probabilities
             double gemChance = GEM_CHANCES[tierLevel];
             double scrollChance = SCROLL_CHANCES[tierLevel];
             double crateChance = CRATE_CHANCES[tierLevel];
             double artifactChance = ARTIFACT_CHANCES[tierLevel];
 
-            if (random < gemChance) {
-                return generateGems(tier, type);
-            } else if (random < gemChance + scrollChance) {
-                return generateScroll(tier);
-            } else if (random < gemChance + scrollChance + crateChance) {
-                return generateCrate(tier);
-            } else if (random < gemChance + scrollChance + crateChance + artifactChance) {
-                return generateArtifact(tier);
-            } else {
-                return generateEquipment(tier, type);
+            // Calculate total defined prob
+            double totalProb = gemChance + scrollChance + crateChance + artifactChance;
+
+            // Normalize if >1
+            double scale = 1.0;
+            if (totalProb > 1.0) {
+                scale = 1.0 / totalProb;
+                gemChance *= scale;
+                scrollChance *= scale;
+                crateChance *= scale;
+                artifactChance *= scale;
+                totalProb = 1.0;
             }
+
+            // Equipment chance is remainder
+            double equipmentChance = 1.0 - totalProb;
+
+            // Cumulative checks
+            double cumulative = 0.0;
+            cumulative += gemChance;
+            if (random < cumulative) {
+                return generateGems(tier, type);
+            }
+            cumulative += scrollChance;
+            if (random < cumulative) {
+                return generateScroll(tier);
+            }
+            cumulative += crateChance;
+            if (random < cumulative) {
+                return generateCrate(tier);
+            }
+            cumulative += artifactChance;
+            if (random < cumulative) {
+                return generateArtifact(tier);
+            }
+            // Else equipment
+            return generateEquipment(tier, type);
 
         } catch (Exception e) {
             logger.warning("Failed to generate loot item for tier " + tier + ": " + e.getMessage());
@@ -146,14 +190,18 @@ public class LootGenerator {
     }
 
     /**
-     * Generates gems/currency using the existing bank system
+     * Generates gems/currency using the bank system or fallback.
+     *
+     * @param tier The chest tier.
+     * @param type The chest type.
+     * @return The gem ItemStack.
      */
     private ItemStack generateGems(ChestTier tier, ChestType type) {
         try {
             if (plugin.getBankManager() != null) {
                 int baseAmount = tier.getLevel() * ThreadLocalRandom.current().nextInt(125, 185);
 
-                // Bonus for special chests
+                // Bonus for special types
                 if (type == ChestType.SPECIAL) {
                     baseAmount = (int) (baseAmount * 1.5);
                 } else if (type == ChestType.CARE_PACKAGE) {
@@ -171,7 +219,10 @@ public class LootGenerator {
     }
 
     /**
-     * Generates scrolls using the existing scroll system
+     * Generates a scroll using the scroll system or fallback.
+     *
+     * @param tier The chest tier.
+     * @return The scroll ItemStack.
      */
     private ItemStack generateScroll(ChestTier tier) {
         try {
@@ -187,7 +238,10 @@ public class LootGenerator {
     }
 
     /**
-     * Generates crates using the existing crate system
+     * Generates a crate using the crate system or fallback.
+     *
+     * @param tier The chest tier.
+     * @return The crate ItemStack.
      */
     private ItemStack generateCrate(ChestTier tier) {
         try {
@@ -203,23 +257,30 @@ public class LootGenerator {
     }
 
     /**
-     * Generates artifacts (placeholder for future artifact system)
+     * Generates an artifact (placeholder).
+     *
+     * @param tier The chest tier.
+     * @return The artifact ItemStack.
      */
     private ItemStack generateArtifact(ChestTier tier) {
-        // Future: integrate with elemental artifacts system
-        // For now, generate equipment as fallback
+        // Future: integrate artifact system
+        // Fallback to equipment
         return generateEquipment(tier, ChestType.NORMAL);
     }
 
     /**
-     * Generates equipment using the existing drops system
+     * Generates equipment using the drops system or fallback.
+     *
+     * @param tier The chest tier.
+     * @param type The chest type.
+     * @return The equipment ItemStack.
      */
     private ItemStack generateEquipment(ChestTier tier, ChestType type) {
         try {
             if (plugin.getDropsHandler() != null) {
                 int itemType = ThreadLocalRandom.current().nextInt(8) + 1;
 
-                // Special chests get better quality equipment
+                // Better quality for special types
                 if (type == ChestType.SPECIAL || type == ChestType.CARE_PACKAGE) {
                     int rarity = Math.min(4, ThreadLocalRandom.current().nextInt(2) + 3); // Rare or Unique
                     return DropsManager.getInstance().createDrop(tier.getLevel(), itemType, rarity);
@@ -235,16 +296,20 @@ public class LootGenerator {
     }
 
     /**
-     * Adds bonus loot for special chests
+     * Adds bonus loot for special chests.
+     *
+     * @param inventory The inventory to add to.
+     * @param tier The chest tier.
+     * @param baseItems The base item count.
+     * @param maxSlots The max slots in inventory.
      */
     private void addSpecialBonusLoot(Inventory inventory, ChestTier tier, int baseItems, int maxSlots) {
         int bonusSlots = maxSlots - baseItems;
-        int bonusItems = Math.min(bonusSlots, tier.getLevel()); // Up to tier level bonus items
+        int bonusItems = Math.min(bonusSlots, tier.getLevel());
 
         for (int i = 0; i < bonusItems; i++) {
             int slot = baseItems + i;
             if (slot < maxSlots && inventory.getItem(slot) == null) {
-                // 70% chance for bonus item
                 if (ThreadLocalRandom.current().nextDouble() < 0.7) {
                     ItemStack bonus = generateLootItem(tier, ChestType.SPECIAL);
                     if (bonus != null) {
@@ -256,7 +321,10 @@ public class LootGenerator {
     }
 
     /**
-     * Creates a fallback item when other systems fail
+     * Creates a fallback item when generation fails.
+     *
+     * @param tier The chest tier.
+     * @return The fallback ItemStack.
      */
     private ItemStack createFallbackItem(ChestTier tier) {
         Material material = switch (tier) {
@@ -271,26 +339,30 @@ public class LootGenerator {
     }
 
     /**
-     * Calculates how many items to generate based on chest properties
+     * Calculates the number of items to generate.
+     *
+     * @param chest The chest.
+     * @return The item count.
      */
     private int calculateItemCount(Chest chest) {
-        int baseCount = chest.getTier().getLevel(); // 1-6 base items
+        int baseCount = chest.getTier().getLevel();
 
         // Type modifiers
         switch (chest.getType()) {
-            case SPECIAL -> baseCount = (int) (baseCount * 1.5); // 50% more items
-            case CARE_PACKAGE -> baseCount = Math.max(baseCount, 4); // At least 4 items
+            case SPECIAL -> baseCount = (int) (baseCount * 1.5);
+            case CARE_PACKAGE -> baseCount = Math.max(baseCount, 4);
         }
 
-        // Add randomness (±1 item)
-        int variance = ThreadLocalRandom.current().nextInt(3) - 1; // -1, 0, or 1
-        baseCount = Math.max(1, baseCount + variance);
-
-        return baseCount;
+        // Random variance
+        int variance = ThreadLocalRandom.current().nextInt(3) - 1;
+        return Math.max(1, baseCount + variance);
     }
 
     /**
-     * Gets the appropriate inventory title for a chest
+     * Gets the inventory title for the chest.
+     *
+     * @param chest The chest.
+     * @return The title.
      */
     private String getInventoryTitle(Chest chest) {
         return switch (chest.getType()) {
@@ -301,33 +373,46 @@ public class LootGenerator {
     }
 
     /**
-     * Gets the appropriate inventory size for a chest type
+     * Gets the inventory size for the chest type.
+     *
+     * @param type The chest type.
+     * @return The size.
      */
     private int getInventorySize(ChestType type) {
         return switch (type) {
-            case CARE_PACKAGE -> 9;  // Single row for care packages
-            case SPECIAL -> 27;      // Full chest for special chests
-            default -> 27;           // Full chest for normal chests
+            case CARE_PACKAGE -> 9;
+            case SPECIAL -> 27;
+            default -> 27;
         };
     }
 
     // === Statistics and Debugging ===
 
     /**
-     * Gets loot generation statistics for debugging
+     * Gets loot generation statistics.
+     *
+     * @return List of statistic strings.
      */
     public java.util.List<String> getLootStatistics() {
         java.util.List<String> stats = new java.util.ArrayList<>();
         stats.add("Loot Generation Statistics:");
 
         for (ChestTier tier : ChestTier.values()) {
-            int level = tier.getLevel() - 1; // Convert to 0-based index
-            stats.add(String.format("%s (T%d): Gems: %.1f%%, Scrolls: %.1f%%, Crates: %.1f%%, Artifacts: %.1f%%",
+            int level = tier.getLevel() - 1;
+            double gem = GEM_CHANCES[level];
+            double scroll = SCROLL_CHANCES[level];
+            double crate = CRATE_CHANCES[level];
+            double artifact = ARTIFACT_CHANCES[level];
+            double total = gem + scroll + crate + artifact;
+            double scale = total > 1.0 ? 1.0 / total : 1.0;
+            double equipment = 1.0 - (total * scale);
+            stats.add(String.format("%s (T%d): Gems: %.1f%%, Scrolls: %.1f%%, Crates: %.1f%%, Artifacts: %.1f%%, Equipment: %.1f%%",
                     tier.getDisplayName(), tier.getLevel(),
-                    GEM_CHANCES[level] * 100,
-                    SCROLL_CHANCES[level] * 100,
-                    CRATE_CHANCES[level] * 100,
-                    ARTIFACT_CHANCES[level] * 100
+                    gem * scale * 100,
+                    scroll * scale * 100,
+                    crate * scale * 100,
+                    artifact * scale * 100,
+                    equipment * 100
             ));
         }
 
@@ -335,7 +420,12 @@ public class LootGenerator {
     }
 
     /**
-     * Tests loot generation for a specific tier and type
+     * Tests loot generation for statistics.
+     *
+     * @param tier The tier to test.
+     * @param type The type to test.
+     * @param iterations Number of iterations.
+     * @return Map of category counts.
      */
     public java.util.Map<String, Integer> testLootGeneration(ChestTier tier, ChestType type, int iterations) {
         java.util.Map<String, Integer> results = new java.util.HashMap<>();
@@ -362,20 +452,23 @@ public class LootGenerator {
     }
 
     /**
-     * Categorizes an item for statistics
+     * Categorizes an item for statistics.
+     *
+     * @param item The item to categorize.
+     * @return The category string.
      */
     private String categorizeItem(ItemStack item) {
         if (item == null) return "equipment";
 
-        Material type = item.getType();
+        Material mat = item.getType();
 
-        if (type == Material.EMERALD || (item.hasItemMeta() &&
+        if (mat == Material.EMERALD || (item.hasItemMeta() &&
                 item.getItemMeta().hasDisplayName() &&
                 item.getItemMeta().getDisplayName().contains("Bank Note"))) {
             return "gems";
-        } else if (type == Material.PAPER) {
+        } else if (mat == Material.PAPER) {
             return "scrolls";
-        } else if (type == Material.CHEST) {
+        } else if (mat == Material.CHEST) {
             return "crates";
         } else {
             return "equipment";

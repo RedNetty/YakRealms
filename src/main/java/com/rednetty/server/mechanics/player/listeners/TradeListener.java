@@ -659,26 +659,6 @@ public class TradeListener extends BaseListener {
     }
 
     /**
-     *  Provide helpful trading tips when players first join
-     */
-    @EventHandler(priority = EventPriority.MONITOR)
-    public void onPlayerJoin(PlayerJoinEvent event) {
-        Player player = event.getPlayer();
-
-        // Provide a one-time tip about trading (you could track this with player data)
-        Bukkit.getScheduler().runTaskLater(plugin, () -> {
-            if (player.isOnline()) {
-                // Only show tip if trading is disabled (first-time players might have it disabled by default)
-                if (!isPlayerTradingEnabled(player)) {
-                    player.sendMessage("");
-                    player.sendMessage(ChatColor.YELLOW + "💡 " + ChatColor.GRAY + "Tip: Trading with other players is currently disabled.");
-                    player.sendMessage(ChatColor.GRAY + "Use " + ChatColor.WHITE + "/toggle" + ChatColor.GRAY + " and look for 'Trading' in the Social section to enable it.");
-                    player.sendMessage("");
-                }
-            }
-        }, 100L); // 5 second delay after join
-    }
-    /**
      * Manual initialization method for cases where the constructor initialization fails
      */
     public void setTradeManager(TradeManager tradeManager) {

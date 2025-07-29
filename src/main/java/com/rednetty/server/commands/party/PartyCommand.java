@@ -2,8 +2,11 @@ package com.rednetty.server.commands.party;
 
 import com.rednetty.server.mechanics.chat.ChatMechanics;
 import com.rednetty.server.mechanics.player.social.party.PartyMechanics;
+import com.rednetty.server.utils.messaging.MessageUtil;
+import com.rednetty.server.utils.sounds.SoundUtil;
+import com.rednetty.server.utils.permissions.PermissionUtil;
+import com.rednetty.server.utils.cooldowns.CooldownManager;
 import org.bukkit.ChatColor;
-import org.bukkit.Sound;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
@@ -16,24 +19,12 @@ import java.util.Arrays;
 import java.util.List;
 
 /**
- *  Party Chat Command with comprehensive messaging features and validation
- * Integrates fully with the advanced PartyMechanics system including permission checks,
- * message formatting, interactive features, and item display support
+ *  Party Command with unified utility integration
+ * Uses MessageUtil, SoundUtil, PermissionUtil, and CooldownManager for consistency
  */
 public class PartyCommand implements CommandExecutor, TabCompleter {
 
     private final PartyMechanics partyMechanics;
-
-    // Common chat shortcuts and emotes
-    private static final List<String> CHAT_SHORTCUTS = Arrays.asList(
-            "help", "follow", "wait", "go", "stop", "yes", "no", "thanks", "sorry",
-            "ready", "attack", "defend", "retreat", "loot", "trade", "heal", "mana"
-    );
-
-    // Emotes that can be suggested
-    private static final List<String> EMOTES = Arrays.asList(
-            ":)", ":(", ":D", ":P", "<3", "o/", "\\o", "^^", "xD", ":|"
-    );
 
     public PartyCommand() {
         this.partyMechanics = PartyMechanics.getInstance();
@@ -43,18 +34,21 @@ public class PartyCommand implements CommandExecutor, TabCompleter {
     public boolean onCommand(CommandSender sender, Command cmd, String label, String[] args) {
         // Ensure command is executed by a player
         if (!(sender instanceof Player)) {
-            sender.sendMessage(ChatColor.RED + "❌ This command can only be used by players.");
+            MessageUtil.sendError((Player) sender, "This command can only be used by players.");
             return true;
         }
 
         Player player = (Player) sender;
 
+        // Check base party permission
+        if (!PermissionUtil.checkPartyPermissionWithMessage(player, "use")) {
+            return true;
+        }
+
         // Check if player is in a party
         if (!partyMechanics.isInParty(player)) {
-            player.sendMessage(ChatColor.RED + "❌ You are not in a party!");
-            player.sendMessage(ChatColor.GRAY + "💡 Join a party first with " + ChatColor.YELLOW + "/pinvite <player>"
-                    + ChatColor.GRAY + " or accept an invitation with " + ChatColor.YELLOW + "/paccept");
-            player.playSound(player.getLocation(), Sound.ENTITY_VILLAGER_NO, 0.5f, 1.0f);
+            MessageUtil.sendError(player, "You are not in a party!");
+            MessageUtil.sendTip(player, "Join a party first with /pinvite <player> or accept an invitation with /paccept");
             return true;
         }
 
@@ -67,6 +61,11 @@ public class PartyCommand implements CommandExecutor, TabCompleter {
         // Handle special commands
         String firstArg = args[0].toLowerCase();
         if (handleSpecialCommands(player, firstArg, args)) {
+            return true;
+        }
+
+        // Check chat cooldown
+        if (!CooldownManager.checkChatCooldown(player)) {
             return true;
         }
 
@@ -91,178 +90,15 @@ public class PartyCommand implements CommandExecutor, TabCompleter {
         }
 
         if (success) {
-            // Play subtle chat sound to sender for confirmation
-            player.playSound(player.getLocation(), Sound.ENTITY_ITEM_PICKUP, 0.3f, 1.5f);
+            // Apply chat cooldown and play sound
+            CooldownManager.applyChatCooldown(player);
+            SoundUtil.playPartyChat(player);
 
             // Handle special message types
             handleSpecialMessageTypes(player, message);
         }
-        // Error messages are handled by PartyMechanics.sendPartyMessage() or our item message method
 
         return true;
-    }
-
-    /**
-     * Send a party message with item display
-     *
-     * @param player  The player sending the message
-     * @param item    The item to display
-     * @param message The message containing @i@
-     * @return true if successful
-     */
-    private boolean sendPartyItemMessage(Player player, ItemStack item, String message) {
-        try {
-            // Get party members
-            List<Player> partyMembers = partyMechanics.getPartyMembers(player);
-            if (partyMembers == null || partyMembers.isEmpty()) {
-                player.sendMessage(ChatColor.RED + "❌ No party members to send message to!");
-                return false;
-            }
-
-            // Get party formatted name - try to use PartyMechanics formatting if available
-            String partyPrefix = getPartyMessagePrefix(player);
-
-            // Send item message to all party members
-            int successCount = ChatMechanics.sendItemMessageToPlayers(player, item, partyPrefix, message, partyMembers);
-
-            if (successCount > 0) {
-                // Log party message
-                try {
-                    String itemName = ChatMechanics.getDisplayNameForItem(item);
-                    System.out.println("[PARTY] " + player.getName() + " (with item " + itemName + "): " + message +
-                            " [sent to " + successCount + " members]");
-                } catch (Exception e) {
-                    System.out.println("[PARTY] " + player.getName() + " (with item): " + message);
-                }
-                return true;
-            } else {
-                player.sendMessage(ChatColor.RED + "❌ Failed to send item message to party!");
-                return false;
-            }
-
-        } catch (Exception e) {
-            // Fallback: try to send without item display
-            try {
-                String itemName = ChatMechanics.getDisplayNameForItem(item);
-                String fallbackMessage = message.replace("@i@", ChatColor.YELLOW + "[" + itemName + "]" + ChatColor.WHITE);
-                boolean fallbackSuccess = partyMechanics.sendPartyMessage(player, fallbackMessage);
-
-                if (fallbackSuccess) {
-                    player.sendMessage(ChatColor.YELLOW + "⚠ Item display failed, sent as regular message.");
-                }
-                return fallbackSuccess;
-            } catch (Exception e2) {
-                player.sendMessage(ChatColor.RED + "❌ Failed to send party message!");
-                System.err.println("Error sending party item message: " + e2.getMessage());
-                return false;
-            }
-        }
-    }
-
-    /**
-     * Get the party message prefix for the player
-     * Try to format it similar to how PartyMechanics would
-     *
-     * @param player The player
-     * @return Formatted prefix
-     */
-    private String getPartyMessagePrefix(Player player) {
-        try {
-            // Try to get party-specific formatting
-            PartyMechanics.Party party = partyMechanics.getParty(player);
-            StringBuilder prefix = new StringBuilder();
-
-            // Party prefix
-            prefix.append(ChatColor.LIGHT_PURPLE).append("[").append(ChatColor.BOLD).append("P").append(ChatColor.LIGHT_PURPLE).append("] ");
-
-            // Add role indicator if available
-            if (party != null) {
-                if (party.isLeader(player.getUniqueId())) {
-                    prefix.append(ChatColor.GOLD).append("★ ");
-                } else if (party.isOfficer(player.getUniqueId())) {
-                    prefix.append(ChatColor.YELLOW).append("♦ ");
-                }
-            }
-
-            // Add player name
-            prefix.append(ChatColor.WHITE).append(player.getName());
-
-            return prefix.toString();
-        } catch (Exception e) {
-            // Fallback prefix
-            return ChatColor.LIGHT_PURPLE + "[P] " + ChatColor.WHITE + player.getName();
-        }
-    }
-
-    /**
-     * Show comprehensive party information when no arguments provided
-     */
-    private void showPartyInformation(Player player) {
-        PartyMechanics.Party party = partyMechanics.getParty(player);
-        if (party == null) return;
-
-        player.sendMessage(ChatColor.LIGHT_PURPLE + "✦ " + ChatColor.BOLD + "PARTY INFORMATION" + ChatColor.LIGHT_PURPLE + " ✦");
-        player.sendMessage("");
-
-        // Party size and member list
-        List<Player> members = partyMechanics.getPartyMembers(player);
-        player.sendMessage(ChatColor.GRAY + "Members (" + ChatColor.WHITE + party.getSize()
-                + ChatColor.GRAY + "/" + ChatColor.WHITE + party.getMaxSize() + ChatColor.GRAY + "):");
-
-        if (members != null) {
-            for (Player member : members) {
-                String roleIndicator = "";
-                String nameColor = ChatColor.WHITE.toString();
-
-                if (party.isLeader(member.getUniqueId())) {
-                    roleIndicator = ChatColor.GOLD + " ★ Leader";
-                    nameColor = ChatColor.GOLD.toString();
-                } else if (party.isOfficer(member.getUniqueId())) {
-                    roleIndicator = ChatColor.YELLOW + " ♦ Officer";
-                    nameColor = ChatColor.YELLOW.toString();
-                }
-
-                String onlineStatus = member.isOnline() ? ChatColor.GREEN + "●" : ChatColor.RED + "●";
-                player.sendMessage(ChatColor.GRAY + "  " + onlineStatus + " " + nameColor + member.getName() + roleIndicator);
-            }
-        }
-
-        player.sendMessage("");
-
-        // Party settings
-        showPartySettings(player, party);
-
-        // Chat usage - updated to include item display
-        player.sendMessage(ChatColor.AQUA + "💬 " + ChatColor.BOLD + "Party Chat:");
-        player.sendMessage(ChatColor.GRAY + "• " + ChatColor.YELLOW + "/p <message>" + ChatColor.GRAY + " - Send message to party");
-        player.sendMessage(ChatColor.GRAY + "• " + ChatColor.YELLOW + "/p <message> @i@" + ChatColor.GRAY + " - Show item in message");
-        player.sendMessage(ChatColor.GRAY + "• " + ChatColor.YELLOW + "/p help" + ChatColor.GRAY + " - Show quick commands");
-        player.sendMessage(ChatColor.GRAY + "• " + ChatColor.YELLOW + "/p info" + ChatColor.GRAY + " - Show this information");
-
-        // Play info sound
-        player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_CHIME, 1.0f, 1.0f);
-    }
-
-    /**
-     * Show party settings information
-     */
-    private void showPartySettings(Player player, PartyMechanics.Party party) {
-        player.sendMessage(ChatColor.GREEN + "⚙ " + ChatColor.BOLD + "Party Settings:");
-
-        // Loot sharing
-        boolean lootSharing = party.getBooleanSetting("loot_sharing", false);
-        player.sendMessage(ChatColor.GRAY + "• Loot Sharing: " +
-                (lootSharing ? ChatColor.GREEN + "Enabled" : ChatColor.RED + "Disabled"));
-
-        // Friendly fire
-        boolean friendlyFire = party.getBooleanSetting("friendly_fire", false);
-        player.sendMessage(ChatColor.GRAY + "• Friendly Fire: " +
-                (friendlyFire ? ChatColor.RED + "Enabled" : ChatColor.GREEN + "Disabled"));
-
-        // Party MOTD if available
-        if (!party.getMotd().isEmpty()) {
-            player.sendMessage(ChatColor.GRAY + "• MOTD: " + ChatColor.WHITE + "\"" + party.getMotd() + "\"");
-        }
     }
 
     /**
@@ -270,20 +106,18 @@ public class PartyCommand implements CommandExecutor, TabCompleter {
      */
     private boolean handleSpecialCommands(Player player, String command, String[] args) {
         switch (command) {
+            case "info":
+            case "status":
+            case "list":
+                showDetailedPartyInformation(player);
+                return true;
+
             case "help":
                 showPartyHelp(player);
                 return true;
 
-            case "info":
-                showPartyInformation(player);
-                return true;
-
-            case "online":
-                showOnlineMembers(player);
-                return true;
-
-            case "stats":
-                showPartyStatistics(player);
+            case "settings":
+                showPartySettings(player);
                 return true;
 
             default:
@@ -292,254 +126,242 @@ public class PartyCommand implements CommandExecutor, TabCompleter {
     }
 
     /**
-     * Show comprehensive party help
+     * Show basic party information
+     */
+    private void showPartyInformation(Player player) {
+        try {
+            List<Player> partyMembers = partyMechanics.getPartyMembers(player);
+
+            if (partyMembers == null || partyMembers.isEmpty()) {
+                MessageUtil.sendError(player, "Unable to retrieve party information.");
+                return;
+            }
+
+            MessageUtil.sendHeader(player, "PARTY INFORMATION");
+
+            player.sendMessage(ChatColor.GRAY + "Party Members " + ChatColor.WHITE + "(" + partyMembers.size() + "):");
+
+            for (Player member : partyMembers) {
+                String roleIndicator = "";
+                if (partyMechanics.isPartyLeader(member)) {
+                    roleIndicator = ChatColor.GOLD + "★ " + ChatColor.YELLOW + "[Leader] ";
+                } else if (partyMechanics.isPartyOfficer(member)) {
+                    roleIndicator = ChatColor.YELLOW + "♦ " + ChatColor.GRAY + "[Officer] ";
+                }
+
+                String statusIndicator = member.isOnline() ? ChatColor.GREEN + "●" : ChatColor.RED + "●";
+
+                player.sendMessage(ChatColor.GRAY + "  " + statusIndicator + " " + roleIndicator +
+                        ChatColor.WHITE + member.getName());
+            }
+
+            MessageUtil.sendBlankLine(player);
+            MessageUtil.sendTip(player, "Use /p <message> to chat with your party");
+
+            SoundUtil.playNotification(player);
+
+        } catch (Exception e) {
+            MessageUtil.sendError(player, "Error retrieving party information.");
+        }
+    }
+
+    /**
+     * Show detailed party information
+     */
+    private void showDetailedPartyInformation(Player player) {
+        try {
+            MessageUtil.sendHeader(player, "DETAILED PARTY INFORMATION");
+
+            // Basic party info
+            List<Player> partyMembers = partyMechanics.getPartyMembers(player);
+            player.sendMessage(ChatColor.GRAY + "Party Size: " + ChatColor.WHITE + partyMembers.size() + "/8");
+
+
+            MessageUtil.sendBlankLine(player);
+
+            // Member details
+            player.sendMessage(ChatColor.GRAY + "Members:");
+            for (Player member : partyMembers) {
+                showMemberDetails(player, member);
+            }
+
+            MessageUtil.sendBlankLine(player);
+            MessageUtil.sendTip(player, "Use /p help for available party commands");
+
+            SoundUtil.playNotification(player);
+
+        } catch (Exception e) {
+            MessageUtil.sendError(player, "Error retrieving detailed party information.");
+        }
+    }
+
+    /**
+     * Show details for a specific party member
+     */
+    private void showMemberDetails(Player viewer, Player member) {
+        StringBuilder memberInfo = new StringBuilder();
+
+        // Status indicator
+        String statusColor = member.isOnline() ? ChatColor.GREEN.toString() : ChatColor.RED.toString();
+        memberInfo.append(ChatColor.GRAY).append("  ").append(statusColor).append("● ");
+
+        // Role indicator
+        if (partyMechanics.isPartyLeader(member)) {
+            memberInfo.append(ChatColor.GOLD).append("★ ").append(ChatColor.YELLOW).append("[Leader] ");
+        } else if (partyMechanics.isPartyOfficer(member)) {
+            memberInfo.append(ChatColor.YELLOW).append("♦ ").append(ChatColor.GRAY).append("[Officer] ");
+        }
+
+        // Name
+        memberInfo.append(ChatColor.WHITE).append(member.getName());
+
+        // Distance (if online and in same world)
+        if (member.isOnline() && viewer.getWorld().equals(member.getWorld())) {
+            double distance = viewer.getLocation().distance(member.getLocation());
+            String distanceColor = distance < 50 ? ChatColor.GREEN.toString() :
+                    distance < 100 ? ChatColor.YELLOW.toString() : ChatColor.RED.toString();
+            memberInfo.append(ChatColor.GRAY).append(" (").append(distanceColor)
+                    .append(String.format("%.0f", distance)).append("m").append(ChatColor.GRAY).append(")");
+        }
+
+        viewer.sendMessage(memberInfo.toString());
+    }
+
+    /**
+     * Show party help
      */
     private void showPartyHelp(Player player) {
-        player.sendMessage(ChatColor.YELLOW + "📖 " + ChatColor.BOLD + "PARTY QUICK COMMANDS");
-        player.sendMessage("");
-        player.sendMessage(ChatColor.GRAY + "Chat Shortcuts:");
-        player.sendMessage(ChatColor.GRAY + "• " + ChatColor.YELLOW + "/p help" + ChatColor.GRAY + " - Show this help");
-        player.sendMessage(ChatColor.GRAY + "• " + ChatColor.YELLOW + "/p info" + ChatColor.GRAY + " - Party information");
-        player.sendMessage(ChatColor.GRAY + "• " + ChatColor.YELLOW + "/p online" + ChatColor.GRAY + " - List online members");
-        player.sendMessage(ChatColor.GRAY + "• " + ChatColor.YELLOW + "/p stats" + ChatColor.GRAY + " - Party statistics");
-        player.sendMessage("");
-        player.sendMessage(ChatColor.GRAY + "Item Display:");
-        player.sendMessage(ChatColor.GRAY + "• " + ChatColor.YELLOW + "/p Check out this @i@!" + ChatColor.GRAY + " - Show item to party");
-        player.sendMessage(ChatColor.GRAY + "• Hold item in main hand and use " + ChatColor.YELLOW + "@i@" + ChatColor.GRAY + " in your message");
-        player.sendMessage("");
-        player.sendMessage(ChatColor.GRAY + "Quick Messages:");
-        player.sendMessage(ChatColor.GRAY + "• " + ChatColor.GREEN + "/p ready" + ChatColor.GRAY + " - Signal you're ready");
-        player.sendMessage(ChatColor.GRAY + "• " + ChatColor.RED + "/p help" + ChatColor.GRAY + " - Call for assistance");
-        player.sendMessage(ChatColor.GRAY + "• " + ChatColor.AQUA + "/p follow" + ChatColor.GRAY + " - Ask party to follow");
-        player.sendMessage(ChatColor.GRAY + "• " + ChatColor.YELLOW + "/p wait" + ChatColor.GRAY + " - Ask party to wait");
+        MessageUtil.sendHeader(player, "PARTY COMMANDS");
 
-        player.playSound(player.getLocation(), Sound.ENTITY_VILLAGER_YES, 1.0f, 1.0f);
+        player.sendMessage(ChatColor.YELLOW + "/p <message>" + ChatColor.GRAY + " - Send message to party");
+        player.sendMessage(ChatColor.YELLOW + "/p info" + ChatColor.GRAY + " - Show detailed party information");
+        player.sendMessage(ChatColor.YELLOW + "/p help" + ChatColor.GRAY + " - Show this help menu");
+        player.sendMessage(ChatColor.YELLOW + "/pinvite <player>" + ChatColor.GRAY + " - Invite a player to party");
+        player.sendMessage(ChatColor.YELLOW + "/paccept" + ChatColor.GRAY + " - Accept party invitation");
+        player.sendMessage(ChatColor.YELLOW + "/pdecline" + ChatColor.GRAY + " - Decline party invitation");
+        player.sendMessage(ChatColor.YELLOW + "/pkick <player>" + ChatColor.GRAY + " - Kick player from party");
+        player.sendMessage(ChatColor.YELLOW + "/pquit" + ChatColor.GRAY + " - Leave the party");
+
+        MessageUtil.sendBlankLine(player);
+        MessageUtil.sendTip(player, "Use @i@ in party chat to show items you're holding");
+
+        SoundUtil.playNotification(player);
     }
 
     /**
-     * Show online party members
+     * Show party settings
      */
-    private void showOnlineMembers(Player player) {
-        List<Player> members = partyMechanics.getPartyMembers(player);
-        if (members == null) return;
+    private void showPartySettings(Player player) {
+        MessageUtil.sendHeader(player, "PARTY SETTINGS");
 
-        List<Player> onlineMembers = new ArrayList<>();
-        for (Player member : members) {
-            if (member.isOnline()) {
-                onlineMembers.add(member);
-            }
-        }
+        player.sendMessage(ChatColor.GRAY + "Coming soon: Party settings will allow you to:");
+        player.sendMessage(ChatColor.GRAY + "• Toggle friendly fire");
+        player.sendMessage(ChatColor.GRAY + "• Set party privacy");
+        player.sendMessage(ChatColor.GRAY + "• Configure auto-invite");
+        player.sendMessage(ChatColor.GRAY + "• Manage party roles");
 
-        player.sendMessage(ChatColor.GREEN + "🌐 " + ChatColor.BOLD + "Online Party Members (" + onlineMembers.size() + "):");
+        MessageUtil.sendBlankLine(player);
+        MessageUtil.sendTip(player, "Settings will be available in a future update");
 
-        PartyMechanics.Party party = partyMechanics.getParty(player);
-        for (Player member : onlineMembers) {
-            String world = member.getWorld().getName();
-            String roleIndicator = "";
-
-            if (party != null) {
-                if (party.isLeader(member.getUniqueId())) {
-                    roleIndicator = ChatColor.GOLD + " ★";
-                } else if (party.isOfficer(member.getUniqueId())) {
-                    roleIndicator = ChatColor.YELLOW + " ♦";
-                }
-            }
-
-            player.sendMessage(ChatColor.GRAY + "• " + ChatColor.WHITE + member.getName() + roleIndicator
-                    + ChatColor.GRAY + " (in " + world + ")");
-        }
-
-        if (onlineMembers.size() != members.size()) {
-            int offlineCount = members.size() - onlineMembers.size();
-            player.sendMessage(ChatColor.GRAY + "(" + offlineCount + " member" + (offlineCount != 1 ? "s" : "") + " offline)");
-        }
-    }
-
-    /**
-     * Show party statistics
-     */
-    private void showPartyStatistics(Player player) {
-        PartyMechanics.PartyStatistics stats = partyMechanics.getPartyStatistics(player.getUniqueId());
-        PartyMechanics.Party party = partyMechanics.getParty(player);
-
-        player.sendMessage(ChatColor.BLUE + "📊 " + ChatColor.BOLD + "PARTY STATISTICS");
-        player.sendMessage("");
-        player.sendMessage(ChatColor.GRAY + "Your Party History:");
-        player.sendMessage(ChatColor.GRAY + "• Parties Created: " + ChatColor.WHITE + stats.getTotalPartiesCreated());
-        player.sendMessage(ChatColor.GRAY + "• Parties Joined: " + ChatColor.WHITE + stats.getTotalPartiesJoined());
-        player.sendMessage(ChatColor.GRAY + "• Messages Sent: " + ChatColor.WHITE + stats.getMessagesLent());
-        player.sendMessage(ChatColor.GRAY + "• Experience Shared: " + ChatColor.WHITE + stats.getExperienceShared());
-
-        if (party != null) {
-            player.sendMessage("");
-            player.sendMessage(ChatColor.GRAY + "Current Party:");
-            player.sendMessage(ChatColor.GRAY + "• Created: " + ChatColor.WHITE + formatTime(party.getCreationTime()));
-            player.sendMessage(ChatColor.GRAY + "• Size: " + ChatColor.WHITE + party.getSize() + "/" + party.getMaxSize());
-        }
+        SoundUtil.playNotification(player);
     }
 
     /**
      * Validate message content
      */
     private boolean validateMessage(Player player, String message) {
+        if (message == null || message.trim().isEmpty()) {
+            MessageUtil.sendError(player, "Please provide a message to send.");
+            MessageUtil.sendTip(player, "Usage: /p <message>");
+            return false;
+        }
+
         // Check message length
-        if (message.trim().isEmpty()) {
-            player.sendMessage(ChatColor.RED + "❌ Cannot send empty message!");
-            player.sendMessage(ChatColor.GRAY + "💡 Type " + ChatColor.YELLOW + "/p help" + ChatColor.GRAY + " for quick commands.");
-            player.playSound(player.getLocation(), Sound.ENTITY_VILLAGER_NO, 0.5f, 1.0f);
-            return false;
-        }
-
         if (message.length() > 256) {
-            player.sendMessage(ChatColor.RED + "❌ Message too long! Maximum 256 characters.");
-            player.sendMessage(ChatColor.GRAY + "Current length: " + ChatColor.WHITE + message.length() + ChatColor.GRAY + " characters");
-            player.playSound(player.getLocation(), Sound.ENTITY_VILLAGER_NO, 0.5f, 1.0f);
+            MessageUtil.sendError(player, "Message is too long! Maximum 256 characters.");
             return false;
         }
 
-        // Basic spam protection (very simple)
-        if (message.equals(message.toUpperCase()) && message.length() > 10) {
-            player.sendMessage(ChatColor.YELLOW + "⚠ Please avoid excessive caps in party chat.");
-        }
-
-        // Warn if trying to show item but not holding one
-        if (message.contains("@i@") && !ChatMechanics.isPlayerHoldingValidItem(player)) {
-            player.sendMessage(ChatColor.YELLOW + "⚠ Hold an item in your main hand to display it with @i@");
+        // Check for spam or inappropriate content (basic check)
+        if (message.trim().equals(message.trim().substring(0, 1).repeat(message.trim().length()))) {
+            MessageUtil.sendError(player, "Please don't spam repeated characters.");
+            return false;
         }
 
         return true;
     }
 
     /**
-     * Handle special message types and provide  feedback
+     * Send a party message with item display
      */
-    private void handleSpecialMessageTypes(Player player, String message) {
-        String lowerMessage = message.toLowerCase();
-
-        // Handle quick action messages
-        if (CHAT_SHORTCUTS.contains(lowerMessage)) {
-            switch (lowerMessage) {
-                case "ready":
-                    // Add extra notification for readiness
-                    playPartySound(player, Sound.ENTITY_EXPERIENCE_ORB_PICKUP);
-                    break;
-                case "help":
-                    // Emphasize help requests
-                    playPartySound(player, Sound.BLOCK_NOTE_BLOCK_BELL);
-                    break;
-                case "follow":
-                case "go":
-                    // Movement commands
-                    playPartySound(player, Sound.ENTITY_HORSE_GALLOP);
-                    break;
-                case "wait":
-                case "stop":
-                    // Stop commands
-                    playPartySound(player, Sound.BLOCK_NOTE_BLOCK_BASS);
-                    break;
+    private boolean sendPartyItemMessage(Player player, ItemStack item, String message) {
+        try {
+            // Get party members
+            List<Player> partyMembers = partyMechanics.getPartyMembers(player);
+            if (partyMembers == null || partyMembers.isEmpty()) {
+                MessageUtil.sendError(player, "No party members to send message to!");
+                return false;
             }
-        }
 
-        // Handle questions (messages ending with ?)
-        if (message.endsWith("?")) {
-            // Questions get a different sound to draw attention
-            playPartySound(player, Sound.BLOCK_NOTE_BLOCK_PLING);
-        }
+            // Use ChatMechanics for item display functionality
+            int success = ChatMechanics.sendItemMessageToPlayers(player, item, "&d<PARTY>", message, partyMembers);
 
-        // Handle item display messages
-        if (message.contains("@i@")) {
-            // Item display gets a special sound
-            playPartySound(player, Sound.ENTITY_ITEM_PICKUP);
+            if (!(success > 0)) {
+                MessageUtil.sendError(player, "Failed to send item message to party.");
+                MessageUtil.sendTip(player, "Make sure you're holding a valid item when using @i@");
+            }
+
+            return (success > 0);
+
+        } catch (Exception e) {
+            MessageUtil.sendError(player, "Error sending item message to party.");
+            return false;
         }
     }
 
     /**
-     * Play sound to all party members
+     * Handle special message types (announcements, etc.)
      */
-    private void playPartySound(Player sender, Sound sound) {
-        List<Player> members = partyMechanics.getPartyMembers(sender);
-        if (members != null) {
-            for (Player member : members) {
-                if (member.isOnline() && !member.equals(sender)) {
-                    member.playSound(member.getLocation(), sound, 0.5f, 1.0f);
+    private void handleSpecialMessageTypes(Player player, String message) {
+        // Check for special message patterns
+        if (message.toLowerCase().contains("help") || message.toLowerCase().contains("stuck")) {
+            // Party member is asking for help
+            List<Player> partyMembers = partyMechanics.getPartyMembers(player);
+            for (Player member : partyMembers) {
+                if (!member.equals(player)) {
+                    member.sendMessage(ChatColor.YELLOW + "💡 " + player.getName() + " might need assistance!");
                 }
             }
         }
     }
 
-    /**
-     * Format timestamp for display
-     */
-    private String formatTime(long epochSeconds) {
-        long currentTime = System.currentTimeMillis() / 1000;
-        long diff = currentTime - epochSeconds;
-
-        if (diff < 60) return diff + " seconds ago";
-        if (diff < 3600) return (diff / 60) + " minutes ago";
-        if (diff < 86400) return (diff / 3600) + " hours ago";
-        return (diff / 86400) + " days ago";
-    }
-
     @Override
-    public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
+    public List<String> onTabComplete(CommandSender sender, Command cmd, String label, String[] args) {
+        List<String> completions = new ArrayList<>();
+
         if (!(sender instanceof Player)) {
-            return new ArrayList<>();
+            return completions;
         }
 
         Player player = (Player) sender;
-        List<String> completions = new ArrayList<>();
 
-        if (!partyMechanics.isInParty(player)) {
+        // Check permission
+        if (!PermissionUtil.hasPartyPermission(player, "use")) {
             return completions;
         }
 
         if (args.length == 1) {
-            String partial = args[0].toLowerCase();
+            // Suggest special commands
+            String[] commands = {"info", "help", "settings", "status", "list"};
+            String input = args[0].toLowerCase();
 
-            // Add special commands
-            List<String> specialCommands = Arrays.asList("help", "info", "online", "stats");
-            for (String cmd : specialCommands) {
-                if (cmd.startsWith(partial)) {
-                    completions.add(cmd);
+            for (String command : commands) {
+                if (command.startsWith(input)) {
+                    completions.add(command);
                 }
             }
 
-            // Add chat shortcuts
-            for (String shortcut : CHAT_SHORTCUTS) {
-                if (shortcut.startsWith(partial)) {
-                    completions.add(shortcut);
-                }
-            }
-
-            // Add player names for mentions
-            List<Player> members = partyMechanics.getPartyMembers(player);
-            if (members != null) {
-                for (Player member : members) {
-                    if (!member.equals(player) && member.getName().toLowerCase().startsWith(partial)) {
-                        completions.add("@" + member.getName());
-                    }
-                }
-            }
-
-            // Add item display suggestion if holding an item
-            if (ChatMechanics.isPlayerHoldingValidItem(player) && "@i@".startsWith(partial)) {
-                completions.add("@i@");
-            }
-        } else if (args.length > 1) {
-            // Suggest emotes and item display for later words
-            String partial = args[args.length - 1].toLowerCase();
-
-            // Suggest @i@ if holding an item
-            if (ChatMechanics.isPlayerHoldingValidItem(player) && "@i@".startsWith(partial)) {
-                completions.add("@i@");
-            }
-
-            // Suggest emotes
-            for (String emote : EMOTES) {
-                if (emote.startsWith(partial)) {
-                    completions.add(emote);
-                }
-            }
+            // If no special commands match, don't suggest anything (let them type message)
         }
 
         return completions;

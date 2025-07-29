@@ -250,251 +250,64 @@ public class ItemCommand implements CommandExecutor, TabCompleter {
      * Handle the awakening subcommand
      */
     private boolean handleAwakeningCommand(Player player, String[] args) {
-        if (!YakRealms.isAwakeningStoneSystemAvailable()) {
-            player.sendMessage(ChatColor.RED + "Awakening Stone System is not available!");
-            return true;
-        }
-
-        if (args.length < 2) {
-            player.sendMessage(ChatColor.RED + "Usage: /item awakening <stone|true>");
-            return true;
-        }
-
-        AwakeningStoneSystem system = YakRealms.getAwakeningStoneSystemSafe();
-        String type = args[1].toLowerCase();
-
-        if (type.equals("stone")) {
-            ItemStack stone = system.createStoneOfAwakening();
-            player.getInventory().addItem(stone);
-            player.sendMessage(ChatColor.GREEN + "Created Stone of Awakening");
-            return true;
-        } else if (type.equals("true")) {
-            ItemStack stone = system.createStoneOfTrueAwakening();
-            player.getInventory().addItem(stone);
-            player.sendMessage(ChatColor.GREEN + "Created Stone of True Awakening");
-            return true;
-        } else {
-            player.sendMessage(ChatColor.RED + "Unknown awakening type: " + type);
-            player.sendMessage(ChatColor.GRAY + "Available types: stone, true");
-            return true;
-        }
+        return false;
     }
 
     /**
      * Handle the binding rune subcommand
      */
     private boolean handleBindingRuneCommand(Player player, String[] args) {
-        if (!YakRealms.isBindingRuneSystemAvailable()) {
-            player.sendMessage(ChatColor.RED + "Binding Rune System is not available!");
-            return true;
-        }
-
-        if (args.length < 2) {
-            player.sendMessage(ChatColor.RED + "Usage: /item rune <fire|ice|poison|lightning|shadow|light>");
-            return true;
-        }
-
-        BindingRuneSystem system = YakRealms.getBindingRuneSystemSafe();
-        String runeType = args[1].toLowerCase();
-
-        try {
-            BindingRuneSystem.RuneType type = BindingRuneSystem.RuneType.valueOf(runeType.toUpperCase());
-            ItemStack rune = system.createBindingRune(type);
-            player.getInventory().addItem(rune);
-            player.sendMessage(ChatColor.GREEN + "Created " + type.getDisplayName() + " Binding Rune");
-            return true;
-        } catch (IllegalArgumentException e) {
-            player.sendMessage(ChatColor.RED + "Unknown rune type: " + runeType);
-            player.sendMessage(ChatColor.GRAY + "Available types: fire, ice, poison, lightning, shadow, light");
-            return true;
-        }
+        return false;
     }
 
     /**
      * Handle the unbinding solvent subcommand
      */
     private boolean handleUnbindingSolventCommand(Player player, String[] args) {
-        if (!YakRealms.isBindingRuneSystemAvailable()) {
-            player.sendMessage(ChatColor.RED + "Binding Rune System is not available!");
-            return true;
-        }
-
-        BindingRuneSystem system = YakRealms.getBindingRuneSystemSafe();
-        ItemStack solvent = system.createUnbindingSolvent();
-        player.getInventory().addItem(solvent);
-        player.sendMessage(ChatColor.GREEN + "Created Unbinding Solvent");
-        return true;
+        return false;
     }
 
     /**
      * Handle the corruption subcommand
      */
     private boolean handleCorruptionCommand(Player player, String[] args) {
-        if (!YakRealms.isCorruptionSystemAvailable()) {
-            player.sendMessage(ChatColor.RED + "Corruption System is not available!");
-            return true;
-        }
-
-        if (args.length < 2) {
-            player.sendMessage(ChatColor.RED + "Usage: /item corruption <minor|major>");
-            return true;
-        }
-
-        CorruptionSystem system = YakRealms.getCorruptionSystemSafe();
-        String type = args[1].toLowerCase();
-
-        if (type.equals("minor")) {
-            ItemStack vial = system.createMinorCorruptionVial();
-            player.getInventory().addItem(vial);
-            player.sendMessage(ChatColor.GREEN + "Created Vial of Minor Corruption");
-            return true;
-        } else if (type.equals("major")) {
-            ItemStack vial = system.createMajorCorruptionVial();
-            player.getInventory().addItem(vial);
-            player.sendMessage(ChatColor.GREEN + "Created Vial of Major Corruption");
-            return true;
-        } else {
-            player.sendMessage(ChatColor.RED + "Unknown corruption type: " + type);
-            player.sendMessage(ChatColor.GRAY + "Available types: minor, major");
-            return true;
-        }
+        return false;
     }
 
     /**
      * Handle the purification subcommand
      */
     private boolean handlePurificationCommand(Player player, String[] args) {
-        if (!YakRealms.isCorruptionSystemAvailable()) {
-            player.sendMessage(ChatColor.RED + "Corruption System is not available!");
-            return true;
-        }
-
-        CorruptionSystem system = YakRealms.getCorruptionSystemSafe();
-        ItemStack tome = system.createPurificationTome();
-        player.getInventory().addItem(tome);
-        player.sendMessage(ChatColor.GREEN + "Created Purification Tome");
-        return true;
+        return false;
     }
 
     /**
      * Handle the essence subcommand
      */
     private boolean handleEssenceCommand(Player player, String[] args) {
-        if (!YakRealms.isEssenceCrystalSystemAvailable()) {
-            player.sendMessage(ChatColor.RED + "Essence Crystal System is not available!");
-            return true;
-        }
-
-        if (args.length < 5) {
-            player.sendMessage(ChatColor.RED + "Usage: /item essence <type> <value> <quality> <tier>");
-            player.sendMessage(ChatColor.GRAY + "Types: damage, hp, armor, dps, strength, intellect, vitality, dexterity");
-            player.sendMessage(ChatColor.GRAY + "       critical_hit, life_steal, accuracy, dodge, block, energy_regen");
-            player.sendMessage(ChatColor.GRAY + "       hp_regen, fire_damage, ice_damage, poison_damage, pure_damage");
-            player.sendMessage(ChatColor.GRAY + "Qualities: flawed, normal, perfect");
-            return true;
-        }
-
-        EssenceCrystalSystem system = YakRealms.getEssenceCrystalSystemSafe();
-
-        try {
-            String typeStr = args[1].toUpperCase();
-            int value = Integer.parseInt(args[2]);
-            String qualityStr = args[3].toUpperCase();
-            int tier = Integer.parseInt(args[4]);
-
-            EssenceCrystalSystem.EssenceType type = EssenceCrystalSystem.EssenceType.valueOf(typeStr);
-            EssenceCrystalSystem.CrystalQuality quality = EssenceCrystalSystem.CrystalQuality.valueOf(qualityStr);
-
-            if (tier < 1 || tier > 6) {
-                player.sendMessage(ChatColor.RED + "Tier must be between 1 and 6.");
-                return true;
-            }
-
-            if (value < 1 || value > 1000) {
-                player.sendMessage(ChatColor.RED + "Value must be between 1 and 1000.");
-                return true;
-            }
-
-            ItemStack crystal = system.createEssenceCrystal(type, value, quality, tier);
-            player.getInventory().addItem(crystal);
-            player.sendMessage(ChatColor.GREEN + "Created " + quality.name().toLowerCase() + " " +
-                    type.getDisplayName() + " essence crystal");
-            return true;
-        } catch (IllegalArgumentException e) {
-            player.sendMessage(ChatColor.RED + "Invalid parameter. Check the usage and try again.");
-            return true;
-        }
+        return false;
     }
 
     /**
      * Handle the extractor subcommand
      */
     private boolean handleExtractorCommand(Player player, String[] args) {
-        if (!YakRealms.isEssenceCrystalSystemAvailable()) {
-            player.sendMessage(ChatColor.RED + "Essence Crystal System is not available!");
-            return true;
-        }
-
-        EssenceCrystalSystem system = YakRealms.getEssenceCrystalSystemSafe();
-        ItemStack extractor = system.createEssenceExtractor();
-        player.getInventory().addItem(extractor);
-        player.sendMessage(ChatColor.GREEN + "Created Essence Extractor");
-        return true;
+        return false;
     }
+
 
     /**
      * Handle the infuser subcommand
      */
     private boolean handleInfuserCommand(Player player, String[] args) {
-        if (!YakRealms.isEssenceCrystalSystemAvailable()) {
-            player.sendMessage(ChatColor.RED + "Essence Crystal System is not available!");
-            return true;
-        }
-
-        EssenceCrystalSystem system = YakRealms.getEssenceCrystalSystemSafe();
-        ItemStack infuser = system.createEssenceInfuser();
-        player.getInventory().addItem(infuser);
-        player.sendMessage(ChatColor.GREEN + "Created Essence Infuser");
-        return true;
+        return false;
     }
 
     /**
      * Handle the hammer subcommand
      */
     private boolean handleHammerCommand(Player player, String[] args) {
-        if (!YakRealms.isForgeHammerSystemAvailable()) {
-            player.sendMessage(ChatColor.RED + "Forge Hammer System is not available!");
-            return true;
-        }
-
-        if (args.length < 2) {
-            player.sendMessage(ChatColor.RED + "Usage: /item hammer <apprentice|master|legendary>");
-            return true;
-        }
-
-        ForgeHammerSystem system = YakRealms.getForgeHammerSystemSafe();
-        String type = args[1].toLowerCase();
-
-        if (type.equals("apprentice")) {
-            ItemStack hammer = system.createApprenticeHammer();
-            player.getInventory().addItem(hammer);
-            player.sendMessage(ChatColor.GREEN + "Created Apprentice Hammer");
-            return true;
-        } else if (type.equals("master")) {
-            ItemStack hammer = system.createMasterHammer();
-            player.getInventory().addItem(hammer);
-            player.sendMessage(ChatColor.GREEN + "Created Master Hammer");
-            return true;
-        } else if (type.equals("legendary")) {
-            ItemStack hammer = system.createLegendaryHammer();
-            player.getInventory().addItem(hammer);
-            player.sendMessage(ChatColor.GREEN + "Created Legendary Forge Hammer");
-            return true;
-        } else {
-            player.sendMessage(ChatColor.RED + "Unknown hammer type: " + type);
-            player.sendMessage(ChatColor.GRAY + "Available types: apprentice, master, legendary");
-            return true;
-        }
+        return false;
     }
 
     /**

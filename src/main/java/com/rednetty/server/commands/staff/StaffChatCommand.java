@@ -1,7 +1,7 @@
 package com.rednetty.server.commands.staff;
 
-import com.rednetty.server.mechanics.moderation.ModerationMechanics;
-import com.rednetty.server.mechanics.moderation.Rank;
+import com.rednetty.server.mechanics.player.moderation.ModerationMechanics;
+import com.rednetty.server.mechanics.player.moderation.Rank;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.command.Command;
@@ -37,8 +37,8 @@ public class StaffChatCommand implements CommandExecutor {
 
         if (sender instanceof Player) {
             Player player = (Player) sender;
-            if (ModerationMechanics.isStaff(player)) {
-                Rank rank = ModerationMechanics.getRank(player);
+            if (ModerationMechanics.getInstance().isStaff(player)) {
+                Rank rank = ModerationMechanics.getInstance().getPlayerRank(player.getUniqueId());
                 staffName = ChatColor.translateAlternateColorCodes('&', rank.tag) + " " + player.getName();
             }
         }
@@ -47,7 +47,7 @@ public class StaffChatCommand implements CommandExecutor {
 
         // Send to all staff members
         for (Player staff : Bukkit.getOnlinePlayers()) {
-            if (ModerationMechanics.isStaff(staff) || staff.hasPermission("yakrealms.staff.chat")) {
+            if (ModerationMechanics.getInstance().isStaff(staff) || staff.hasPermission("yakrealms.staff.chat")) {
                 staff.sendMessage(fullMessage);
             }
         }

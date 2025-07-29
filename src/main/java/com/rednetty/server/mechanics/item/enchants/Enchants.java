@@ -54,7 +54,7 @@ public class Enchants {
 
     /**
      * Adds a glow effect to an item
-     * Fixed to properly handle ArmorMeta with trims (T6 netherite gear)
+     *  to properly handle ArmorMeta with trims (T6 netherite gear)
      *
      * @param item The item to add glow to
      * @return The item with glow effect

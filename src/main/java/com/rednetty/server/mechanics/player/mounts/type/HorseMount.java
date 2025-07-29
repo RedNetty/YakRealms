@@ -20,7 +20,7 @@ import org.bukkit.scheduler.BukkitTask;
 import java.util.*;
 
 /**
- * Handler for horse mounts - FIXED to allow Tier 1+ summoning with ROBUST mounting system
+ * Handler for horse mounts -  to allow Tier 1+ summoning with ROBUST mounting system
  * Players purchase tier access through vendors, then summon through this system
  *  with anti-glitch protection, remounting capabilities, and epic visual effects
  */

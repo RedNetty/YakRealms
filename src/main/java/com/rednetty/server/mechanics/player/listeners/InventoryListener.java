@@ -299,14 +299,14 @@ public class InventoryListener extends BaseListener {
         if (currentItem.getItemMeta().getDisplayName().contains("Spectral")) {
             NBTAccessor nbtAccessor = new NBTAccessor(currentItem);
 
-            if (!nbtAccessor.hasKey("fixedgear")) {
+            if (!nbtAccessor.hasKey("gear")) {
                 // Check if it's diamond armor
                 switch (currentItem.getType()) {
                     case DIAMOND_HELMET:
                     case DIAMOND_CHESTPLATE:
                     case DIAMOND_LEGGINGS:
                     case DIAMOND_BOOTS:
-                        // Replace with fixed gear - this is handled by appropriate drops manager
+                        // Replace with  gear - this is handled by appropriate drops manager
                         Bukkit.getScheduler().runTask(plugin, () -> {
                             createSpectralKnightGear(player);
                         });
@@ -459,7 +459,7 @@ public class InventoryListener extends BaseListener {
     }
 //NEW
     /**
-     * NEW: Enhanced gem pickup handling with Auto Bank toggle support
+     * NEW:  gem pickup handling with Auto Bank toggle support
      */
     @EventHandler(priority = EventPriority.HIGH)
     public void onGemPickup(PlayerPickupItemEvent event) {
@@ -501,7 +501,7 @@ public class InventoryListener extends BaseListener {
             TransactionResult deposited = EconomyManager.getInstance().depositGems(player, gemAmount);
 
             if (deposited.isSuccess()) {
-                // Enhanced auto-bank message
+                //  auto-bank message
                 player.sendMessage(ChatColor.GOLD.toString() + ChatColor.BOLD + "                    +" +
                         ChatColor.GOLD + gemAmount + ChatColor.GOLD + ChatColor.BOLD + "G " +
                         ChatColor.GRAY + "(Auto-Banked)");
@@ -527,10 +527,10 @@ public class InventoryListener extends BaseListener {
     }
 
     /**
-     * Enhanced inventory interaction with toggle-aware messaging
+     *  inventory interaction with toggle-aware messaging
      */
     @EventHandler(priority = EventPriority.HIGH)
-    public void onEnhancedInventoryInteract(PlayerInteractEvent event) {
+    public void onInventoryInteract(PlayerInteractEvent event) {
         if (isPatchLockdown()) {
             event.setCancelled(true);
             return;
@@ -539,7 +539,7 @@ public class InventoryListener extends BaseListener {
         Player player = event.getPlayer();
         ItemStack item = player.getInventory().getItemInMainHand();
 
-        // Enhanced gem-related messaging based on Auto Bank toggle
+        //  gem-related messaging based on Auto Bank toggle
         if (item != null && item.getType() == Material.EMERALD &&
                 (event.getAction() == Action.RIGHT_CLICK_AIR || event.getAction() == Action.RIGHT_CLICK_BLOCK)) {
 
@@ -578,7 +578,7 @@ public class InventoryListener extends BaseListener {
 
 
     /**
-     * Enhanced inventory opening with toggle-aware features
+     *  inventory opening with toggle-aware features
      */
     @EventHandler(priority = EventPriority.LOW)
     public void onInventoryOpen(InventoryOpenEvent event) {
@@ -604,32 +604,7 @@ public class InventoryListener extends BaseListener {
         }
     }
 
-    /**
-     * Enhanced player interaction with contextual toggle information
-     */
-    @EventHandler(priority = EventPriority.HIGH)
-    public void onPlayerInteractWithToggles(PlayerInteractEvent event) {
-        if (isPatchLockdown()) {
-            event.setCancelled(true);
-            return;
-        }
 
-        Player player = event.getPlayer();
-
-        // Show contextual toggle information for various interactions
-        if (event.getAction() == Action.RIGHT_CLICK_AIR && player.isSneaking()) {
-            // Sneaking + right click air = show relevant toggle status
-            StringBuilder status = new StringBuilder();
-            status.append("§6§l--- Quick Toggle Status ---\n");
-            status.append("§7Auto Bank: ").append(Toggles.isToggled(player, "Auto Bank") ? "§aEnabled" : "§cDisabled").append("\n");
-            status.append("§7Drop Protection: ").append(Toggles.isToggled(player, "Drop Protection") ? "§aEnabled" : "§cDisabled").append("\n");
-            status.append("§7Trading: ").append(Toggles.isToggled(player, "Trading") ? "§aEnabled" : "§cDisabled").append("\n");
-            status.append("§7Use §f/toggle §7for all settings");
-
-            player.sendMessage(status.toString());
-            event.setCancelled(true);
-        }
-    }
     /**
      * Handle general block interactions
      * Menu item block interactions are handled by MenuItemListener

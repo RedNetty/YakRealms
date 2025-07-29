@@ -4,7 +4,10 @@ import com.rednetty.server.YakRealms;
 import com.rednetty.server.mechanics.item.crates.types.CrateType;
 import net.md_5.bungee.api.ChatMessageType;
 import net.md_5.bungee.api.chat.TextComponent;
-import org.bukkit.*;
+import org.bukkit.Bukkit;
+import org.bukkit.ChatColor;
+import org.bukkit.Material;
+import org.bukkit.Sound;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
@@ -17,26 +20,23 @@ import java.util.concurrent.ThreadLocalRandom;
 import java.util.logging.Logger;
 
 /**
- * Enhanced CSGO-style crate animation with smooth scrolling and proper reward handling
- *  Now properly displays the best reward while giving all actual rewards
+ * Manages CSGO-style crate opening animations, ensuring smooth scrolling,
+ * proper display of the featured reward, and distribution of all generated rewards.
  */
 public class CrateAnimationManager {
     private final YakRealms plugin;
     private final Logger logger;
     private final CrateManager crateManager;
 
-    // Active animations
     private final Map<UUID, BukkitTask> activeAnimations = new HashMap<>();
     private final Map<UUID, Inventory> openInventories = new HashMap<>();
     private final Map<UUID, BukkitTask> actionBarTasks = new HashMap<>();
 
-    // Animation constants - Enhanced for better performance
     private static final int DISPLAY_SLOTS = 9;
     private static final int TOTAL_ITEMS = 50;
-    private static final int WIN_POSITION = 25; // Center of strip
+    private static final int WIN_POSITION = 25;
     private static final String INVENTORY_TITLE = "✦ Mystical Crate Opening ✦";
 
-    // Enhanced scrolling mechanics
     private static final double INITIAL_SPEED = 0.8;
     private static final double DECELERATION = 0.985;
     private static final double MIN_SPEED = 0.01;
@@ -49,8 +49,12 @@ public class CrateAnimationManager {
     }
 
     /**
-     * ENHANCED: Starts the crate opening animation with pre-generated rewards
-     * Fixed to properly display the best reward while giving all rewards
+     * Starts the crate opening animation using pre-generated rewards.
+     * Displays the featured (best) reward in the animation while ensuring
+     * the player receives all actual rewards.
+     *
+     * @param opening The crate opening instance.
+     * @param preGeneratedRewards The list of pre-generated rewards.
      */
     public void startCrateOpeningWithRewards(CrateOpening opening, List<ItemStack> preGeneratedRewards) {
         if (opening == null || opening.getPlayer() == null || preGeneratedRewards == null || preGeneratedRewards.isEmpty()) {
@@ -62,38 +66,33 @@ public class CrateAnimationManager {
         UUID playerId = player.getUniqueId();
 
         try {
-            // Cancel any existing animations
             cancelAnimation(playerId);
 
-            // Create the animation inventory
-            Inventory inventory = createEnhancedAnimationInventory(opening.getCrateType());
+            Inventory inventory = createAnimationInventory(opening.getCrateType());
             player.openInventory(inventory);
             openInventories.put(playerId, inventory);
 
-            // Start the enhanced animation with the pre-generated rewards
-            BukkitTask animationTask = new EnhancedCSGOStyleAnimation(opening, inventory, preGeneratedRewards)
+            BukkitTask animationTask = new CSGOStyleAnimation(opening, inventory, preGeneratedRewards)
                     .runTaskTimer(plugin, 0L, 1L);
             activeAnimations.put(playerId, animationTask);
 
-            // Start enhanced action bar updates
-            startEnhancedActionBarUpdates(player, opening);
+            startActionBarUpdates(player, opening);
 
-            // Play enhanced opening sound
             player.playSound(player.getLocation(), Sound.BLOCK_CHEST_OPEN, 1.0f, 1.0f);
             player.playSound(player.getLocation(), Sound.BLOCK_ENCHANTMENT_TABLE_USE, 0.5f, 1.5f);
 
-            logger.info("Started enhanced crate animation with " + preGeneratedRewards.size() +
-                    " pre-generated rewards for player: " + player.getName());
-
         } catch (Exception e) {
-            logger.severe("Error starting enhanced crate animation: " + e.getMessage());
+            logger.severe("Error starting crate animation: " + e.getMessage());
             e.printStackTrace();
             crateManager.completeCrateOpening(opening);
         }
     }
 
     /**
-     * Legacy method for backward compatibility
+     * Legacy method for starting a crate opening animation.
+     * Generates rewards internally for backward compatibility.
+     *
+     * @param opening The crate opening instance.
      */
     public void startCrateOpening(CrateOpening opening) {
         if (opening == null || opening.getPlayer() == null) {
@@ -101,7 +100,6 @@ public class CrateAnimationManager {
             return;
         }
 
-        // Generate rewards for legacy compatibility
         List<ItemStack> rewards = crateManager.getRewardsManager()
                 .generateRewards(opening.getCrateType(), opening.getConfiguration());
 
@@ -110,17 +108,18 @@ public class CrateAnimationManager {
             return;
         }
 
-        // Use the enhanced method
         startCrateOpeningWithRewards(opening, rewards);
     }
 
     /**
-     * ENHANCED: Creates a more polished animation inventory
+     * Creates the inventory used for the crate animation, styled based on the crate type.
+     *
+     * @param crateType The type of crate being opened.
+     * @return The configured animation inventory.
      */
-    private Inventory createEnhancedAnimationInventory(CrateType crateType) {
+    private Inventory createAnimationInventory(CrateType crateType) {
         Inventory inventory = Bukkit.createInventory(null, 27, INVENTORY_TITLE);
 
-        // Enhanced background with tier-based colors
         Material backgroundMaterial = getBackgroundMaterial(crateType);
         ItemStack background = new ItemStack(backgroundMaterial);
         ItemMeta backgroundMeta = background.getItemMeta();
@@ -129,14 +128,12 @@ public class CrateAnimationManager {
             background.setItemMeta(backgroundMeta);
         }
 
-        // Fill enhanced background
         for (int i = 0; i < 27; i++) {
             if (i < 9 || i >= 18) {
                 inventory.setItem(i, background);
             }
         }
 
-        // Enhanced selection indicator with tier-specific styling
         ItemStack selector = new ItemStack(Material.YELLOW_STAINED_GLASS_PANE);
         ItemMeta selectorMeta = selector.getItemMeta();
         if (selectorMeta != null) {
@@ -148,23 +145,23 @@ public class CrateAnimationManager {
             ));
             selector.setItemMeta(selectorMeta);
         }
-        inventory.setItem(4, selector); // Top center
-        inventory.setItem(22, selector); // Bottom center
+        inventory.setItem(4, selector);
+        inventory.setItem(22, selector);
 
         return inventory;
     }
 
     /**
-     * ENHANCED: CSGO-style animation with proper reward display
+     * Inner class handling the CSGO-style scrolling animation logic.
      */
-    private class EnhancedCSGOStyleAnimation extends BukkitRunnable {
+    private class CSGOStyleAnimation extends BukkitRunnable {
         private final CrateOpening opening;
         private final Inventory inventory;
         private final Player player;
         private final UUID playerId;
         private final List<ItemStack> actualRewards;
         private final List<ItemStack> itemStrip;
-        private final ItemStack displayReward; // The item shown in the animation
+        private final ItemStack displayReward;
         private final String featuredRewardName;
 
         private double currentPosition = 0.0;
@@ -172,36 +169,21 @@ public class CrateAnimationManager {
         private int tick = 0;
         private boolean isCompleted = false;
         private boolean rewardsGiven = false;
-        private final int centerSlot = DISPLAY_SLOTS / 2; // 4 - center slot index
-        private final double finalPosition = WIN_POSITION - centerSlot; // 25 - 4 = 21
+        private final int centerSlot = DISPLAY_SLOTS / 2;
 
-        public EnhancedCSGOStyleAnimation(CrateOpening opening, Inventory inventory, List<ItemStack> actualRewards) {
+        public CSGOStyleAnimation(CrateOpening opening, Inventory inventory, List<ItemStack> actualRewards) {
             this.opening = opening;
             this.inventory = inventory;
             this.player = opening.getPlayer();
             this.playerId = player.getUniqueId();
             this.actualRewards = new ArrayList<>(actualRewards);
 
-            
             this.displayReward = findBestRewardForDisplay(actualRewards);
             this.featuredRewardName = displayReward.hasItemMeta() && displayReward.getItemMeta().hasDisplayName() ?
                     displayReward.getItemMeta().getDisplayName() :
                     ChatColor.WHITE + displayReward.getType().name().replace("_", " ");
 
-            this.itemStrip = createEnhancedItemStrip();
-
-            // Enhanced debug logging
-            logger.info("Enhanced animation started for " + player.getName() + ":");
-            logger.info("  Total rewards: " + actualRewards.size());
-            logger.info("  Featured reward: " + featuredRewardName);
-            logger.info("  All rewards player will receive:");
-            for (int i = 0; i < actualRewards.size(); i++) {
-                ItemStack reward = actualRewards.get(i);
-                String rewardName = reward.hasItemMeta() && reward.getItemMeta().hasDisplayName() ?
-                        reward.getItemMeta().getDisplayName() :
-                        reward.getType().name().replace("_", " ");
-                logger.info("    " + (i + 1) + ": " + rewardName + " x" + reward.getAmount());
-            }
+            this.itemStrip = createItemStrip();
         }
 
         @Override
@@ -214,45 +196,36 @@ public class CrateAnimationManager {
             tick++;
 
             try {
-                // Update position and speed
                 currentPosition += currentSpeed;
 
-                // Enhanced deceleration curve
                 if (tick > 50) {
                     currentSpeed *= DECELERATION;
                 }
 
-                
                 if (currentSpeed < MIN_SPEED || tick > SPIN_DURATION) {
-                    currentPosition = finalPosition;
-
-                    logger.info("Animation stopping:");
-                    logger.info("  WIN_POSITION: " + WIN_POSITION);
-                    logger.info("  Center slot: " + centerSlot);
-                    logger.info("  Final position: " + finalPosition);
-
-                    finishEnhancedAnimation();
+                    currentPosition = WIN_POSITION - centerSlot;
+                    finishAnimation();
                     return;
                 }
 
-                // Update display
-                updateEnhancedDisplay();
+                updateDisplay();
 
-                // Play enhanced tick sound
                 if (tick % Math.max(1, (int)(10 / currentSpeed)) == 0) {
                     float pitch = Math.min(2.0f, 0.5f + (float)currentSpeed);
                     player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_HAT, 0.3f, pitch);
                 }
 
             } catch (Exception e) {
-                logger.warning("Error in enhanced animation: " + e.getMessage());
+                logger.warning("Error in animation: " + e.getMessage());
                 cleanup();
             }
         }
 
         /**
-         *  Finds the best reward to display as the featured item
-         * Priority: Equipment > Orbs > Scrolls > Gems > Other
+         * Selects the best reward to feature in the animation based on priority.
+         *
+         * @param rewards The list of rewards.
+         * @return The cloned ItemStack of the featured reward.
          */
         private ItemStack findBestRewardForDisplay(List<ItemStack> rewards) {
             ItemStack bestReward = null;
@@ -268,12 +241,14 @@ public class CrateAnimationManager {
                 }
             }
 
-            // Fallback to first reward if no priority match
             return bestReward != null ? bestReward.clone() : rewards.get(0).clone();
         }
 
         /**
-         * ENHANCED: Determines display priority for rewards
+         * Determines the display priority of a reward item.
+         *
+         * @param reward The reward item.
+         * @return The priority score.
          */
         private int getRewardDisplayPriority(ItemStack reward) {
             if (reward == null || !reward.hasItemMeta()) {
@@ -285,14 +260,12 @@ public class CrateAnimationManager {
                 return 0;
             }
 
-            // Equipment (highest priority)
             if (displayName.contains("Sword") || displayName.contains("Staff") ||
                     displayName.contains("Spear") || displayName.contains("Axe") ||
                     displayName.contains("Helmet") || displayName.contains("Chestplate") ||
                     displayName.contains("Leggings") || displayName.contains("Boots") ||
                     displayName.contains("Shield") || displayName.contains("Bow")) {
 
-                // Extra priority for higher rarity equipment
                 if (displayName.contains("Legendary") || displayName.contains("Unique")) {
                     return 120;
                 } else if (displayName.contains("Rare")) {
@@ -302,51 +275,38 @@ public class CrateAnimationManager {
                 }
             }
 
-            // Orbs (second highest)
             if (displayName.contains("Orb")) {
                 return displayName.contains("Legendary") ? 90 : 80;
             }
 
-            // Scrolls (third highest)
             if (displayName.contains("Scroll") || displayName.contains("SCROLL")) {
                 return displayName.contains("Protection") ? 70 : 60;
             }
 
-            // Gems and bank notes (lower priority)
             if (displayName.contains("Gem") || displayName.contains("Bank Note")) {
                 return 40;
             }
 
-            // Halloween items (special priority)
             if (displayName.contains("Halloween") || displayName.contains("🎃")) {
                 return 85;
             }
 
-            // Everything else
             return 20;
         }
 
         /**
-         *  Creates item strip with exact positioning
+         * Creates the strip of items for the scrolling animation.
+         *
+         * @return The list of items in the strip.
          */
-        private List<ItemStack> createEnhancedItemStrip() {
-            List<ItemStack> strip = new ArrayList<>();
-
-            logger.info("Creating item strip with " + TOTAL_ITEMS + " items, WIN_POSITION: " + WIN_POSITION);
-            logger.info("Display reward: " + getItemDisplayName(displayReward));
+        private List<ItemStack> createItemStrip() {
+            List<ItemStack> strip = new ArrayList<>(TOTAL_ITEMS);
 
             for (int i = 0; i < TOTAL_ITEMS; i++) {
                 if (i == WIN_POSITION) {
-                    // Place the featured reward at the EXACT winning position
                     strip.add(displayReward.clone());
-                    logger.info("Placed display reward at index " + i + ": " + getItemDisplayName(displayReward));
                 } else {
-                    // Generate varied filler items
-                    ItemStack filler = generateEnhancedFillerItem(opening.getCrateType());
-                    strip.add(filler);
-                    if (i < 5 || i > TOTAL_ITEMS - 5) { // Log first and last few items
-                        logger.info("Placed filler at index " + i + ": " + getItemDisplayName(filler));
-                    }
+                    strip.add(generateFillerItem(opening.getCrateType()));
                 }
             }
 
@@ -354,15 +314,17 @@ public class CrateAnimationManager {
         }
 
         /**
-         * ENHANCED: Generates more realistic filler items
+         * Generates a filler item for the animation strip.
+         *
+         * @param crateType The crate type.
+         * @return The generated filler item.
          */
-        private ItemStack generateEnhancedFillerItem(CrateType crateType) {
+        private ItemStack generateFillerItem(CrateType crateType) {
             try {
                 int tier = crateType.getTier();
                 int itemType = ThreadLocalRandom.current().nextInt(8) + 1;
                 int rarity = ThreadLocalRandom.current().nextInt(4) + 1;
 
-                // Occasionally use items from other actual rewards for variety
                 if (ThreadLocalRandom.current().nextInt(100) < 20 && actualRewards.size() > 1) {
                     ItemStack randomActualReward = actualRewards.get(ThreadLocalRandom.current().nextInt(actualRewards.size()));
                     if (randomActualReward != null && !randomActualReward.equals(displayReward)) {
@@ -372,15 +334,17 @@ public class CrateAnimationManager {
 
                 return crateManager.getRewardsManager().createDropWithRarity(tier, itemType, rarity);
             } catch (Exception e) {
-                // Enhanced fallback
-                return createEnhancedFallbackItem(crateType);
+                return createFallbackItem(crateType);
             }
         }
 
         /**
-         * ENHANCED: Creates better fallback items
+         * Creates a fallback filler item if generation fails.
+         *
+         * @param crateType The crate type.
+         * @return The fallback item.
          */
-        private ItemStack createEnhancedFallbackItem(CrateType crateType) {
+        private ItemStack createFallbackItem(CrateType crateType) {
             Material[] materials = {
                     Material.IRON_SWORD, Material.DIAMOND_SWORD, Material.GOLDEN_SWORD,
                     Material.IRON_AXE, Material.DIAMOND_AXE, Material.GOLDEN_AXE,
@@ -401,20 +365,10 @@ public class CrateAnimationManager {
         }
 
         /**
-         *  Updates display with accurate positioning and detailed logging
+         * Updates the displayed items in the inventory based on current position.
          */
-        private void updateEnhancedDisplay() {
-            // Calculate the starting index more precisely
+        private void updateDisplay() {
             int startIndex = (int) Math.floor(currentPosition);
-
-            // Log during final positioning
-            if (currentSpeed < MIN_SPEED || isCompleted) {
-                logger.info("=== DISPLAY UPDATE DEBUG ===");
-                logger.info("Current position: " + currentPosition);
-                logger.info("Start index: " + startIndex);
-                logger.info("Center slot: " + centerSlot);
-                logger.info("Display slots: " + DISPLAY_SLOTS);
-            }
 
             for (int slot = 0; slot < DISPLAY_SLOTS; slot++) {
                 int itemIndex = (startIndex + slot) % itemStrip.size();
@@ -423,30 +377,23 @@ public class CrateAnimationManager {
                 ItemStack item = itemStrip.get(itemIndex);
                 boolean isCenter = (slot == centerSlot);
 
-                // Log center item details
-                if (isCenter && (currentSpeed < MIN_SPEED || isCompleted)) {
-                    logger.info("Center item (slot " + slot + ", index " + itemIndex + "): " + getItemDisplayName(item));
-                    logger.info("Expected item: " + getItemDisplayName(displayReward));
-                    logger.info("Items match: " + isSameItem(item, displayReward));
-                }
-
                 item = enhanceDisplayItem(item, isCenter);
                 inventory.setItem(9 + slot, item);
-            }
-
-            if (currentSpeed < MIN_SPEED || isCompleted) {
-                logger.info("=== END DISPLAY DEBUG ===");
             }
         }
 
         /**
-         * ENHANCED: Enhances items for display
+         * Enhances an item's meta for display in the animation.
+         *
+         * @param item The item to enhance.
+         * @param isCenter Whether the item is in the center slot.
+         * @return The enhanced item clone.
          */
         private ItemStack enhanceDisplayItem(ItemStack item, boolean isCenter) {
             if (item == null) return item;
 
             ItemStack enhanced = item.clone();
-            if (enhanced.hasItemMeta()) {
+            if (item.hasItemMeta()) {
                 ItemMeta meta = enhanced.getItemMeta();
                 List<String> lore = meta.hasLore() ? new ArrayList<>(meta.getLore()) : new ArrayList<>();
 
@@ -455,7 +402,6 @@ public class CrateAnimationManager {
                     lore.add(ChatColor.YELLOW + "◆ FEATURED REWARD ◆");
                     lore.add(ChatColor.GRAY + "This is your best reward!");
                 } else {
-                    // Add subtle indicator for non-center items
                     lore.add("");
                     lore.add(ChatColor.DARK_GRAY + "Preview Item");
                 }
@@ -468,51 +414,31 @@ public class CrateAnimationManager {
         }
 
         /**
-         *  Finishes animation with accurate final positioning
+         * Finishes the animation, gives rewards, and schedules cleanup.
          */
-        private void finishEnhancedAnimation() {
+        private void finishAnimation() {
             if (isCompleted) return;
 
             isCompleted = true;
 
-            
-            currentPosition = finalPosition;
+            updateDisplay();
 
-            // Update display one final time with exact positioning
-            updateEnhancedDisplay();
-
-            // VERIFICATION: Check what item is actually at the center now
             int startIndex = (int) Math.floor(currentPosition);
             int centerItemIndex = (startIndex + centerSlot) % itemStrip.size();
             if (centerItemIndex < 0) centerItemIndex += itemStrip.size();
 
             ItemStack actualCenterItem = itemStrip.get(centerItemIndex);
 
-            // Log for debugging
-            logger.info("=== FINAL POSITION DEBUG ===");
-            logger.info("Current position: " + currentPosition);
-            logger.info("Start index: " + startIndex);
-            logger.info("Center slot: " + centerSlot);
-            logger.info("Center item index: " + centerItemIndex);
-            logger.info("Expected center item: " + getItemDisplayName(displayReward));
-            logger.info("Actual center item: " + getItemDisplayName(actualCenterItem));
-            logger.info("Items match: " + isSameItem(displayReward, actualCenterItem));
-            logger.info("=== END DEBUG ===");
-
-            // Enhanced completion sounds
             player.playSound(player.getLocation(), Sound.ENTITY_PLAYER_LEVELUP, 1.0f, 1.0f);
             player.playSound(player.getLocation(), Sound.UI_TOAST_CHALLENGE_COMPLETE, 0.8f, 1.2f);
 
-            // Give rewards (only once)
             if (!rewardsGiven) {
                 giveRewardsToPlayer();
                 rewardsGiven = true;
             }
 
-            // ENHANCED: Show what item was actually selected
-            displayEnhancedCompletionMessage(actualCenterItem);
+            displayCompletionMessage(actualCenterItem);
 
-            // Schedule cleanup
             new BukkitRunnable() {
                 @Override
                 public void run() {
@@ -520,31 +446,30 @@ public class CrateAnimationManager {
                     player.closeInventory();
                     cleanup();
                 }
-            }.runTaskLater(plugin, 100L); // 5 second delay
+            }.runTaskLater(plugin, 100L);
         }
 
         /**
-         *  Displays completion message with the actually selected item
+         * Displays a completion message listing all rewards and the featured item.
+         *
+         * @param actualSelectedItem The item that landed in the center.
          */
-        private void displayEnhancedCompletionMessage(ItemStack actualSelectedItem) {
+        private void displayCompletionMessage(ItemStack actualSelectedItem) {
             player.sendMessage("");
             player.sendMessage(ChatColor.GOLD + "✦ ✦ ✦ " + ChatColor.BOLD + "CRATE OPENED SUCCESSFULLY" + ChatColor.GOLD + " ✦ ✦ ✦");
             player.sendMessage(ChatColor.GRAY + "You received " + ChatColor.WHITE + actualRewards.size() + ChatColor.GRAY + " valuable items!");
             player.sendMessage("");
 
-            // Show the item that was actually selected in the animation
             String selectedItemName = getItemDisplayName(actualSelectedItem);
             player.sendMessage(ChatColor.YELLOW + "🎯 " + ChatColor.BOLD + "SELECTED IN ANIMATION:" + ChatColor.RESET + " " + selectedItemName);
             player.sendMessage(ChatColor.GRAY + "  This item was highlighted in the center slot");
             player.sendMessage("");
 
-            // Show all rewards
             player.sendMessage(ChatColor.GREEN + "✓ " + ChatColor.BOLD + "ALL REWARDS RECEIVED:");
             for (int i = 0; i < actualRewards.size(); i++) {
                 ItemStack reward = actualRewards.get(i);
                 String rewardName = getItemDisplayName(reward);
 
-                // Check if this reward matches the selected item
                 boolean isSelected = isSameItem(reward, actualSelectedItem);
                 String prefix = isSelected ? ChatColor.YELLOW + "🎯 " : ChatColor.WHITE + "  • ";
                 String suffix = reward.getAmount() > 1 ? ChatColor.GRAY + " x" + reward.getAmount() : "";
@@ -561,15 +486,17 @@ public class CrateAnimationManager {
         }
 
         /**
-         * Helper method to check if two items are the same
+         * Checks if two items are equivalent based on type and display name.
+         *
+         * @param item1 First item.
+         * @param item2 Second item.
+         * @return True if items match.
          */
         private boolean isSameItem(ItemStack item1, ItemStack item2) {
             if (item1 == null || item2 == null) return false;
 
-            // Check material first
             if (item1.getType() != item2.getType()) return false;
 
-            // Check display names
             String name1 = item1.hasItemMeta() && item1.getItemMeta().hasDisplayName() ?
                     item1.getItemMeta().getDisplayName() : item1.getType().name();
             String name2 = item2.hasItemMeta() && item2.getItemMeta().hasDisplayName() ?
@@ -579,7 +506,10 @@ public class CrateAnimationManager {
         }
 
         /**
-         * Helper method to get item display name
+         * Gets the display name of an item, falling back to material name.
+         *
+         * @param item The item.
+         * @return The display name.
          */
         private String getItemDisplayName(ItemStack item) {
             if (item == null) return "null";
@@ -590,7 +520,7 @@ public class CrateAnimationManager {
         }
 
         /**
-         * Gives all rewards to the player
+         * Distributes all rewards to the player's inventory, dropping overflow.
          */
         private void giveRewardsToPlayer() {
             int overflow = 0;
@@ -612,7 +542,7 @@ public class CrateAnimationManager {
         }
 
         /**
-         * Cleans up the animation
+         * Cleans up the animation task and removes from active maps.
          */
         private void cleanup() {
             cancel();
@@ -622,9 +552,12 @@ public class CrateAnimationManager {
     }
 
     /**
-     * ENHANCED: Starts action bar updates with better messaging
+     * Starts periodic action bar updates during the animation.
+     *
+     * @param player The player.
+     * @param opening The crate opening.
      */
-    private void startEnhancedActionBarUpdates(Player player, CrateOpening opening) {
+    private void startActionBarUpdates(Player player, CrateOpening opening) {
         BukkitTask task = new BukkitRunnable() {
             private int ticks = 0;
 
@@ -635,7 +568,7 @@ public class CrateAnimationManager {
                     return;
                 }
 
-                String message = generateEnhancedActionBarMessage(opening, ticks);
+                String message = generateActionBarMessage(opening, ticks);
                 player.spigot().sendMessage(ChatMessageType.ACTION_BAR, new TextComponent(message));
                 ticks++;
             }
@@ -645,9 +578,13 @@ public class CrateAnimationManager {
     }
 
     /**
-     * ENHANCED: Generates more engaging action bar messages
+     * Generates the action bar message based on animation progress.
+     *
+     * @param opening The crate opening.
+     * @param ticks The current tick count.
+     * @return The formatted message.
      */
-    private String generateEnhancedActionBarMessage(CrateOpening opening, int ticks) {
+    private String generateActionBarMessage(CrateOpening opening, int ticks) {
         String crateName = opening.getCrateType().getDisplayName();
         String dots = ".".repeat((ticks / 4) % 4);
 
@@ -664,7 +601,10 @@ public class CrateAnimationManager {
     }
 
     /**
-     * ENHANCED: Gets background material based on crate tier
+     * Gets the background material based on crate tier.
+     *
+     * @param crateType The crate type.
+     * @return The material.
      */
     private Material getBackgroundMaterial(CrateType crateType) {
         return switch (crateType.getTier()) {
@@ -679,7 +619,10 @@ public class CrateAnimationManager {
     }
 
     /**
-     * ENHANCED: Gets tier color
+     * Gets the ChatColor based on crate tier.
+     *
+     * @param tier The tier level.
+     * @return The color.
      */
     private ChatColor getTierColor(int tier) {
         return switch (tier) {
@@ -694,7 +637,9 @@ public class CrateAnimationManager {
     }
 
     /**
-     * Cancels animation for a player
+     * Cancels any active animation for the given player.
+     *
+     * @param playerId The player's UUID.
      */
     public void cancelAnimation(UUID playerId) {
         BukkitTask task = activeAnimations.remove(playerId);
@@ -712,15 +657,11 @@ public class CrateAnimationManager {
     }
 
     /**
-     * Cleanup all animations
+     * Cleans up all active animations and tasks.
      */
     public void cleanup() {
-        activeAnimations.values().forEach(task -> {
-            if (task != null) task.cancel();
-        });
-        actionBarTasks.values().forEach(task -> {
-            if (task != null) task.cancel();
-        });
+        activeAnimations.values().forEach(BukkitTask::cancel);
+        actionBarTasks.values().forEach(BukkitTask::cancel);
 
         activeAnimations.clear();
         openInventories.clear();
@@ -728,7 +669,9 @@ public class CrateAnimationManager {
     }
 
     /**
-     * Get enhanced animation statistics
+     * Retrieves statistics about the animation manager.
+     *
+     * @return A map of statistics.
      */
     public Map<String, Object> getAnimationStats() {
         Map<String, Object> stats = new HashMap<>();
@@ -737,7 +680,7 @@ public class CrateAnimationManager {
         stats.put("totalStripItems", TOTAL_ITEMS);
         stats.put("winPosition", WIN_POSITION);
         stats.put("spinDuration", SPIN_DURATION);
-        stats.put("version", "Enhanced v2.0");
+        stats.put("version", " v2.0");
         return stats;
     }
 }
