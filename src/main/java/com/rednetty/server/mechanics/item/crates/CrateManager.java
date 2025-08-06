@@ -25,28 +25,29 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Logger;
 
 /**
- *  central manager for the crate system with  animation integration
+ * Central manager for the crate system with animation integration
+ * Handles crate opening, reward distribution, statistics, and player interactions
  */
 public class CrateManager {
     private static CrateManager instance;
     private final YakRealms plugin;
     private final Logger logger;
 
-    // Core components - Updated to use  animation manager
+    // Core components
     private CrateFactory crateFactory;
-    private CrateAnimationManager animationManager; // Updated
+    private CrateAnimationManager animationManager;
     private CrateRewardsManager rewardsManager;
     private CrateHandler crateHandler;
     private EconomyManager economyManager;
     private YakPlayerManager playerManager;
 
-    // Active sessions and processing with  tracking
+    // Active sessions and processing tracking
     private final Map<UUID, CrateOpening> activeOpenings = new ConcurrentHashMap<>();
     private final Set<UUID> processingPlayers = ConcurrentHashMap.newKeySet();
     private final Map<CrateType, CrateConfiguration> crateConfigurations = new HashMap<>();
     private final Map<UUID, Long> lastOpenTimes = new ConcurrentHashMap<>();
 
-    //  statistics tracking
+    // Statistics tracking
     private final Map<CrateType, Integer> cratesOpened = new ConcurrentHashMap<>();
     private final Map<CrateType, Integer> cratesGenerated = new ConcurrentHashMap<>();
     private final Map<UUID, Integer> playerOpenCounts = new ConcurrentHashMap<>();
@@ -65,7 +66,7 @@ public class CrateManager {
     private BukkitTask statisticsTask;
     private BukkitTask notificationTask;
 
-    //  settings
+    // System settings
     private boolean enableAnimations = true;
     private boolean enableSounds = true;
     private boolean enableParticles = true;
@@ -95,16 +96,16 @@ public class CrateManager {
     }
 
     /**
-     *  initialization with  animation manager
+     * Initialize the crate system with all components
      */
     public void initialize() {
         try {
-            logger.info("Initializing  crate system...");
+            logger.info("Initializing crate system...");
 
             // Load configuration first
             loadConfiguration();
 
-            // Initialize core components - Updated to use  animation manager
+            // Initialize core components
             initializeComponents();
 
             // Load crate configurations
@@ -122,12 +123,12 @@ public class CrateManager {
             // Validate system integrity
             validateSystemIntegrity();
 
-            logger.info(" crate system initialized successfully with " +
+            logger.info("Crate system initialized successfully with " +
                     crateConfigurations.size() + " crate types and " +
                     getFeatureString());
 
         } catch (Exception e) {
-            logger.severe("Failed to initialize  crate system: " + e.getMessage());
+            logger.severe("Failed to initialize crate system: " + e.getMessage());
             e.printStackTrace();
             throw new RuntimeException("Crate system initialization failed", e);
         }
@@ -187,7 +188,7 @@ public class CrateManager {
             defaultConfig.set("rewards.base-orb-chance", 25);
             defaultConfig.set("rewards.tier-scaling-bonus", 5);
 
-            // Animation settings - Updated for  system
+            // Animation settings
             defaultConfig.set("animations.spin-duration", 200);
             defaultConfig.set("animations.initial-speed", 0.8);
             defaultConfig.set("animations.deceleration", 0.985);
@@ -202,30 +203,27 @@ public class CrateManager {
     }
 
     /**
-     * Initializes core components with  animation manager
+     * Initializes core components
      */
     private void initializeComponents() {
         this.crateFactory = new CrateFactory();
-        this.animationManager = new CrateAnimationManager(); // Updated
+        this.animationManager = new CrateAnimationManager();
         this.rewardsManager = new CrateRewardsManager();
         this.crateHandler = new CrateHandler();
         this.economyManager = EconomyManager.getInstance();
         this.playerManager = YakPlayerManager.getInstance();
 
-        logger.fine("Initialized crate system components with  animation manager");
+        logger.fine("Initialized crate system components");
     }
 
-    // In CrateManager.java - Update the openCrate method to ensure single reward generation
-// In CrateManager.java - Update the openCrate method to ensure single reward generation
-
     /**
-     *   crate opening with single reward generation
+     * Open a crate with single reward generation
      */
     public boolean openCrate(Player player, ItemStack crateItem) {
         UUID playerId = player.getUniqueId();
 
         try {
-            //  validation
+            // Validation
             if (!validateCrateOpening(player, crateItem)) {
                 return false;
             }
@@ -237,14 +235,16 @@ public class CrateManager {
 
             // Check concurrent openings limit
             if (activeOpenings.size() >= maxConcurrentOpenings) {
-                player.sendMessage(ChatColor.RED + "The mystical energies are overwhelmed! Please try again in a moment.");
+                sendMessage(player, MessageType.ERROR, "System Overloaded",
+                        "The mystical energies are overwhelmed! Please try again in a moment.");
                 return false;
             }
 
-            // Determine crate type with  validation
+            // Determine crate type with validation
             CrateType crateType = crateFactory.determineCrateType(crateItem);
             if (crateType == null) {
-                player.sendMessage(ChatColor.RED + "This crate's mystical signature is unreadable!");
+                sendMessage(player, MessageType.ERROR, "Invalid Crate",
+                        "This crate's mystical signature is unreadable!");
                 return false;
             }
 
@@ -252,7 +252,7 @@ public class CrateManager {
             CrateConfiguration configuration = crateConfigurations.get(crateType);
             if (configuration == null) {
                 logger.warning("No configuration found for crate type: " + crateType);
-                sendErrorMessage(player, "Configuration Error",
+                sendMessage(player, MessageType.ERROR, "Configuration Error",
                         "This crate type is not properly configured. Please contact an administrator.");
                 return false;
             }
@@ -262,7 +262,7 @@ public class CrateManager {
                 return false;
             }
 
-            // Create  opening session
+            // Create opening session
             CrateOpening opening = new CrateOpening(player, crateType, configuration);
             activeOpenings.put(playerId, opening);
             processingPlayers.add(playerId);
@@ -270,10 +270,10 @@ public class CrateManager {
             // Update cooldown
             lastOpenTimes.put(playerId, System.currentTimeMillis());
 
-            // Send opening message with modern formatting
+            // Send opening message
             sendCrateOpeningMessage(player, crateType);
 
-            
+            // Generate rewards once
             List<ItemStack> rewards = rewardsManager.generateRewards(crateType, configuration);
 
             if (rewards.isEmpty()) {
@@ -281,7 +281,7 @@ public class CrateManager {
                 rewards.add(createFallbackReward(crateType));
             }
 
-            //  logging for debugging
+            // Debug logging
             logger.info("=== CRATE OPENING DEBUG INFO ===");
             logger.info("Player: " + player.getName());
             logger.info("Crate Type: " + crateType);
@@ -295,7 +295,7 @@ public class CrateManager {
             }
             logger.info("=== END DEBUG INFO ===");
 
-            // Start animation with the SAME rewards
+            // Start animation with the same rewards
             if (enableAnimations) {
                 // Pass the exact same rewards to the animation
                 animationManager.startCrateOpeningWithRewards(opening, rewards);
@@ -320,14 +320,14 @@ public class CrateManager {
             logger.severe("Error opening crate for player " + player.getName() + ": " + e.getMessage());
             e.printStackTrace();
 
-            //  cleanup on error
+            // Cleanup on error
             cleanupFailedOpening(playerId, player);
             return false;
         }
     }
 
     /**
-     *  validation for crate opening
+     * Validation for crate opening
      */
     private boolean validateCrateOpening(Player player, ItemStack crateItem) {
         UUID playerId = player.getUniqueId();
@@ -345,13 +345,13 @@ public class CrateManager {
 
         // Already processing check
         if (processingPlayers.contains(playerId) || activeOpenings.containsKey(playerId)) {
-            player.sendMessage(ChatColor.RED + "✦ " + ChatColor.BOLD + "You are already opening a crate!" +
-                    ChatColor.RED + " ✦");
+            sendMessage(player, MessageType.WARNING, "Already Processing",
+                    "You are already opening a crate!");
             playErrorSound(player);
             return false;
         }
 
-        //  inventory space check
+        // Inventory space check
         if (!hasInventorySpace(player, 3)) { // Check for at least 3 free slots
             sendInventoryFullMessage(player);
             return false;
@@ -359,7 +359,8 @@ public class CrateManager {
 
         // Check if crate is valid
         if (!crateFactory.isCrate(crateItem)) {
-            player.sendMessage(ChatColor.RED + "This item is not a valid mystical crate!");
+            sendMessage(player, MessageType.ERROR, "Invalid Item",
+                    "This item is not a valid mystical crate!");
             playErrorSound(player);
             return false;
         }
@@ -378,8 +379,8 @@ public class CrateManager {
             long timeSince = System.currentTimeMillis() - lastOpen;
             if (timeSince < openingCooldown) {
                 long remaining = (openingCooldown - timeSince) / 1000;
-                player.sendMessage(ChatColor.YELLOW + "⏳ The mystical energies need " + remaining +
-                        " more seconds to recharge...");
+                sendMessage(player, MessageType.INFO, "Cooldown Active",
+                        "The mystical energies need " + remaining + " more seconds to recharge...");
                 return false;
             }
         }
@@ -393,13 +394,15 @@ public class CrateManager {
     private boolean performFinalValidation(Player player, CrateType crateType) {
         // Check if tier is enabled
         if (crateType.getTier() == 6 && !YakRealms.isT6Enabled()) {
-            player.sendMessage(ChatColor.RED + "Tier 6 content is currently disabled!");
+            sendMessage(player, MessageType.ERROR, "Tier Disabled",
+                    "Tier 6 content is currently disabled!");
             return false;
         }
 
         // Check if Halloween crates are allowed (seasonal check)
         if (crateType.isHalloween() && !isHalloweenSeason()) {
-            player.sendMessage(ChatColor.GOLD + "🎃 Halloween crates can only be opened during spooky season! 🎃");
+            sendMessage(player, MessageType.SPECIAL, "Seasonal Restriction",
+                    "🎃 Halloween crates can only be opened during spooky season! 🎃");
             return false;
         }
 
@@ -407,25 +410,21 @@ public class CrateManager {
     }
 
     /**
-     * Sends  crate opening message
+     * Sends crate opening message
      */
     private void sendCrateOpeningMessage(Player player, CrateType crateType) {
-        // Main message
-        player.sendMessage("");
-        player.sendMessage(TextUtil.getCenteredMessage(
-                ChatColor.AQUA + "✦ " + ChatColor.BOLD + "OPENING CRATE" + ChatColor.AQUA + " ✦"
-        ));
-
         String crateName = (crateType.isHalloween() ? "Halloween " : "") + crateType.getDisplayName();
-        player.sendMessage(TextUtil.getCenteredMessage(
-                ChatColor.GRAY + "Unsealing " + ChatColor.YELLOW + crateName + ChatColor.GRAY + " Crate"
-        ));
+
+        // Send centered opening message
+        player.sendMessage("");
+        player.sendMessage(TextUtil.getCenteredMessage("&b✦ &l&bOPENING CRATE &b✦"));
+        player.sendMessage(TextUtil.getCenteredMessage("&7Unsealing &e" + crateName + " &7Crate"));
         player.sendMessage("");
 
         // Action bar message if enabled
         if (enableActionBar) {
             player.spigot().sendMessage(ChatMessageType.ACTION_BAR,
-                    new TextComponent(ChatColor.GOLD + "✨ Opening crate... ✨"));
+                    new TextComponent(TextUtil.colorize("&6✨ Opening crate... ✨")));
         }
 
         // Play opening sound
@@ -492,7 +491,7 @@ public class CrateManager {
     }
 
     /**
-     *  Completes crate opening with pre-generated rewards (for  animation system)
+     * Completes crate opening with pre-generated rewards (for animation system)
      * NOTE: This method assumes rewards have already been given to the player by the animation
      */
     public void completeCrateOpeningWithRewards(CrateOpening opening, List<ItemStack> rewards) {
@@ -544,7 +543,7 @@ public class CrateManager {
     }
 
     /**
-     * Gives rewards to player with  handling
+     * Gives rewards to player with overflow handling
      */
     private void giveRewardsToPlayer(Player player, List<ItemStack> rewards, CrateType crateType) {
         List<ItemStack> overflow = new ArrayList<>();
@@ -576,13 +575,14 @@ public class CrateManager {
         }
 
         // Notify player
-        player.sendMessage(ChatColor.YELLOW + "⚠ Some rewards were dropped nearby due to full inventory!");
-        player.sendMessage(ChatColor.GRAY + "Items dropped: " + ChatColor.WHITE + overflow.size());
+        sendMessage(player, MessageType.WARNING, "Inventory Full",
+                "Some rewards were dropped nearby due to full inventory!");
+        player.sendMessage(TextUtil.colorize("&7Items dropped: &f" + overflow.size()));
 
         // Action bar notification
         if (enableActionBar) {
             player.spigot().sendMessage(ChatMessageType.ACTION_BAR,
-                    new TextComponent(ChatColor.YELLOW + "⚠ Some rewards dropped nearby! ⚠"));
+                    new TextComponent(TextUtil.colorize("&e⚠ Some rewards dropped nearby! ⚠")));
         }
 
         // Sound notification
@@ -599,20 +599,20 @@ public class CrateManager {
                 opening.getCrateType().getDisplayName();
 
         player.sendMessage("");
-        player.sendMessage(ChatColor.GOLD + "✦ " + crateName + " Crate Opened! ✦");
-        player.sendMessage(ChatColor.GRAY + "You received " + ChatColor.WHITE + rewards.size() +
-                ChatColor.GRAY + " items from this crate.");
+        player.sendMessage(TextUtil.colorize("&6✦ " + crateName + " Crate Opened! ✦"));
+        player.sendMessage(TextUtil.colorize("&7You received &f" + rewards.size() +
+                "&7 items from this crate."));
 
         // Show first few rewards
         for (int i = 0; i < Math.min(3, rewards.size()); i++) {
             ItemStack reward = rewards.get(i);
             if (reward != null && reward.hasItemMeta() && reward.getItemMeta().hasDisplayName()) {
-                player.sendMessage(ChatColor.WHITE + "  • " + reward.getItemMeta().getDisplayName());
+                player.sendMessage(TextUtil.colorize("&f  • " + reward.getItemMeta().getDisplayName()));
             }
         }
 
         if (rewards.size() > 3) {
-            player.sendMessage(ChatColor.GRAY + "  ... and " + (rewards.size() - 3) + " more items!");
+            player.sendMessage(TextUtil.colorize("&7  ... and " + (rewards.size() - 3) + " more items!"));
         }
 
         player.sendMessage("");
@@ -645,7 +645,7 @@ public class CrateManager {
         // Optional: Send action bar confirmation
         if (enableActionBar) {
             player.spigot().sendMessage(ChatMessageType.ACTION_BAR,
-                    new TextComponent(ChatColor.GREEN + "✓ Crate opening completed successfully!"));
+                    new TextComponent(TextUtil.colorize("&a✓ Crate opening completed successfully!")));
         }
     }
 
@@ -668,11 +668,10 @@ public class CrateManager {
         ItemStack fallback = createFallbackReward(opening.getCrateType());
         player.getInventory().addItem(fallback);
 
-        //  error message
-        player.sendMessage("");
-        player.sendMessage(ChatColor.YELLOW + "⚠ " + ChatColor.BOLD + "MYSTICAL INTERFERENCE" + ChatColor.YELLOW + " ⚠");
-        player.sendMessage(ChatColor.GRAY + "The cosmic energies were disrupted, but you received compensation!");
-        player.sendMessage(ChatColor.GREEN + "✓ Emergency reward granted");
+        // Send error message
+        sendMessage(player, MessageType.WARNING, "Mystical Interference",
+                "The cosmic energies were disrupted, but you received compensation!");
+        player.sendMessage(TextUtil.colorize("&a✓ Emergency reward granted"));
 
         // Play error sound
         if (enableSounds) {
@@ -680,10 +679,44 @@ public class CrateManager {
         }
     }
 
+    // Message utility methods
+
+    /**
+     * Message types for consistent formatting
+     */
+    private enum MessageType {
+        INFO("&b", "ℹ"),
+        SUCCESS("&a", "✓"),
+        WARNING("&e", "⚠"),
+        ERROR("&c", "✗"),
+        SPECIAL("&6", "✦");
+
+        private final String color;
+        private final String icon;
+
+        MessageType(String color, String icon) {
+            this.color = color;
+            this.icon = icon;
+        }
+
+        public String getColor() { return color; }
+        public String getIcon() { return icon; }
+    }
+
+    /**
+     * Sends a formatted message to player
+     */
+    private void sendMessage(Player player, MessageType type, String title, String message) {
+        player.sendMessage("");
+        player.sendMessage(TextUtil.getCenteredMessage(type.getColor() + type.getIcon() + " &l" + title.toUpperCase() + " " + type.getColor() + type.getIcon()));
+        player.sendMessage(TextUtil.getCenteredMessage("&7" + message));
+        player.sendMessage("");
+    }
+
     // Utility methods
 
     /**
-     *  inventory space checking
+     * Check inventory space
      */
     private boolean hasInventorySpace(Player player, int requiredSlots) {
         int emptySlots = 0;
@@ -699,34 +732,20 @@ public class CrateManager {
      * Sends inventory full message with helpful suggestions
      */
     private void sendInventoryFullMessage(Player player) {
+        sendMessage(player, MessageType.WARNING, "Inventory Full",
+                "Your inventory is too full to receive crate rewards!");
+        player.sendMessage(TextUtil.getCenteredMessage("&ePlease make at least 3 empty slots and try again."));
         player.sendMessage("");
-        player.sendMessage(ChatColor.RED + "⚠ " + ChatColor.BOLD + "INVENTORY FULL" + ChatColor.RED + " ⚠");
-        player.sendMessage(ChatColor.GRAY + "Your inventory is too full to receive crate rewards!");
-        player.sendMessage(ChatColor.YELLOW + "Please make at least 3 empty slots and try again.");
-        player.sendMessage("");
-
         playErrorSound(player);
     }
 
     /**
-     * Plays  error sound
+     * Plays error sound
      */
     private void playErrorSound(Player player) {
         if (enableSounds) {
             player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_BASS, 1.0f, 0.5f);
         }
-    }
-
-    /**
-     * Sends formatted error message
-     */
-    private void sendErrorMessage(Player player, String title, String message) {
-        player.sendMessage("");
-        player.sendMessage(ChatColor.RED + "✗ " + ChatColor.BOLD + title + ChatColor.RED + " ✗");
-        player.sendMessage(ChatColor.GRAY + message);
-        player.sendMessage("");
-
-        playErrorSound(player);
     }
 
     /**
@@ -738,7 +757,7 @@ public class CrateManager {
         lastOpenTimes.remove(playerId);
 
         if (player != null && player.isOnline()) {
-            player.sendMessage(ChatColor.YELLOW + "✦ Crate opening has been safely cancelled. ✦");
+            player.sendMessage(TextUtil.getCenteredMessage("&e✦ Crate opening has been safely cancelled. ✦"));
         }
     }
 
@@ -777,7 +796,7 @@ public class CrateManager {
     // Configuration and data management methods
 
     /**
-     * Loads crate configurations with  validation
+     * Loads crate configurations with validation
      */
     private void loadCrateConfigurations() {
         ConfigurationSection cratesSection = config.getConfigurationSection("crate-types");
@@ -829,7 +848,7 @@ public class CrateManager {
             default -> Sound.ENTITY_EXPERIENCE_ORB_PICKUP;
         };
 
-        // Updated animation duration for  system
+        // Animation duration
         long animationDuration = 10000; // 10 seconds
 
         return new CrateConfiguration(crateType, displayName, crateType.getTier(),
@@ -887,7 +906,7 @@ public class CrateManager {
     }
 
     /**
-     *  cleanup with better error handling
+     * Cleanup with better error handling
      */
     private void performCleanup() {
         try {
@@ -926,7 +945,7 @@ public class CrateManager {
                     currentTime - entry.getValue() > 300000);
 
         } catch (Exception e) {
-            logger.warning("Error during  crate cleanup: " + e.getMessage());
+            logger.warning("Error during crate cleanup: " + e.getMessage());
         }
     }
 
@@ -977,8 +996,9 @@ public class CrateManager {
      * Broadcasts milestone messages to online players
      */
     private void broadcastMilestone(String message) {
+        String formattedMessage = TextUtil.getCenteredMessage("&6" + message);
         for (Player onlinePlayer : plugin.getServer().getOnlinePlayers()) {
-            onlinePlayer.sendMessage(ChatColor.GOLD + message);
+            onlinePlayer.sendMessage(formattedMessage);
             if (enableSounds) {
                 onlinePlayer.playSound(onlinePlayer.getLocation(), Sound.UI_TOAST_CHALLENGE_COMPLETE, 0.5f, 1.5f);
             }
@@ -1046,10 +1066,10 @@ public class CrateManager {
             ItemStack emerald = new ItemStack(Material.EMERALD, crateType.getTier() * 5);
             ItemMeta meta = emerald.getItemMeta();
             if (meta != null) {
-                meta.setDisplayName(ChatColor.GREEN + "Emergency Compensation");
+                meta.setDisplayName(TextUtil.colorize("&aEmergency Compensation"));
                 meta.setLore(Arrays.asList(
-                        ChatColor.GRAY + "Compensation for tier " + crateType.getTier() + " crate",
-                        ChatColor.GRAY + "Please contact an administrator"
+                        TextUtil.colorize("&7Compensation for tier " + crateType.getTier() + " crate"),
+                        TextUtil.colorize("&7Please contact an administrator")
                 ));
                 emerald.setItemMeta(meta);
             }
@@ -1058,11 +1078,11 @@ public class CrateManager {
     }
 
     /**
-     *  shutdown with proper cleanup and data saving
+     * Shutdown with proper cleanup and data saving
      */
     public void shutdown() {
         try {
-            logger.info("Shutting down  crate system...");
+            logger.info("Shutting down crate system...");
 
             // Cancel background tasks
             if (cleanupTask != null) cleanupTask.cancel();
@@ -1099,26 +1119,26 @@ public class CrateManager {
             lastOpenTimes.clear();
             sessionStats.clear();
 
-            logger.info(" crate system shut down successfully");
+            logger.info("Crate system shut down successfully");
 
         } catch (Exception e) {
-            logger.warning("Error during  crate system shutdown: " + e.getMessage());
+            logger.warning("Error during crate system shutdown: " + e.getMessage());
         }
     }
 
     // Getters and accessors
 
     public CrateFactory getCrateFactory() { return crateFactory; }
-    public CrateAnimationManager getAnimationManager() { return animationManager; } // Updated
+    public CrateAnimationManager getAnimationManager() { return animationManager; }
     public CrateRewardsManager getRewardsManager() { return rewardsManager; }
     public Set<UUID> getProcessingPlayers() { return new HashSet<>(processingPlayers); }
     public Map<UUID, CrateOpening> getActiveOpenings() { return new HashMap<>(activeOpenings); }
     public CrateConfiguration getConfiguration(CrateType crateType) { return crateConfigurations.get(crateType); }
 
-    //  API methods
+    // API methods
 
     /**
-     * Creates a crate with  options
+     * Creates a crate with options
      */
     public ItemStack createCrate(CrateType crateType, boolean isHalloween) {
         ItemStack crate = crateFactory.createCrate(crateType, isHalloween);
@@ -1129,6 +1149,7 @@ public class CrateManager {
     }
 
     public ItemStack createCrateKey() { return crateFactory.createCrateKey(); }
+
     public ItemStack createLockedCrate(CrateType crateType, boolean isHalloween) {
         ItemStack crate = crateFactory.createLockedCrate(crateType, isHalloween);
         if (crate != null) {
@@ -1138,7 +1159,7 @@ public class CrateManager {
     }
 
     /**
-     *  method to give crates to players
+     * Method to give crates to players
      */
     public void giveCratesToPlayer(Player player, CrateType crateType, int amount, boolean isHalloween, boolean isLocked) {
         if (amount <= 0) return;
@@ -1175,19 +1196,17 @@ public class CrateManager {
             }
         }
 
-        //  notification message
+        // Send notification message
         String crateName = (isHalloween ? "Halloween " : "") + crateType.getDisplayName() + " Crate";
-        player.sendMessage("");
-        player.sendMessage(ChatColor.GREEN + "✦ " + ChatColor.BOLD + "CRATES RECEIVED" + ChatColor.GREEN + " ✦");
-        player.sendMessage(ChatColor.WHITE + "Received: " + ChatColor.YELLOW + amount + "× " + crateName);
+        sendMessage(player, MessageType.SUCCESS, "Crates Received",
+                "Received: " + amount + "× " + crateName);
+
         if (isLocked) {
-            player.sendMessage(ChatColor.GRAY + "Status: " + ChatColor.RED + "Locked" +
-                    ChatColor.GRAY + " (requires crate key)");
+            player.sendMessage(TextUtil.getCenteredMessage("&7Status: &cLocked &7(requires crate key)"));
         }
         if (!overflow.isEmpty()) {
-            player.sendMessage(ChatColor.YELLOW + "Note: " + overflow.size() + " crates dropped due to full inventory");
+            player.sendMessage(TextUtil.getCenteredMessage("&eNote: " + overflow.size() + " crates dropped due to full inventory"));
         }
-        player.sendMessage("");
 
         // Play sound
         if (enableSounds) {
@@ -1197,7 +1216,7 @@ public class CrateManager {
     }
 
     /**
-     *  statistics method
+     * Statistics method
      */
     public Map<String, Object> getStatistics() {
         Map<String, Object> stats = new HashMap<>();
@@ -1208,7 +1227,7 @@ public class CrateManager {
         stats.put("processingPlayers", processingPlayers.size());
         stats.put("configurationsLoaded", crateConfigurations.size());
 
-        //  stats
+        // Detailed stats
         stats.put("crateTypesOpened", new HashMap<>(cratesOpened));
         stats.put("crateTypesGenerated", new HashMap<>(cratesGenerated));
         stats.put("uniquePlayers", playerOpenCounts.size());

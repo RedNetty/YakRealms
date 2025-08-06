@@ -23,19 +23,33 @@ import java.util.concurrent.ThreadLocalRandom;
 import java.util.regex.Pattern;
 
 /**
- *  notification system for item drops with hoverable items and improved visual design
- * Now supports JsonChatComponent for interactive item tooltips
+ * Notification system for item drops with hoverable items and interactive tooltips.
+ * Supports JsonChatComponent for interactive item tooltips and fallback methods for compatibility.
  */
 public class LootNotifier {
     private static LootNotifier instance;
 
-    //  rarity detection patterns
+    // Constants for particle effects
+    private static final int SPECIAL_EFFECT_PARTICLES = 20;
+    private static final int SPECIAL_EFFECT_DELAY_TICKS = 10;
+    private static final double PARTICLE_SPREAD = 1.0;
+    private static final double PARTICLE_SPEED = 0.1;
+    private static final int PARTICLE_Y_OFFSET = 2;
+
+    // Sound effect constants
+    private static final float DEFAULT_VOLUME = 1.0f;
+    private static final float HIGH_VALUE_VOLUME = 1.5f;
+    private static final float BOSS_PITCH = 0.8f;
+    private static final float PITCH_VARIANCE = 0.4f;
+    private static final float PITCH_OFFSET = 0.2f;
+
+    // Rarity detection patterns
     private static final Pattern COMMON_PATTERN = Pattern.compile("(?i)common");
     private static final Pattern UNCOMMON_PATTERN = Pattern.compile("(?i)uncommon");
     private static final Pattern RARE_PATTERN = Pattern.compile("(?i)rare");
     private static final Pattern UNIQUE_PATTERN = Pattern.compile("(?i)unique|legendary");
 
-    //  visual elements
+    // Visual elements mapping
     private static final Map<String, String> RARITY_SYMBOLS = Map.of(
             "common", "◆",
             "uncommon", "◇",
@@ -51,7 +65,7 @@ public class LootNotifier {
             "unique", new ChatColor[]{ChatColor.YELLOW, ChatColor.YELLOW}
     );
 
-    //  sound mappings
+    // Sound mappings for different rarities
     private static final Map<String, Sound[]> RARITY_SOUNDS = Map.of(
             "common", new Sound[]{Sound.ENTITY_ITEM_PICKUP},
             "uncommon", new Sound[]{Sound.ENTITY_EXPERIENCE_ORB_PICKUP},
@@ -59,7 +73,7 @@ public class LootNotifier {
             "unique", new Sound[]{Sound.ENTITY_ENDER_DRAGON_DEATH, Sound.BLOCK_NOTE_BLOCK_BELL}
     );
 
-    // Drop type symbols
+    // Drop type symbols for visual identification
     private static final Map<String, String> DROP_TYPE_SYMBOLS = Map.of(
             "weapon", "⚔",
             "armor", "🛡",
@@ -70,14 +84,14 @@ public class LootNotifier {
             "boss", "👑"
     );
 
-    // Tier colors updated for Tier 6 Netherite
+    // Tier colors including Tier 6 Netherite support
     private static final Map<Integer, ChatColor> TIER_COLORS = Map.of(
             1, ChatColor.WHITE,
             2, ChatColor.GREEN,
             3, ChatColor.AQUA,
             4, ChatColor.LIGHT_PURPLE,
             5, ChatColor.YELLOW,
-            6, ChatColor.GOLD  // Updated for Netherite
+            6, ChatColor.GOLD
     );
 
     /**
@@ -97,194 +111,108 @@ public class LootNotifier {
     }
 
     /**
-     *  drop notification with hoverable items using JsonChatComponent
+     * Sends drop notification with hoverable items using JsonChatComponent
      */
     public void sendDropNotification(Player player, ItemStack item, LivingEntity source, boolean isBossLoot) {
-        if (player == null || item == null || !player.isOnline()) {
+        if (!isValidNotificationTarget(player, item)) {
             return;
         }
 
         try {
             DropNotificationData notificationData = analyzeDropNotification(item, source, isBossLoot);
 
-            // Send interactive chat notification with hoverable item
             sendInteractiveChatNotification(player, notificationData, item);
-
-            // Play notification effects
             playNotificationEffects(player, notificationData);
 
-            // Special effects for high-value drops
             if (notificationData.isHighValue()) {
                 sendSpecialEffects(player, notificationData);
             }
 
         } catch (Exception e) {
-            // Fallback to basic notification
+            handleNotificationError(e, "drop notification");
             sendBasicNotification(player, item, source, isBossLoot);
         }
     }
 
     /**
-     *  Send notification for gems with hover details
+     * Sends notification for gem drops with hover details
      */
     public void sendGemDropNotification(Player player, ItemStack gems, LivingEntity source, int amount) {
-        if (player == null || gems == null || !player.isOnline()) {
+        if (!isValidNotificationTarget(player, gems)) {
             return;
         }
 
         try {
             String sourceName = getSourceName(source);
-            String gemHoverText = ChatColor.GREEN + "Gems: " + ChatColor.YELLOW + amount + "\n" +
-                    ChatColor.GRAY + "Currency used for trading\n" +
-                    ChatColor.GRAY + "and purchasing items";
+            String gemHoverText = buildGemHoverText(amount);
 
             JsonChatComponent message = new JsonChatComponent(ChatColor.GRAY + "➤ " + sourceName + ChatColor.YELLOW + " dropped ");
-            message.addHoverItem(ChatColor.GREEN + "💎 " + amount + " Gems",
-                    List.of(gemHoverText));
+            message.addHoverItem(ChatColor.GREEN + "💎 " + amount + " Gems", List.of(gemHoverText));
 
             message.send(player);
             player.playSound(player.getLocation(), Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 0.7f, 1.2f);
 
         } catch (Exception e) {
-            // Fallback
+            handleNotificationError(e, "gem notification");
             sendBasicGemNotification(player, source, amount);
         }
     }
 
     /**
-     *  Send notification for crates with hover details
+     * Sends notification for crate drops with hover details
      */
     public void sendCrateDropNotification(Player player, ItemStack crate, LivingEntity source, int tier) {
-        if (player == null || crate == null || !player.isOnline()) {
+        if (!isValidNotificationTarget(player, crate)) {
             return;
         }
 
         try {
             String sourceName = getSourceName(source);
             ChatColor tierColor = TIER_COLORS.getOrDefault(tier, ChatColor.WHITE);
-
-            List<String> hoverText = new ArrayList<>();
-            if (crate.getItemMeta() != null && crate.getItemMeta().hasLore()) {
-                hoverText.addAll(crate.getItemMeta().getLore());
-            } else {
-                hoverText.add(tierColor + "Tier " + tier + " Crate");
-                hoverText.add(ChatColor.GRAY + "Right-click to open");
-                hoverText.add(ChatColor.GRAY + "Contains tier " + tier + " items");
-            }
+            List<String> hoverText = buildCrateHoverText(crate, tier, tierColor);
 
             JsonChatComponent message = new JsonChatComponent(ChatColor.GRAY + "➤ " + sourceName + ChatColor.YELLOW + " dropped ");
 
-            String crateName = crate.getItemMeta() != null && crate.getItemMeta().hasDisplayName()
-                    ? crate.getItemMeta().getDisplayName()
-                    : tierColor + "Tier " + tier + " Crate";
-
+            String crateName = getCrateName(crate, tier, tierColor);
             message.addHoverItem("📦 " + ChatColor.stripColor(crateName), hoverText);
 
             message.send(player);
-
-            //  sound for crates
-            Sound crateSound = tier >= 4 ? Sound.BLOCK_NOTE_BLOCK_BELL : Sound.ENTITY_ITEM_PICKUP;
-            player.playSound(player.getLocation(), crateSound, 1.0f, 1.0f + (tier * 0.1f));
+            playCrateSound(player, tier);
 
         } catch (Exception e) {
-            // Fallback
+            handleNotificationError(e, "crate notification");
             sendBasicCrateNotification(player, crate, source, tier);
         }
     }
 
     /**
-     *  Send notification for teleport books with hover details
+     * Sends notification for teleport books with hover details
      */
     public void sendTeleportBookNotification(Player player, ItemStack book, LivingEntity source, String destinationName) {
-        if (player == null || book == null || !player.isOnline()) {
+        if (!isValidNotificationTarget(player, book)) {
             return;
         }
 
         try {
             String sourceName = getSourceName(source);
-
-            List<String> hoverText = new ArrayList<>();
-            if (book.getItemMeta() != null && book.getItemMeta().hasLore()) {
-                hoverText.addAll(book.getItemMeta().getLore());
-            } else {
-                hoverText.add(ChatColor.AQUA + "Teleport Book");
-                hoverText.add(ChatColor.GRAY + "Destination: " + ChatColor.WHITE + destinationName);
-                hoverText.add(ChatColor.GRAY + "Right-click to teleport");
-            }
+            List<String> hoverText = buildBookHoverText(book, destinationName);
 
             JsonChatComponent message = new JsonChatComponent(ChatColor.GRAY + "➤ " + sourceName + ChatColor.YELLOW + " dropped ");
 
-            String bookName = book.getItemMeta() != null && book.getItemMeta().hasDisplayName()
-                    ? book.getItemMeta().getDisplayName()
-                    : ChatColor.AQUA + destinationName + " Teleport Book";
-
+            String bookName = getBookName(book, destinationName);
             message.addHoverItem("📖 " + ChatColor.stripColor(bookName), hoverText);
 
             message.send(player);
             player.playSound(player.getLocation(), Sound.ENTITY_PLAYER_LEVELUP, 0.5f, 1.5f);
 
         } catch (Exception e) {
-            // Fallback
+            handleNotificationError(e, "teleport book notification");
             sendBasicBookNotification(player, book, source, destinationName);
         }
     }
 
     /**
-     *  interactive chat notification with hoverable items
-     */
-    private void sendInteractiveChatNotification(Player player, DropNotificationData data, ItemStack item) {
-        ChatColor[] colors = RARITY_COLORS.getOrDefault(data.rarity, RARITY_COLORS.get("common"));
-        String symbol = RARITY_SYMBOLS.getOrDefault(data.rarity, "◆");
-        String typeSymbol = DROP_TYPE_SYMBOLS.getOrDefault(data.dropType, "");
-
-        if (data.isBossLoot) {
-            // Boss loot gets special treatment with centered message
-            String bossMessage = ChatColor.GOLD + "👑 " + ChatColor.YELLOW + "You received " +
-                    ChatColor.stripColor(data.itemName) + ChatColor.YELLOW + " from the Special Elite!";
-
-            JsonChatComponent message = new JsonChatComponent("");
-            message.addHoverItem(TextUtil.getCenteredMessage(bossMessage), getItemHoverText(item));
-            message.send(player);
-        } else {
-            // Regular drops with interactive hover
-            JsonChatComponent message = new JsonChatComponent(colors[1] + "➤ " + ChatColor.RESET + data.sourceName + ChatColor.YELLOW + " dropped ");
-
-            String displayText = typeSymbol + " " + data.itemName;
-            message.addHoverItem(displayText, getItemHoverText(item));
-
-            message.send(player);
-        }
-    }
-
-    /**
-     * Extract hover text from an item for tooltips
-     */
-    private List<String> getItemHoverText(ItemStack item) {
-        List<String> hoverText = new ArrayList<>();
-
-        ItemMeta meta = item.getItemMeta();
-        if (meta != null) {
-            // Add item name
-            if (meta.hasDisplayName()) {
-                hoverText.add(meta.getDisplayName());
-            } else {
-                hoverText.add(ChatColor.WHITE + TextUtil.formatItemName(item.getType().name()));
-            }
-
-            // Add lore if present
-            if (meta.hasLore() && meta.getLore() != null) {
-                hoverText.add(""); // Empty line
-                hoverText.addAll(meta.getLore());
-            }
-        } else {
-            hoverText.add(ChatColor.WHITE + TextUtil.formatItemName(item.getType().name()));
-        }
-
-        return hoverText;
-    }
-
-    /**
-     *  buff activation announcement with improved visual design
+     * Announces buff activation with visual design
      */
     public void announceBuffActivation(Player player, int buffRate, int durationMinutes) {
         int eliteBuffRate = buffRate / 2;
@@ -296,63 +224,292 @@ public class LootNotifier {
     }
 
     /**
-     * Get the proper name for a mob (original name instead of health bar)
+     * Announces buff end with statistics
+     */
+    public void announceBuffEnd(String playerName, int improvedDrops) {
+        for (Player player : Bukkit.getOnlinePlayers()) {
+            sendBuffEndToPlayer(player, playerName, improvedDrops);
+        }
+    }
+
+    /**
+     * Announces world boss defeat with formatting
+     */
+    public void announceWorldBossDefeat(String bossName, List<Object[]> topDamagers) {
+        for (Player player : Bukkit.getOnlinePlayers()) {
+            sendWorldBossDefeatToPlayer(player, bossName, topDamagers);
+        }
+    }
+
+    /**
+     * Sends a custom notification for special events
+     */
+    public void sendCustomNotification(Player player, String title, String message, Sound sound) {
+        if (player == null || !player.isOnline()) return;
+
+        player.sendMessage("");
+        player.sendMessage(TextUtil.getCenteredMessage(ChatColor.GOLD + "✦ " + title + " ✦"));
+        player.sendMessage(TextUtil.getCenteredMessage(message));
+        player.sendMessage("");
+
+        if (sound != null) {
+            player.playSound(player.getLocation(), sound, DEFAULT_VOLUME, DEFAULT_VOLUME);
+        }
+    }
+
+    /**
+     * Gets notification statistics for debugging
+     */
+    public Map<String, Object> getNotificationStats() {
+        Map<String, Object> stats = new HashMap<>();
+        stats.put("rarityTypes", RARITY_COLORS.size());
+        stats.put("soundMappings", RARITY_SOUNDS.size());
+        stats.put("dropTypes", DROP_TYPE_SYMBOLS.size());
+        stats.put("symbolMappings", RARITY_SYMBOLS.size());
+        stats.put("tierColors", TIER_COLORS.size());
+        return stats;
+    }
+
+    // Private helper methods
+
+    /**
+     * Validates notification target requirements
+     */
+    private boolean isValidNotificationTarget(Player player, ItemStack item) {
+        return player != null && item != null && player.isOnline();
+    }
+
+    /**
+     * Handles notification errors consistently
+     */
+    private void handleNotificationError(Exception e, String notificationType) {
+        YakRealms.warn("Error sending " + notificationType + ": " + e.getMessage());
+    }
+
+    /**
+     * Builds hover text for gem notifications
+     */
+    private String buildGemHoverText(int amount) {
+        return ChatColor.GREEN + "Gems: " + ChatColor.YELLOW + amount + "\n" +
+                ChatColor.GRAY + "Currency used for trading\n" +
+                ChatColor.GRAY + "and purchasing items";
+    }
+
+    /**
+     * Builds hover text for crate notifications
+     */
+    private List<String> buildCrateHoverText(ItemStack crate, int tier, ChatColor tierColor) {
+        List<String> hoverText = new ArrayList<>();
+
+        if (crate.getItemMeta() != null && crate.getItemMeta().hasLore()) {
+            hoverText.addAll(crate.getItemMeta().getLore());
+        } else {
+            hoverText.add(tierColor + "Tier " + tier + " Crate");
+            hoverText.add(ChatColor.GRAY + "Right-click to open");
+            hoverText.add(ChatColor.GRAY + "Contains tier " + tier + " items");
+        }
+
+        return hoverText;
+    }
+
+    /**
+     * Builds hover text for teleport book notifications
+     */
+    private List<String> buildBookHoverText(ItemStack book, String destinationName) {
+        List<String> hoverText = new ArrayList<>();
+
+        if (book.getItemMeta() != null && book.getItemMeta().hasLore()) {
+            hoverText.addAll(book.getItemMeta().getLore());
+        } else {
+            hoverText.add(ChatColor.AQUA + "Teleport Book");
+            hoverText.add(ChatColor.GRAY + "Destination: " + ChatColor.WHITE + destinationName);
+            hoverText.add(ChatColor.GRAY + "Right-click to teleport");
+        }
+
+        return hoverText;
+    }
+
+    /**
+     * Gets display name for crates
+     */
+    private String getCrateName(ItemStack crate, int tier, ChatColor tierColor) {
+        return crate.getItemMeta() != null && crate.getItemMeta().hasDisplayName()
+                ? crate.getItemMeta().getDisplayName()
+                : tierColor + "Tier " + tier + " Crate";
+    }
+
+    /**
+     * Gets display name for teleport books
+     */
+    private String getBookName(ItemStack book, String destinationName) {
+        return book.getItemMeta() != null && book.getItemMeta().hasDisplayName()
+                ? book.getItemMeta().getDisplayName()
+                : ChatColor.AQUA + destinationName + " Teleport Book";
+    }
+
+    /**
+     * Plays appropriate sound for crate drops
+     */
+    private void playCrateSound(Player player, int tier) {
+        Sound crateSound = tier >= 4 ? Sound.BLOCK_NOTE_BLOCK_BELL : Sound.ENTITY_ITEM_PICKUP;
+        player.playSound(player.getLocation(), crateSound, DEFAULT_VOLUME, DEFAULT_VOLUME + (tier * 0.1f));
+    }
+
+    /**
+     * Sends interactive chat notification with hoverable items
+     */
+    private void sendInteractiveChatNotification(Player player, DropNotificationData data, ItemStack item) {
+        ChatColor[] colors = RARITY_COLORS.getOrDefault(data.rarity, RARITY_COLORS.get("common"));
+        String symbol = RARITY_SYMBOLS.getOrDefault(data.rarity, "◆");
+        String typeSymbol = DROP_TYPE_SYMBOLS.getOrDefault(data.dropType, "");
+
+        if (data.isBossLoot) {
+            sendBossLootNotification(player, data, item);
+        } else {
+            sendRegularDropNotification(player, data, item, colors, typeSymbol);
+        }
+    }
+
+    /**
+     * Sends boss loot notification with special formatting
+     */
+    private void sendBossLootNotification(Player player, DropNotificationData data, ItemStack item) {
+        String bossMessage = ChatColor.GOLD + "👑 " + ChatColor.YELLOW + "You received " +
+                ChatColor.stripColor(data.itemName) + ChatColor.YELLOW + " from the Special Elite!";
+
+        JsonChatComponent message = new JsonChatComponent("");
+        message.addHoverItem(TextUtil.getCenteredMessage(bossMessage), getItemHoverText(item));
+        message.send(player);
+    }
+
+    /**
+     * Sends regular drop notification with interactive hover
+     */
+    private void sendRegularDropNotification(Player player, DropNotificationData data, ItemStack item,
+                                             ChatColor[] colors, String typeSymbol) {
+        JsonChatComponent message = new JsonChatComponent(colors[1] + "➤ " + ChatColor.RESET +
+                data.sourceName + ChatColor.YELLOW + " dropped ");
+
+        String displayText = typeSymbol + " " + data.itemName;
+        message.addHoverItem(displayText, getItemHoverText(item));
+        message.send(player);
+    }
+
+    /**
+     * Extracts hover text from an item for tooltips
+     */
+    private List<String> getItemHoverText(ItemStack item) {
+        List<String> hoverText = new ArrayList<>();
+        ItemMeta meta = item.getItemMeta();
+
+        if (meta != null) {
+            addItemNameToHover(hoverText, meta, item);
+            addItemLoreToHover(hoverText, meta);
+        } else {
+            hoverText.add(ChatColor.WHITE + TextUtil.formatItemName(item.getType().name()));
+        }
+
+        return hoverText;
+    }
+
+    /**
+     * Adds item name to hover text
+     */
+    private void addItemNameToHover(List<String> hoverText, ItemMeta meta, ItemStack item) {
+        if (meta.hasDisplayName()) {
+            hoverText.add(meta.getDisplayName());
+        } else {
+            hoverText.add(ChatColor.WHITE + TextUtil.formatItemName(item.getType().name()));
+        }
+    }
+
+    /**
+     * Adds item lore to hover text
+     */
+    private void addItemLoreToHover(List<String> hoverText, ItemMeta meta) {
+        if (meta.hasLore() && meta.getLore() != null) {
+            hoverText.add("");
+            hoverText.addAll(meta.getLore());
+        }
+    }
+
+    /**
+     * Gets the proper name for a mob without health bar formatting
      */
     private String getProperMobName(LivingEntity livingDamager) {
         try {
-            // First, try to get the original name from CustomMob system
-            if (livingDamager.hasMetadata("type")) {
-                // This is a custom mob - get its proper name from MobManager
-                MobManager mobManager = MobManager.getInstance();
-                if (mobManager != null) {
-                    CustomMob customMob = mobManager.getCustomMob(livingDamager);
-                    if (customMob != null) {
-                        // Get the original name (not health bar)
-                        String originalName = customMob.getOriginalName();
-                        if (originalName != null && !originalName.isEmpty()) {
-                            // Strip color codes and return clean name
-                            return ChatColor.stripColor(originalName);
-                        }
-                    }
-                }
-
-                // Fallback: Use metadata if available
-                String metaName = livingDamager.getMetadata("customName").get(0).asString();
-                if (metaName != null && !metaName.isEmpty()) {
-                    return metaName;
-                }
+            String customMobName = getCustomMobName(livingDamager);
+            if (customMobName != null) {
+                return customMobName;
             }
 
-            // Check for custom name that's not a health bar
-            if (livingDamager.getCustomName() != null) {
-                String customName = livingDamager.getCustomName();
-
-                // If the name contains health bar characters (|) or health indicators,
-                // it's probably a health bar, so fall back to entity type
-                if (!customName.contains("|") && !customName.contains("§a") && !customName.contains("§c")) {
-                    return ChatColor.stripColor(customName);
-                }
+            String customName = getCleanCustomName(livingDamager);
+            if (customName != null) {
+                return customName;
             }
 
-            // Get display name from entity type with proper formatting
-            String entityTypeName = livingDamager.getType().name();
-            return formatEntityTypeName(entityTypeName);
+            return formatEntityTypeName(livingDamager.getType().name());
 
         } catch (Exception e) {
-            // Fallback to entity type if anything goes wrong
             YakRealms.warn("Error getting proper mob name for " + livingDamager.getType() + ": " + e.getMessage());
             return formatEntityTypeName(livingDamager.getType().name());
         }
     }
 
     /**
-     * Format entity type name for display
+     * Gets custom mob name from MobManager system
+     */
+    private String getCustomMobName(LivingEntity livingDamager) {
+        if (!livingDamager.hasMetadata("type")) {
+            return null;
+        }
+
+        MobManager mobManager = MobManager.getInstance();
+        if (mobManager != null) {
+            CustomMob customMob = mobManager.getCustomMob(livingDamager);
+            if (customMob != null) {
+                String originalName = customMob.getOriginalName();
+                if (originalName != null && !originalName.isEmpty()) {
+                    return ChatColor.stripColor(originalName);
+                }
+            }
+        }
+
+        // Fallback to metadata
+        try {
+            String metaName = livingDamager.getMetadata("customName").get(0).asString();
+            if (metaName != null && !metaName.isEmpty()) {
+                return metaName;
+            }
+        } catch (Exception e) {
+            // Ignore metadata errors
+        }
+
+        return null;
+    }
+
+    /**
+     * Gets clean custom name that's not a health bar
+     */
+    private String getCleanCustomName(LivingEntity livingDamager) {
+        String customName = livingDamager.getCustomName();
+        if (customName == null) {
+            return null;
+        }
+
+        // Check if name contains health bar indicators
+        if (customName.contains("|") || customName.contains("§a") || customName.contains("§c")) {
+            return null;
+        }
+
+        return ChatColor.stripColor(customName);
+    }
+
+    /**
+     * Formats entity type name for display
      */
     private String formatEntityTypeName(String entityTypeName) {
-        // Convert WITHER_SKELETON to "Wither Skeleton"
         String formatted = entityTypeName.toLowerCase().replace("_", " ");
-
-        // Capitalize each word
         String[] words = formatted.split(" ");
         StringBuilder result = new StringBuilder();
 
@@ -370,25 +527,7 @@ public class LootNotifier {
     }
 
     /**
-     *  buff end announcement with statistics
-     */
-    public void announceBuffEnd(String playerName, int improvedDrops) {
-        for (Player player : Bukkit.getOnlinePlayers()) {
-            sendBuffEndToPlayer(player, playerName, improvedDrops);
-        }
-    }
-
-    /**
-     *  world boss defeat announcement with improved formatting
-     */
-    public void announceWorldBossDefeat(String bossName, List<Object[]> topDamagers) {
-        for (Player player : Bukkit.getOnlinePlayers()) {
-            sendWorldBossDefeatToPlayer(player, bossName, topDamagers);
-        }
-    }
-
-    /**
-     * Analyzes drop data for  notifications
+     * Analyzes drop data for notifications
      */
     private DropNotificationData analyzeDropNotification(ItemStack item, LivingEntity source, boolean isBossLoot) {
         String itemName = getItemName(item);
@@ -401,7 +540,7 @@ public class LootNotifier {
     }
 
     /**
-     *  item name extraction with color preservation
+     * Extracts item name with color preservation
      */
     private String getItemName(ItemStack item) {
         if (item.getItemMeta() != null && item.getItemMeta().hasDisplayName()) {
@@ -411,32 +550,37 @@ public class LootNotifier {
     }
 
     /**
-     *  source name with improved formatting
+     * Gets source name with tier-based formatting
      */
     private String getSourceName(LivingEntity source) {
         if (source == null) {
             return "Unknown Source";
         }
 
-        // Get tier color
-        int tier = 1;
-        try {
-            if (MobManager.getInstance() != null) {
-                CustomMob customMob = MobManager.getInstance().getCustomMob(source);
-                if (customMob != null) {
-                    tier = customMob.getTier();
-                }
-            }
-        } catch (Exception e) {
-            // Ignore and use default tier
-        }
-
+        int tier = getMobTier(source);
         ChatColor tierColor = TIER_COLORS.getOrDefault(tier, ChatColor.WHITE);
         return tierColor + getProperMobName(source);
     }
 
     /**
-     *  rarity detection from item lore and name
+     * Gets mob tier from MobManager
+     */
+    private int getMobTier(LivingEntity source) {
+        try {
+            if (MobManager.getInstance() != null) {
+                CustomMob customMob = MobManager.getInstance().getCustomMob(source);
+                if (customMob != null) {
+                    return customMob.getTier();
+                }
+            }
+        } catch (Exception e) {
+            // Use default tier on error
+        }
+        return 1;
+    }
+
+    /**
+     * Detects rarity from item lore and name
      */
     private String detectItemRarity(ItemStack item) {
         ItemMeta meta = item.getItemMeta();
@@ -444,31 +588,51 @@ public class LootNotifier {
             return "common";
         }
 
-        // Check lore for rarity
-        if (meta.hasLore()) {
-            List<String> lore = meta.getLore();
-            String lastLine = lore.get(lore.size() - 1);
-            String cleanLine = ChatColor.stripColor(lastLine).toLowerCase();
-
-            if (UNIQUE_PATTERN.matcher(cleanLine).find()) return "unique";
-            if (RARE_PATTERN.matcher(cleanLine).find()) return "rare";
-            if (UNCOMMON_PATTERN.matcher(cleanLine).find()) return "uncommon";
-            if (COMMON_PATTERN.matcher(cleanLine).find()) return "common";
+        String loreRarity = detectRarityFromLore(meta);
+        if (loreRarity != null) {
+            return loreRarity;
         }
 
-        // Check item name colors with Tier 6 support
-        if (meta.hasDisplayName()) {
-            String displayName = meta.getDisplayName();
-            if (displayName.contains(ChatColor.YELLOW.toString()) ||
-                    displayName.contains(ChatColor.GOLD.toString())) return "unique";
-            if (displayName.contains(ChatColor.AQUA.toString()) ||
-                    displayName.contains(ChatColor.DARK_AQUA.toString())) return "rare";
-            if (displayName.contains(ChatColor.GREEN.toString()) ||
-                    displayName.contains(ChatColor.DARK_GREEN.toString())) return "uncommon";
-            // Check for Tier 6 Netherite
-            if (displayName.contains(ChatColor.GOLD.toString()) ||
-                    displayName.toLowerCase().contains("netherite")) return "legendary";
+        return detectRarityFromName(meta);
+    }
+
+    /**
+     * Detects rarity from item lore
+     */
+    private String detectRarityFromLore(ItemMeta meta) {
+        if (!meta.hasLore()) {
+            return null;
         }
+
+        List<String> lore = meta.getLore();
+        String lastLine = lore.get(lore.size() - 1);
+        String cleanLine = ChatColor.stripColor(lastLine).toLowerCase();
+
+        if (UNIQUE_PATTERN.matcher(cleanLine).find()) return "unique";
+        if (RARE_PATTERN.matcher(cleanLine).find()) return "rare";
+        if (UNCOMMON_PATTERN.matcher(cleanLine).find()) return "uncommon";
+        if (COMMON_PATTERN.matcher(cleanLine).find()) return "common";
+
+        return null;
+    }
+
+    /**
+     * Detects rarity from item name colors
+     */
+    private String detectRarityFromName(ItemMeta meta) {
+        if (!meta.hasDisplayName()) {
+            return "common";
+        }
+
+        String displayName = meta.getDisplayName();
+
+        if (displayName.contains(ChatColor.YELLOW.toString()) ||
+                displayName.contains(ChatColor.GOLD.toString())) return "unique";
+        if (displayName.contains(ChatColor.AQUA.toString()) ||
+                displayName.contains(ChatColor.DARK_AQUA.toString())) return "rare";
+        if (displayName.contains(ChatColor.GREEN.toString()) ||
+                displayName.contains(ChatColor.DARK_GREEN.toString())) return "uncommon";
+        if (displayName.toLowerCase().contains("netherite")) return "legendary";
 
         return "common";
     }
@@ -479,34 +643,59 @@ public class LootNotifier {
     private String detectDropType(ItemStack item) {
         String materialName = item.getType().name().toLowerCase();
 
-        if (materialName.contains("sword") || materialName.contains("axe") ||
-                materialName.contains("pickaxe") || materialName.contains("shovel") ||
-                materialName.contains("hoe")) {
-            return "weapon";
-        }
-
-        if (materialName.contains("helmet") || materialName.contains("chestplate") ||
-                materialName.contains("leggings") || materialName.contains("boots")) {
-            return "armor";
-        }
-
-        if (materialName.contains("emerald") || materialName.contains("diamond")) {
-            return "gem";
-        }
-
-        if (materialName.contains("paper") || materialName.contains("map")) {
-            return "scroll";
-        }
-
-        if (materialName.contains("book")) {
-            return "book";
-        }
-
-        if (materialName.contains("chest") || materialName.contains("shulker")) {
-            return "crate";
-        }
+        if (isWeapon(materialName)) return "weapon";
+        if (isArmor(materialName)) return "armor";
+        if (isGem(materialName)) return "gem";
+        if (isScroll(materialName)) return "scroll";
+        if (isBook(materialName)) return "book";
+        if (isCrate(materialName)) return "crate";
 
         return "common";
+    }
+
+    /**
+     * Checks if item is a weapon
+     */
+    private boolean isWeapon(String materialName) {
+        return materialName.contains("sword") || materialName.contains("axe") ||
+                materialName.contains("pickaxe") || materialName.contains("shovel") ||
+                materialName.contains("hoe");
+    }
+
+    /**
+     * Checks if item is armor
+     */
+    private boolean isArmor(String materialName) {
+        return materialName.contains("helmet") || materialName.contains("chestplate") ||
+                materialName.contains("leggings") || materialName.contains("boots");
+    }
+
+    /**
+     * Checks if item is a gem
+     */
+    private boolean isGem(String materialName) {
+        return materialName.contains("emerald") || materialName.contains("diamond");
+    }
+
+    /**
+     * Checks if item is a scroll
+     */
+    private boolean isScroll(String materialName) {
+        return materialName.contains("paper") || materialName.contains("map");
+    }
+
+    /**
+     * Checks if item is a book
+     */
+    private boolean isBook(String materialName) {
+        return materialName.contains("book");
+    }
+
+    /**
+     * Checks if item is a crate
+     */
+    private boolean isCrate(String materialName) {
+        return materialName.contains("chest") || materialName.contains("shulker");
     }
 
     /**
@@ -517,39 +706,64 @@ public class LootNotifier {
     }
 
     /**
-     * Plays  notification effects
+     * Plays notification effects based on rarity
      */
     private void playNotificationEffects(Player player, DropNotificationData data) {
         Sound[] sounds = RARITY_SOUNDS.getOrDefault(data.rarity, RARITY_SOUNDS.get("common"));
         Sound selectedSound = sounds[ThreadLocalRandom.current().nextInt(sounds.length)];
 
-        float volume = data.isHighValue ? 1.5f : 1.0f;
-        float pitch = data.isBossLoot ? 0.8f : 1.0f + (ThreadLocalRandom.current().nextFloat() * 0.4f - 0.2f);
+        float volume = data.isHighValue ? HIGH_VALUE_VOLUME : DEFAULT_VOLUME;
+        float pitch = calculatePitch(data.isBossLoot);
 
         player.playSound(player.getLocation(), selectedSound, volume, pitch);
+    }
+
+    /**
+     * Calculates pitch for sound effects
+     */
+    private float calculatePitch(boolean isBossLoot) {
+        if (isBossLoot) {
+            return BOSS_PITCH;
+        }
+        return DEFAULT_VOLUME + (ThreadLocalRandom.current().nextFloat() * PITCH_VARIANCE - PITCH_OFFSET);
     }
 
     /**
      * Sends special effects for high-value drops
      */
     private void sendSpecialEffects(Player player, DropNotificationData data) {
-        // Particle effects around the player
+        spawnParticleEffects(player);
+        scheduleDelayedSoundEffect(player);
+    }
+
+    /**
+     * Spawns particle effects around the player
+     */
+    private void spawnParticleEffects(Player player) {
         player.getWorld().spawnParticle(
                 Particle.VILLAGER_HAPPY,
-                player.getLocation().add(0, 2, 0),
-                20, 1, 1, 1, 0.1
+                player.getLocation().add(0, PARTICLE_Y_OFFSET, 0),
+                SPECIAL_EFFECT_PARTICLES,
+                PARTICLE_SPREAD,
+                PARTICLE_SPREAD,
+                PARTICLE_SPREAD,
+                PARTICLE_SPEED
         );
+    }
 
-        // Secondary sound effect with delay
+    /**
+     * Schedules delayed sound effect for special drops
+     */
+    private void scheduleDelayedSoundEffect(Player player) {
         new BukkitRunnable() {
             @Override
             public void run() {
                 player.playSound(player.getLocation(), Sound.ENTITY_PLAYER_LEVELUP, 0.5f, 1.5f);
             }
-        }.runTaskLater(YakRealms.getInstance(), 10L);
+        }.runTaskLater(YakRealms.getInstance(), SPECIAL_EFFECT_DELAY_TICKS);
     }
 
-    // FALLBACK METHODS for when JsonChatComponent fails
+    // Fallback methods for when JsonChatComponent fails
 
     private void sendBasicGemNotification(Player player, LivingEntity source, int amount) {
         String sourceName = getSourceName(source);
@@ -567,8 +781,7 @@ public class LootNotifier {
         player.sendMessage(ChatColor.GRAY + "➤ " + sourceName + ChatColor.YELLOW + " dropped " +
                 "📦 " + crateName);
 
-        Sound crateSound = tier >= 4 ? Sound.BLOCK_NOTE_BLOCK_BELL : Sound.ENTITY_ITEM_PICKUP;
-        player.playSound(player.getLocation(), crateSound, 1.0f, 1.0f + (tier * 0.1f));
+        playCrateSound(player, tier);
     }
 
     private void sendBasicBookNotification(Player player, ItemStack book, LivingEntity source, String destinationName) {
@@ -578,104 +791,6 @@ public class LootNotifier {
         player.playSound(player.getLocation(), Sound.ENTITY_PLAYER_LEVELUP, 0.5f, 1.5f);
     }
 
-    /**
-     * Sends buff activation message to a single player
-     */
-    private void sendBuffActivationToPlayer(Player player, String activatorName, int buffRate,
-                                            int eliteBuffRate, int durationMinutes) {
-        player.playSound(player.getLocation(), Sound.ENTITY_PLAYER_LEVELUP, 1.0f, 0.5f);
-
-        //  visual announcement
-        player.sendMessage("");
-        player.sendMessage(TextUtil.getCenteredMessage(
-                ChatColor.GOLD + "✦ " + ChatColor.YELLOW + ChatColor.BOLD + "LOOT BUFF ACTIVATED" +
-                        ChatColor.RESET + " " + ChatColor.GOLD + "✦"
-        ));
-        player.sendMessage(TextUtil.getCenteredMessage(
-                ChatColor.AQUA + activatorName + ChatColor.YELLOW + " activated a server-wide loot buff!"
-        ));
-
-        // Buff details with  formatting
-        player.sendMessage(ChatColor.LIGHT_PURPLE + "    ◆ " + ChatColor.WHITE + "Normal drop rates: " +
-                ChatColor.GREEN + "+" + buffRate + "%");
-        player.sendMessage(ChatColor.LIGHT_PURPLE + "    ◆ " + ChatColor.WHITE + "Elite drop rates: " +
-                ChatColor.GREEN + "+" + eliteBuffRate + "%");
-        player.sendMessage(ChatColor.LIGHT_PURPLE + "    ◆ " + ChatColor.WHITE + "Duration: " +
-                ChatColor.YELLOW + durationMinutes + " minutes");
-        player.sendMessage("");
-        player.sendMessage(TextUtil.getCenteredMessage(
-                ChatColor.GREEN + "Thank you for supporting the server!"
-        ));
-        player.sendMessage("");
-    }
-
-    /**
-     * Sends buff end message to a single player
-     */
-    private void sendBuffEndToPlayer(Player player, String activatorName, int improvedDrops) {
-        player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_CHIME, 1.0f, 1.0f);
-
-        player.sendMessage("");
-        player.sendMessage(TextUtil.getCenteredMessage(
-                ChatColor.RED + "✦ " + ChatColor.YELLOW + ChatColor.BOLD + "LOOT BUFF EXPIRED" +
-                        ChatColor.RESET + " " + ChatColor.RED + "✦"
-        ));
-        player.sendMessage(TextUtil.getCenteredMessage(
-                ChatColor.AQUA + activatorName + ChatColor.YELLOW + "'s loot buff has ended!"
-        ));
-        player.sendMessage(ChatColor.LIGHT_PURPLE + "    ◆ " + ChatColor.WHITE + " drops provided: " +
-                ChatColor.GREEN + improvedDrops);
-        player.sendMessage("");
-    }
-
-    /**
-     * Sends world boss defeat message to a single player
-     */
-    private void sendWorldBossDefeatToPlayer(Player player, String bossName, List<Object[]> topDamagers) {
-        //  sound effects
-        player.playSound(player.getLocation(), Sound.ENTITY_ENDER_DRAGON_DEATH, 1.0f, 1.0f);
-
-        player.sendMessage("");
-        player.sendMessage(TextUtil.getCenteredMessage(
-                ChatColor.GOLD + "👑 " + ChatColor.RED + ChatColor.BOLD + "WORLD BOSS DEFEATED" +
-                        ChatColor.RESET + " " + ChatColor.GOLD + "👑"
-        ));
-        player.sendMessage(TextUtil.getCenteredMessage(
-                ChatColor.YELLOW + bossName + ChatColor.WHITE + " has fallen!"
-        ));
-
-        if (!topDamagers.isEmpty()) {
-            player.sendMessage("");
-            player.sendMessage(ChatColor.GOLD + "⚔ " + ChatColor.YELLOW + "Top Contributors:");
-
-            for (int i = 0; i < Math.min(3, topDamagers.size()); i++) {
-                Object[] entry = topDamagers.get(i);
-                String name = (String) entry[0];
-                int damage = (int) entry[1];
-
-                String rank = switch (i) {
-                    case 0 -> ChatColor.GOLD + "🥇";
-                    case 1 -> ChatColor.GRAY + "🥈";
-                    case 2 -> ChatColor.YELLOW + "🥉";
-                    default -> ChatColor.WHITE.toString() + (i + 1) + ".";
-                };
-
-                player.sendMessage(ChatColor.WHITE + "  " + rank + " " + ChatColor.AQUA + name +
-                        ChatColor.GRAY + " - " + ChatColor.RED + TextUtil.formatNumber(damage) +
-                        " damage");
-            }
-        }
-
-        player.sendMessage("");
-        player.sendMessage(TextUtil.getCenteredMessage(
-                ChatColor.YELLOW + "Legendary loot has been distributed!"
-        ));
-        player.sendMessage("");
-    }
-
-    /**
-     * Fallback basic notification method
-     */
     private void sendBasicNotification(Player player, ItemStack item, LivingEntity source, boolean isBossLoot) {
         String itemName = item.getItemMeta() != null && item.getItemMeta().hasDisplayName()
                 ? item.getItemMeta().getDisplayName()
@@ -694,7 +809,133 @@ public class LootNotifier {
         }
 
         player.sendMessage(message);
-        player.playSound(player.getLocation(), Sound.ENTITY_ITEM_PICKUP, 1.0f, 1.0f);
+        player.playSound(player.getLocation(), Sound.ENTITY_ITEM_PICKUP, DEFAULT_VOLUME, DEFAULT_VOLUME);
+    }
+
+    /**
+     * Sends buff activation message to a single player
+     */
+    private void sendBuffActivationToPlayer(Player player, String activatorName, int buffRate,
+                                            int eliteBuffRate, int durationMinutes) {
+        player.playSound(player.getLocation(), Sound.ENTITY_PLAYER_LEVELUP, DEFAULT_VOLUME, 0.5f);
+
+        player.sendMessage("");
+        player.sendMessage(TextUtil.getCenteredMessage(
+                ChatColor.GOLD + "✦ " + ChatColor.YELLOW + ChatColor.BOLD + "LOOT BUFF ACTIVATED" +
+                        ChatColor.RESET + " " + ChatColor.GOLD + "✦"
+        ));
+        player.sendMessage(TextUtil.getCenteredMessage(
+                ChatColor.AQUA + activatorName + ChatColor.YELLOW + " activated a server-wide loot buff!"
+        ));
+
+        sendBuffDetails(player, buffRate, eliteBuffRate, durationMinutes);
+
+        player.sendMessage("");
+        player.sendMessage(TextUtil.getCenteredMessage(
+                ChatColor.GREEN + "Thank you for supporting the server!"
+        ));
+        player.sendMessage("");
+    }
+
+    /**
+     * Sends buff details to player
+     */
+    private void sendBuffDetails(Player player, int buffRate, int eliteBuffRate, int durationMinutes) {
+        player.sendMessage(ChatColor.LIGHT_PURPLE + "    ◆ " + ChatColor.WHITE + "Normal drop rates: " +
+                ChatColor.GREEN + "+" + buffRate + "%");
+        player.sendMessage(ChatColor.LIGHT_PURPLE + "    ◆ " + ChatColor.WHITE + "Elite drop rates: " +
+                ChatColor.GREEN + "+" + eliteBuffRate + "%");
+        player.sendMessage(ChatColor.LIGHT_PURPLE + "    ◆ " + ChatColor.WHITE + "Duration: " +
+                ChatColor.YELLOW + durationMinutes + " minutes");
+    }
+
+    /**
+     * Sends buff end message to a single player
+     */
+    private void sendBuffEndToPlayer(Player player, String activatorName, int improvedDrops) {
+        player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_CHIME, DEFAULT_VOLUME, DEFAULT_VOLUME);
+
+        player.sendMessage("");
+        player.sendMessage(TextUtil.getCenteredMessage(
+                ChatColor.RED + "✦ " + ChatColor.YELLOW + ChatColor.BOLD + "LOOT BUFF EXPIRED" +
+                        ChatColor.RESET + " " + ChatColor.RED + "✦"
+        ));
+        player.sendMessage(TextUtil.getCenteredMessage(
+                ChatColor.AQUA + activatorName + ChatColor.YELLOW + "'s loot buff has ended!"
+        ));
+        player.sendMessage(TextUtil.getCenteredMessage(ChatColor.LIGHT_PURPLE + "    ◆ " + ChatColor.GRAY + " drops provided: " + ChatColor.GREEN + improvedDrops));
+        player.sendMessage("");
+    }
+
+    /**
+     * Sends world boss defeat message to a single player
+     */
+    private void sendWorldBossDefeatToPlayer(Player player, String bossName, List<Object[]> topDamagers) {
+        player.playSound(player.getLocation(), Sound.ENTITY_ENDER_DRAGON_DEATH, DEFAULT_VOLUME, DEFAULT_VOLUME);
+
+        sendBossDefeatHeader(player, bossName);
+        sendTopContributors(player, topDamagers);
+        sendBossDefeatFooter(player);
+    }
+
+    /**
+     * Sends boss defeat header message
+     */
+    private void sendBossDefeatHeader(Player player, String bossName) {
+        player.sendMessage("");
+        player.sendMessage(TextUtil.getCenteredMessage(
+                ChatColor.GOLD + "👑 " + ChatColor.RED + ChatColor.BOLD + "WORLD BOSS DEFEATED" +
+                        ChatColor.RESET + " " + ChatColor.GOLD + "👑"
+        ));
+        player.sendMessage(TextUtil.getCenteredMessage(
+                ChatColor.YELLOW + bossName + ChatColor.WHITE + " has fallen!"
+        ));
+    }
+
+    /**
+     * Sends top contributors list
+     */
+    private void sendTopContributors(Player player, List<Object[]> topDamagers) {
+        if (topDamagers.isEmpty()) {
+            return;
+        }
+
+        player.sendMessage("");
+        player.sendMessage(ChatColor.GOLD + "⚔ " + ChatColor.YELLOW + "Top Contributors:");
+
+        for (int i = 0; i < Math.min(3, topDamagers.size()); i++) {
+            Object[] entry = topDamagers.get(i);
+            String name = (String) entry[0];
+            int damage = (int) entry[1];
+
+            String rank = getRankSymbol(i);
+            player.sendMessage(ChatColor.WHITE + "  " + rank + " " + ChatColor.AQUA + name +
+                    ChatColor.GRAY + " - " + ChatColor.RED + TextUtil.formatNumber(damage) +
+                    " damage");
+        }
+    }
+
+    /**
+     * Gets rank symbol for contributor position
+     */
+    private String getRankSymbol(int position) {
+        return switch (position) {
+            case 0 -> ChatColor.GOLD + "🥇";
+            case 1 -> ChatColor.GRAY + "🥈";
+            case 2 -> ChatColor.YELLOW + "🥉";
+            default -> ChatColor.WHITE.toString() + (position + 1) + ".";
+        };
+    }
+
+    /**
+     * Sends boss defeat footer message
+     */
+    private void sendBossDefeatFooter(Player player) {
+        player.sendMessage("");
+        player.sendMessage(TextUtil.getCenteredMessage(
+                ChatColor.YELLOW + "Legendary loot has been distributed!"
+        ));
+        player.sendMessage("");
     }
 
     /**
@@ -721,34 +962,5 @@ public class LootNotifier {
         boolean isHighValue() {
             return isHighValue;
         }
-    }
-
-    /**
-     * Sends a custom notification for special events
-     */
-    public void sendCustomNotification(Player player, String title, String message, Sound sound) {
-        if (player == null || !player.isOnline()) return;
-
-        player.sendMessage("");
-        player.sendMessage(TextUtil.getCenteredMessage(ChatColor.GOLD + "✦ " + title + " ✦"));
-        player.sendMessage(TextUtil.getCenteredMessage(message));
-        player.sendMessage("");
-
-        if (sound != null) {
-            player.playSound(player.getLocation(), sound, 1.0f, 1.0f);
-        }
-    }
-
-    /**
-     * Gets notification statistics for debugging
-     */
-    public Map<String, Object> getNotificationStats() {
-        Map<String, Object> stats = new HashMap<>();
-        stats.put("rarityTypes", RARITY_COLORS.size());
-        stats.put("soundMappings", RARITY_SOUNDS.size());
-        stats.put("dropTypes", DROP_TYPE_SYMBOLS.size());
-        stats.put("symbolMappings", RARITY_SYMBOLS.size());
-        stats.put("tierColors", TIER_COLORS.size());
-        return stats;
     }
 }

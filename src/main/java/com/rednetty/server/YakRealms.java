@@ -29,16 +29,11 @@ import com.rednetty.server.mechanics.economy.vendors.VendorSystemInitializer;
 import com.rednetty.server.mechanics.item.Journal;
 import com.rednetty.server.mechanics.item.MenuItemManager;
 import com.rednetty.server.mechanics.item.MenuSystemInitializer;
-import com.rednetty.server.mechanics.item.awakening.AwakeningStoneSystem;
-import com.rednetty.server.mechanics.item.binding.BindingRuneSystem;
-import com.rednetty.server.mechanics.item.corruption.CorruptionSystem;
 import com.rednetty.server.mechanics.item.crates.CrateManager;
 import com.rednetty.server.mechanics.item.drops.DropsHandler;
 import com.rednetty.server.mechanics.item.drops.DropsManager;
 import com.rednetty.server.mechanics.item.drops.buff.LootBuffManager;
 import com.rednetty.server.mechanics.item.drops.glowing.GlowingDropsInitializer;
-import com.rednetty.server.mechanics.item.essence.EssenceCrystalSystem;
-import com.rednetty.server.mechanics.item.forge.ForgeHammerSystem;
 import com.rednetty.server.mechanics.item.orb.OrbManager;
 import com.rednetty.server.mechanics.item.scroll.ScrollManager;
 import com.rednetty.server.mechanics.player.moderation.ModerationMechanics;
@@ -50,7 +45,7 @@ import com.rednetty.server.mechanics.player.mounts.MountManager;
 import com.rednetty.server.mechanics.player.movement.DashMechanics;
 import com.rednetty.server.mechanics.player.social.party.PartyMechanics;
 import com.rednetty.server.mechanics.player.social.trade.TradeManager;
-import com.rednetty.server.mechanics.ui.tab.TabPluginIntegration;
+import com.rednetty.server.mechanics.ui.TabPluginIntegration;
 import com.rednetty.server.mechanics.world.holograms.HologramManager;
 import com.rednetty.server.mechanics.world.lootchests.core.ChestManager;
 import com.rednetty.server.mechanics.world.mobs.MobManager;
@@ -189,11 +184,6 @@ public class YakRealms extends JavaPlugin {
     private OrbManager orbManager;
     private Journal journalSystem;
     private MenuItemManager menuItemManager;
-    private AwakeningStoneSystem awakeningStoneSystem;
-    private BindingRuneSystem bindingRuneSystem;
-    private CorruptionSystem corruptionSystem;
-    private EssenceCrystalSystem essenceCrystalSystem;
-    private ForgeHammerSystem forgeHammerSystem;
 
     // ========================================
     // ECONOMY SYSTEMS (Phase 6)
@@ -568,19 +558,10 @@ public class YakRealms extends JavaPlugin {
         }
     }
 
+    //TODO:REMOVE
     private boolean recoverCombatLogoutMechanics() {
-        try {
-            if (combatLogoutMechanics != null) {
-                combatLogoutMechanics.onDisable();
-            }
-            combatLogoutMechanics = CombatLogoutMechanics.getInstance();
-            combatLogoutMechanics.onEnable();
-            getServer().getPluginManager().registerEvents(combatLogoutMechanics, this);
-            return true;
-        } catch (Exception e) {
-            enhancedLogger.error("Combat Logout Mechanics recovery failed", e);
-            return false;
-        }
+        return true;
+
     }
 
     /**
@@ -785,7 +766,6 @@ public class YakRealms extends JavaPlugin {
             safeInitialize("Death Mechanics", () -> {
                 deathMechanics = new DeathMechanics();
                 deathMechanics.onEnable();
-                getServer().getPluginManager().registerEvents(deathMechanics, this);
                 return true;
             });
 
@@ -932,26 +912,6 @@ public class YakRealms extends JavaPlugin {
                         systemStatuses.put("Menu System", SystemStatus.FAILED);
                     }
                 }, 20L);
-
-                return true;
-            });
-
-            // Enhancement systems
-            safeInitialize("Enhancement Systems", () -> {
-                awakeningStoneSystem = AwakeningStoneSystem.getInstance();
-                awakeningStoneSystem.initialize();
-
-                bindingRuneSystem = BindingRuneSystem.getInstance();
-                bindingRuneSystem.initialize();
-
-                corruptionSystem = CorruptionSystem.getInstance();
-                corruptionSystem.initialize();
-
-                essenceCrystalSystem = EssenceCrystalSystem.getInstance();
-                essenceCrystalSystem.initialize();
-
-                forgeHammerSystem = ForgeHammerSystem.getInstance();
-                forgeHammerSystem.initialize();
 
                 return true;
             });
@@ -1821,11 +1781,6 @@ public class YakRealms extends JavaPlugin {
     public MenuItemManager getMenuItemManager() { return menuItemManager; }
     public TradeManager getTradeManager() { return tradeManager; }
     public TradeListener getTradeListener() { return tradeListener; }
-    public AwakeningStoneSystem getAwakeningStoneSystem() { return awakeningStoneSystem; }
-    public BindingRuneSystem getBindingRuneSystem() { return bindingRuneSystem; }
-    public CorruptionSystem getCorruptionSystem() { return corruptionSystem; }
-    public EssenceCrystalSystem getEssenceCrystalSystem() { return essenceCrystalSystem; }
-    public ForgeHammerSystem getForgeHammerSystem() { return forgeHammerSystem; }
     public AlignmentMechanics getAlignmentMechanics() { return alignmentMechanics; }
     public DeathRemnantManager getDeathRemnantManager() { return deathRemnantManager; }
     public ChatMechanics getChatMechanics() { return chatMechanics; }

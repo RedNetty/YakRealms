@@ -44,6 +44,20 @@ public class ItemAPI {
         keyItemType = new NamespacedKey(plugin, "item_type");
     }
 
+    public static ItemStack setUntradable(ItemStack item){
+        ItemMeta meta = item.getItemMeta();
+
+        List<String> lore = meta.getLore();
+        lore.add("");
+        lore.add(ChatColor.GRAY.toString() + ChatColor.ITALIC + "Untradeable");
+        meta.setLore(lore);
+        item.setItemMeta(meta);
+
+        NBTAccessor nbt = new NBTAccessor(item);
+        nbt.setBoolean("Tradeable", false);
+
+        return nbt.update();
+    }
     /**
      * Get the scroll generator
      *

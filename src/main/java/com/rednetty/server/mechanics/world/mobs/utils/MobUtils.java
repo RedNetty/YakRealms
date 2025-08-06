@@ -259,23 +259,15 @@ public class MobUtils {
         if (elite) {
             return switch (tier) {
                 case 1 -> (int) (baseHealth * 1.8);
-                case 2 -> (int) (baseHealth * 2.5);
-                case 3 -> baseHealth * 3;
-                case 4 -> baseHealth * 5;
-                case 5 -> baseHealth * 6;
-                case 6 -> baseHealth * 8; // T6 Netherite elite multiplier
+                case 2 -> (int) (baseHealth * 1.85);
+                case 3 -> baseHealth * 2;
+                case 4 -> baseHealth * 3;
+                case 5 -> baseHealth * 4;
+                case 6 -> baseHealth * 5; // T6 Netherite elite multiplier
                 default -> baseHealth * 2;
             };
         } else {
-            return switch (tier) {
-                case 1 -> (int) (baseHealth * 0.4);
-                case 2 -> (int) (baseHealth * 0.9);
-                case 3 -> (int) (baseHealth * 1.2);
-                case 4 -> (int) (baseHealth * 1.4);
-                case 5 -> baseHealth * 2;
-                case 6 -> (int) (baseHealth * 3.0); // T6 Netherite multiplier
-                default -> baseHealth;
-            };
+            return baseHealth;
         }
     }
 

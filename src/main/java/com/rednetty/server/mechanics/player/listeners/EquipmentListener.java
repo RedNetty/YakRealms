@@ -1,5 +1,8 @@
 package com.rednetty.server.mechanics.player.listeners;
 
+import com.rednetty.server.YakRealms;
+import com.rednetty.server.mechanics.item.HealthPotion;
+import com.rednetty.server.mechanics.item.scroll.ItemAPI;
 import com.rednetty.server.mechanics.player.YakPlayer;
 import com.rednetty.server.mechanics.player.YakPlayerManager;
 import com.rednetty.server.mechanics.player.settings.Toggles;
@@ -11,6 +14,7 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.event.player.PlayerRespawnEvent;
+import org.bukkit.inventory.ItemFlag;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.PlayerInventory;
 import org.bukkit.inventory.meta.ItemMeta;
@@ -21,8 +25,13 @@ import java.util.List;
 import java.util.Random;
 
 /**
- * Handles equipment-related events including starter kit distribution
- * and equipment upgrades
+ * FIXED EquipmentListener - Properly coordinates with DeathMechanics respawn system
+ *
+ * CRITICAL FIXES:
+ * - Changed timing to run AFTER DeathMechanics completely finishes
+ * - Better detection of when items have been restored vs when starter kit is needed
+ * - Proper coordination to prevent interference with alignment-based death mechanics
+ * - Enhanced logging to debug respawn item restoration vs starter kit provision
  */
 public class EquipmentListener extends BaseListener {
 
@@ -35,21 +44,22 @@ public class EquipmentListener extends BaseListener {
 
     @Override
     public void initialize() {
-        logger.info("Equipment listener initialized");
+        logger.info("FIXED Equipment listener initialized with improved death mechanics coordination");
     }
 
     /**
-     * Provides a starter kit to players based on their settings
-     *
-     * @param player The player to provide kit to
+     * FIXED: Only provide starter kit when appropriate - not during respawn with kept items
      */
     public static void provideStarterKit(Player player) {
+        // Check if kit is disabled
         if (Toggles.isToggled(player, "Disable Kit")) {
             return;
         }
 
         YakPlayer yakPlayer = YakPlayerManager.getInstance().getPlayer(player);
         if (yakPlayer == null) return;
+
+        YakRealms.log("FIXED: Providing starter kit to " + player.getName());
 
         PlayerInventory inventory = player.getInventory();
 
@@ -91,13 +101,6 @@ public class EquipmentListener extends BaseListener {
         // Provide health potion
         inventory.addItem(createHealthPotion());
 
-        // TODO: Add mount/horse system once implemented
-        /* In original code:
-        if (Horses.horseTier.containsKey(player)) {
-            player.getInventory().addItem(Horses.createMount(Horses.horseTier.get(player), false));
-        }
-        */
-
         // Initialize player health
         player.setMaxHealth(50.0);
         player.setHealth(50.0);
@@ -106,105 +109,205 @@ public class EquipmentListener extends BaseListener {
     }
 
     /**
-     * Create a weapon item for the starter kit
+     * CRITICAL FIX: Respawn handler that properly coordinates with DeathMechanics
      *
-     * @param tier The tier level of the weapon
-     * @return The created weapon ItemStack
+     * This now runs AFTER DeathMechanics has completely finished processing,
+     * and only provides starter kit if the player truly has no items.
      */
-    private static ItemStack createWeapon(int tier) {
-        Random random = new Random();
-        int min = random.nextInt(2) + 4 + (tier * 2);
-        int max = random.nextInt(2) + 8 + (tier * 2);
+    @EventHandler(priority = EventPriority.MONITOR) // Monitor priority runs last
+    public void onPlayerRespawn(PlayerRespawnEvent event) {
+        Player player = event.getPlayer();
 
-        Material material = Material.WOODEN_SWORD;
-        String weaponName = "Training Sword";
+        // CRITICAL FIX: Use a shorter delay first to check what DeathMechanics is doing
+        // We'll check at 60L (3 seconds) to see the state after DeathMechanics should have run
+        new BukkitRunnable() {
+            @Override
+            public void run() {
+                if (!player.isOnline()) return;
 
-        ItemStack weapon = new ItemStack(material);
-        ItemMeta weaponMeta = weapon.getItemMeta();
-        weaponMeta.setDisplayName(ChatColor.WHITE + weaponName);
+                YakPlayer yakPlayer = playerManager.getPlayer(player);
+                if (yakPlayer == null) return;
 
-        List<String> weaponLore = new ArrayList<>();
-        weaponLore.add(ChatColor.RED + "DMG: " + min + " - " + max);
-        weaponLore.add(getRarityText(tier));
+                try {
+                    // DEBUG: Check what's happening
+                    boolean hasAnyItems = hasAnyItems(player);
+                    boolean hasSignificantItems = hasSignificantItems(player);
+                    boolean hasRespawnItems = yakPlayer.hasRespawnItems();
 
-        weaponMeta.setLore(weaponLore);
-        weapon.setItemMeta(weaponMeta);
+                    // Get death timestamp to determine if this was a recent death
+                    long deathTimestamp = yakPlayer.getDeathTimestamp();
+                    long timeSinceDeath = deathTimestamp > 0 ?
+                            System.currentTimeMillis() - deathTimestamp : Long.MAX_VALUE;
+                    boolean wasRecentDeath = timeSinceDeath < 60000; // Within last minute
 
-        // Set as untradable
-        // TODO: Implement when ItemAPI is converted
-        // ItemAPI.setUntradeable(weapon);
+                    logger.info("FIXED DEBUG: EquipmentListener check for " + player.getName() +
+                            " - hasAnyItems: " + hasAnyItems +
+                            ", hasSignificantItems: " + hasSignificantItems +
+                            ", hasRespawnItems: " + hasRespawnItems +
+                            ", wasRecentDeath: " + wasRecentDeath +
+                            ", timeSinceDeath: " + (timeSinceDeath/1000) + "s");
 
-        return weapon;
+                    // DEBUG: Log current inventory contents
+                    PlayerInventory inv = player.getInventory();
+                    int itemCount = 0;
+                    int armorCount = 0;
+
+                    for (ItemStack item : inv.getContents()) {
+                        if (item != null && item.getType() != Material.AIR) {
+                            itemCount++;
+                            logger.info("FIXED DEBUG: Inventory item: " + item.getType() + " x" + item.getAmount());
+                        }
+                    }
+
+                    for (ItemStack armor : inv.getArmorContents()) {
+                        if (armor != null && armor.getType() != Material.AIR) {
+                            armorCount++;
+                            logger.info("FIXED DEBUG: Armor item: " + armor.getType());
+                        }
+                    }
+
+                    logger.info("FIXED DEBUG: Current inventory state - " + itemCount + " items, " + armorCount + " armor pieces");
+
+                    // CRITICAL FIX: Only provide starter kit if player has NO items at all
+                    // and this wasn't a recent death (which would have kept items)
+                    if (!hasAnyItems) {
+                        if (wasRecentDeath) {
+                            // Recent death but no items - this might be chaotic alignment
+                            String alignment = yakPlayer.getAlignment();
+                            logger.info("FIXED DEBUG: Recent death with no items for " + player.getName() +
+                                    " (alignment: " + alignment + ") - providing starter kit");
+                        } else {
+                            // No recent death and no items - probably new player or long ago death
+                            logger.info("FIXED DEBUG: No items and no recent death for " + player.getName() +
+                                    " - providing starter kit");
+                        }
+                        provideStarterKit(player);
+                    } else if (!hasSignificantItems && !wasRecentDeath) {
+                        // Has some items but not significant ones, and no recent death
+                        logger.info("FIXED DEBUG: Has minor items but no significant gear for " + player.getName() +
+                                " - providing starter kit");
+                        provideStarterKit(player);
+                    } else {
+                        // Has items, don't give starter kit
+                        logger.info("FIXED DEBUG: Not providing starter kit to " + player.getName() +
+                                " - player has items" + (wasRecentDeath ? " (recent death)" : ""));
+                    }
+
+                } catch (Exception e) {
+                    logger.warning("FIXED DEBUG: Error in respawn processing for " + player.getName() + ": " + e.getMessage());
+                    e.printStackTrace();
+                    // Fallback: provide starter kit on error
+                    provideStarterKit(player);
+                }
+            }
+        }.runTaskLater(plugin, 60L); // CRITICAL FIX: 3 seconds delay to see what DeathMechanics did
     }
 
     /**
-     * Create an armor item for the starter kit
-     *
-     * @param material The armor material
-     * @param tier     The tier level of the armor
-     * @param name     The display name of the armor
-     * @return The created armor ItemStack
+     * FIXED: Check if player has any items in inventory or armor slots
      */
-    private static ItemStack createArmorItem(Material material, int tier, String name) {
-        ItemStack armor = new ItemStack(material);
-        ItemMeta armorMeta = armor.getItemMeta();
-        armorMeta.setDisplayName(ChatColor.WHITE + name);
+    private boolean hasAnyItems(Player player) {
+        PlayerInventory inv = player.getInventory();
 
-        List<String> armorLore = new ArrayList<>();
-        armorLore.add(ChatColor.RED + "ARMOR: " + (tier * 2));
-        armorLore.add(ChatColor.RED + "HP: +" + (tier * 10));
-        armorLore.add(ChatColor.RED + "ENERGY REGEN: +3%");
-        armorLore.add(getRarityText(tier));
-
-        armorMeta.setLore(armorLore);
-        armor.setItemMeta(armorMeta);
-
-        // Set as untradable
-        // TODO: Implement when ItemAPI is converted
-        // ItemAPI.setUntradeable(armor);
-
-        return armor;
-    }
-
-    /**
-     * Create a health potion
-     *
-     * @return The created health potion ItemStack
-     */
-    private static ItemStack createHealthPotion() {
-        ItemStack potion = new ItemStack(Material.POTION);
-        ItemMeta potionMeta = potion.getItemMeta();
-        potionMeta.setDisplayName(ChatColor.GREEN + "Health Potion");
-
-        List<String> potionLore = new ArrayList<>();
-        potionLore.add(ChatColor.RED + "Heals 75 HP");
-        potionLore.add(ChatColor.GRAY + "Untradeable");
-
-        potionMeta.setLore(potionLore);
-        potion.setItemMeta(potionMeta);
-
-        return potion;
-    }
-
-    /**
-     * Get the rarity text for an item based on tier
-     *
-     * @param tier The tier level
-     * @return The formatted rarity text
-     */
-    private static String getRarityText(int tier) {
-        switch (tier) {
-            case 1:
-                return ChatColor.GRAY + "Common";
-            case 2:
-                return ChatColor.GREEN + "Uncommon";
-            case 3:
-                return ChatColor.AQUA + "Rare";
-            case 4:
-                return ChatColor.YELLOW + "Unique";
-            default:
-                return ChatColor.WHITE + "Unknown";
+        // Check main inventory + hotbar
+        for (ItemStack item : inv.getContents()) {
+            if (item != null && item.getType() != Material.AIR && item.getAmount() > 0) {
+                return true;
+            }
         }
+
+        // Check armor slots
+        for (ItemStack armor : inv.getArmorContents()) {
+            if (armor != null && armor.getType() != Material.AIR && armor.getAmount() > 0) {
+                return true;
+            }
+        }
+
+        // Check offhand
+        ItemStack offhand = inv.getItemInOffHand();
+        if (offhand != null && offhand.getType() != Material.AIR && offhand.getAmount() > 0) {
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * FIXED: Check if player has significant items (weapons, armor, valuable items)
+     */
+    private boolean hasSignificantItems(Player player) {
+        PlayerInventory inv = player.getInventory();
+
+        // Check for weapons
+        for (ItemStack item : inv.getContents()) {
+            if (item != null && isWeaponItem(item)) {
+                return true;
+            }
+        }
+
+        // Check for any armor
+        for (ItemStack armor : inv.getArmorContents()) {
+            if (armor != null && armor.getType() != Material.AIR && armor.getAmount() > 0) {
+                return true;
+            }
+        }
+
+        // Check for valuable items (gems, potions, etc.)
+        for (ItemStack item : inv.getContents()) {
+            if (item != null && isValuableItem(item)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Check if an item is a weapon
+     */
+    private boolean isWeaponItem(ItemStack item) {
+        if (item == null || item.getType() == Material.AIR) return false;
+        String typeName = item.getType().name();
+        return typeName.contains("_SWORD") ||
+                typeName.contains("_AXE") ||
+                typeName.contains("_HOE") ||
+                typeName.contains("_SHOVEL") ||
+                typeName.contains("BOW") ||
+                typeName.contains("CROSSBOW") ||
+                typeName.contains("TRIDENT");
+    }
+
+    /**
+     * Check if an item is valuable (should prevent starter kit)
+     */
+    private boolean isValuableItem(ItemStack item) {
+        if (item == null || item.getType() == Material.AIR) return false;
+
+        Material type = item.getType();
+
+        // Gems and valuable materials
+        if (type == Material.EMERALD || type == Material.DIAMOND ||
+                type == Material.GOLD_INGOT || type == Material.IRON_INGOT) {
+            return true;
+        }
+
+        // Potions
+        if (type == Material.POTION || type == Material.SPLASH_POTION ||
+                type == Material.LINGERING_POTION) {
+            return true;
+        }
+
+        // Check for custom items by display name
+        if (item.hasItemMeta() && item.getItemMeta().hasDisplayName()) {
+            String displayName = item.getItemMeta().getDisplayName();
+            return displayName.contains("Legendary") ||
+                    displayName.contains("Epic") ||
+                    displayName.contains("Rare") ||
+                    displayName.contains("Potion") ||
+                    displayName.contains("Orb");
+        }
+
+        return false;
     }
 
     /**
@@ -236,18 +339,88 @@ public class EquipmentListener extends BaseListener {
                 typeName.contains("_SHOVEL");
     }
 
+    // ==================== ITEM CREATION METHODS ====================
+
     /**
-     * Provide starter kit on player respawn
+     * Create a weapon item for the starter kit
      */
-    @EventHandler
-    public void onPlayerRespawn(PlayerRespawnEvent event) {
-        Player player = event.getPlayer();
-        // Delay kit provision to ensure player is fully respawned
-        new BukkitRunnable() {
-            @Override
-            public void run() {
-                provideStarterKit(player);
-            }
-        }.runTaskLater(plugin, 5L);
+    private static ItemStack createWeapon(int tier) {
+        Random random = new Random();
+        int min = random.nextInt(2) + 4 + (tier * 2);
+        int max = random.nextInt(2) + 8 + (tier * 2);
+
+        Material material = Material.WOODEN_SWORD;
+        String weaponName = "Training Sword";
+
+        ItemStack weapon = new ItemStack(material);
+        ItemMeta weaponMeta = weapon.getItemMeta();
+        weaponMeta.setDisplayName(ChatColor.WHITE + weaponName);
+
+        List<String> weaponLore = new ArrayList<>();
+        weaponLore.add(ChatColor.RED + "DMG: " + min + " - " + max);
+        weaponLore.add(getRarityText(tier));
+
+        weaponMeta.setLore(weaponLore);
+        weapon.setItemMeta(weaponMeta);
+
+        weaponMeta.addItemFlags(ItemFlag.HIDE_ENCHANTS);
+
+        // Hide attributes
+        weaponMeta.addItemFlags(ItemFlag.HIDE_ATTRIBUTES);
+        weaponMeta.addItemFlags(ItemFlag.HIDE_UNBREAKABLE);
+        ItemAPI.setUntradable(weapon);
+
+        return weapon;
+    }
+
+    /**
+     * Create an armor item for the starter kit
+     */
+    private static ItemStack createArmorItem(Material material, int tier, String name) {
+        ItemStack armor = new ItemStack(material);
+        ItemMeta armorMeta = armor.getItemMeta();
+        armorMeta.setDisplayName(ChatColor.WHITE + name);
+
+        List<String> armorLore = new ArrayList<>();
+        armorLore.add(ChatColor.RED + "ARMOR: " + (tier * 2));
+        armorLore.add(ChatColor.RED + "HP: +" + (tier * 10));
+        armorLore.add(ChatColor.RED + "ENERGY REGEN: +3%");
+        armorLore.add(getRarityText(tier));
+
+        armorMeta.setLore(armorLore);
+        armor.setItemMeta(armorMeta);
+        armorMeta.addItemFlags(ItemFlag.HIDE_ENCHANTS);
+
+        // Hide attributes
+        armorMeta.addItemFlags(ItemFlag.HIDE_ATTRIBUTES);
+        armorMeta.addItemFlags(ItemFlag.HIDE_UNBREAKABLE);
+        ItemAPI.setUntradable(armor);
+
+        return armor;
+    }
+
+    /**
+     * Create a health potion
+     */
+    private static ItemStack createHealthPotion() {
+        return HealthPotion.getPotionByTier(1);
+    }
+
+    /**
+     * Get the rarity text for an item based on tier
+     */
+    private static String getRarityText(int tier) {
+        switch (tier) {
+            case 1:
+                return ChatColor.GRAY + "Common";
+            case 2:
+                return ChatColor.GREEN + "Uncommon";
+            case 3:
+                return ChatColor.AQUA + "Rare";
+            case 4:
+                return ChatColor.YELLOW + "Unique";
+            default:
+                return ChatColor.WHITE + "Unknown";
+        }
     }
 }

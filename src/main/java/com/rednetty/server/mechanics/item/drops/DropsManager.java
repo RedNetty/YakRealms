@@ -30,37 +30,236 @@ import java.util.concurrent.ThreadLocalRandom;
 import java.util.logging.Logger;
 
 /**
- * Central manager for item drops from mobs and bosses
- * CRITICAL FIX: Properly implements named elite drops from elite_drops.yml
- * MAJOR FIX: Prevents duplicate stats by removing automatic orb application
- * MAJOR FIX: Clean drops with no automatic orb effects
+ * Central manager for item drops from mobs and bosses.
+ *
+ * <p>Key Features:</p>
+ * <ul>
+ *   <li>Elite drop creation from YAML configurations</li>
+ *   <li>Clean stat generation without automatic orb effects</li>
+ *   <li>Tier-based progression system</li>
+ *   <li>Drop protection system</li>
+ *   <li>Rarity-based loot generation</li>
+ * </ul>
+ *
+ * <p>Critical Fixes:</p>
+ * <ul>
+ *   <li>Properly implements named elite drops from elite_drops.yml</li>
+ *   <li>Prevents duplicate stats by removing automatic orb application</li>
+ *   <li>Clean drops with no automatic orb effects</li>
+ * </ul>
+ *
+ * @author YakRealms Team
+ * @version 2.0
+ * @since 1.0
  */
 public class DropsManager {
 
+    // ===== CONSTANTS =====
     private static final int ELEMENTAL_DAMAGE_CHANCE = 3;
 
+    // ===== SINGLETON INSTANCE =====
+    private static volatile DropsManager instance;
+
+    // ===== CORE COMPONENTS =====
+    private final Logger logger;
+    private final YakRealms plugin;
+
+    // ===== MANAGERS AND HANDLERS =====
+    private DropFactory dropFactory;
+    private final LootNotifier lootNotifier;
+    private final LootBuffManager lootBuffManager;
+    private final ConfigManager configManager;
+    private final MobManager mobManager;
+
+    // ===== CALCULATION HELPERS =====
+    private StatCalculator statCalculator;
+    private final ItemBuilder itemBuilder;
+    private final NameProvider nameProvider;
+
+    // ===== PERSISTENT DATA KEYS =====
+    private final NamespacedKey keyRarity;
+    private final NamespacedKey keyTier;
+    private final NamespacedKey keyItemType;
+    private final NamespacedKey keyEliteDrop;
+    private final NamespacedKey keyDropProtection;
+    private final NamespacedKey keyGear;
+
     /**
-     * CRITICAL FIX: Initializes the drops manager with proper configuration loading
+     * Private constructor for singleton pattern.
+     * Initializes all components and configuration keys.
+     */
+    private DropsManager() {
+        this.plugin = YakRealms.getInstance();
+        this.logger = plugin.getLogger();
+
+        // Initialize namespaced keys
+        this.keyRarity = new NamespacedKey(plugin, "item_rarity");
+        this.keyTier = new NamespacedKey(plugin, "item_tier");
+        this.keyItemType = new NamespacedKey(plugin, "item_type");
+        this.keyEliteDrop = new NamespacedKey(plugin, "elite_drop");
+        this.keyDropProtection = new NamespacedKey(plugin, "drop_protection");
+        this.keyGear = new NamespacedKey(plugin, "gear");
+
+        // Initialize components
+        this.lootNotifier = LootNotifier.getInstance();
+        this.lootBuffManager = LootBuffManager.getInstance();
+        this.configManager = ConfigManager.getInstance();
+        this.mobManager = MobManager.getInstance();
+
+        // Initialize calculation helpers
+        this.statCalculator = new StatCalculator();
+        this.itemBuilder = new ItemBuilder();
+        this.nameProvider = new NameProvider();
+    }
+
+    /**
+     * Gets the singleton instance with thread-safe double-checked locking.
+     *
+     * @return The DropsManager singleton instance
+     */
+    public static DropsManager getInstance() {
+        if (instance == null) {
+            synchronized (DropsManager.class) {
+                if (instance == null) {
+                    instance = new DropsManager();
+                }
+            }
+        }
+        return instance;
+    }
+
+    // ===== INITIALIZATION AND LIFECYCLE =====
+
+    /**
+     * Initializes the drops manager with proper configuration loading.
+     * This method sets up all required components and loads elite configurations.
      */
     public void initialize() {
-        // Initialize DropConfig first to load elite configurations
-        DropConfig.initialize();
+        try {
+            // Initialize DropConfig first to load elite configurations
+            DropConfig.initialize();
 
-        configManager.initialize();
-        lootBuffManager.initialize();
-        getDropFactory();
-        DropsHandler.getInstance().initialize();
+            // Initialize other components
+            configManager.initialize();
+            lootBuffManager.initialize();
+            getDropFactory();
+            DropsHandler.getInstance().initialize();
 
-        logger.info("§a[DropsManager] §7Initialized with " + DropConfig.getEliteDropConfigs().size() + " elite configurations");
+            logger.info("§a[DropsManager] §7Initialized with " + DropConfig.getEliteDropConfigs().size() + " elite configurations");
 
-        // Debug: Print loaded elite configurations
-        if (logger.isLoggable(java.util.logging.Level.FINE)) {
-            DropConfig.printEliteConfigurations();
+            // Debug: Print loaded elite configurations
+            if (logger.isLoggable(java.util.logging.Level.FINE)) {
+                DropConfig.printEliteConfigurations();
+            }
+        } catch (Exception e) {
+            logger.severe("§c[DropsManager] Failed to initialize: " + e.getMessage());
+            e.printStackTrace();
         }
     }
 
     /**
-     * CRITICAL FIX: Creates a custom elite drop for a specific mob type with proper YAML usage
+     * Lazy initialization of DropFactory.
+     *
+     * @return The DropFactory instance
+     */
+    public DropFactory getDropFactory() {
+        if (dropFactory == null) {
+            dropFactory = DropFactory.getInstance();
+        }
+        return dropFactory;
+    }
+
+    /**
+     * Clean shutdown when plugin is disabled.
+     * Properly shuts down all managed components.
+     */
+    public void shutdown() {
+        try {
+            DropsHandler.getInstance().shutdown();
+            lootBuffManager.shutdown();
+            configManager.shutdown();
+            logger.info("[DropsManager] has been shut down");
+        } catch (Exception e) {
+            logger.warning("Error during DropsManager shutdown: " + e.getMessage());
+        }
+    }
+
+    // ===== PUBLIC API - DROP CREATION =====
+
+    /**
+     * Creates a drop with the specified tier and item type using random rarity.
+     *
+     * @param tier The tier level (1-6)
+     * @param itemType The item type (1-8)
+     * @return The created ItemStack or null if creation failed
+     */
+    public static ItemStack createDrop(int tier, int itemType) {
+        int rarity = RarityCalculator.determineRarity();
+        return getInstance().createDrop(tier, itemType, rarity);
+    }
+
+    /**
+     * Creates a drop with clean stats (NO automatic orb application).
+     *
+     * @param tier The tier level (1-6)
+     * @param itemType The item type (1-8)
+     * @param rarity The rarity level (1-4)
+     * @return The created ItemStack or null if creation failed
+     */
+    public ItemStack createDrop(int tier, int itemType, int rarity) {
+        // Validate and clamp parameters
+        tier = MathUtils.clamp(tier, 1, 6);
+        itemType = MathUtils.clamp(itemType, 1, 8);
+        rarity = MathUtils.clamp(rarity, 1, 4);
+
+        try {
+            // Get configurations
+            TierConfig tierConfig = DropConfig.getTierConfig(tier);
+            RarityConfig rarityConfig = DropConfig.getRarityConfig(rarity);
+            ItemTypeConfig itemTypeConfig = DropConfig.getItemTypeConfig(itemType);
+
+            if (tierConfig == null || rarityConfig == null || itemTypeConfig == null) {
+                logger.warning("Failed to create drop: Missing configuration for tier=" +
+                        tier + ", rarity=" + rarity + ", itemType=" + itemType);
+                return null;
+            }
+
+            // Create base item
+            ItemStack item = itemBuilder.createBaseItem(tierConfig, itemTypeConfig);
+            if (item == null) {
+                return null;
+            }
+
+            // Build appropriate item type
+            if (ItemTypes.isWeapon(itemType)) {
+                return buildWeaponItem(item, tier, itemType, rarity, rarityConfig);
+            } else {
+                return buildArmorItem(item, tier, itemType, rarity, rarityConfig);
+            }
+        } catch (Exception e) {
+            logger.warning("Error creating drop (T" + tier + " R" + rarity + " I" + itemType + "): " + e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Creates a custom elite drop for a specific mob type.
+     *
+     * @param mobType The mob type identifier
+     * @param itemType The item type (1-8)
+     * @return The created elite ItemStack or null if creation failed
+     */
+    public ItemStack createEliteDrop(String mobType, int itemType) {
+        return createEliteDrop(mobType, itemType, 0);
+    }
+
+    /**
+     * Creates a custom elite drop for a specific mob type with proper YAML usage.
+     *
+     * @param mobType The mob type identifier
+     * @param itemType The item type (1-8)
+     * @param actualMobTier The actual mob tier for fallback calculation
+     * @return The created elite ItemStack or null if creation failed
      */
     public ItemStack createEliteDrop(String mobType, int itemType, int actualMobTier) {
         if (mobType == null || mobType.trim().isEmpty()) {
@@ -99,170 +298,233 @@ public class DropsManager {
         }
     }
 
-    private static final class ItemTypes {
-        static final int STAFF = 1;
-        static final int SPEAR = 2;
-        static final int SWORD = 3;
-        static final int AXE = 4;
-        static final int HELMET = 5;
-        static final int CHESTPLATE = 6;
-        static final int LEGGINGS = 7;
-        static final int BOOTS = 8;
+    // ===== PUBLIC API - DROP MECHANICS =====
 
-        static boolean isWeapon(int itemType) {
-            return itemType >= STAFF && itemType <= AXE;
+    /**
+     * Determines if a mob should drop an item based on tier and elite status.
+     *
+     * @param entity The living entity
+     * @param isElite Whether the mob is elite
+     * @param tier The mob tier
+     * @return true if the mob should drop an item
+     */
+    public boolean shouldDropItem(LivingEntity entity, boolean isElite, int tier) {
+        int baseDropRate = DropConfig.getDropRate(tier);
+        int dropRate = isElite ? DropConfig.getEliteDropRate(tier) : baseDropRate;
+
+        // Apply loot buff if active
+        if (lootBuffManager.isBuffActive()) {
+            int buffPercentage = lootBuffManager.getActiveBuff().getBuffRate();
+            dropRate += (dropRate * buffPercentage / 100);
         }
 
-        static boolean isArmor(int itemType) {
-            return itemType >= HELMET && itemType <= BOOTS;
+        int roll = ThreadLocalRandom.current().nextInt(100);
+        boolean shouldDrop = roll < dropRate;
+
+        // Update buff statistics
+        if (shouldDrop && lootBuffManager.isBuffActive()) {
+            int baseRoll = roll - (baseDropRate * lootBuffManager.getActiveBuff().getBuffRate() / 100);
+            if (baseRoll >= baseDropRate) {
+                lootBuffManager.updateImprovedDrops();
+            }
         }
 
-        static boolean isChestplateOrLeggings(int itemType) {
-            return itemType == CHESTPLATE || itemType == LEGGINGS;
-        }
+        return shouldDrop;
+    }
 
-        static boolean isHelmetOrBoots(int itemType) {
-            return itemType == HELMET || itemType == BOOTS;
-        }
+    // ===== PUBLIC API - DROP PROTECTION =====
 
-        static boolean isStaffOrSpear(int itemType) {
-            return itemType == STAFF || itemType == SPEAR;
+    /**
+     * Register drop protection for an item for a specific player.
+     *
+     * @param item The dropped item
+     * @param playerUuid The player's UUID
+     * @param seconds Protection duration in seconds
+     */
+    public void registerDropProtection(Item item, UUID playerUuid, int seconds) {
+        if (item == null || playerUuid == null) return;
+
+        try {
+            ItemStack itemStack = item.getItemStack();
+            ItemMeta meta = itemStack.getItemMeta();
+
+            if (meta != null) {
+                PersistentDataContainer container = meta.getPersistentDataContainer();
+                container.set(keyDropProtection, PersistentDataType.STRING,
+                        playerUuid.toString() + ":" + (System.currentTimeMillis() + (seconds * 1000L)));
+
+                itemStack.setItemMeta(meta);
+                item.setItemStack(itemStack);
+            }
+
+            item.setUnlimitedLifetime(true);
+        } catch (Exception e) {
+            logger.warning("Failed to register drop protection: " + e.getMessage());
         }
     }
 
-    // ===== SINGLETON INSTANCE =====
-    private static DropsManager instance;
-    private final Logger logger;
-    private final YakRealms plugin;
+    /**
+     * Check if a player has protection for an item.
+     *
+     * @param item The item to check
+     * @param player The player to check
+     * @return true if the player has protection for this item
+     */
+    public boolean hasItemProtection(Item item, Player player) {
+        if (item == null || player == null) return false;
 
-    // Components
-    private DropFactory dropFactory;
-    private final LootNotifier lootNotifier;
-    private final LootBuffManager lootBuffManager;
-    private final ConfigManager configManager;
-    private final MobManager mobManager;
+        try {
+            ItemStack itemStack = item.getItemStack();
+            ItemMeta meta = itemStack.getItemMeta();
 
-    // Calculation helpers
-    private StatCalculator statCalculator;
-    private final ItemBuilder itemBuilder;
-    private final NameProvider nameProvider;
+            if (meta != null) {
+                PersistentDataContainer container = meta.getPersistentDataContainer();
+                if (container.has(keyDropProtection, PersistentDataType.STRING)) {
+                    String data = container.get(keyDropProtection, PersistentDataType.STRING);
+                    if (data != null) {
+                        String[] parts = data.split(":");
+                        if (parts.length == 2) {
+                            UUID protectedUuid = UUID.fromString(parts[0]);
+                            long expiry = Long.parseLong(parts[1]);
+                            return protectedUuid.equals(player.getUniqueId()) && System.currentTimeMillis() < expiry;
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            logger.warning("Error checking item protection: " + e.getMessage());
+        }
 
-    // Keys for persistent data
-    private final NamespacedKey keyRarity;
-    private final NamespacedKey keyTier;
-    private final NamespacedKey keyItemType;
-    private final NamespacedKey keyEliteDrop;
-    private final NamespacedKey keyDropProtection;
-    private final NamespacedKey keyGear;
+        return false;
+    }
+
+    // ===== PUBLIC API - CONFIGURATION =====
 
     /**
-     * Private constructor for singleton pattern
+     * Set the drop rate for a specific tier.
+     *
+     * @param tier The tier level
+     * @param rate The drop rate percentage
      */
-    private DropsManager() {
-        this.plugin = YakRealms.getInstance();
-        this.logger = plugin.getLogger();
+    public void setDropRate(int tier, int rate) {
+        configManager.updateDropRate(tier, rate);
+    }
 
-        // Initialize namespaced keys
-        this.keyRarity = new NamespacedKey(plugin, "item_rarity");
-        this.keyTier = new NamespacedKey(plugin, "item_tier");
-        this.keyItemType = new NamespacedKey(plugin, "item_type");
-        this.keyEliteDrop = new NamespacedKey(plugin, "elite_drop");
-        this.keyDropProtection = new NamespacedKey(plugin, "drop_protection");
-        this.keyGear = new NamespacedKey(plugin, "gear");
+    /**
+     * Get the drop rate for a specific tier.
+     *
+     * @param tier The tier level
+     * @return The drop rate percentage
+     */
+    public int getDropRate(int tier) {
+        return DropConfig.getDropRate(tier);
+    }
 
-        // Initialize components
-        this.lootNotifier = LootNotifier.getInstance();
-        this.lootBuffManager = LootBuffManager.getInstance();
-        this.configManager = ConfigManager.getInstance();
-        this.mobManager = MobManager.getInstance();
+    /**
+     * Set the tier gap multiplier for stat progression.
+     *
+     * @param newMultiplier The new multiplier (must be > 1.0)
+     */
+    public void setTierGapMultiplier(double newMultiplier) {
+        if (newMultiplier <= 1.0) {
+            logger.warning("Tier gap multiplier must be greater than 1.0. Ignoring value: " + newMultiplier);
+            return;
+        }
 
-        // Initialize calculation helpers
+        double oldMultiplier = BaseStats.TIER_GAP_MULTIPLIER;
+        BaseStats.TIER_GAP_MULTIPLIER = newMultiplier;
+
+        // Recreate stat calculator with new multiplier
         this.statCalculator = new StatCalculator();
-        this.itemBuilder = new ItemBuilder();
-        this.nameProvider = new NameProvider();
+
+        logger.info("Updated tier gap multiplier from " + oldMultiplier + " to " + newMultiplier);
+        logTierProgression();
     }
 
     /**
-     * Gets the singleton instance
+     * Get the current tier gap multiplier.
+     *
+     * @return The tier gap multiplier
      */
-    public static DropsManager getInstance() {
-        if (instance == null) {
-            instance = new DropsManager();
-        }
-        return instance;
+    public double getTierGapMultiplier() {
+        return BaseStats.TIER_GAP_MULTIPLIER;
     }
 
     /**
-     * Lazy initialization of DropFactory
+     * Calculate a base tier value using the tier gap multiplier.
+     *
+     * @param baseValue The base value for tier 1
+     * @param tier The target tier
+     * @return The calculated value for the specified tier
      */
-    public DropFactory getDropFactory() {
-        if (dropFactory == null) {
-            dropFactory = DropFactory.getInstance();
-        }
-        return dropFactory;
+    public double getBaseTierValue(double baseValue, int tier) {
+        return baseValue * Math.pow(BaseStats.TIER_GAP_MULTIPLIER, tier - 1);
     }
 
-    /**
-     * Creates a custom elite drop for a specific mob type (backward compatibility)
-     */
-    public ItemStack createEliteDrop(String mobType, int itemType) {
-        return createEliteDrop(mobType, itemType, 0);
-    }
+    // ===== PUBLIC API - AUDIO =====
 
     /**
-     * Clean up when plugin is disabled
+     * Get the appropriate sound for a tier level.
+     *
+     * @param tier The tier level
+     * @return The corresponding Sound
      */
-    public void shutdown() {
-        DropsHandler.getInstance().shutdown();
-        lootBuffManager.shutdown();
-        configManager.shutdown();
-        logger.info("[DropsManager] has been shut down");
-    }
-
-    /**
-     * Creates a drop with the specified tier and item type
-     */
-    public static ItemStack createDrop(int tier, int itemType) {
-        int rarity = determineRarity();
-        return getInstance().createDrop(tier, itemType, rarity);
-    }
-
-    /**
-     * MAJOR FIX: Creates a drop with clean stats (NO automatic orb application)
-     */
-    public ItemStack createDrop(int tier, int itemType, int rarity) {
-        tier = clamp(tier, 1, 6);
-        itemType = clamp(itemType, 1, 8);
-        rarity = clamp(rarity, 1, 4);
-
-        TierConfig tierConfig = DropConfig.getTierConfig(tier);
-        RarityConfig rarityConfig = DropConfig.getRarityConfig(rarity);
-        ItemTypeConfig itemTypeConfig = DropConfig.getItemTypeConfig(itemType);
-
-        if (tierConfig == null || rarityConfig == null || itemTypeConfig == null) {
-            logger.warning("Failed to create drop: Missing configuration for tier=" +
-                    tier + ", rarity=" + rarity + ", itemType=" + itemType);
-            return null;
-        }
-
-        ItemStack item = itemBuilder.createBaseItem(tierConfig, itemTypeConfig);
-        if (item == null) {
-            return null;
-        }
-
-        if (ItemTypes.isWeapon(itemType)) {
-            return buildWeaponItem(item, tier, itemType, rarity, rarityConfig);
-        } else {
-            return buildArmorItem(item, tier, itemType, rarity, rarityConfig);
+    public Sound getTierSound(int tier) {
+        switch (tier) {
+            case 1: return Sound.ENTITY_ITEM_PICKUP;
+            case 2: return Sound.ENTITY_EXPERIENCE_ORB_PICKUP;
+            case 3: return Sound.BLOCK_NOTE_BLOCK_PLING;
+            case 4:
+            case 5:
+            case 6: return Sound.ENTITY_PLAYER_LEVELUP;
+            default: return Sound.ENTITY_ITEM_PICKUP;
         }
     }
 
     /**
-     * Creates a fallback elite drop when no specific config exists
+     * Get the appropriate sound for a rarity level.
+     *
+     * @param rarity The rarity level
+     * @return The corresponding Sound
+     */
+    public Sound getRaritySound(int rarity) {
+        switch (rarity) {
+            case 1: return Sound.ENTITY_ITEM_PICKUP;
+            case 2: return Sound.ENTITY_EXPERIENCE_ORB_PICKUP;
+            case 3: return Sound.BLOCK_NOTE_BLOCK_PLING;
+            case 4: return Sound.ENTITY_ENDER_DRAGON_GROWL;
+            default: return Sound.ENTITY_ITEM_PICKUP;
+        }
+    }
+
+    // ===== PUBLIC API - DEBUG =====
+
+    /**
+     * Log the tier progression for debugging purposes.
+     */
+    public void logTierProgression() {
+        logger.info("=== TIER PROGRESSION (TIER_GAP_MULTIPLIER: " + BaseStats.TIER_GAP_MULTIPLIER + ") ===");
+
+        for (int tier = 1; tier <= 6; tier++) {
+            double armorHP = BaseStats.ARMOR_HP_BASE * Math.pow(BaseStats.TIER_GAP_MULTIPLIER, tier - 1);
+            double minDamage = BaseStats.MIN_DAMAGE_BASE * Math.pow(BaseStats.TIER_GAP_MULTIPLIER, tier - 1);
+            double maxDamage = BaseStats.MAX_DAMAGE_BASE * Math.pow(BaseStats.TIER_GAP_MULTIPLIER, tier - 1);
+
+            logger.info(String.format("Tier %d: HP Base ~%.0f | Damage Base ~%.0f-%.0f",
+                    tier, armorHP, minDamage, maxDamage));
+        }
+
+        logger.info("Note: Actual values vary based on rarity, item type, and random factors");
+    }
+
+    // ===== PRIVATE METHODS - ELITE DROP CREATION =====
+
+    /**
+     * Creates a fallback elite drop when no specific config exists.
      */
     private ItemStack createFallbackEliteDrop(int actualMobTier, int itemType) {
         int tier = (actualMobTier > 0) ? actualMobTier : 3;
-        int rarity = tier >= 5 ? 4 : tier >= 3 ? 3 : 2; //  rarity for elites
+        int rarity = tier >= 5 ? 4 : tier >= 3 ? 3 : 2; // Higher rarity for elites
 
         if (logger.isLoggable(java.util.logging.Level.FINE)) {
             logger.fine("§6[DropsManager] §7Creating fallback elite drop with T" + tier + " R" + rarity);
@@ -272,8 +534,7 @@ public class DropsManager {
     }
 
     /**
-     * CRITICAL FIX: Creates an elite drop based on YAML configuration with damage variation
-     * MAJOR FIX: Now prevents duplicate stats from being added
+     * Creates an elite drop based on YAML configuration with damage variation.
      */
     private ItemStack createConfiguredEliteDrop(EliteDropConfig config, int itemType, String mobType) {
         try {
@@ -281,7 +542,7 @@ public class DropsManager {
             ItemDetails details = config.getItemDetailsForType(itemType);
 
             // Create the base item with proper material
-            Material material = getMaterialForEliteDrop(details, config, itemType);
+            Material material = EliteMaterialResolver.getMaterialForEliteDrop(details, config, itemType, logger);
             ItemStack item = new ItemStack(material);
             ItemMeta meta = item.getItemMeta();
             if (meta == null) {
@@ -290,8 +551,8 @@ public class DropsManager {
             }
 
             // Set the item name from configuration
-            String itemName = details != null ? details.getName() : generateDefaultEliteName(mobType, itemType);
-            ChatColor tierColor = getTierColor(config.getTier());
+            String itemName = details != null ? details.getName() : EliteNameGenerator.generateDefaultEliteName(mobType, itemType);
+            ChatColor tierColor = ColorUtils.getTierColor(config.getTier());
             meta.setDisplayName(tierColor + ChatColor.stripColor(itemName));
 
             // Create lore based on whether it's a weapon or armor
@@ -299,9 +560,9 @@ public class DropsManager {
             boolean isWeapon = ItemTypes.isWeapon(itemType);
 
             if (isWeapon) {
-                buildEliteWeaponLore(lore, config, details, itemType, mobType);
+                EliteLoreBuilder.buildEliteWeaponLore(lore, config, details, itemType, mobType, logger);
             } else {
-                buildEliteArmorLore(lore, config, details, itemType, mobType);
+                EliteLoreBuilder.buildEliteArmorLore(lore, config, details, itemType, mobType, logger);
             }
 
             // Add item lore text if available
@@ -312,7 +573,8 @@ public class DropsManager {
 
             // Add rarity line
             lore.add("");
-            lore.add(getRarityColor(config.getRarity()) + ChatColor.ITALIC.toString() + getRarityText(config.getRarity()));
+            lore.add(ColorUtils.getRarityColor(config.getRarity()) + ChatColor.ITALIC.toString() +
+                    RarityCalculator.getRarityText(config.getRarity()));
 
             // Apply item flags to hide vanilla attributes
             for (ItemFlag flag : ItemFlag.values()) {
@@ -336,11 +598,11 @@ public class DropsManager {
 
             // Apply special effects for T6 Netherite armor
             if (config.getTier() == 6 && !isWeapon && material.toString().contains("NETHERITE")) {
-                item = applyNetheriteGoldTrim(item);
+                item = ArmorTrimApplicator.applyNetheriteGoldTrim(item, logger);
             }
 
             // Add enchantment glow for special elite drops
-            if (isSpecialEliteDrop(mobType)) {
+            if (EliteDropValidator.isSpecialEliteDrop(mobType)) {
                 item.addUnsafeEnchantment(org.bukkit.enchantments.Enchantment.DURABILITY, 1);
             }
 
@@ -358,83 +620,10 @@ public class DropsManager {
         }
     }
 
-    /**
-     * Determines if a mob should drop an item
-     */
-    public boolean shouldDropItem(LivingEntity entity, boolean isElite, int tier) {
-        int baseDropRate = DropConfig.getDropRate(tier);
-        int dropRate = isElite ? DropConfig.getEliteDropRate(tier) : baseDropRate;
-
-        if (lootBuffManager.isBuffActive()) {
-            int buffPercentage = lootBuffManager.getActiveBuff().getBuffRate();
-            dropRate += (dropRate * buffPercentage / 100);
-        }
-
-        int roll = ThreadLocalRandom.current().nextInt(100);
-        boolean shouldDrop = roll < dropRate;
-
-        if (shouldDrop && lootBuffManager.isBuffActive()) {
-            int baseRoll = roll - (baseDropRate * lootBuffManager.getActiveBuff().getBuffRate() / 100);
-            if (baseRoll >= baseDropRate) {
-                lootBuffManager.updateImprovedDrops();
-            }
-        }
-
-        return shouldDrop;
-    }
+    // ===== PRIVATE METHODS - STANDARD DROP BUILDING =====
 
     /**
-     * Register drop protection for an item
-     */
-    public void registerDropProtection(Item item, UUID playerUuid, int seconds) {
-        if (item == null) return;
-
-        ItemStack itemStack = item.getItemStack();
-        ItemMeta meta = itemStack.getItemMeta();
-
-        if (meta != null) {
-            PersistentDataContainer container = meta.getPersistentDataContainer();
-            container.set(keyDropProtection, PersistentDataType.STRING,
-                    playerUuid.toString() + ":" + (System.currentTimeMillis() + (seconds * 1000)));
-
-            itemStack.setItemMeta(meta);
-            item.setItemStack(itemStack);
-        }
-
-        item.setUnlimitedLifetime(true);
-    }
-
-    /**
-     * Check if a player has protection for an item
-     */
-    public boolean hasItemProtection(Item item, Player player) {
-        if (item == null || player == null) return false;
-
-        ItemStack itemStack = item.getItemStack();
-        ItemMeta meta = itemStack.getItemMeta();
-
-        if (meta != null) {
-            PersistentDataContainer container = meta.getPersistentDataContainer();
-            if (container.has(keyDropProtection, PersistentDataType.STRING)) {
-                String data = container.get(keyDropProtection, PersistentDataType.STRING);
-                if (data != null) {
-                    String[] parts = data.split(":");
-                    if (parts.length == 2) {
-                        UUID protectedUuid = UUID.fromString(parts[0]);
-                        long expiry = Long.parseLong(parts[1]);
-                        return protectedUuid.equals(player.getUniqueId()) && System.currentTimeMillis() < expiry;
-                    }
-                }
-            }
-        }
-
-        return false;
-    }
-
-    // ===== PRIVATE HELPER METHODS =====
-
-    /**
-     * MAJOR FIX: Builds a weapon item with appropriate stats and lore (NO automatic orb effects)
+     * Builds a weapon item with appropriate stats and lore (NO automatic orb effects).
      */
     private ItemStack buildWeaponItem(ItemStack item, int tier, int itemType, int rarity, RarityConfig rarityConfig) {
         ItemMeta meta = item.getItemMeta();
@@ -444,13 +633,16 @@ public class DropsManager {
 
         List<String> lore = new ArrayList<>();
 
+        // Add damage stats
         DamageStats damage = statCalculator.calculateWeaponDamage(tier, rarity, itemType);
         lore.add(ChatColor.RED + "DMG: " + damage.getMin() + " - " + damage.getMax());
 
-        addElementalDamageToLore(lore, tier, rarity);
+        // Add elemental damage
+        StandardLoreBuilder.addElementalDamageToLore(lore, tier, rarity);
 
+        // Add special attributes for higher rarities
         if (rarity >= 3) {
-            addWeaponSpecialAttributes(lore, tier, rarity);
+            StandardLoreBuilder.addWeaponSpecialAttributes(lore, tier, rarity);
         }
 
         lore.add(rarityConfig.getFormattedName());
@@ -459,7 +651,7 @@ public class DropsManager {
     }
 
     /**
-     * MAJOR FIX: Builds an armor item with appropriate stats and lore (NO automatic orb effects)
+     * Builds an armor item with appropriate stats and lore (NO automatic orb effects).
      */
     private ItemStack buildArmorItem(ItemStack item, int tier, int itemType, int rarity, RarityConfig rarityConfig) {
         ItemMeta meta = item.getItemMeta();
@@ -469,825 +661,175 @@ public class DropsManager {
 
         List<String> lore = new ArrayList<>();
 
-        addArmorDefenseStat(lore, tier);
+        // Add defense stats
+        StandardLoreBuilder.addArmorDefenseStat(lore, tier);
 
+        // Add HP
         int hp = statCalculator.calculateArmorHP(tier, rarity, itemType);
         lore.add(ChatColor.RED + "HP: +" + hp);
 
-        addArmorRegenStat(lore, tier, hp);
+        // Add regeneration stats
+        StandardLoreBuilder.addArmorRegenStat(lore, tier, hp);
 
+        // Add special attributes for higher rarities
         if (rarity >= 2) {
-            addArmorSpecialAttributes(lore, tier, rarity);
+            StandardLoreBuilder.addArmorSpecialAttributes(lore, tier, rarity);
         }
 
         lore.add(rarityConfig.getFormattedName());
 
         ItemStack finalItem = itemBuilder.finalizeItem(item, meta, lore, tier, itemType, rarity, keyRarity, keyTier, keyItemType);
 
+        // Apply special effects for T6 Netherite armor
         if (tier == 6 && item.getType().toString().contains("NETHERITE")) {
-            finalItem = applyNetheriteGoldTrim(finalItem);
+            finalItem = ArmorTrimApplicator.applyNetheriteGoldTrim(finalItem, logger);
         }
 
-        // MAJOR FIX: Removed automatic orb application - items should have clean stats only
         return finalItem;
     }
 
-    /**
-     * Generate a default elite name if none is configured
-     */
-    private String generateDefaultEliteName(String mobType, int itemType) {
-        String mobName = mobType.substring(0, 1).toUpperCase() + mobType.substring(1);
-        String[] itemTypeNames = {"Staff", "Spear", "Sword", "Axe", "Helmet", "Chestplate", "Leggings", "Boots"};
-        String itemTypeName = itemTypeNames[itemType - 1];
-        return mobName + "'s " + itemTypeName;
-    }
+    // ===== STATIC HELPER CLASSES =====
 
     /**
-     * Get appropriate material for elite drop with better fallback logic
+     * Item type constants and utility methods.
      */
-    private Material getMaterialForEliteDrop(ItemDetails details, EliteDropConfig config, int itemType) {
-        // First try to use the material from item details
-        if (details != null && details.getMaterial() != null) {
-            return details.getMaterial();
+    public static final class ItemTypes {
+        public static final int STAFF = 1;
+        public static final int SPEAR = 2;
+        public static final int SWORD = 3;
+        public static final int AXE = 4;
+        public static final int HELMET = 5;
+        public static final int CHESTPLATE = 6;
+        public static final int LEGGINGS = 7;
+        public static final int BOOTS = 8;
+
+        public static boolean isWeapon(int itemType) {
+            return itemType >= STAFF && itemType <= AXE;
         }
 
-        // Fallback to appropriate material based on tier and item type
-        TierConfig tierConfig = DropConfig.getTierConfig(config.getTier());
-        ItemTypeConfig itemTypeConfig = DropConfig.getItemTypeConfig(itemType);
-
-        if (tierConfig != null && itemTypeConfig != null) {
-            boolean isWeapon = ItemTypes.isWeapon(itemType);
-            String materialPrefix = tierConfig.getMaterialPrefix(isWeapon);
-            String materialSuffix = itemTypeConfig.getMaterialSuffix();
-            String materialName = materialPrefix + "_" + materialSuffix;
-
-            try {
-                return Material.valueOf(materialName);
-            } catch (IllegalArgumentException e) {
-                logger.warning("§c[DropsManager] Invalid material name: " + materialName +
-                        " for " + config.getMobName() + " item " + itemType);
-            }
+        public static boolean isArmor(int itemType) {
+            return itemType >= HELMET && itemType <= BOOTS;
         }
 
-        // Final fallback based on tier
-        return getFallbackMaterialByTier(config.getTier(), itemType);
-    }
+        public static boolean isChestplateOrLeggings(int itemType) {
+            return itemType == CHESTPLATE || itemType == LEGGINGS;
+        }
 
-    /**
-     * Get fallback material based on tier when all else fails
-     */
-    private Material getFallbackMaterialByTier(int tier, int itemType) {
-        String[] tierPrefixes = {"WOODEN", "STONE", "IRON", "DIAMOND", "GOLDEN", "NETHERITE"};
-        String[] weaponSuffixes = {"HOE", "SHOVEL", "SWORD", "AXE"}; // Changed SPADE to SHOVEL
-        String[] armorSuffixes = {"HELMET", "CHESTPLATE", "LEGGINGS", "BOOTS"};
+        public static boolean isHelmetOrBoots(int itemType) {
+            return itemType == HELMET || itemType == BOOTS;
+        }
 
-        String prefix = tier <= 6 ? tierPrefixes[tier - 1] : "STONE";
-
-        if (ItemTypes.isWeapon(itemType)) {
-            String suffix = weaponSuffixes[itemType - 1];
-            try {
-                return Material.valueOf(prefix + "_" + suffix);
-            } catch (IllegalArgumentException e) {
-                return Material.STONE;
-            }
-        } else {
-            String suffix = armorSuffixes[itemType - 5];
-            // Handle leather armor prefix difference
-            if (tier == 1) {
-                prefix = "LEATHER";
-            } else if (tier == 2) {
-                prefix = "CHAINMAIL";
-            }
-
-            try {
-                return Material.valueOf(prefix + "_" + suffix);
-            } catch (IllegalArgumentException e) {
-                return Material.LEATHER_HELMET;
-            }
+        public static boolean isStaffOrSpear(int itemType) {
+            return itemType == STAFF || itemType == SPEAR;
         }
     }
 
     /**
-     * MAJOR FIX: Build elite weapon lore from YAML configuration with damage variation and duplicate prevention
+     * Configuration constants for base stats and calculations.
      */
-    private void buildEliteWeaponLore(List<String> lore, EliteDropConfig config, ItemDetails details, int itemType, String mobType) {
-        try {
-            // Get damage stats from configuration with tier-based variation
-            StatRange damageRange = getStatRange(config, details, "damage", true, itemType);
-            if (damageRange != null) {
-                // Add tier-based variation to the damage range
-                int tierVariation = config.getTier() * 2; // More variation for higher tiers
-                int minDmg = damageRange.getRandomValue();
-                int maxDmg = damageRange.getRandomValue();
+    public static final class BaseStats {
+        public static final int LOW_RARITY_BONUS_MULTIPLIER = 1;
 
-                // Ensure min <= max and add some variation
-                if (minDmg > maxDmg) {
-                    int temp = minDmg;
-                    minDmg = maxDmg;
-                    maxDmg = temp;
-                }
+        public static final double ARMOR_HP_BASE = 30.0;
+        public static final double MIN_DAMAGE_BASE = 5.0;
+        public static final double MAX_DAMAGE_BASE = 6.0;
 
-                // Add tier-based variation to spread the damage range
-                int variation = ThreadLocalRandom.current().nextInt(tierVariation + 1);
-                minDmg = Math.max(1, minDmg - variation);
-                maxDmg = maxDmg + variation;
+        public static final double RARITY_DAMAGE_MODIFIER_BASE = 0.7;
+        public static final double RARITY_DAMAGE_DIVISOR_MIN = 2.35;
+        public static final double RARITY_DAMAGE_DIVISOR_MAX = 2.3;
+        public static final double DAMAGE_VARIANCE_DIVISOR = 4.0;
 
-                lore.add(ChatColor.RED + "DMG: " + minDmg + " - " + maxDmg);
-            } else {
-                //  fallback damage calculation with variation
-                int baseDamage = calculateTierBaseDamage(config.getTier());
-                int rarityMultiplier = getRarityMultiplier(config.getRarity());
-                int minDmg = baseDamage * rarityMultiplier / 100;
-                int maxDmg = (baseDamage * rarityMultiplier / 100) + (baseDamage / 2);
+        public static final double AXE_DAMAGE_MULTIPLIER = 1.2;
+        public static final double STAFF_SPEAR_DAMAGE_DIVISOR = 1.5;
+        public static final double CHESTPLATE_LEGGINGS_HP_MULTIPLIER = 1.2;
+        public static final double HELMET_BOOTS_HP_DIVISOR = 1.5;
 
-                // Add random variation
-                int variation = ThreadLocalRandom.current().nextInt(config.getTier() * 3);
-                minDmg += variation;
-                maxDmg += variation + ThreadLocalRandom.current().nextInt(baseDamage / 4);
+        public static final int TIER_3_PLUS_RARITY_1_BONUS_MAX = 15;
+        public static volatile double TIER_GAP_MULTIPLIER = 2.45;
+        public static final int LOW_RARITY_MAX_BONUS_ROLLS = 2;
 
-                lore.add(ChatColor.RED + "DMG: " + minDmg + " - " + maxDmg);
-            }
+        public static final double HP_REGEN_MIN_PERCENT = 0.19;
+        public static final double HP_REGEN_MAX_PERCENT = 0.21;
+        public static final int MAX_ENERGY_REGEN = 6;
 
-            // Add elemental damage from configuration (with duplicate check)
-            addElementalDamageFromConfig(lore, config, details, itemType);
-
-            // Add special weapon stats from configuration (with duplicate check)
-            addSpecialStatsFromConfig(lore, config, details, true, itemType);
-
-        } catch (Exception e) {
-            logger.warning("§c[DropsManager] Error building elite weapon lore: " + e.getMessage());
-        }
+        public static final double DPS_BASE_MULTIPLIER = 1.7;
+        public static final double DPS_MIN_DIVISOR = 1.5;
     }
 
     /**
-     * Calculate tier-based damage for fallback scenarios
+     * Rarity threshold constants.
      */
-    private int calculateTierBaseDamage(int tier) {
-        switch (tier) {
-            case 1:
-                return 12;
-            case 2:
-                return 28;
-            case 3:
-                return 65;
-            case 4:
-                return 155;
-            case 5:
-                return 370;
-            case 6:
-                return 890;
-            default:
-                return 12;
-        }
-    }
-
-    /**
-     * Get rarity multiplier for damage calculations
-     */
-    private int getRarityMultiplier(int rarity) {
-        switch (rarity) {
-            case 1:
-                return 100; // Common
-            case 2:
-                return 115; // Uncommon
-            case 3:
-                return 125; // Rare
-            case 4:
-                return 140; // Unique
-            default:
-                return 100;
-        }
-    }
-
-    /**
-     * MAJOR FIX: Build elite armor lore from YAML configuration with HP variation and duplicate prevention
-     */
-    private void buildEliteArmorLore(List<String> lore, EliteDropConfig config, ItemDetails details, int itemType, String mobType) {
-        try {
-            // Add DPS or Armor stat
-            StatRange dpsRange = getStatRange(config, details, "dps", false, itemType);
-            StatRange armorRange = getStatRange(config, details, "armor", false, itemType);
-
-            if (dpsRange != null && dpsRange.getMax() > 0) {
-                int dps = dpsRange.getRandomValue();
-                lore.add(ChatColor.RED + "DPS: " + dps + "%");
-            } else if (armorRange != null && armorRange.getMax() > 0) {
-                int armor = armorRange.getRandomValue();
-                lore.add(ChatColor.RED + "ARMOR: " + armor + "%");
-            } else {
-                //  fallback defense stat with variation
-                int defenseStat = config.getTier() * 3 + ThreadLocalRandom.current().nextInt(5);
-                String statType = ThreadLocalRandom.current().nextBoolean() ? "DPS" : "ARMOR";
-                lore.add(ChatColor.RED + statType + ": " + defenseStat + "%");
-            }
-
-            // Add HP from configuration with  variation
-            StatRange hpRange = getArmorSpecificHPRange(config, details, itemType);
-            if (hpRange != null) {
-                int hp = hpRange.getRandomValue();
-                // Add tier-based variation to HP
-                int tierVariation = config.getTier() * 50;
-                int variation = ThreadLocalRandom.current().nextInt(tierVariation + 1);
-                hp += variation;
-                lore.add(ChatColor.RED + "HP: +" + hp);
-            } else {
-                //  fallback HP calculation with variation
-                int hp = calculateFallbackHP(config.getTier(), itemType);
-                // Add random variation
-                int variation = ThreadLocalRandom.current().nextInt(hp / 4);
-                hp += variation;
-                lore.add(ChatColor.RED + "HP: +" + hp);
-            }
-
-            // Add regeneration stats from configuration (with duplicate check)
-            addRegenStatsFromConfig(lore, config, details, itemType);
-
-            // Add special armor stats from configuration (with duplicate check)
-            addSpecialStatsFromConfig(lore, config, details, false, itemType);
-
-        } catch (Exception e) {
-            logger.warning("§c[DropsManager] Error building elite armor lore: " + e.getMessage());
-        }
-    }
-
-    /**
-     * Get armor-specific HP range from configuration
-     */
-    private StatRange getArmorSpecificHPRange(EliteDropConfig config, ItemDetails details, int itemType) {
-        // Check for HP stat with armor piece specificity
-        Map<String, StatRange> armorTypeHPMap = config.getArmorTypeStats().get("hp");
-        if (armorTypeHPMap != null) {
-            String armorPieceName = getArmorPieceName(itemType);
-            if (armorPieceName != null && armorTypeHPMap.containsKey(armorPieceName)) {
-                return armorTypeHPMap.get(armorPieceName);
-            }
-        }
-
-        // Fallback to general HP stat
-        return getStatRange(config, details, "hp", false, itemType);
-    }
-
-    /**
-     * Get armor piece name for HP configuration lookup
-     */
-    private String getArmorPieceName(int itemType) {
-        switch (itemType) {
-            case ItemTypes.HELMET:
-                return "helmet";
-            case ItemTypes.CHESTPLATE:
-                return "chestplate";
-            case ItemTypes.LEGGINGS:
-                return "leggings";
-            case ItemTypes.BOOTS:
-                return "boots";
-            default:
-                return null;
-        }
-    }
-
-    /**
-     * MAJOR FIX: Add elemental damage from elite configuration with duplicate checking
-     */
-    private void addElementalDamageFromConfig(List<String> lore, EliteDropConfig config, ItemDetails details, int itemType) {
-        try {
-            // Check for elemental damage types in weapon stats
-            Map<String, StatRange> weaponStats = config.getWeaponStats();
-
-            String[] elementalTypes = {"fireDamage", "poisonDamage", "iceDamage"};
-            for (String elementType : elementalTypes) {
-                StatRange elementRange = weaponStats.get(elementType);
-                if (elementRange != null && elementRange.getMax() > 0) {
-                    int damage = elementRange.getRandomValue();
-                    String displayName = elementType.replace("Damage", "").toUpperCase() + " DMG";
-                    String statLine = ChatColor.RED + displayName + ": +" + damage;
-
-                    // MAJOR FIX: Check for duplicates before adding
-                    if (!loreContainsElement(lore, displayName)) {
-                        lore.add(statLine);
-                        break; // Only add one elemental type
-                    }
-                }
-            }
-        } catch (Exception e) {
-            logger.warning("§c[DropsManager] Error adding elemental damage from config: " + e.getMessage());
-        }
-    }
-
-    /**
-     * MAJOR FIX: Add regeneration stats from elite configuration with duplicate checking
-     */
-    private void addRegenStatsFromConfig(List<String> lore, EliteDropConfig config, ItemDetails details, int itemType) {
-        try {
-            // Check for energy regen first
-            StatRange energyRange = getStatRange(config, details, "energyRegen", false, itemType);
-            if (energyRange != null && energyRange.getMax() > 0) {
-                int value = energyRange.getRandomValue();
-                if (value > 0) {
-                    String statLine = ChatColor.RED + "ENERGY REGEN: +" + value + "%";
-                    // MAJOR FIX: Check for duplicates before adding
-                    if (!loreContainsElement(lore, "ENERGY REGEN")) {
-                        lore.add(statLine);
-                        return;
-                    }
-                }
-            }
-
-            // Check for HP regen
-            StatRange hpsRange = getStatRange(config, details, "hpsregen", false, itemType);
-            if (hpsRange != null && hpsRange.getMax() > 0) {
-                int value = hpsRange.getRandomValue();
-                if (value > 0) {
-                    String statLine = ChatColor.RED + "HP REGEN: +" + value + "/s";
-                    // MAJOR FIX: Check for duplicates before adding
-                    if (!loreContainsElement(lore, "HP REGEN")) {
-                        lore.add(statLine);
-                    }
-                }
-            }
-        } catch (Exception e) {
-            logger.warning("§c[DropsManager] Error adding regen stats from config: " + e.getMessage());
-        }
-    }
-
-    /**
-     * MAJOR FIX: Add special stats from elite configuration with duplicate checking
-     */
-    private void addSpecialStatsFromConfig(List<String> lore, EliteDropConfig config, ItemDetails details, boolean isWeapon, int itemType) {
-        try {
-            Map<String, StatRange> statsToCheck = isWeapon ? config.getWeaponStats() : config.getArmorStats();
-
-            if (isWeapon) {
-                // Weapon special stats
-                String[] weaponSpecialStats = {"lifeSteal", "criticalHit", "accuracy"};
-                for (String statName : weaponSpecialStats) {
-                    StatRange statRange = statsToCheck.get(statName);
-                    if (statRange != null && statRange.getMax() > 0) {
-                        int value = statRange.getRandomValue();
-                        if (value > 0) {
-                            String displayName = formatStatName(statName);
-                            String suffix = (statName.equals("accuracy") || statName.equals("lifeSteal") || statName.equals("criticalHit")) ? "%" : "";
-                            String statLine = ChatColor.RED + displayName + ": " + value + suffix;
-
-                            // MAJOR FIX: Check for duplicates before adding
-                            if (!loreContainsElement(lore, displayName)) {
-                                lore.add(statLine);
-                            }
-                        }
-                    }
-                }
-            } else {
-                // Armor special stats
-                String[] armorSpecialStats = {"strength", "vitality", "intellect", "dodgeChance", "blockChance"};
-                for (String statName : armorSpecialStats) {
-                    StatRange statRange = getStatRange(config, details, statName, false, itemType);
-                    if (statRange != null && statRange.getMax() > 0) {
-                        int value = statRange.getRandomValue();
-                        if (value > 0) {
-                            String displayName = formatStatName(statName);
-                            String suffix = (statName.contains("Chance")) ? "%" : "";
-                            String statLine = ChatColor.RED + displayName + ": +" + value + suffix;
-
-                            // MAJOR FIX: Check for duplicates before adding
-                            if (!loreContainsElement(lore, displayName)) {
-                                lore.add(statLine);
-                            }
-                        }
-                    }
-                }
-            }
-        } catch (Exception e) {
-            logger.warning("§c[DropsManager] Error adding special stats from config: " + e.getMessage());
-        }
-    }
-
-    /**
-     * Format stat name for display
-     */
-    private String formatStatName(String statName) {
-        switch (statName.toLowerCase()) {
-            case "lifesteal":
-                return "LIFE STEAL";
-            case "criticalhit":
-                return "CRITICAL HIT";
-            case "accuracy":
-                return "ACCURACY";
-            case "strength":
-                return "STR";
-            case "vitality":
-                return "VIT";
-            case "intellect":
-                return "INT";
-            case "dodgechance":
-                return "DODGE";
-            case "blockchance":
-                return "BLOCK";
-            default:
-                return statName.toUpperCase();
-        }
-    }
-
-    /**
-     * Get stat range from configuration with proper fallback logic
-     */
-    private StatRange getStatRange(EliteDropConfig config, ItemDetails details, String statName, boolean isWeapon, int itemType) {
-        try {
-            // Check for override in item details first
-            if (details != null && details.getStatOverride(statName) != null) {
-                return details.getStatOverride(statName);
-            }
-
-            // Check weapon/armor specific ranges
-            if (isWeapon && config.getWeaponStatRange(statName) != null) {
-                return config.getWeaponStatRange(statName);
-            } else if (!isWeapon && config.getArmorStatRange(statName) != null) {
-                return config.getArmorStatRange(statName);
-            }
-
-            // Check common stats
-            if (config.getStatRange(statName) != null) {
-                return config.getStatRange(statName);
-            }
-
-            return null;
-        } catch (Exception e) {
-            logger.warning("§c[DropsManager] Error getting stat range for " + statName + ": " + e.getMessage());
-            return null;
-        }
-    }
-
-    /**
-     * Calculate fallback HP when no configuration exists
-     */
-    private int calculateFallbackHP(int tier, int itemType) {
-        int baseHp;
-        switch (tier) {
-            case 1:
-                baseHp = ThreadLocalRandom.current().nextInt(100, 150);
-                break;
-            case 2:
-                baseHp = ThreadLocalRandom.current().nextInt(250, 500);
-                break;
-            case 3:
-                baseHp = ThreadLocalRandom.current().nextInt(500, 1000);
-                break;
-            case 4:
-                baseHp = ThreadLocalRandom.current().nextInt(1000, 2000);
-                break;
-            case 5:
-                baseHp = ThreadLocalRandom.current().nextInt(2000, 5000);
-                break;
-            case 6:
-                baseHp = ThreadLocalRandom.current().nextInt(4000, 8000);
-                break;
-            default:
-                baseHp = 100;
-        }
-
-        // Adjust for armor piece type
-        return ItemTypes.isChestplateOrLeggings(itemType) ? baseHp : baseHp / 2;
-    }
-
-    /**
-     * Adds DPS or Armor stat to armor lore
-     */
-    private void addArmorDefenseStat(List<String> lore, int tier) {
-        double dpsMax = tier * (1.0 + (tier / BaseStats.DPS_BASE_MULTIPLIER));
-        double dpsMin = dpsMax / BaseStats.DPS_MIN_DIVISOR;
-        int dpsi = (int) dpsMin;
-        int dpsa = (int) dpsMax;
-
-        String statType = ThreadLocalRandom.current().nextInt(2) == 0 ? "DPS" : "ARMOR";
-        lore.add(ChatColor.RED + statType + ": " + dpsi + " - " + dpsa + "%");
-    }
-
-    private boolean isSpecialEliteDrop(String mobType) {
-        return mobType.equalsIgnoreCase("bossSkeletonDungeon") ||
-                mobType.equalsIgnoreCase("frostKing") ||
-                mobType.equalsIgnoreCase("warden") ||
-                mobType.equalsIgnoreCase("apocalypse") ||
-                mobType.equalsIgnoreCase("chronos");
-    }
-
-    /**
-     * Adds elemental damage to weapon lore with configured chance
-     */
-    private void addElementalDamageToLore(List<String> lore, int tier, int rarity) {
-        if (ThreadLocalRandom.current().nextInt(ELEMENTAL_DAMAGE_CHANCE) > 0) {
-            return;
-        }
-
-        String[] elementTypes = {"FIRE DMG", "POISON DMG", "ICE DMG"};
-        String elementName = elementTypes[ThreadLocalRandom.current().nextInt(elementTypes.length)];
-
-        int baseAmount = tier * 5;
-        if (rarity >= 3) baseAmount *= 1.5;
-
-        int amount = ThreadLocalRandom.current().nextInt(baseAmount, baseAmount * 2 + 1);
-        lore.add(ChatColor.RED + elementName + ": +" + amount);
-    }
-
-    public void setTierGapMultiplier(double newMultiplier) {
-        if (newMultiplier <= 1.0) {
-            logger.warning("Tier gap multiplier must be greater than 1.0. Ignoring value: " + newMultiplier);
-            return;
-        }
-
-        double oldMultiplier = BaseStats.TIER_GAP_MULTIPLIER;
-        BaseStats.TIER_GAP_MULTIPLIER = newMultiplier;
-
-        this.statCalculator = new StatCalculator();
-
-        logger.info("Updated tier gap multiplier from " + oldMultiplier + " to " + newMultiplier);
-        logTierProgression();
-    }
-
-    /**
-     * Adds energy or HP regeneration stat to armor lore
-     */
-    private void addArmorRegenStat(List<String> lore, int tier, int hp) {
-        int nrghp = ThreadLocalRandom.current().nextInt(4);
-
-        if (nrghp > 0) {
-            int nrg = tier;
-            int nrgToTake = ThreadLocalRandom.current().nextInt(2);
-            int nrgToGive = ThreadLocalRandom.current().nextInt(3);
-            nrg = nrg - nrgToTake + nrgToGive + (ThreadLocalRandom.current().nextInt(tier) / 2);
-            nrg = clamp(nrg, 1, BaseStats.MAX_ENERGY_REGEN);
-            lore.add(ChatColor.RED + "ENERGY REGEN: +" + nrg + "%");
-        } else {
-            int minHps = Math.max(1, (int) (hp * BaseStats.HP_REGEN_MIN_PERCENT));
-            int maxHps = Math.max(minHps + 1, (int) (hp * BaseStats.HP_REGEN_MAX_PERCENT));
-            int hps = ThreadLocalRandom.current().nextInt(minHps, maxHps);
-            lore.add(ChatColor.RED + "HP REGEN: +" + hps + "/s");
-        }
-    }
-
-    /**
-     * Adds special attributes to weapon lore
-     */
-    private void addWeaponSpecialAttributes(List<String> lore, int tier, int rarity) {
-        String[] weaponAttrs = {"LIFE STEAL", "CRITICAL HIT", "ACCURACY", "PURE DMG"};
-        int numAttributes = Math.min(rarity, 3);
-
-        for (int i = 0; i < numAttributes; i++) {
-            String attr = weaponAttrs[ThreadLocalRandom.current().nextInt(weaponAttrs.length)];
-
-            if (!loreContains(lore, attr)) {
-                switch (attr) {
-                    case "LIFE STEAL":
-                    case "CRITICAL HIT":
-                        int percentage = ThreadLocalRandom.current().nextInt(5, 11) + (rarity >= 3 ? 3 : 0);
-                        lore.add(ChatColor.RED + attr + ": " + percentage + "%");
-                        break;
-                    case "ACCURACY":
-                        int accuracy = ThreadLocalRandom.current().nextInt(15, 25) + (rarity >= 3 ? 10 : 0);
-                        lore.add(ChatColor.RED + attr + ": " + accuracy + "%");
-                        break;
-                    case "PURE DMG":
-                        int pureDmg = ThreadLocalRandom.current().nextInt(tier * 5, tier * 10 + 1);
-                        if (rarity >= 3) pureDmg = (int) (pureDmg * 1.5);
-                        lore.add(ChatColor.RED + attr + ": +" + pureDmg);
-                        break;
-                }
-            }
-        }
-    }
-
-    /**
-     * Adds special attributes to armor lore
-     */
-    private void addArmorSpecialAttributes(List<String> lore, int tier, int rarity) {
-        String[] armorAttrs = {"STR", "DEX", "INT", "VIT", "DODGE", "BLOCK"};
-        int numAttributes = Math.min(rarity, 2);
-
-        for (int i = 0; i < numAttributes; i++) {
-            String attr = armorAttrs[ThreadLocalRandom.current().nextInt(armorAttrs.length)];
-
-            if (!loreContains(lore, attr)) {
-                if (attr.equals("DODGE") || attr.equals("BLOCK")) {
-                    int percentage = ThreadLocalRandom.current().nextInt(5, 10) + (rarity >= 3 ? 3 : 0);
-                    lore.add(ChatColor.RED + attr + ": " + percentage + "%");
-                } else {
-                    int statValue = ThreadLocalRandom.current().nextInt(tier * 20, tier * 40 + 1);
-                    if (rarity >= 3) statValue = (int) (statValue * 1.5);
-                    lore.add(ChatColor.RED + attr + ": +" + statValue);
-                }
-            }
-        }
-    }
-
-    // ===== UTILITY METHODS =====
-
-    private static int clamp(int value, int min, int max) {
-        return Math.max(min, Math.min(max, value));
-    }
-
-    private static int determineRarity() {
-        int roll = ThreadLocalRandom.current().nextInt(100);
-        if (roll < RarityThresholds.UNIQUE_THRESHOLD) return 4;
-        if (roll < RarityThresholds.RARE_THRESHOLD) return 3;
-        if (roll < RarityThresholds.UNCOMMON_THRESHOLD) return 2;
-        return 1;
-    }
-
-    /**
-     * MAJOR FIX:  lore contains check for better duplicate detection
-     */
-    private boolean loreContains(List<String> lore, String attribute) {
-        return lore.stream().anyMatch(line -> ChatColor.stripColor(line).contains(attribute));
-    }
-
-    /**
-     * MAJOR FIX: New method for more precise element checking to prevent duplicates
-     */
-    private boolean loreContainsElement(List<String> lore, String statName) {
-        String normalizedStatName = statName.toLowerCase().trim();
-        return lore.stream().anyMatch(line -> {
-            String cleanLine = ChatColor.stripColor(line).toLowerCase().trim();
-
-            // Check for exact stat name matches
-            if (cleanLine.contains(normalizedStatName)) {
-                return true;
-            }
-
-            // Check for common stat variations
-            switch (normalizedStatName) {
-                case "dmg":
-                case "damage":
-                    return cleanLine.contains("dmg:") || cleanLine.contains("damage:");
-                case "hp":
-                case "health":
-                    return cleanLine.contains("hp:") || cleanLine.contains("health:");
-                case "energy regen":
-                case "energyregen":
-                    return cleanLine.contains("energy regen:") || cleanLine.contains("energy:");
-                case "hp regen":
-                case "hpregen":
-                    return cleanLine.contains("hp regen:") || cleanLine.contains("regen:");
-                case "fire dmg":
-                case "firedamage":
-                    return cleanLine.contains("fire dmg:") || cleanLine.contains("fire:");
-                case "poison dmg":
-                case "poisondamage":
-                    return cleanLine.contains("poison dmg:") || cleanLine.contains("poison:");
-                case "ice dmg":
-                case "icedamage":
-                    return cleanLine.contains("ice dmg:") || cleanLine.contains("ice:");
-                case "dps":
-                    return cleanLine.contains("dps:");
-                case "armor":
-                    return cleanLine.contains("armor:");
-                default:
-                    return false;
-            }
-        });
-    }
-
-    private ChatColor getTierColor(int tier) {
-        switch (tier) {
-            case 1: return ChatColor.WHITE;
-            case 2: return ChatColor.GREEN;
-            case 3: return ChatColor.AQUA;
-            case 4: return ChatColor.LIGHT_PURPLE;
-            case 5: return ChatColor.YELLOW;
-            case 6: return ChatColor.GOLD;
-            default: return ChatColor.WHITE;
-        }
-    }
-
-    private ChatColor getRarityColor(int rarity) {
-        switch (rarity) {
-            case 1: return ChatColor.GRAY;
-            case 2: return ChatColor.GREEN;
-            case 3: return ChatColor.AQUA;
-            case 4: return ChatColor.YELLOW;
-            default: return ChatColor.GRAY;
-        }
-    }
-
-    private String getRarityText(int rarity) {
-        switch (rarity) {
-            case 1: return "Common";
-            case 2: return "Uncommon";
-            case 3: return "Rare";
-            case 4: return "Unique";
-            default: return "Common";
-        }
-    }
-
-    // ===== CONFIGURATION CONSTANTS =====
-    private static final class BaseStats {
-        static final int LOW_RARITY_BONUS_MULTIPLIER = 1;
-
-        static final double ARMOR_HP_BASE = 30.0;
-        static final double MIN_DAMAGE_BASE = 5.0;
-        static final double MAX_DAMAGE_BASE = 6.0;
-
-        static final double RARITY_DAMAGE_MODIFIER_BASE = 0.7;
-        static final double RARITY_DAMAGE_DIVISOR_MIN = 2.35;
-        static final double RARITY_DAMAGE_DIVISOR_MAX = 2.3;
-        static final double DAMAGE_VARIANCE_DIVISOR = 4.0;
-
-        static final double AXE_DAMAGE_MULTIPLIER = 1.2;
-        static final double STAFF_SPEAR_DAMAGE_DIVISOR = 1.5;
-        static final double CHESTPLATE_LEGGINGS_HP_MULTIPLIER = 1.2;
-        static final double HELMET_BOOTS_HP_DIVISOR = 1.5;
-
-        static final int TIER_3_PLUS_RARITY_1_BONUS_MAX = 15;
-        static double TIER_GAP_MULTIPLIER = 2.45;
-        static final int LOW_RARITY_MAX_BONUS_ROLLS = 2;
-
-        static final double HP_REGEN_MIN_PERCENT = 0.19;
-        static final double HP_REGEN_MAX_PERCENT = 0.21;
-        static final int MAX_ENERGY_REGEN = 6;
-
-        static final double DPS_BASE_MULTIPLIER = 1.7;
-        static final double DPS_MIN_DIVISOR = 1.5;
-    }
-
-    private ItemStack applyNetheriteGoldTrim(ItemStack item) {
-        if (item.getItemMeta() instanceof ArmorMeta) {
-            try {
-                ArmorMeta armorMeta = (ArmorMeta) item.getItemMeta();
-                ArmorTrim goldTrim = new ArmorTrim(TrimMaterial.GOLD, TrimPattern.EYE);
-                armorMeta.setTrim(goldTrim);
-                item.setItemMeta(armorMeta);
-                logger.fine("Applied gold trim to netherite armor: " + item.getType());
-            } catch (Exception e) {
-                logger.warning("Failed to apply gold trim to netherite armor: " + e.getMessage());
-            }
-        }
-        return item;
-    }
-
-    // ===== PUBLIC API METHODS =====
-
-    public Sound getTierSound(int tier) {
-        switch (tier) {
-            case 1: return Sound.ENTITY_ITEM_PICKUP;
-            case 2: return Sound.ENTITY_EXPERIENCE_ORB_PICKUP;
-            case 3: return Sound.BLOCK_NOTE_BLOCK_PLING;
-            case 4:
-            case 5:
-            case 6: return Sound.ENTITY_PLAYER_LEVELUP;
-            default: return Sound.ENTITY_ITEM_PICKUP;
-        }
-    }
-
-    public Sound getRaritySound(int rarity) {
-        switch (rarity) {
-            case 1: return Sound.ENTITY_ITEM_PICKUP;
-            case 2: return Sound.ENTITY_EXPERIENCE_ORB_PICKUP;
-            case 3: return Sound.BLOCK_NOTE_BLOCK_PLING;
-            case 4: return Sound.ENTITY_ENDER_DRAGON_GROWL;
-            default: return Sound.ENTITY_ITEM_PICKUP;
-        }
-    }
-
-    public void setDropRate(int tier, int rate) {
-        configManager.updateDropRate(tier, rate);
-    }
-
-    public int getDropRate(int tier) {
-        return DropConfig.getDropRate(tier);
-    }
-
-    public void logTierProgression() {
-        logger.info("=== TIER PROGRESSION (TIER_GAP_MULTIPLIER: " + BaseStats.TIER_GAP_MULTIPLIER + ") ===");
-
-        for (int tier = 1; tier <= 6; tier++) {
-            double armorHP = BaseStats.ARMOR_HP_BASE * Math.pow(BaseStats.TIER_GAP_MULTIPLIER, tier - 1);
-            double minDamage = BaseStats.MIN_DAMAGE_BASE * Math.pow(BaseStats.TIER_GAP_MULTIPLIER, tier - 1);
-            double maxDamage = BaseStats.MAX_DAMAGE_BASE * Math.pow(BaseStats.TIER_GAP_MULTIPLIER, tier - 1);
-
-            logger.info(String.format("Tier %d: HP Base ~%.0f | Damage Base ~%.0f-%.0f",
-                    tier, armorHP, minDamage, maxDamage));
-        }
-
-        logger.info("Note: Actual values vary based on rarity, item type, and random factors");
-    }
-
-    public double getBaseTierValue(double baseValue, int tier) {
-        return baseValue * Math.pow(BaseStats.TIER_GAP_MULTIPLIER, tier - 1);
-    }
-
     private static final class RarityThresholds {
         static final int UNIQUE_THRESHOLD = 2;
         static final int RARE_THRESHOLD = 12;
         static final int UNCOMMON_THRESHOLD = 38;
     }
 
-    public double getTierGapMultiplier() {
-        return BaseStats.TIER_GAP_MULTIPLIER;
-    }
-
     // ===== HELPER CLASSES =====
 
     /**
-     * Handles stat calculations with clear, configurable formulas
+     * Utility class for mathematical operations.
+     */
+    private static final class MathUtils {
+        static int clamp(int value, int min, int max) {
+            return Math.max(min, Math.min(max, value));
+        }
+    }
+
+    /**
+     * Handles rarity calculations and text formatting.
+     */
+    private static final class RarityCalculator {
+        static int determineRarity() {
+            int roll = ThreadLocalRandom.current().nextInt(100);
+            if (roll < RarityThresholds.UNIQUE_THRESHOLD) return 4;
+            if (roll < RarityThresholds.RARE_THRESHOLD) return 3;
+            if (roll < RarityThresholds.UNCOMMON_THRESHOLD) return 2;
+            return 1;
+        }
+
+        static String getRarityText(int rarity) {
+            switch (rarity) {
+                case 1: return "Common";
+                case 2: return "Uncommon";
+                case 3: return "Rare";
+                case 4: return "Unique";
+                default: return "Common";
+            }
+        }
+    }
+
+    /**
+     * Utility class for color operations.
+     */
+    private static final class ColorUtils {
+        static ChatColor getTierColor(int tier) {
+            switch (tier) {
+                case 1: return ChatColor.WHITE;
+                case 2: return ChatColor.GREEN;
+                case 3: return ChatColor.AQUA;
+                case 4: return ChatColor.LIGHT_PURPLE;
+                case 5: return ChatColor.YELLOW;
+                case 6: return ChatColor.GOLD;
+                default: return ChatColor.WHITE;
+            }
+        }
+
+        static ChatColor getRarityColor(int rarity) {
+            switch (rarity) {
+                case 1: return ChatColor.GRAY;
+                case 2: return ChatColor.GREEN;
+                case 3: return ChatColor.AQUA;
+                case 4: return ChatColor.YELLOW;
+                default: return ChatColor.GRAY;
+            }
+        }
+    }
+
+    /**
+     * Handles stat calculations with clear, configurable formulas.
      */
     private static class StatCalculator {
-
         private final ArrayList<Integer> armorBaseValues;
         private final ArrayList<Integer> minDamageValues;
         private final ArrayList<Integer> maxDamageValues;
@@ -1318,6 +860,7 @@ public class DropsManager {
             int min = ThreadLocalRandom.current().nextInt(minRange) + (int) minMin;
             int max = ThreadLocalRandom.current().nextInt(maxRange) + (int) maxMin;
 
+            // Apply rarity bonuses
             if (rarity == 1 && tier >= 3) {
                 min += ThreadLocalRandom.current().nextInt(BaseStats.TIER_3_PLUS_RARITY_1_BONUS_MAX);
                 max += ThreadLocalRandom.current().nextInt(BaseStats.TIER_3_PLUS_RARITY_1_BONUS_MAX) + BaseStats.TIER_3_PLUS_RARITY_1_BONUS_MAX;
@@ -1329,12 +872,14 @@ public class DropsManager {
                 max += bonus;
             }
 
+            // Ensure min <= max
             if (min > max) {
                 int temp = min;
                 min = max;
                 max = temp;
             }
 
+            // Apply item type modifiers
             if (itemType == ItemTypes.AXE) {
                 min = (int) (min * BaseStats.AXE_DAMAGE_MULTIPLIER);
                 max = (int) (max * BaseStats.AXE_DAMAGE_MULTIPLIER);
@@ -1366,10 +911,9 @@ public class DropsManager {
     }
 
     /**
-     * MAJOR FIX: Handles item building and meta application (NO automatic orb effects)
+     * Handles item building and meta application (NO automatic orb effects).
      */
     private static class ItemBuilder {
-
         public ItemStack createBaseItem(TierConfig tierConfig, ItemTypeConfig itemTypeConfig) {
             String materialPrefix = tierConfig.getMaterialPrefix(itemTypeConfig.isWeapon());
             String materialSuffix = itemTypeConfig.getMaterialSuffix();
@@ -1389,12 +933,14 @@ public class DropsManager {
         public ItemStack finalizeItem(ItemStack item, ItemMeta meta, List<String> lore,
                                       int tier, int itemType, int rarity,
                                       NamespacedKey keyRarity, NamespacedKey keyTier, NamespacedKey keyItemType) {
+            // Apply item flags to hide vanilla attributes
             for (ItemFlag flag : ItemFlag.values()) {
                 meta.addItemFlags(flag);
             }
 
             meta.setLore(lore);
 
+            // Store metadata
             PersistentDataContainer container = meta.getPersistentDataContainer();
             container.set(keyRarity, PersistentDataType.INTEGER, rarity);
             container.set(keyTier, PersistentDataType.INTEGER, tier);
@@ -1402,16 +948,14 @@ public class DropsManager {
 
             item.setItemMeta(meta);
 
-            // MAJOR FIX: Removed automatic orb application - returns clean item with finalized stats only
             return item;
         }
     }
 
     /**
-     * Provides item names based on tier and type
+     * Provides item names based on tier and type.
      */
     private static class NameProvider {
-
         private static final String[][] ITEM_NAMES = {
                 {"Staff", "Spear", "Shortsword", "Hatchet", "Leather Coif", "Leather Chestplate", "Leather Leggings", "Leather Boots"},
                 {"Battlestaff", "Halberd", "Broadsword", "Great Axe", "Medium Helmet", "Chainmail", "Chainmail Leggings", "Chainmail Boots"},
@@ -1422,7 +966,7 @@ public class DropsManager {
         private static final String[] ITEM_SUFFIXES = {"Staff", "Polearm", "Sword", "Axe", "Helmet", "Chestplate", "Leggings", "Boots"};
 
         public String getItemName(int itemType, int tier) {
-            ChatColor color = getTierColor(tier);
+            ChatColor color = ColorUtils.getTierColor(tier);
 
             if (tier <= 3) {
                 return color + ITEM_NAMES[tier - 1][itemType - 1];
@@ -1430,22 +974,10 @@ public class DropsManager {
                 return color + TIER_PREFIXES[tier - 1] + " " + ITEM_SUFFIXES[itemType - 1];
             }
         }
-
-        private ChatColor getTierColor(int tier) {
-            switch (tier) {
-                case 1: return ChatColor.WHITE;
-                case 2: return ChatColor.GREEN;
-                case 3: return ChatColor.AQUA;
-                case 4: return ChatColor.LIGHT_PURPLE;
-                case 5: return ChatColor.YELLOW;
-                case 6: return ChatColor.GOLD;
-                default: return ChatColor.WHITE;
-            }
-        }
     }
 
     /**
-     * Simple container for damage stats
+     * Simple container for damage stats.
      */
     private static class DamageStats {
         private final int min;
@@ -1458,5 +990,563 @@ public class DropsManager {
 
         public int getMin() { return min; }
         public int getMax() { return max; }
+    }
+
+    // ===== UTILITY CLASSES FOR ELITE DROPS =====
+
+    /**
+     * Validates elite drop configurations and types.
+     */
+    private static final class EliteDropValidator {
+        static boolean isSpecialEliteDrop(String mobType) {
+            return mobType.equalsIgnoreCase("bossSkeletonDungeon") ||
+                    mobType.equalsIgnoreCase("frostKing") ||
+                    mobType.equalsIgnoreCase("warden") ||
+                    mobType.equalsIgnoreCase("apocalypse") ||
+                    mobType.equalsIgnoreCase("chronos");
+        }
+    }
+
+    /**
+     * Generates default names for elite drops.
+     */
+    private static final class EliteNameGenerator {
+        static String generateDefaultEliteName(String mobType, int itemType) {
+            String mobName = mobType.substring(0, 1).toUpperCase() + mobType.substring(1);
+            String[] itemTypeNames = {"Staff", "Spear", "Sword", "Axe", "Helmet", "Chestplate", "Leggings", "Boots"};
+            String itemTypeName = itemTypeNames[itemType - 1];
+            return mobName + "'s " + itemTypeName;
+        }
+    }
+
+    /**
+     * Resolves materials for elite drops with fallback logic.
+     */
+    private static final class EliteMaterialResolver {
+        static Material getMaterialForEliteDrop(ItemDetails details, EliteDropConfig config, int itemType, Logger logger) {
+            // First try to use the material from item details
+            if (details != null && details.getMaterial() != null) {
+                return details.getMaterial();
+            }
+
+            // Fallback to appropriate material based on tier and item type
+            TierConfig tierConfig = DropConfig.getTierConfig(config.getTier());
+            ItemTypeConfig itemTypeConfig = DropConfig.getItemTypeConfig(itemType);
+
+            if (tierConfig != null && itemTypeConfig != null) {
+                boolean isWeapon = ItemTypes.isWeapon(itemType);
+                String materialPrefix = tierConfig.getMaterialPrefix(isWeapon);
+                String materialSuffix = itemTypeConfig.getMaterialSuffix();
+                String materialName = materialPrefix + "_" + materialSuffix;
+
+                try {
+                    return Material.valueOf(materialName);
+                } catch (IllegalArgumentException e) {
+                    logger.warning("§c[DropsManager] Invalid material name: " + materialName +
+                            " for " + config.getMobName() + " item " + itemType);
+                }
+            }
+
+            // Final fallback based on tier
+            return getFallbackMaterialByTier(config.getTier(), itemType);
+        }
+
+        private static Material getFallbackMaterialByTier(int tier, int itemType) {
+            String[] tierPrefixes = {"WOODEN", "STONE", "IRON", "DIAMOND", "GOLDEN", "NETHERITE"};
+            String[] weaponSuffixes = {"HOE", "SHOVEL", "SWORD", "AXE"};
+            String[] armorSuffixes = {"HELMET", "CHESTPLATE", "LEGGINGS", "BOOTS"};
+
+            String prefix = tier <= 6 ? tierPrefixes[tier - 1] : "STONE";
+
+            if (ItemTypes.isWeapon(itemType)) {
+                String suffix = weaponSuffixes[itemType - 1];
+                try {
+                    return Material.valueOf(prefix + "_" + suffix);
+                } catch (IllegalArgumentException e) {
+                    return Material.STONE;
+                }
+            } else {
+                String suffix = armorSuffixes[itemType - 5];
+                // Handle leather armor prefix difference
+                if (tier == 1) {
+                    prefix = "LEATHER";
+                } else if (tier == 2) {
+                    prefix = "CHAINMAIL";
+                }
+
+                try {
+                    return Material.valueOf(prefix + "_" + suffix);
+                } catch (IllegalArgumentException e) {
+                    return Material.LEATHER_HELMET;
+                }
+            }
+        }
+    }
+
+    /**
+     * Applies armor trims to special items.
+     */
+    private static final class ArmorTrimApplicator {
+        static ItemStack applyNetheriteGoldTrim(ItemStack item, Logger logger) {
+            if (item.getItemMeta() instanceof ArmorMeta) {
+                try {
+                    ArmorMeta armorMeta = (ArmorMeta) item.getItemMeta();
+                    ArmorTrim goldTrim = new ArmorTrim(TrimMaterial.GOLD, TrimPattern.EYE);
+                    armorMeta.setTrim(goldTrim);
+                    item.setItemMeta(armorMeta);
+                    logger.fine("Applied gold trim to netherite armor: " + item.getType());
+                } catch (Exception e) {
+                    logger.warning("Failed to apply gold trim to netherite armor: " + e.getMessage());
+                }
+            }
+            return item;
+        }
+    }
+
+    /**
+     * Builds lore for elite items from YAML configuration.
+     */
+    private static final class EliteLoreBuilder {
+        static void buildEliteWeaponLore(List<String> lore, EliteDropConfig config, ItemDetails details, int itemType, String mobType, Logger logger) {
+            try {
+                // Get damage stats from configuration with tier-based variation
+                StatRange damageRange = getStatRange(config, details, "damage", true, itemType);
+                if (damageRange != null) {
+                    // Add tier-based variation to the damage range
+                    int tierVariation = config.getTier() * 2;
+                    int minDmg = damageRange.getRandomValue();
+                    int maxDmg = damageRange.getRandomValue();
+
+                    // Ensure min <= max and add some variation
+                    if (minDmg > maxDmg) {
+                        int temp = minDmg;
+                        minDmg = maxDmg;
+                        maxDmg = temp;
+                    }
+
+                    // Add tier-based variation to spread the damage range
+                    int variation = ThreadLocalRandom.current().nextInt(tierVariation + 1);
+                    minDmg = Math.max(1, minDmg - variation);
+                    maxDmg = maxDmg + variation;
+
+                    lore.add(ChatColor.RED + "DMG: " + minDmg + " - " + maxDmg);
+                } else {
+                    // Smart fallback damage calculation with variation
+                    int baseDamage = calculateTierBaseDamage(config.getTier());
+                    int rarityMultiplier = getRarityMultiplier(config.getRarity());
+                    int minDmg = baseDamage * rarityMultiplier / 100;
+                    int maxDmg = (baseDamage * rarityMultiplier / 100) + (baseDamage / 2);
+
+                    // Add random variation
+                    int variation = ThreadLocalRandom.current().nextInt(config.getTier() * 3);
+                    minDmg += variation;
+                    maxDmg += variation + ThreadLocalRandom.current().nextInt(baseDamage / 4);
+
+                    lore.add(ChatColor.RED + "DMG: " + minDmg + " - " + maxDmg);
+                }
+
+                // Add elemental damage and special stats with duplicate checking
+                addElementalDamageFromConfig(lore, config, details, itemType);
+                addSpecialStatsFromConfig(lore, config, details, true, itemType);
+
+            } catch (Exception e) {
+                logger.warning("§c[DropsManager] Error building elite weapon lore: " + e.getMessage());
+            }
+        }
+
+        static void buildEliteArmorLore(List<String> lore, EliteDropConfig config, ItemDetails details, int itemType, String mobType, Logger logger) {
+            try {
+                // Add DPS or Armor stat
+                StatRange dpsRange = getStatRange(config, details, "dps", false, itemType);
+                StatRange armorRange = getStatRange(config, details, "armor", false, itemType);
+
+                if (dpsRange != null && dpsRange.getMax() > 0) {
+                    int dps = dpsRange.getRandomValue();
+                    lore.add(ChatColor.RED + "DPS: " + dps + "%");
+                } else if (armorRange != null && armorRange.getMax() > 0) {
+                    int armor = armorRange.getRandomValue();
+                    lore.add(ChatColor.RED + "ARMOR: " + armor + "%");
+                } else {
+                    // Smart fallback defense stat with variation
+                    int defenseStat = config.getTier() * 3 + ThreadLocalRandom.current().nextInt(5);
+                    String statType = ThreadLocalRandom.current().nextBoolean() ? "DPS" : "ARMOR";
+                    lore.add(ChatColor.RED + statType + ": " + defenseStat + "%");
+                }
+
+                // Add HP with variation
+                StatRange hpRange = getArmorSpecificHPRange(config, details, itemType);
+                if (hpRange != null) {
+                    int hp = hpRange.getRandomValue();
+                    // Add tier-based variation to HP
+                    int tierVariation = config.getTier() * 50;
+                    int variation = ThreadLocalRandom.current().nextInt(tierVariation + 1);
+                    hp += variation;
+                    lore.add(ChatColor.RED + "HP: +" + hp);
+                } else {
+                    // Smart fallback HP calculation with variation
+                    int hp = calculateFallbackHP(config.getTier(), itemType);
+                    // Add random variation
+                    int variation = ThreadLocalRandom.current().nextInt(hp / 4);
+                    hp += variation;
+                    lore.add(ChatColor.RED + "HP: +" + hp);
+                }
+
+                // Add regeneration and special stats with duplicate checking
+                addRegenStatsFromConfig(lore, config, details, itemType);
+                addSpecialStatsFromConfig(lore, config, details, false, itemType);
+
+            } catch (Exception e) {
+                logger.warning("§c[DropsManager] Error building elite armor lore: " + e.getMessage());
+            }
+        }
+
+        private static StatRange getStatRange(EliteDropConfig config, ItemDetails details, String statName, boolean isWeapon, int itemType) {
+            try {
+                // Check for override in item details first
+                if (details != null && details.getStatOverride(statName) != null) {
+                    return details.getStatOverride(statName);
+                }
+
+                // Check weapon/armor specific ranges
+                if (isWeapon && config.getWeaponStatRange(statName) != null) {
+                    return config.getWeaponStatRange(statName);
+                } else if (!isWeapon && config.getArmorStatRange(statName) != null) {
+                    return config.getArmorStatRange(statName);
+                }
+
+                // Check common stats
+                if (config.getStatRange(statName) != null) {
+                    return config.getStatRange(statName);
+                }
+
+                return null;
+            } catch (Exception e) {
+                return null;
+            }
+        }
+
+        private static StatRange getArmorSpecificHPRange(EliteDropConfig config, ItemDetails details, int itemType) {
+            // Check for HP stat with armor piece specificity
+            Map<String, StatRange> armorTypeHPMap = config.getArmorTypeStats().get("hp");
+            if (armorTypeHPMap != null) {
+                String armorPieceName = getArmorPieceName(itemType);
+                if (armorPieceName != null && armorTypeHPMap.containsKey(armorPieceName)) {
+                    return armorTypeHPMap.get(armorPieceName);
+                }
+            }
+
+            // Fallback to general HP stat
+            return getStatRange(config, details, "hp", false, itemType);
+        }
+
+        private static String getArmorPieceName(int itemType) {
+            switch (itemType) {
+                case ItemTypes.HELMET: return "helmet";
+                case ItemTypes.CHESTPLATE: return "chestplate";
+                case ItemTypes.LEGGINGS: return "leggings";
+                case ItemTypes.BOOTS: return "boots";
+                default: return null;
+            }
+        }
+
+        private static void addElementalDamageFromConfig(List<String> lore, EliteDropConfig config, ItemDetails details, int itemType) {
+            try {
+                Map<String, StatRange> weaponStats = config.getWeaponStats();
+                String[] elementalTypes = {"fireDamage", "poisonDamage", "iceDamage"};
+
+                for (String elementType : elementalTypes) {
+                    StatRange elementRange = weaponStats.get(elementType);
+                    if (elementRange != null && elementRange.getMax() > 0) {
+                        int damage = elementRange.getRandomValue();
+                        String displayName = elementType.replace("Damage", "").toUpperCase() + " DMG";
+                        String statLine = ChatColor.RED + displayName + ": +" + damage;
+
+                        if (!LoreUtils.loreContainsElement(lore, displayName)) {
+                            lore.add(statLine);
+                            break; // Only add one elemental type
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                // Silently handle errors
+            }
+        }
+
+        private static void addRegenStatsFromConfig(List<String> lore, EliteDropConfig config, ItemDetails details, int itemType) {
+            try {
+                // Check for energy regen first
+                StatRange energyRange = getStatRange(config, details, "energyRegen", false, itemType);
+                if (energyRange != null && energyRange.getMax() > 0) {
+                    int value = energyRange.getRandomValue();
+                    if (value > 0) {
+                        String statLine = ChatColor.RED + "ENERGY REGEN: +" + value + "%";
+                        if (!LoreUtils.loreContainsElement(lore, "ENERGY REGEN")) {
+                            lore.add(statLine);
+                            return;
+                        }
+                    }
+                }
+
+                // Check for HP regen
+                StatRange hpsRange = getStatRange(config, details, "hpsregen", false, itemType);
+                if (hpsRange != null && hpsRange.getMax() > 0) {
+                    int value = hpsRange.getRandomValue();
+                    if (value > 0) {
+                        String statLine = ChatColor.RED + "HP REGEN: +" + value + "/s";
+                        if (!LoreUtils.loreContainsElement(lore, "HP REGEN")) {
+                            lore.add(statLine);
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                // Silently handle errors
+            }
+        }
+
+        private static void addSpecialStatsFromConfig(List<String> lore, EliteDropConfig config, ItemDetails details, boolean isWeapon, int itemType) {
+            try {
+                Map<String, StatRange> statsToCheck = isWeapon ? config.getWeaponStats() : config.getArmorStats();
+
+                if (isWeapon) {
+                    // Weapon special stats
+                    String[] weaponSpecialStats = {"lifeSteal", "criticalHit", "accuracy"};
+                    for (String statName : weaponSpecialStats) {
+                        StatRange statRange = statsToCheck.get(statName);
+                        if (statRange != null && statRange.getMax() > 0) {
+                            int value = statRange.getRandomValue();
+                            if (value > 0) {
+                                String displayName = formatStatName(statName);
+                                String suffix = (statName.equals("accuracy") || statName.equals("lifeSteal") || statName.equals("criticalHit")) ? "%" : "";
+                                String statLine = ChatColor.RED + displayName + ": " + value + suffix;
+
+                                if (!LoreUtils.loreContainsElement(lore, displayName)) {
+                                    lore.add(statLine);
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    // Armor special stats
+                    String[] armorSpecialStats = {"strength", "vitality", "intellect", "dodgeChance", "blockChance"};
+                    for (String statName : armorSpecialStats) {
+                        StatRange statRange = getStatRange(config, details, statName, false, itemType);
+                        if (statRange != null && statRange.getMax() > 0) {
+                            int value = statRange.getRandomValue();
+                            if (value > 0) {
+                                String displayName = formatStatName(statName);
+                                String suffix = (statName.contains("Chance")) ? "%" : "";
+                                String statLine = ChatColor.RED + displayName + ": +" + value + suffix;
+
+                                if (!LoreUtils.loreContainsElement(lore, displayName)) {
+                                    lore.add(statLine);
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                // Silently handle errors
+            }
+        }
+
+        private static String formatStatName(String statName) {
+            switch (statName.toLowerCase()) {
+                case "lifesteal": return "LIFE STEAL";
+                case "criticalhit": return "CRITICAL HIT";
+                case "accuracy": return "ACCURACY";
+                case "strength": return "STR";
+                case "vitality": return "VIT";
+                case "intellect": return "INT";
+                case "dodgechance": return "DODGE";
+                case "blockchance": return "BLOCK";
+                default: return statName.toUpperCase();
+            }
+        }
+
+        private static int calculateTierBaseDamage(int tier) {
+            switch (tier) {
+                case 1: return 12;
+                case 2: return 28;
+                case 3: return 65;
+                case 4: return 155;
+                case 5: return 370;
+                case 6: return 890;
+                default: return 12;
+            }
+        }
+
+        private static int getRarityMultiplier(int rarity) {
+            switch (rarity) {
+                case 1: return 100; // Common
+                case 2: return 115; // Uncommon
+                case 3: return 125; // Rare
+                case 4: return 140; // Unique
+                default: return 100;
+            }
+        }
+
+        private static int calculateFallbackHP(int tier, int itemType) {
+            int baseHp;
+            switch (tier) {
+                case 1: baseHp = ThreadLocalRandom.current().nextInt(100, 150); break;
+                case 2: baseHp = ThreadLocalRandom.current().nextInt(250, 500); break;
+                case 3: baseHp = ThreadLocalRandom.current().nextInt(500, 1000); break;
+                case 4: baseHp = ThreadLocalRandom.current().nextInt(1000, 2000); break;
+                case 5: baseHp = ThreadLocalRandom.current().nextInt(2000, 5000); break;
+                case 6: baseHp = ThreadLocalRandom.current().nextInt(4000, 8000); break;
+                default: baseHp = 100;
+            }
+
+            // Adjust for armor piece type
+            return ItemTypes.isChestplateOrLeggings(itemType) ? baseHp : baseHp / 2;
+        }
+    }
+
+    /**
+     * Builds lore for standard (non-elite) items.
+     */
+    private static final class StandardLoreBuilder {
+        static void addElementalDamageToLore(List<String> lore, int tier, int rarity) {
+            if (ThreadLocalRandom.current().nextInt(ELEMENTAL_DAMAGE_CHANCE) > 0) {
+                return;
+            }
+
+            String[] elementTypes = {"FIRE DMG", "POISON DMG", "ICE DMG"};
+            String elementName = elementTypes[ThreadLocalRandom.current().nextInt(elementTypes.length)];
+
+            int baseAmount = tier * 5;
+            if (rarity >= 3) baseAmount *= 1.5;
+
+            int amount = ThreadLocalRandom.current().nextInt(baseAmount, baseAmount * 2 + 1);
+            lore.add(ChatColor.RED + elementName + ": +" + amount);
+        }
+
+        static void addArmorDefenseStat(List<String> lore, int tier) {
+            double dpsMax = tier * (1.0 + (tier / BaseStats.DPS_BASE_MULTIPLIER));
+            double dpsMin = dpsMax / BaseStats.DPS_MIN_DIVISOR;
+            int dpsi = (int) dpsMin;
+            int dpsa = (int) dpsMax;
+
+            String statType = ThreadLocalRandom.current().nextInt(2) == 0 ? "DPS" : "ARMOR";
+            lore.add(ChatColor.RED + statType + ": " + dpsi + " - " + dpsa + "%");
+        }
+
+        static void addArmorRegenStat(List<String> lore, int tier, int hp) {
+            int nrghp = ThreadLocalRandom.current().nextInt(4);
+
+            if (nrghp > 0) {
+                int nrg = tier;
+                int nrgToTake = ThreadLocalRandom.current().nextInt(2);
+                int nrgToGive = ThreadLocalRandom.current().nextInt(3);
+                nrg = nrg - nrgToTake + nrgToGive + (ThreadLocalRandom.current().nextInt(tier) / 2);
+                nrg = MathUtils.clamp(nrg, 1, BaseStats.MAX_ENERGY_REGEN);
+                lore.add(ChatColor.RED + "ENERGY REGEN: +" + nrg + "%");
+            } else {
+                int minHps = Math.max(1, (int) (hp * BaseStats.HP_REGEN_MIN_PERCENT));
+                int maxHps = Math.max(minHps + 1, (int) (hp * BaseStats.HP_REGEN_MAX_PERCENT));
+                int hps = ThreadLocalRandom.current().nextInt(minHps, maxHps);
+                lore.add(ChatColor.RED + "HP REGEN: +" + hps + "/s");
+            }
+        }
+
+        static void addWeaponSpecialAttributes(List<String> lore, int tier, int rarity) {
+            String[] weaponAttrs = {"LIFE STEAL", "CRITICAL HIT", "ACCURACY", "PURE DMG"};
+            int numAttributes = Math.min(rarity, 3);
+
+            for (int i = 0; i < numAttributes; i++) {
+                String attr = weaponAttrs[ThreadLocalRandom.current().nextInt(weaponAttrs.length)];
+
+                if (!LoreUtils.loreContains(lore, attr)) {
+                    switch (attr) {
+                        case "LIFE STEAL":
+                        case "CRITICAL HIT":
+                            int percentage = ThreadLocalRandom.current().nextInt(5, 11) + (rarity >= 3 ? 3 : 0);
+                            lore.add(ChatColor.RED + attr + ": " + percentage + "%");
+                            break;
+                        case "ACCURACY":
+                            int accuracy = ThreadLocalRandom.current().nextInt(15, 25) + (rarity >= 3 ? 10 : 0);
+                            lore.add(ChatColor.RED + attr + ": " + accuracy + "%");
+                            break;
+                        case "PURE DMG":
+                            int pureDmg = ThreadLocalRandom.current().nextInt(tier * 5, tier * 10 + 1);
+                            if (rarity >= 3) pureDmg = (int) (pureDmg * 1.5);
+                            lore.add(ChatColor.RED + attr + ": +" + pureDmg);
+                            break;
+                    }
+                }
+            }
+        }
+
+        static void addArmorSpecialAttributes(List<String> lore, int tier, int rarity) {
+            String[] armorAttrs = {"STR", "DEX", "INT", "VIT", "DODGE", "BLOCK"};
+            int numAttributes = Math.min(rarity, 2);
+
+            for (int i = 0; i < numAttributes; i++) {
+                String attr = armorAttrs[ThreadLocalRandom.current().nextInt(armorAttrs.length)];
+
+                if (!LoreUtils.loreContains(lore, attr)) {
+                    if (attr.equals("DODGE") || attr.equals("BLOCK")) {
+                        int percentage = ThreadLocalRandom.current().nextInt(5, 10) + (rarity >= 3 ? 3 : 0);
+                        lore.add(ChatColor.RED + attr + ": " + percentage + "%");
+                    } else {
+                        int statValue = ThreadLocalRandom.current().nextInt(tier * 20, tier * 40 + 1);
+                        if (rarity >= 3) statValue = (int) (statValue * 1.5);
+                        lore.add(ChatColor.RED + attr + ": +" + statValue);
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Utility class for lore manipulation and checking.
+     */
+    private static final class LoreUtils {
+        static boolean loreContains(List<String> lore, String attribute) {
+            return lore.stream().anyMatch(line -> ChatColor.stripColor(line).contains(attribute));
+        }
+
+        static boolean loreContainsElement(List<String> lore, String statName) {
+            String normalizedStatName = statName.toLowerCase().trim();
+            return lore.stream().anyMatch(line -> {
+                String cleanLine = ChatColor.stripColor(line).toLowerCase().trim();
+
+                // Check for exact stat name matches
+                if (cleanLine.contains(normalizedStatName)) {
+                    return true;
+                }
+
+                // Check for common stat variations
+                switch (normalizedStatName) {
+                    case "dmg":
+                    case "damage":
+                        return cleanLine.contains("dmg:") || cleanLine.contains("damage:");
+                    case "hp":
+                    case "health":
+                        return cleanLine.contains("hp:") || cleanLine.contains("health:");
+                    case "energy regen":
+                    case "energyregen":
+                        return cleanLine.contains("energy regen:") || cleanLine.contains("energy:");
+                    case "hp regen":
+                    case "hpregen":
+                        return cleanLine.contains("hp regen:") || cleanLine.contains("regen:");
+                    case "fire dmg":
+                    case "firedamage":
+                        return cleanLine.contains("fire dmg:") || cleanLine.contains("fire:");
+                    case "poison dmg":
+                    case "poisondamage":
+                        return cleanLine.contains("poison dmg:") || cleanLine.contains("poison:");
+                    case "ice dmg":
+                    case "icedamage":
+                        return cleanLine.contains("ice dmg:") || cleanLine.contains("ice:");
+                    case "dps":
+                        return cleanLine.contains("dps:");
+                    case "armor":
+                        return cleanLine.contains("armor:");
+                    default:
+                        return false;
+                }
+            });
+        }
     }
 }

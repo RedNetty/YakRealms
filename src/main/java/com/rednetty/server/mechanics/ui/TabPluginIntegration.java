@@ -1,4 +1,4 @@
-package com.rednetty.server.mechanics.ui.tab;
+package com.rednetty.server.mechanics.ui;
 
 import com.rednetty.server.YakRealms;
 import com.rednetty.server.mechanics.player.moderation.ModerationMechanics;

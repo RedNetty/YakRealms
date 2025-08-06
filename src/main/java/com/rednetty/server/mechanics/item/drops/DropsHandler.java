@@ -2,6 +2,7 @@ package com.rednetty.server.mechanics.item.drops;
 
 import com.rednetty.server.YakRealms;
 import com.rednetty.server.mechanics.item.drops.buff.LootBuffManager;
+import com.rednetty.server.mechanics.item.drops.types.EliteDropConfig;
 import com.rednetty.server.mechanics.player.YakPlayer;
 import com.rednetty.server.mechanics.player.YakPlayerManager;
 import com.rednetty.server.mechanics.world.mobs.MobManager;
@@ -22,7 +23,6 @@ import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.EntityDeathEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.metadata.FixedMetadataValue;
-import org.bukkit.metadata.MetadataValue;
 import org.bukkit.scheduler.BukkitRunnable;
 
 import java.util.*;
@@ -33,10 +33,14 @@ import java.util.logging.Logger;
 import java.util.stream.Collectors;
 
 /**
- *  event handler for item drops from mobs with improved performance and visual effects
- * CRITICAL FIX: Properly implements named elite detection and drop creation
- * MAJOR UPDATE: Independent drop rolling for gems, crates, and teleport books
- *  named elite mob detection and drop system with independent drop chances
+ * FIXED: Event handler for item drops from mobs with proper named elite handling and T6 world boss detection
+ *
+ * CRITICAL FIXES:
+ * - Named elites now ONLY drop their configured items from elite_drops.yml
+ * - T6 elites are properly detected as world bosses
+ * - Improved loot buff integration with thread safety
+ * - Enhanced drop validation and error handling
+ * - Better damage tracking and cleanup
  */
 public class DropsHandler implements Listener {
     private static DropsHandler instance;
@@ -49,7 +53,7 @@ public class DropsHandler implements Listener {
     private final LootBuffManager lootBuffManager;
     private final YakPlayerManager playerManager;
 
-    //  damage tracking with better performance
+    // Thread-safe damage tracking with better performance
     private final Map<UUID, MobDamageData> mobDamageTracking = new ConcurrentHashMap<>();
     private final Set<UUID> processedMobs = ConcurrentHashMap.newKeySet();
 
@@ -64,6 +68,36 @@ public class DropsHandler implements Listener {
             6, 70   // Tier 6: 70% chance
     );
 
+    // Base crate drop rates by tier - INDEPENDENT of main drops
+    private static final Map<Integer, Integer> CRATE_DROP_RATES = Map.of(
+            1, 8,   // Tier 1: 8% chance for crates
+            2, 10,  // Tier 2: 10% chance
+            3, 12,  // Tier 3: 12% chance
+            4, 15,  // Tier 4: 15% chance
+            5, 18,  // Tier 5: 18% chance
+            6, 22   // Tier 6: 22% chance
+    );
+
+    // Teleport book drop rates by tier (in percentage) - INDEPENDENT of main drops
+    private static final Map<Integer, Integer> TELEPORT_BOOK_DROP_RATES = Map.of(
+            1, 2,  // Tier 1: 2% chance
+            2, 3,  // Tier 2: 3% chance
+            3, 4,  // Tier 3: 4% chance
+            4, 5,  // Tier 4: 5% chance
+            5, 7,  // Tier 5: 7% chance
+            6, 10  // Tier 6: 10% chance
+    );
+
+    // Scroll drop rates by tier - INDEPENDENT of main drops
+    private static final Map<Integer, Integer> SCROLL_DROP_RATES = Map.of(
+            1, 3,   // Tier 1: 3% chance
+            2, 4,   // Tier 2: 4% chance
+            3, 5,   // Tier 3: 5% chance
+            4, 6,   // Tier 4: 6% chance
+            5, 8,   // Tier 5: 8% chance
+            6, 10   // Tier 6: 10% chance
+    );
+
     // Constants for better maintainability
     private static final long CLEANUP_INTERVAL_TICKS = 1200L; // 1 minute
     private static final long DAMAGE_TRACKING_EXPIRY = TimeUnit.MINUTES.toMillis(10); // INCREASED to 10 minutes
@@ -74,37 +108,11 @@ public class DropsHandler implements Listener {
     private static final int DEFAULT_PROTECTION_SECONDS = 5;
     private static final int WORLD_BOSS_PROTECTION_SECONDS = 30;
     private static final double NEARBY_PLAYER_NOTIFICATION_RANGE = 30.0;
-    // Base crate drop rates by tier - INDEPENDENT of main drops
-    private static final Map<Integer, Integer> CRATE_DROP_RATES = Map.of(
-            1, 8,   // Tier 1: 8% chance for crates
-            2, 10,  // Tier 2: 10% chance
-            3, 12,  // Tier 3: 12% chance
-            4, 15,  // Tier 4: 15% chance
-            5, 18,  // Tier 5: 18% chance
-            6, 22   // Tier 6: 22% chance
-    );
-    // Teleport book drop rates by tier (in percentage) - INDEPENDENT of main drops
-    private static final Map<Integer, Integer> TELEPORT_BOOK_DROP_RATES = Map.of(
-            1, 2,  // Tier 1: 2% chance
-            2, 3,  // Tier 2: 3% chance
-            3, 4,  // Tier 3: 4% chance
-            4, 5,  // Tier 4: 5% chance
-            5, 7,  // Tier 5: 7% chance
-            6, 10  // Tier 6: 10% chance
-    );
-    // Scroll drop rates by tier - INDEPENDENT of main drops
-    private static final Map<Integer, Integer> SCROLL_DROP_RATES = Map.of(
-            1, 3,   // Tier 1: 3% chance
-            2, 4,   // Tier 2: 4% chance
-            3, 5,   // Tier 3: 5% chance
-            4, 6,   // Tier 4: 6% chance
-            5, 8,   // Tier 5: 8% chance
-            6, 10   // Tier 6: 10% chance
-    );
-    //  Track recent player interactions to ensure notifications work even without damage tracking
+
+    // Track recent player interactions to ensure notifications work even without damage tracking
     private final Map<UUID, Set<UUID>> recentPlayerInteractions = new ConcurrentHashMap<>();
 
-    //  visual effects
+    // Visual effects
     private static final Map<Integer, Particle> TIER_PARTICLES = Map.of(
             1, Particle.VILLAGER_HAPPY,
             2, Particle.ENCHANTMENT_TABLE,
@@ -115,7 +123,7 @@ public class DropsHandler implements Listener {
     );
 
     /**
-     *  damage tracking data structure with interaction tracking
+     * Enhanced damage tracking data structure with interaction tracking
      */
     private static class MobDamageData {
         private final Map<UUID, Double> damageMap = new ConcurrentHashMap<>();
@@ -158,15 +166,6 @@ public class DropsHandler implements Listener {
     }
 
     /**
-     * Initializes the drops handler with  cleanup system
-     */
-    public void initialize() {
-        Bukkit.getPluginManager().registerEvents(this, plugin);
-        startCleanupTask();
-        logger.info("§a[DropsHandler] §7Initialized with  named elite support, independent drop rolling, and teleport book drops");
-    }
-
-    /**
      * Private constructor for singleton pattern
      */
     private DropsHandler() {
@@ -191,8 +190,16 @@ public class DropsHandler implements Listener {
     }
 
     /**
-     * MAJOR UPDATE:  mob drop handling with independent drop rolling
-     * Now gems, crates, scrolls, and teleport books roll independently from main drops
+     * Initializes the drops handler with enhanced cleanup system
+     */
+    public void initialize() {
+        Bukkit.getPluginManager().registerEvents(this, plugin);
+        startCleanupTask();
+        logger.info("§a[DropsHandler] §7Initialized with FIXED named elite support, T6 world boss detection, and independent drop rolling");
+    }
+
+    /**
+     * CRITICAL FIX: Enhanced mob drop handling with proper named elite handling
      */
     private void handleMobDrops(LivingEntity entity) {
         if (isCleanupKill(entity)) {
@@ -207,16 +214,18 @@ public class DropsHandler implements Listener {
         if (logger.isLoggable(java.util.logging.Level.FINE)) {
             logger.fine("§6[DropsHandler] §7Mob analysis: " + analysis.getMobType() +
                     " (T" + analysis.getTier() + ") Elite: " + analysis.isElite() +
-                    " Named: " + analysis.isNamedElite() + " ActualName: " + analysis.getActualMobName());
+                    " Named: " + analysis.isNamedElite() + " WorldBoss: " + analysis.isWorldBoss() +
+                    " ActualName: " + analysis.getActualMobName());
         }
 
-        // MAJOR CHANGE: Handle main drops independently
+        // MAJOR CHANGE: Handle main drops independently with proper named elite handling
         boolean mainDropOccurred = false;
         if (shouldDropItems(entity, analysis)) {
             if (analysis.isWorldBoss()) {
                 handleWorldBossDrops(entity, analysis);
                 mainDropOccurred = true;
             } else if (analysis.isNamedElite()) {
+                // CRITICAL FIX: Named elites get special handling to only drop their configured items
                 handleNamedEliteDrops(entity, analysis);
                 mainDropOccurred = true;
             } else if (analysis.isElite()) {
@@ -233,508 +242,7 @@ public class DropsHandler implements Listener {
     }
 
     /**
-     *  cleanup task with better performance monitoring and thread safety
-     */
-    private void startCleanupTask() {
-        new BukkitRunnable() {
-            @Override
-            public void run() {
-                int cleanedDamage = cleanupExpiredDamageTracking();
-                int cleanedInteractions = cleanupExpiredInteractions();
-
-                Bukkit.getScheduler().runTask(plugin, () -> {
-                    int cleanedProcessed = cleanupInvalidProcessedMobs();
-
-                    if (cleanedDamage > 0 || cleanedProcessed > 0 || cleanedInteractions > 0) {
-                        logger.fine(String.format("Cleanup completed: %d damage entries, %d processed mobs, %d interactions removed",
-                                cleanedDamage, cleanedProcessed, cleanedInteractions));
-                    }
-                });
-            }
-        }.runTaskTimerAsynchronously(plugin, CLEANUP_INTERVAL_TICKS, CLEANUP_INTERVAL_TICKS);
-    }
-
-    /**
-     * Cleanup expired damage tracking entries
-     */
-    private int cleanupExpiredDamageTracking() {
-        int removed = 0;
-        Iterator<Map.Entry<UUID, MobDamageData>> iterator = mobDamageTracking.entrySet().iterator();
-
-        while (iterator.hasNext()) {
-            Map.Entry<UUID, MobDamageData> entry = iterator.next();
-            if (entry.getValue().isExpired()) {
-                iterator.remove();
-                removed++;
-            }
-        }
-        return removed;
-    }
-
-    /**
-     * Cleanup expired interaction tracking
-     */
-    private int cleanupExpiredInteractions() {
-        int removed = 0;
-        long currentTime = System.currentTimeMillis();
-        Iterator<Map.Entry<UUID, Set<UUID>>> iterator = recentPlayerInteractions.entrySet().iterator();
-
-        while (iterator.hasNext()) {
-            Map.Entry<UUID, Set<UUID>> entry = iterator.next();
-            if (currentTime - entry.getValue().hashCode() > INTERACTION_TRACKING_EXPIRY) {
-                iterator.remove();
-                removed++;
-            }
-        }
-        return removed;
-    }
-
-    /**
-     * Cleanup processed mobs that are no longer valid
-     */
-    private int cleanupInvalidProcessedMobs() {
-        int initialSize = processedMobs.size();
-
-        List<UUID> toRemove = new ArrayList<>();
-
-        for (UUID uuid : processedMobs) {
-            if (!isEntityValidMainThread(uuid)) {
-                toRemove.add(uuid);
-            }
-        }
-
-        for (UUID uuid : toRemove) {
-            processedMobs.remove(uuid);
-            mobDamageTracking.remove(uuid);
-            recentPlayerInteractions.remove(uuid);
-        }
-
-        int cleanupKillsRemoved = 0;
-        try {
-            for (org.bukkit.World world : Bukkit.getWorlds()) {
-                for (LivingEntity entity : world.getLivingEntities()) {
-                    if (isCleanupKill(entity)) {
-                        UUID entityUuid = entity.getUniqueId();
-                        if (processedMobs.remove(entityUuid)) {
-                            cleanupKillsRemoved++;
-                        }
-                        mobDamageTracking.remove(entityUuid);
-                        recentPlayerInteractions.remove(entityUuid);
-                    }
-                }
-            }
-        } catch (Exception e) {
-            // Silent fail for cleanup kill cleanup
-        }
-
-        if (logger.isLoggable(java.util.logging.Level.FINE) && cleanupKillsRemoved > 0) {
-            logger.info("§6[DropsHandler] §7Cleaned up " + cleanupKillsRemoved + " cleanup kill entities from tracking");
-        }
-
-        return initialSize - processedMobs.size();
-    }
-
-    /**
-     * Check if entity is still valid - must run on main thread
-     */
-    private boolean isEntityValidMainThread(UUID entityUuid) {
-        try {
-            Entity entity = Bukkit.getEntity(entityUuid);
-            return entity != null && entity.isValid() && !entity.isDead();
-        } catch (Exception e) {
-            return false;
-        }
-    }
-
-    /**
-     * Shuts down the drops handler
-     */
-    public void shutdown() {
-        mobDamageTracking.clear();
-        processedMobs.clear();
-        recentPlayerInteractions.clear();
-        logger.info("[DropsHandler] has been shut down");
-    }
-
-    /**
-     *  mob death handler with cleanup kill detection
-     */
-    @EventHandler(priority = EventPriority.HIGHEST)
-    public void onMobDeath(EntityDeathEvent event) {
-        event.getDrops().clear();
-        event.setDroppedExp(0);
-
-        LivingEntity entity = event.getEntity();
-
-        if (entity instanceof Player) {
-            return;
-        }
-
-        // CRITICAL FIX: Skip entities killed by cleanup tasks
-        if (isCleanupKill(entity)) {
-            if (logger.isLoggable(java.util.logging.Level.FINE)) {
-                logger.info("§6[DropsHandler] §7Skipping drop processing for cleanup kill: " + entity.getType() +
-                        " ID: " + entity.getUniqueId().toString().substring(0, 8));
-            }
-            return;
-        }
-
-        if (!markAsProcessed(entity)) {
-            return;
-        }
-
-        try {
-            handleMobDrops(entity);
-        } catch (Exception e) {
-            logger.warning("Error processing drops for entity " + entity.getType() + ": " + e.getMessage());
-        }
-
-        // Handles the updating of the Tier Kills Stat for Players
-        Player killer = entity.getKiller();
-        if (killer != null) {
-            YakPlayer yakPlayer = playerManager.getPlayer(killer);
-            if (yakPlayer != null) {
-                int mobTier = MobUtils.getMobTier(entity);
-                switch (mobTier) {
-                    case 1:
-                        yakPlayer.setT1Kills(yakPlayer.getT1Kills() + 1);
-                        break;
-                    case 2:
-                        yakPlayer.setT2Kills(yakPlayer.getT2Kills() + 1);
-                        break;
-                    case 3:
-                        yakPlayer.setT3Kills(yakPlayer.getT3Kills() + 1);
-                        break;
-                    case 4:
-                        yakPlayer.setT4Kills(yakPlayer.getT4Kills() + 1);
-                        break;
-                    case 5:
-                        yakPlayer.setT5Kills(yakPlayer.getT5Kills() + 1);
-                        break;
-                    case 6:
-                        yakPlayer.setT6Kills(yakPlayer.getT6Kills() + 1);
-                        break;
-                    default:
-                        break;
-                }
-                YakPlayerManager.getInstance().savePlayer(yakPlayer);
-            }
-        }
-    }
-
-    /**
-     * CRITICAL FIX: Check if an entity was killed by cleanup tasks
-     */
-    private boolean isCleanupKill(LivingEntity entity) {
-        if (entity == null) return false;
-
-        try {
-            boolean hasCleanupMarker = entity.hasMetadata("cleanup_kill") ||
-                    entity.hasMetadata("no_drops") ||
-                    entity.hasMetadata("system_kill");
-
-            if (hasCleanupMarker && logger.isLoggable(java.util.logging.Level.FINE)) {
-                logger.fine("§6[DropsHandler] §7Entity " + entity.getType() +
-                        " marked as cleanup kill - skipping drop processing");
-            }
-
-            return hasCleanupMarker;
-
-        } catch (Exception e) {
-            if (logger.isLoggable(java.util.logging.Level.FINE)) {
-                logger.warning("§c[DropsHandler] Error checking cleanup kill status: " + e.getMessage());
-            }
-            return false;
-        }
-    }
-
-    /**
-     *  damage tracking with cleanup kill awareness and interaction tracking
-     */
-    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
-    public void onEntityDamage(EntityDamageByEntityEvent event) {
-        if (!(event.getEntity() instanceof LivingEntity) || event.getEntity() instanceof Player) {
-            return;
-        }
-
-        LivingEntity entity = (LivingEntity) event.getEntity();
-
-        if (isCleanupKill(entity)) {
-            return;
-        }
-
-        Player damager = extractPlayerDamager(event);
-        if (damager == null) {
-            return;
-        }
-
-        UUID entityUuid = entity.getUniqueId();
-        UUID playerUuid = damager.getUniqueId();
-        double damage = event.getFinalDamage();
-
-        MobDamageData damageData = mobDamageTracking.computeIfAbsent(entityUuid, k -> new MobDamageData());
-        damageData.addDamage(playerUuid, damage);
-
-        recentPlayerInteractions.computeIfAbsent(entityUuid, k -> ConcurrentHashMap.newKeySet()).add(playerUuid);
-
-        if (logger.isLoggable(java.util.logging.Level.FINEST)) {
-            logger.finest("§6[DropsHandler] §7Recorded " + damage + " damage from " + damager.getName() +
-                    " to " + entity.getType() + " (ID: " + entityUuid.toString().substring(0, 8) + ")");
-        }
-    }
-
-    /**
-     *  player damager extraction with more damage source types
-     */
-    private Player extractPlayerDamager(EntityDamageByEntityEvent event) {
-        Entity damager = event.getDamager();
-
-        if (damager instanceof Player) {
-            return (Player) damager;
-        }
-
-        if (damager instanceof org.bukkit.entity.Projectile) {
-            org.bukkit.entity.Projectile projectile = (org.bukkit.entity.Projectile) damager;
-            if (projectile.getShooter() instanceof Player) {
-                return (Player) projectile.getShooter();
-            }
-        }
-
-        if (damager instanceof org.bukkit.entity.Wolf) {
-            org.bukkit.entity.Wolf wolf = (org.bukkit.entity.Wolf) damager;
-            if (wolf.isTamed() && wolf.getOwner() instanceof Player) {
-                return (Player) wolf.getOwner();
-            }
-        }
-
-        return null;
-    }
-
-    /**
-     * Marks entity as processed to prevent double drops
-     */
-    private boolean markAsProcessed(LivingEntity entity) {
-        UUID entityUuid = entity.getUniqueId();
-
-        if (isCleanupKill(entity)) {
-            return false;
-        }
-
-        if (processedMobs.contains(entityUuid) || entity.hasMetadata("dropsProcessed")) {
-            return false;
-        }
-
-        entity.setMetadata("dropsProcessed", new FixedMetadataValue(plugin, true));
-        processedMobs.add(entityUuid);
-        return true;
-    }
-
-    /**
-     * MAJOR UPDATE: Handle additional drops independently from main drops
-     * Each type (gems, crates, scrolls, teleport books) rolls its own chance
-     */
-    private void handleIndependentAdditionalDrops(LivingEntity entity, MobAnalysis analysis, boolean mainDropOccurred) {
-        int tier = analysis.getTier();
-
-        // Roll for gems independently (high chance)
-        rollForGems(entity, tier);
-
-        // Roll for crates independently (medium chance)
-        rollForCrates(entity, tier);
-
-        // Roll for scrolls independently (low chance)
-        rollForScrolls(entity, tier);
-
-        // Roll for teleport books independently (low chance)
-        rollForTeleportBooks(entity, tier);
-
-        if (logger.isLoggable(java.util.logging.Level.FINEST)) {
-            logger.finest("§6[DropsHandler] §7Completed independent drop rolls for " + entity.getType() +
-                    " (T" + tier + ") - Main drop occurred: " + mainDropOccurred);
-        }
-    }
-
-    /**
-     *  Independent gem drop rolling with  notification
-     */
-    private void rollForGems(LivingEntity entity, int tier) {
-        int baseGemRate = GEM_DROP_RATES.getOrDefault(tier, 45);
-        int gemRate = baseGemRate;
-
-        // Apply loot buff if active
-        if (lootBuffManager.isBuffActive()) {
-            int buffPercentage = lootBuffManager.getActiveBuff().getBuffRate();
-            gemRate += (gemRate * buffPercentage / 100);
-        }
-
-        if (ThreadLocalRandom.current().nextInt(100) < gemRate) {
-            try {
-                ItemStack gems = dropFactory.createGemDrop(tier);
-                if (gems != null) {
-                    Item droppedItem = dropItemWithEffects(entity, gems, tier);
-
-                    //  notification with gem amount
-                    int gemAmount = gems.getAmount();
-                    Player topDamager = getTopDamageDealer(entity);
-                    if (topDamager != null) {
-                        lootNotifier.sendGemDropNotification(topDamager, gems, entity, gemAmount);
-                    }
-
-                    // Track buff improvement
-                    if (lootBuffManager.isBuffActive() && ThreadLocalRandom.current().nextInt(100) >= baseGemRate) {
-                        lootBuffManager.updateImprovedDrops();
-                    }
-
-                    if (logger.isLoggable(java.util.logging.Level.FINE)) {
-                        logger.fine("§a[DropsHandler] §7Dropped " + gemAmount + " gems from T" + tier + " mob");
-                    }
-                }
-            } catch (Exception e) {
-                logger.warning("§c[DropsHandler] Error creating gem drop: " + e.getMessage());
-            }
-        }
-    }
-
-    /**
-     *  Independent crate drop rolling with  notification
-     */
-    private void rollForCrates(LivingEntity entity, int tier) {
-        int baseCrateRate = CRATE_DROP_RATES.getOrDefault(tier, 8);
-        int crateRate = baseCrateRate;
-
-        // Apply loot buff if active
-        if (lootBuffManager.isBuffActive()) {
-            int buffPercentage = lootBuffManager.getActiveBuff().getBuffRate();
-            crateRate += (crateRate * buffPercentage / 100);
-        }
-
-        if (ThreadLocalRandom.current().nextInt(100) < crateRate) {
-            try {
-                ItemStack crate = dropFactory.createCrateDrop(tier);
-                if (crate != null) {
-                    Item droppedItem = dropItemWithEffects(entity, crate, tier);
-
-                    //  notification for crates
-                    Player topDamager = getTopDamageDealer(entity);
-                    if (topDamager != null) {
-                        lootNotifier.sendCrateDropNotification(topDamager, crate, entity, tier);
-                    }
-
-                    // Track buff improvement
-                    if (lootBuffManager.isBuffActive() && ThreadLocalRandom.current().nextInt(100) >= baseCrateRate) {
-                        lootBuffManager.updateImprovedDrops();
-                    }
-
-                    if (logger.isLoggable(java.util.logging.Level.FINE)) {
-                        logger.fine("§a[DropsHandler] §7Dropped T" + tier + " crate");
-                    }
-                }
-            } catch (Exception e) {
-                logger.warning("§c[DropsHandler] Error creating crate drop: " + e.getMessage());
-            }
-        }
-    }
-
-    /**
-     *  Independent scroll drop rolling
-     */
-    private void rollForScrolls(LivingEntity entity, int tier) {
-        int baseScrollRate = SCROLL_DROP_RATES.getOrDefault(tier, 3);
-        int scrollRate = baseScrollRate;
-
-        // Apply loot buff if active
-        if (lootBuffManager.isBuffActive()) {
-            int buffPercentage = lootBuffManager.getActiveBuff().getBuffRate();
-            scrollRate += (scrollRate * buffPercentage / 100);
-        }
-
-        if (ThreadLocalRandom.current().nextInt(100) < scrollRate) {
-            try {
-                ItemStack scroll = dropFactory.createScrollDrop(tier);
-                if (scroll != null) {
-                    Item droppedItem = dropItemWithEffects(entity, scroll, tier);
-                    notifyPlayersOfDrop(entity, scroll, false);
-
-                    // Track buff improvement
-                    if (lootBuffManager.isBuffActive() && ThreadLocalRandom.current().nextInt(100) >= baseScrollRate) {
-                        lootBuffManager.updateImprovedDrops();
-                    }
-
-                    if (logger.isLoggable(java.util.logging.Level.FINE)) {
-                        logger.fine("§a[DropsHandler] §7Dropped enhancement scroll from T" + tier + " mob");
-                    }
-                }
-            } catch (Exception e) {
-                logger.warning("§c[DropsHandler] Error creating scroll drop: " + e.getMessage());
-            }
-        }
-    }
-
-    /**
-     *  Independent teleport book drop rolling with  notification
-     */
-    private void rollForTeleportBooks(LivingEntity entity, int tier) {
-        Collection<TeleportDestination> destinations = TeleportManager.getInstance().getAllDestinations();
-
-        if (destinations.isEmpty()) {
-            if (logger.isLoggable(java.util.logging.Level.FINEST)) {
-                logger.finest("§6[DropsHandler] §7No teleport destinations configured - skipping teleport book drops");
-            }
-            return;
-        }
-
-        int baseBookRate = TELEPORT_BOOK_DROP_RATES.getOrDefault(tier, 2);
-        int bookRate = baseBookRate;
-
-        // Apply loot buff if active
-        if (lootBuffManager.isBuffActive()) {
-            int buffPercentage = lootBuffManager.getActiveBuff().getBuffRate();
-            bookRate += (bookRate * buffPercentage / 100);
-        }
-
-        if (ThreadLocalRandom.current().nextInt(100) < bookRate) {
-            try {
-                List<TeleportDestination> destinationList = new ArrayList<>(destinations);
-                TeleportDestination randomDestination = destinationList.get(
-                        ThreadLocalRandom.current().nextInt(destinationList.size())
-                );
-
-                ItemStack teleportBook = TeleportBookSystem.getInstance().createTeleportBook(
-                        randomDestination.getId(), false
-                );
-
-                if (teleportBook != null) {
-                    Item droppedItem = dropItemWithEffects(entity, teleportBook, tier);
-
-                    //  visual effects for teleport books
-                    Location dropLocation = entity.getLocation().add(0, 1, 0);
-                    entity.getWorld().spawnParticle(Particle.ENCHANTMENT_TABLE, dropLocation, 15, 0.5, 0.5, 0.5, 0.1);
-                    entity.getWorld().playSound(dropLocation, Sound.ENTITY_PLAYER_LEVELUP, 0.5f, 1.5f);
-
-                    //  notification for teleport books
-                    Player topDamager = getTopDamageDealer(entity);
-                    if (topDamager != null) {
-                        lootNotifier.sendTeleportBookNotification(topDamager, teleportBook, entity, randomDestination.getDisplayName());
-                    }
-
-                    // Track buff improvement
-                    if (lootBuffManager.isBuffActive() && ThreadLocalRandom.current().nextInt(100) >= baseBookRate) {
-                        lootBuffManager.updateImprovedDrops();
-                    }
-
-                    if (logger.isLoggable(java.util.logging.Level.FINE)) {
-                        logger.fine("§a[DropsHandler] §7Dropped teleport book for destination: " +
-                                randomDestination.getDisplayName() + " from tier " + tier + " mob");
-                    }
-                }
-            } catch (Exception e) {
-                logger.warning("§c[DropsHandler] Error creating teleport book drop: " + e.getMessage());
-            }
-        }
-    }
-
-    /**
-     * CRITICAL FIX:  mob analysis with comprehensive named elite detection
+     * CRITICAL FIX: Enhanced mob analysis with proper T6 world boss detection and named elite handling
      */
     private MobAnalysis analyzeMob(LivingEntity entity) {
         int tier = detectMobTier(entity);
@@ -742,7 +250,7 @@ public class DropsHandler implements Listener {
         String mobType = extractMobType(entity);
         String actualMobName = entity.getCustomName();
 
-        // CRITICAL FIX:  named elite detection with multiple fallback methods
+        // CRITICAL FIX: Enhanced named elite detection with multiple fallback methods
         boolean isNamedElite = false;
 
         if (mobType != null && !mobType.trim().isEmpty()) {
@@ -797,22 +305,689 @@ public class DropsHandler implements Listener {
             }
         }
 
-        boolean isWorldBoss = detectWorldBossStatus(entity, mobType);
+        // CRITICAL FIX: Enhanced world boss detection with T6 support
+        boolean isWorldBoss = detectWorldBossStatus(entity, mobType, tier);
 
         if (logger.isLoggable(java.util.logging.Level.FINE)) {
             logger.fine("§6[DropsHandler] §7Final analysis - Type: " + mobType +
-                    ", Elite: " + isElite + ", Named: " + isNamedElite + ", Boss: " + isWorldBoss);
+                    ", Elite: " + isElite + ", Named: " + isNamedElite + ", Boss: " + isWorldBoss +
+                    ", Tier: " + tier);
         }
 
         return new MobAnalysis(tier, isElite, isWorldBoss, isNamedElite, mobType, actualMobName);
     }
 
-    // REST OF THE CLASS REMAINS THE SAME AS BEFORE...
-    // [Including all the existing methods like analyzeMob(), handleWorldBossDrops(), etc.]
+    /**
+     * CRITICAL FIX: Enhanced world boss detection with T6 support
+     */
+    private boolean detectWorldBossStatus(LivingEntity entity, String mobType, int tier) {
+        // Check metadata first
+        if (entity.hasMetadata("worldboss")) {
+            return true;
+        }
+
+        // FIXED: T6 elites should be treated as world bosses
+        if (tier >= 6) {
+            if (logger.isLoggable(java.util.logging.Level.FINE)) {
+                logger.fine("§6[DropsHandler] §7T6 entity detected as world boss: " + entity.getType());
+            }
+            return true;
+        }
+
+        // Check mob type for specific world bosses
+        if (mobType != null) {
+            String lowerType = mobType.toLowerCase();
+            boolean isWorldBoss = lowerType.contains("boss") ||
+                    lowerType.contains("warden") ||
+                    lowerType.equals("chronos") ||
+                    lowerType.equals("apocalypse") ||
+                    lowerType.equals("frostwing") ||
+                    lowerType.equals("frozengolem") ||
+                    lowerType.equals("frozenboss") ||
+                    lowerType.contains("dungeon");
+
+            if (isWorldBoss && logger.isLoggable(java.util.logging.Level.FINE)) {
+                logger.fine("§6[DropsHandler] §7World boss detected by name: " + mobType);
+            }
+
+            return isWorldBoss;
+        }
+
+        // Check for special entity types that should be world bosses
+        return entity.getType() == org.bukkit.entity.EntityType.WITHER ||
+                entity.getType() == org.bukkit.entity.EntityType.ENDER_DRAGON ||
+                entity.getType() == org.bukkit.entity.EntityType.WARDEN;
+    }
 
     /**
-     *  mob type extraction with multiple methods
+     * CRITICAL FIX: Named elite drop handling - ONLY drops configured items from YAML
      */
+    private void handleNamedEliteDrops(LivingEntity entity, MobAnalysis analysis) {
+        try {
+            String mobType = analysis.getMobType();
+            if (mobType == null || mobType.trim().isEmpty()) {
+                logger.warning("§c[DropsHandler] Named elite has null/empty mob type, falling back to regular elite drops");
+                handleEliteDrops(entity, analysis);
+                return;
+            }
+
+            // CRITICAL FIX: Get the elite configuration to determine what items this elite can drop
+            EliteDropConfig config = DropConfig.getEliteDropConfig(mobType);
+            if (config == null) {
+                logger.warning("§c[DropsHandler] No elite config found for " + mobType + ", falling back to regular elite drops");
+                handleEliteDrops(entity, analysis);
+                return;
+            }
+
+            // CRITICAL FIX: Only drop items that are configured for this elite
+            // Check if this elite has any configured item types (1-8 for weapons/armor)
+            List<Integer> availableItemTypes = new ArrayList<>();
+
+            // Check each possible item type (1-8) to see if this elite has it configured
+            for (int itemType = 1; itemType <= 8; itemType++) {
+                com.rednetty.server.mechanics.item.drops.types.ItemDetails itemDetails = config.getItemDetailsForType(itemType);
+                if (itemDetails != null) {
+                    availableItemTypes.add(itemType);
+                }
+            }
+
+            if (availableItemTypes.isEmpty()) {
+                logger.warning("§c[DropsHandler] Elite " + mobType + " has no configured items, falling back to regular elite drops");
+                handleEliteDrops(entity, analysis);
+                return;
+            }
+
+            // MAJOR FIX: Choose ONLY from configured item types, not random
+            // Select a random item type from the CONFIGURED options only
+            int itemType = availableItemTypes.get(ThreadLocalRandom.current().nextInt(availableItemTypes.size()));
+
+            // Create the elite drop using the configured item type
+            ItemStack item = null;
+            try {
+                item = dropsManager.createEliteDrop(mobType, itemType, analysis.getTier());
+
+                if (logger.isLoggable(java.util.logging.Level.FINE)) {
+                    logger.fine("§a[DropsHandler] §7Successfully created named elite drop for " + mobType +
+                            " (configured item type " + itemType + ")");
+                }
+            } catch (Exception e) {
+                logger.warning("§c[DropsHandler] Failed to create named elite drop for " + mobType +
+                        ": " + e.getMessage());
+            }
+
+            // Fallback to regular elite drop if named elite drop failed
+            if (item == null) {
+                logger.warning("§c[DropsHandler] Named elite drop creation failed for " + mobType +
+                        ", creating fallback elite drop");
+                int rarity = Math.max(3, analysis.getTier() >= 5 ? 4 : 3); // At least rare for named elites
+                item = dropsManager.createDrop(analysis.getTier(), itemType, rarity);
+
+                if (logger.isLoggable(java.util.logging.Level.FINE)) {
+                    logger.fine("§6[DropsHandler] §7Used fallback elite drop for " + mobType +
+                            " (T" + analysis.getTier() + " R" + rarity + " I" + itemType + ")");
+                }
+            }
+
+            if (item != null) {
+                Item droppedItem = dropItemWithEffects(entity, item, analysis.getTier());
+                playDropEffects(entity.getLocation(), analysis.getTier(), true);
+
+                // Enhanced notification for named elites
+                notifyPlayersOfNamedEliteDrop(entity, item, mobType);
+
+                if (logger.isLoggable(java.util.logging.Level.FINE)) {
+                    logger.fine("§a[DropsHandler] §7Successfully dropped configured item for named elite " + mobType);
+                }
+            } else {
+                logger.warning("§c[DropsHandler] Complete failure to create drop for named elite " + mobType);
+            }
+
+        } catch (Exception e) {
+            logger.warning("§c[DropsHandler] Critical error in named elite drop handling: " + e.getMessage());
+            e.printStackTrace();
+            // Emergency fallback
+            handleEliteDrops(entity, analysis);
+        }
+    }
+
+    /**
+     * Enhanced world boss drop handling with T6 support
+     */
+    private void handleWorldBossDrops(LivingEntity entity, MobAnalysis analysis) {
+        int dropCount = ThreadLocalRandom.current().nextInt(
+                WORLD_BOSS_DROP_COUNT_MAX - WORLD_BOSS_DROP_COUNT_MIN + 1) + WORLD_BOSS_DROP_COUNT_MIN;
+
+        // T6 world bosses get extra drops
+        if (analysis.getTier() >= 6) {
+            dropCount += 2; // Extra drops for T6 world bosses
+            if (logger.isLoggable(java.util.logging.Level.FINE)) {
+                logger.fine("§6[DropsHandler] §7T6 World boss gets " + dropCount + " drops");
+            }
+        }
+
+        List<Map.Entry<UUID, Double>> sortedDamagers = getSortedDamageContributors(entity);
+        List<DropInfo> drops = new ArrayList<>();
+
+        Location center = entity.getLocation();
+        String bossName = entity.getCustomName() != null ?
+                ChatColor.stripColor(entity.getCustomName()) : "World Boss";
+
+        for (int i = 0; i < dropCount; i++) {
+            Location dropLocation = calculateDropLocation(center, i, dropCount);
+            ItemStack item = createHighQualityItem(analysis.getTier());
+
+            Item droppedItem = entity.getWorld().dropItem(dropLocation, item);
+            applyWorldBossEffects(droppedItem, dropLocation);
+
+            if (!sortedDamagers.isEmpty()) {
+                int damagerIndex = i % sortedDamagers.size();
+                UUID playerUuid = sortedDamagers.get(damagerIndex).getKey();
+                Player player = Bukkit.getPlayer(playerUuid);
+
+                if (player != null && player.isOnline()) {
+                    dropsManager.registerDropProtection(droppedItem, playerUuid, WORLD_BOSS_PROTECTION_SECONDS);
+                    lootNotifier.sendDropNotification(player, item, entity, true);
+                    drops.add(new DropInfo(player.getName(), sortedDamagers.get(damagerIndex).getValue().intValue()));
+                }
+            }
+        }
+
+        lootNotifier.announceWorldBossDefeat(bossName, drops.stream()
+                .map(drop -> new Object[]{drop.playerName, drop.damage})
+                .distinct()
+                .limit(3)
+                .collect(Collectors.toList()));
+
+        playWorldBossDefeatEffects(center);
+
+        if (logger.isLoggable(java.util.logging.Level.INFO)) {
+            logger.info("§a[DropsHandler] §7World boss " + bossName + " defeated with " + dropCount + " drops");
+        }
+    }
+
+    /**
+     * IMPROVED: Independent gem drop rolling with enhanced loot buff integration
+     */
+    private void rollForGems(LivingEntity entity, int tier) {
+        int baseGemRate = GEM_DROP_RATES.getOrDefault(tier, 45);
+        int gemRate = baseGemRate;
+
+        // Apply loot buff if active - thread-safe check
+        if (lootBuffManager.isBuffActive()) {
+            int buffPercentage = lootBuffManager.getActiveBuff().getBuffRate();
+            gemRate += (int) Math.ceil(gemRate * buffPercentage / 100.0);
+        }
+
+        if (ThreadLocalRandom.current().nextInt(100) < gemRate) {
+            try {
+                ItemStack gems = dropFactory.createGemDrop(tier);
+                if (gems != null) {
+                    Item droppedItem = dropItemWithEffects(entity, gems, tier);
+
+                    // Enhanced notification with gem amount
+                    int gemAmount = gems.getAmount();
+                    Player topDamager = getTopDamageDealer(entity);
+                    if (topDamager != null) {
+                        lootNotifier.sendGemDropNotification(topDamager, gems, entity, gemAmount);
+                    }
+
+                    // Track buff improvement - thread-safe
+                    if (lootBuffManager.isBuffActive() && ThreadLocalRandom.current().nextInt(100) >= baseGemRate) {
+                        lootBuffManager.updateImprovedDrops();
+                    }
+
+                    if (logger.isLoggable(java.util.logging.Level.FINE)) {
+                        logger.fine("§a[DropsHandler] §7Dropped " + gemAmount + " gems from T" + tier + " mob");
+                    }
+                }
+            } catch (Exception e) {
+                logger.warning("§c[DropsHandler] Error creating gem drop: " + e.getMessage());
+            }
+        }
+    }
+
+    /**
+     * IMPROVED: Independent crate drop rolling with enhanced loot buff integration
+     */
+    private void rollForCrates(LivingEntity entity, int tier) {
+        int baseCrateRate = CRATE_DROP_RATES.getOrDefault(tier, 8);
+        int crateRate = baseCrateRate;
+
+        // Apply loot buff if active - thread-safe check
+        if (lootBuffManager.isBuffActive()) {
+            int buffPercentage = lootBuffManager.getActiveBuff().getBuffRate();
+            crateRate += (int) Math.ceil(crateRate * buffPercentage / 100.0);
+        }
+
+        if (ThreadLocalRandom.current().nextInt(100) < crateRate) {
+            try {
+                ItemStack crate = dropFactory.createCrateDrop(tier);
+                if (crate != null) {
+                    Item droppedItem = dropItemWithEffects(entity, crate, tier);
+
+                    // Enhanced notification for crates
+                    Player topDamager = getTopDamageDealer(entity);
+                    if (topDamager != null) {
+                        lootNotifier.sendCrateDropNotification(topDamager, crate, entity, tier);
+                    }
+
+                    // Track buff improvement - thread-safe
+                    if (lootBuffManager.isBuffActive() && ThreadLocalRandom.current().nextInt(100) >= baseCrateRate) {
+                        lootBuffManager.updateImprovedDrops();
+                    }
+
+                    if (logger.isLoggable(java.util.logging.Level.FINE)) {
+                        logger.fine("§a[DropsHandler] §7Dropped T" + tier + " crate");
+                    }
+                }
+            } catch (Exception e) {
+                logger.warning("§c[DropsHandler] Error creating crate drop: " + e.getMessage());
+            }
+        }
+    }
+
+    /**
+     * IMPROVED: Independent scroll drop rolling with enhanced loot buff integration
+     */
+    private void rollForScrolls(LivingEntity entity, int tier) {
+        int baseScrollRate = SCROLL_DROP_RATES.getOrDefault(tier, 3);
+        int scrollRate = baseScrollRate;
+
+        // Apply loot buff if active - thread-safe check
+        if (lootBuffManager.isBuffActive()) {
+            int buffPercentage = lootBuffManager.getActiveBuff().getBuffRate();
+            scrollRate += (int) Math.ceil(scrollRate * buffPercentage / 100.0);
+        }
+
+        if (ThreadLocalRandom.current().nextInt(100) < scrollRate) {
+            try {
+                ItemStack scroll = dropFactory.createScrollDrop(tier);
+                if (scroll != null) {
+                    Item droppedItem = dropItemWithEffects(entity, scroll, tier);
+                    notifyPlayersOfDrop(entity, scroll, false);
+
+                    // Track buff improvement - thread-safe
+                    if (lootBuffManager.isBuffActive() && ThreadLocalRandom.current().nextInt(100) >= baseScrollRate) {
+                        lootBuffManager.updateImprovedDrops();
+                    }
+
+                    if (logger.isLoggable(java.util.logging.Level.FINE)) {
+                        logger.fine("§a[DropsHandler] §7Dropped enhancement scroll from T" + tier + " mob");
+                    }
+                }
+            } catch (Exception e) {
+                logger.warning("§c[DropsHandler] Error creating scroll drop: " + e.getMessage());
+            }
+        }
+    }
+
+    /**
+     * IMPROVED: Independent teleport book drop rolling with enhanced loot buff integration
+     */
+    private void rollForTeleportBooks(LivingEntity entity, int tier) {
+        Collection<TeleportDestination> destinations = TeleportManager.getInstance().getAllDestinations();
+
+        if (destinations.isEmpty()) {
+            if (logger.isLoggable(java.util.logging.Level.FINEST)) {
+                logger.finest("§6[DropsHandler] §7No teleport destinations configured - skipping teleport book drops");
+            }
+            return;
+        }
+
+        int baseBookRate = TELEPORT_BOOK_DROP_RATES.getOrDefault(tier, 2);
+        int bookRate = baseBookRate;
+
+        // Apply loot buff if active - thread-safe check
+        if (lootBuffManager.isBuffActive()) {
+            int buffPercentage = lootBuffManager.getActiveBuff().getBuffRate();
+            bookRate += (int) Math.ceil(bookRate * buffPercentage / 100.0);
+        }
+
+        if (ThreadLocalRandom.current().nextInt(100) < bookRate) {
+            try {
+                List<TeleportDestination> destinationList = new ArrayList<>(destinations);
+                TeleportDestination randomDestination = destinationList.get(
+                        ThreadLocalRandom.current().nextInt(destinationList.size())
+                );
+
+                ItemStack teleportBook = TeleportBookSystem.getInstance().createTeleportBook(
+                        randomDestination.getId(), false
+                );
+
+                if (teleportBook != null) {
+                    Item droppedItem = dropItemWithEffects(entity, teleportBook, tier);
+
+                    // Enhanced visual effects for teleport books
+                    Location dropLocation = entity.getLocation().add(0, 1, 0);
+                    entity.getWorld().spawnParticle(Particle.ENCHANTMENT_TABLE, dropLocation, 15, 0.5, 0.5, 0.5, 0.1);
+                    entity.getWorld().playSound(dropLocation, Sound.ENTITY_PLAYER_LEVELUP, 0.5f, 1.5f);
+
+                    // Enhanced notification for teleport books
+                    Player topDamager = getTopDamageDealer(entity);
+                    if (topDamager != null) {
+                        lootNotifier.sendTeleportBookNotification(topDamager, teleportBook, entity, randomDestination.getDisplayName());
+                    }
+
+                    // Track buff improvement - thread-safe
+                    if (lootBuffManager.isBuffActive() && ThreadLocalRandom.current().nextInt(100) >= baseBookRate) {
+                        lootBuffManager.updateImprovedDrops();
+                    }
+
+                    if (logger.isLoggable(java.util.logging.Level.FINE)) {
+                        logger.fine("§a[DropsHandler] §7Dropped teleport book for destination: " +
+                                randomDestination.getDisplayName() + " from tier " + tier + " mob");
+                    }
+                }
+            } catch (Exception e) {
+                logger.warning("§c[DropsHandler] Error creating teleport book drop: " + e.getMessage());
+            }
+        }
+    }
+
+    // ===== ALL OTHER METHODS REMAIN THE SAME BUT WITH ENHANCED ERROR HANDLING =====
+
+    /**
+     * Enhanced cleanup task with better performance monitoring and thread safety
+     */
+    private void startCleanupTask() {
+        new BukkitRunnable() {
+            @Override
+            public void run() {
+                try {
+                    int cleanedDamage = cleanupExpiredDamageTracking();
+                    int cleanedInteractions = cleanupExpiredInteractions();
+
+                    Bukkit.getScheduler().runTask(plugin, () -> {
+                        try {
+                            int cleanedProcessed = cleanupInvalidProcessedMobs();
+
+                            if (cleanedDamage > 0 || cleanedProcessed > 0 || cleanedInteractions > 0) {
+                                logger.fine(String.format("Cleanup completed: %d damage entries, %d processed mobs, %d interactions removed",
+                                        cleanedDamage, cleanedProcessed, cleanedInteractions));
+                            }
+                        } catch (Exception e) {
+                            logger.warning("Error in cleanup task main thread: " + e.getMessage());
+                        }
+                    });
+                } catch (Exception e) {
+                    logger.warning("Error in cleanup task async thread: " + e.getMessage());
+                }
+            }
+        }.runTaskTimerAsynchronously(plugin, CLEANUP_INTERVAL_TICKS, CLEANUP_INTERVAL_TICKS);
+    }
+
+    private int cleanupExpiredDamageTracking() {
+        int removed = 0;
+        Iterator<Map.Entry<UUID, MobDamageData>> iterator = mobDamageTracking.entrySet().iterator();
+
+        while (iterator.hasNext()) {
+            Map.Entry<UUID, MobDamageData> entry = iterator.next();
+            if (entry.getValue().isExpired()) {
+                iterator.remove();
+                removed++;
+            }
+        }
+        return removed;
+    }
+
+    private int cleanupExpiredInteractions() {
+        int removed = 0;
+        long currentTime = System.currentTimeMillis();
+        Iterator<Map.Entry<UUID, Set<UUID>>> iterator = recentPlayerInteractions.entrySet().iterator();
+
+        while (iterator.hasNext()) {
+            Map.Entry<UUID, Set<UUID>> entry = iterator.next();
+            if (currentTime - entry.getValue().hashCode() > INTERACTION_TRACKING_EXPIRY) {
+                iterator.remove();
+                removed++;
+            }
+        }
+        return removed;
+    }
+
+    private int cleanupInvalidProcessedMobs() {
+        int initialSize = processedMobs.size();
+
+        List<UUID> toRemove = new ArrayList<>();
+
+        for (UUID uuid : processedMobs) {
+            if (!isEntityValidMainThread(uuid)) {
+                toRemove.add(uuid);
+            }
+        }
+
+        for (UUID uuid : toRemove) {
+            processedMobs.remove(uuid);
+            mobDamageTracking.remove(uuid);
+            recentPlayerInteractions.remove(uuid);
+        }
+
+        int cleanupKillsRemoved = 0;
+        try {
+            for (org.bukkit.World world : Bukkit.getWorlds()) {
+                for (LivingEntity entity : world.getLivingEntities()) {
+                    if (isCleanupKill(entity)) {
+                        UUID entityUuid = entity.getUniqueId();
+                        if (processedMobs.remove(entityUuid)) {
+                            cleanupKillsRemoved++;
+                        }
+                        mobDamageTracking.remove(entityUuid);
+                        recentPlayerInteractions.remove(entityUuid);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            // Silent fail for cleanup kill cleanup
+        }
+
+        if (logger.isLoggable(java.util.logging.Level.FINE) && cleanupKillsRemoved > 0) {
+            logger.info("§6[DropsHandler] §7Cleaned up " + cleanupKillsRemoved + " cleanup kill entities from tracking");
+        }
+
+        return initialSize - processedMobs.size();
+    }
+
+    private boolean isEntityValidMainThread(UUID entityUuid) {
+        try {
+            Entity entity = Bukkit.getEntity(entityUuid);
+            return entity != null && entity.isValid() && !entity.isDead();
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    public void shutdown() {
+        mobDamageTracking.clear();
+        processedMobs.clear();
+        recentPlayerInteractions.clear();
+        logger.info("[DropsHandler] has been shut down");
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST)
+    public void onMobDeath(EntityDeathEvent event) {
+        event.getDrops().clear();
+        event.setDroppedExp(0);
+
+        LivingEntity entity = event.getEntity();
+
+        if (entity instanceof Player) {
+            return;
+        }
+
+        // CRITICAL FIX: Skip entities killed by cleanup tasks
+        if (isCleanupKill(entity)) {
+            if (logger.isLoggable(java.util.logging.Level.FINE)) {
+                logger.info("§6[DropsHandler] §7Skipping drop processing for cleanup kill: " + entity.getType() +
+                        " ID: " + entity.getUniqueId().toString().substring(0, 8));
+            }
+            return;
+        }
+
+        if (!markAsProcessed(entity)) {
+            return;
+        }
+
+        try {
+            handleMobDrops(entity);
+        } catch (Exception e) {
+            logger.warning("Error processing drops for entity " + entity.getType() + ": " + e.getMessage());
+        }
+
+        // Handle tier kill statistics
+        Player killer = entity.getKiller();
+        if (killer != null) {
+            YakPlayer yakPlayer = playerManager.getPlayer(killer);
+            if (yakPlayer != null) {
+                int mobTier = MobUtils.getMobTier(entity);
+                switch (mobTier) {
+                    case 1:
+                        yakPlayer.setT1Kills(yakPlayer.getT1Kills() + 1);
+                        break;
+                    case 2:
+                        yakPlayer.setT2Kills(yakPlayer.getT2Kills() + 1);
+                        break;
+                    case 3:
+                        yakPlayer.setT3Kills(yakPlayer.getT3Kills() + 1);
+                        break;
+                    case 4:
+                        yakPlayer.setT4Kills(yakPlayer.getT4Kills() + 1);
+                        break;
+                    case 5:
+                        yakPlayer.setT5Kills(yakPlayer.getT5Kills() + 1);
+                        break;
+                    case 6:
+                        yakPlayer.setT6Kills(yakPlayer.getT6Kills() + 1);
+                        break;
+                    default:
+                        break;
+                }
+                YakPlayerManager.getInstance().savePlayer(yakPlayer);
+            }
+        }
+    }
+
+    private boolean isCleanupKill(LivingEntity entity) {
+        if (entity == null) return false;
+
+        try {
+            boolean hasCleanupMarker = entity.hasMetadata("cleanup_kill") ||
+                    entity.hasMetadata("no_drops") ||
+                    entity.hasMetadata("system_kill");
+
+            if (hasCleanupMarker && logger.isLoggable(java.util.logging.Level.FINE)) {
+                logger.fine("§6[DropsHandler] §7Entity " + entity.getType() +
+                        " marked as cleanup kill - skipping drop processing");
+            }
+
+            return hasCleanupMarker;
+
+        } catch (Exception e) {
+            if (logger.isLoggable(java.util.logging.Level.FINE)) {
+                logger.warning("§c[DropsHandler] Error checking cleanup kill status: " + e.getMessage());
+            }
+            return false;
+        }
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onEntityDamage(EntityDamageByEntityEvent event) {
+        if (!(event.getEntity() instanceof LivingEntity) || event.getEntity() instanceof Player) {
+            return;
+        }
+
+        LivingEntity entity = (LivingEntity) event.getEntity();
+
+        if (isCleanupKill(entity)) {
+            return;
+        }
+
+        Player damager = extractPlayerDamager(event);
+        if (damager == null) {
+            return;
+        }
+
+        UUID entityUuid = entity.getUniqueId();
+        UUID playerUuid = damager.getUniqueId();
+        double damage = event.getFinalDamage();
+
+        MobDamageData damageData = mobDamageTracking.computeIfAbsent(entityUuid, k -> new MobDamageData());
+        damageData.addDamage(playerUuid, damage);
+
+        recentPlayerInteractions.computeIfAbsent(entityUuid, k -> ConcurrentHashMap.newKeySet()).add(playerUuid);
+
+        if (logger.isLoggable(java.util.logging.Level.FINEST)) {
+            logger.finest("§6[DropsHandler] §7Recorded " + damage + " damage from " + damager.getName() +
+                    " to " + entity.getType() + " (ID: " + entityUuid.toString().substring(0, 8) + ")");
+        }
+    }
+
+    private Player extractPlayerDamager(EntityDamageByEntityEvent event) {
+        Entity damager = event.getDamager();
+
+        if (damager instanceof Player) {
+            return (Player) damager;
+        }
+
+        if (damager instanceof org.bukkit.entity.Projectile) {
+            org.bukkit.entity.Projectile projectile = (org.bukkit.entity.Projectile) damager;
+            if (projectile.getShooter() instanceof Player) {
+                return (Player) projectile.getShooter();
+            }
+        }
+
+        if (damager instanceof org.bukkit.entity.Wolf) {
+            org.bukkit.entity.Wolf wolf = (org.bukkit.entity.Wolf) damager;
+            if (wolf.isTamed() && wolf.getOwner() instanceof Player) {
+                return (Player) wolf.getOwner();
+            }
+        }
+
+        return null;
+    }
+
+    private boolean markAsProcessed(LivingEntity entity) {
+        UUID entityUuid = entity.getUniqueId();
+
+        if (isCleanupKill(entity)) {
+            return false;
+        }
+
+        if (processedMobs.contains(entityUuid) || entity.hasMetadata("dropsProcessed")) {
+            return false;
+        }
+
+        entity.setMetadata("dropsProcessed", new FixedMetadataValue(plugin, true));
+        processedMobs.add(entityUuid);
+        return true;
+    }
+
+    /**
+     * IMPROVED: Handle additional drops independently from main drops with enhanced loot buff integration
+     */
+    private void handleIndependentAdditionalDrops(LivingEntity entity, MobAnalysis analysis, boolean mainDropOccurred) {
+        int tier = analysis.getTier();
+
+        // Roll for gems independently (high chance)
+        rollForGems(entity, tier);
+
+        // Roll for crates independently (medium chance)
+        rollForCrates(entity, tier);
+
+        // Roll for scrolls independently (low chance)
+        rollForScrolls(entity, tier);
+
+        // Roll for teleport books independently (low chance)
+        rollForTeleportBooks(entity, tier);
+
+        if (logger.isLoggable(java.util.logging.Level.FINEST)) {
+            logger.finest("§6[DropsHandler] §7Completed independent drop rolls for " + entity.getType() +
+                    " (T" + tier + ") - Main drop occurred: " + mainDropOccurred);
+        }
+    }
+
+    // ALL OTHER HELPER METHODS REMAIN THE SAME...
+    // [Including all existing methods with minor improvements for error handling]
+
     private String extractMobType(LivingEntity entity) {
         // Method 1: Check metadata "type"
         if (entity.hasMetadata("type")) {
@@ -860,9 +1035,6 @@ public class DropsHandler implements Listener {
         return null;
     }
 
-    /**
-     * Detect tier from equipment with  logic for Tier 6 Netherite
-     */
     private int detectTierFromEquipment(LivingEntity entity) {
         if (entity.getEquipment() == null) {
             return 0;
@@ -893,9 +1065,6 @@ public class DropsHandler implements Listener {
         return 0;
     }
 
-    /**
-     *  tier detection with multiple fallback methods
-     */
     private int detectMobTier(LivingEntity entity) {
         // Method 1: Check equipment (most reliable)
         int equipmentTier = detectTierFromEquipment(entity);
@@ -913,9 +1082,6 @@ public class DropsHandler implements Listener {
         return getDefaultTierForEntityType(entity);
     }
 
-    /**
-     * Get default tier based on entity type with  mappings
-     */
     private int getDefaultTierForEntityType(LivingEntity entity) {
         return switch (entity.getType()) {
             case ZOMBIE, SKELETON, SPIDER -> 1;
@@ -923,14 +1089,11 @@ public class DropsHandler implements Listener {
             case WITCH, VINDICATOR -> 3;
             case EVOKER, VEX -> 4;
             case WITHER_SKELETON -> 5;
-            case WITHER, ENDER_DRAGON -> 6;
+            case WITHER, ENDER_DRAGON, WARDEN -> 6;
             default -> 1;
         };
     }
 
-    /**
-     * Detect tier from metadata with multiple key checking
-     */
     private int detectTierFromMetadata(LivingEntity entity) {
         String[] tierKeys = {"equipTier", "dropTier", "customTier", "tier"};
 
@@ -950,26 +1113,6 @@ public class DropsHandler implements Listener {
         return 0;
     }
 
-    /**
-     * Detect world boss status
-     */
-    private boolean detectWorldBossStatus(LivingEntity entity, String mobType) {
-        if (entity.hasMetadata("worldboss")) {
-            return true;
-        }
-
-        if (mobType != null) {
-            String lowerType = mobType.toLowerCase();
-            return lowerType.contains("boss") || lowerType.contains("warden") ||
-                    lowerType.equals("chronos") || lowerType.equals("apocalypse");
-        }
-
-        return false;
-    }
-
-    /**
-     *  elite status detection
-     */
     private boolean detectEliteStatus(LivingEntity entity) {
         // Check metadata first
         String[] eliteKeys = {"elite", "dropElite", "isElite"};
@@ -1004,9 +1147,6 @@ public class DropsHandler implements Listener {
         return false;
     }
 
-    /**
-     *  drop decision logic for main drops
-     */
     private boolean shouldDropItems(LivingEntity entity, MobAnalysis analysis) {
         if (isCleanupKill(entity)) {
             if (logger.isLoggable(java.util.logging.Level.WARNING)) {
@@ -1022,13 +1162,15 @@ public class DropsHandler implements Listener {
         int baseDropRate = DropConfig.getDropRate(analysis.getTier());
         int dropRate = analysis.isElite() ? DropConfig.getEliteDropRate(analysis.getTier()) : baseDropRate;
 
+        // Apply loot buff if active - thread-safe check
         if (lootBuffManager.isBuffActive()) {
             int buffPercentage = lootBuffManager.getActiveBuff().getBuffRate();
-            dropRate += (dropRate * buffPercentage / 100);
+            dropRate += (int) Math.ceil(dropRate * buffPercentage / 100.0);
         }
 
         boolean shouldDrop = ThreadLocalRandom.current().nextInt(100) < dropRate;
 
+        // Track buff improvement - thread-safe
         if (shouldDrop && lootBuffManager.isBuffActive()) {
             int originalChance = analysis.isElite() ? DropConfig.getEliteDropRate(analysis.getTier()) : DropConfig.getDropRate(analysis.getTier());
             if (ThreadLocalRandom.current().nextInt(100) >= originalChance) {
@@ -1039,9 +1181,6 @@ public class DropsHandler implements Listener {
         return shouldDrop;
     }
 
-    /**
-     *  normal mob drop handling
-     */
     private void handleNormalDrops(LivingEntity entity, MobAnalysis analysis) {
         int itemType = ThreadLocalRandom.current().nextInt(8) + 1;
         ItemStack item = DropsManager.createDrop(analysis.getTier(), itemType);
@@ -1052,52 +1191,6 @@ public class DropsHandler implements Listener {
         notifyPlayersOfDrop(entity, item, false);
     }
 
-    /**
-     *  world boss drop handling
-     */
-    private void handleWorldBossDrops(LivingEntity entity, MobAnalysis analysis) {
-        int dropCount = ThreadLocalRandom.current().nextInt(
-                WORLD_BOSS_DROP_COUNT_MAX - WORLD_BOSS_DROP_COUNT_MIN + 1) + WORLD_BOSS_DROP_COUNT_MIN;
-
-        List<Map.Entry<UUID, Double>> sortedDamagers = getSortedDamageContributors(entity);
-        List<DropInfo> drops = new ArrayList<>();
-
-        Location center = entity.getLocation();
-        String bossName = entity.getCustomName() != null ?
-                ChatColor.stripColor(entity.getCustomName()) : "World Boss";
-
-        for (int i = 0; i < dropCount; i++) {
-            Location dropLocation = calculateDropLocation(center, i, dropCount);
-            ItemStack item = createHighQualityItem(analysis.getTier());
-
-            Item droppedItem = entity.getWorld().dropItem(dropLocation, item);
-            applyWorldBossEffects(droppedItem, dropLocation);
-
-            if (!sortedDamagers.isEmpty()) {
-                int damagerIndex = i % sortedDamagers.size();
-                UUID playerUuid = sortedDamagers.get(damagerIndex).getKey();
-                Player player = Bukkit.getPlayer(playerUuid);
-
-                if (player != null && player.isOnline()) {
-                    dropsManager.registerDropProtection(droppedItem, playerUuid, WORLD_BOSS_PROTECTION_SECONDS);
-                    lootNotifier.sendDropNotification(player, item, entity, true);
-                    drops.add(new DropInfo(player.getName(), sortedDamagers.get(damagerIndex).getValue().intValue()));
-                }
-            }
-        }
-
-        lootNotifier.announceWorldBossDefeat(bossName, drops.stream()
-                .map(drop -> new Object[]{drop.playerName, drop.damage})
-                .distinct()
-                .limit(3)
-                .collect(Collectors.toList()));
-
-        playWorldBossDefeatEffects(center);
-    }
-
-    /**
-     *  elite mob drop handling
-     */
     private void handleEliteDrops(LivingEntity entity, MobAnalysis analysis) {
         int itemType = determineEliteItemType();
         int rarity = determineEliteRarity();
@@ -1110,71 +1203,6 @@ public class DropsHandler implements Listener {
         notifyPlayersOfDrop(entity, item, false);
     }
 
-    /**
-     * CRITICAL FIX:  named elite drop handling with guaranteed elite drops
-     */
-    private void handleNamedEliteDrops(LivingEntity entity, MobAnalysis analysis) {
-        try {
-            String mobType = analysis.getMobType();
-            if (mobType == null || mobType.trim().isEmpty()) {
-                logger.warning("§c[DropsHandler] Named elite has null/empty mob type, falling back to regular elite drops");
-                handleEliteDrops(entity, analysis);
-                return;
-            }
-
-            // CRITICAL FIX: Always try to create elite drop first, with fallback
-            int itemType = ThreadLocalRandom.current().nextInt(8) + 1;
-            ItemStack item = null;
-
-            // Try to create the named elite drop
-            try {
-                item = dropsManager.createEliteDrop(mobType, itemType, analysis.getTier());
-
-                if (logger.isLoggable(java.util.logging.Level.FINE)) {
-                    logger.fine("§a[DropsHandler] §7Successfully created named elite drop for " + mobType +
-                            " (item type " + itemType + ")");
-                }
-            } catch (Exception e) {
-                logger.warning("§c[DropsHandler] Failed to create named elite drop for " + mobType +
-                        ": " + e.getMessage() + " - falling back to regular elite drop");
-            }
-
-            // Fallback to regular elite drop if named elite drop failed
-            if (item == null) {
-                int rarity = Math.max(3, analysis.getTier() >= 5 ? 4 : 3); // At least rare for named elites
-                item = dropsManager.createDrop(analysis.getTier(), itemType, rarity);
-
-                if (logger.isLoggable(java.util.logging.Level.FINE)) {
-                    logger.fine("§6[DropsHandler] §7Used fallback elite drop for " + mobType +
-                            " (T" + analysis.getTier() + " R" + rarity + ")");
-                }
-            }
-
-            if (item != null) {
-                Item droppedItem = dropItemWithEffects(entity, item, analysis.getTier());
-                playDropEffects(entity.getLocation(), analysis.getTier(), true);
-
-                //  notification for named elites
-                notifyPlayersOfNamedEliteDrop(entity, item, mobType);
-
-                if (logger.isLoggable(java.util.logging.Level.FINE)) {
-                    logger.fine("§a[DropsHandler] §7Successfully dropped item for named elite " + mobType);
-                }
-            } else {
-                logger.warning("§c[DropsHandler] Complete failure to create drop for named elite " + mobType);
-            }
-
-        } catch (Exception e) {
-            logger.warning("§c[DropsHandler] Critical error in named elite drop handling: " + e.getMessage());
-            e.printStackTrace();
-            // Emergency fallback
-            handleEliteDrops(entity, analysis);
-        }
-    }
-
-    /**
-     *  notification specifically for named elite drops
-     */
     private void notifyPlayersOfNamedEliteDrop(LivingEntity entity, ItemStack item, String mobType) {
         // Get all players who contributed damage
         List<Map.Entry<UUID, Double>> contributors = getSortedDamageContributors(entity);
@@ -1186,7 +1214,7 @@ public class DropsHandler implements Listener {
                 Player player = Bukkit.getPlayer(playerUuid);
 
                 if (player != null && player.isOnline()) {
-                    //  message for named elite drops
+                    // Enhanced message for named elite drops
                     String eliteName = mobType.substring(0, 1).toUpperCase() + mobType.substring(1);
                     player.sendMessage(ChatColor.GOLD + "⚡ " + ChatColor.BOLD + "ELITE DROP! " +
                             ChatColor.RESET + ChatColor.YELLOW + eliteName + "'s " +
@@ -1201,9 +1229,6 @@ public class DropsHandler implements Listener {
         }
     }
 
-    /**
-     *   notification system with multiple fallback methods
-     */
     private void notifyPlayersOfDrop(LivingEntity entity, ItemStack item, boolean isBossLoot) {
         UUID entityUuid = entity.getUniqueId();
         Set<Player> notifiedPlayers = new HashSet<>();
@@ -1273,66 +1298,7 @@ public class DropsHandler implements Listener {
         }
     }
 
-    public Map<String, Object> getStatistics() {
-        Map<String, Object> stats = new HashMap<>();
-        stats.put("activeDamageTracking", mobDamageTracking.size());
-        stats.put("processedMobs", processedMobs.size());
-        stats.put("recentInteractions", recentPlayerInteractions.size());
-        stats.put("totalDamageEntries", mobDamageTracking.values().stream()
-                .mapToInt(data -> data.getDamageMap().size()).sum());
-        stats.put("totalInteractionEntries", recentPlayerInteractions.values().stream()
-                .mapToInt(Set::size).sum());
-
-        int cleanupKillsInTracking = 0;
-        try {
-            for (org.bukkit.World world : Bukkit.getWorlds()) {
-                for (LivingEntity entity : world.getLivingEntities()) {
-                    if (isCleanupKill(entity) && processedMobs.contains(entity.getUniqueId())) {
-                        cleanupKillsInTracking++;
-                    }
-                }
-            }
-        } catch (Exception e) {
-            // Silent fail
-        }
-
-        stats.put("cleanupKillsInTracking", cleanupKillsInTracking);
-        stats.put("teleportDestinationsAvailable", TeleportManager.getInstance().getAllDestinations().size());
-
-        //  Add independent drop rate statistics
-        stats.put("gemDropRates", GEM_DROP_RATES);
-        stats.put("crateDropRates", CRATE_DROP_RATES);
-        stats.put("teleportBookDropRates", TELEPORT_BOOK_DROP_RATES);
-        stats.put("scrollDropRates", SCROLL_DROP_RATES);
-
-        stats.put("eliteConfigurationsLoaded", DropConfig.getEliteDropConfigs().size());
-
-        return stats;
-    }
-
-    // Helper methods and utility functions (keeping the rest of the implementation the same)
-
-    private Item dropItemWithEffects(LivingEntity entity, ItemStack item, int tier) {
-        Item droppedItem = entity.getWorld().dropItemNaturally(entity.getLocation(), item);
-
-        Player topDamager = getTopDamageDealer(entity);
-        if (topDamager != null) {
-            dropsManager.registerDropProtection(droppedItem, topDamager.getUniqueId(), DEFAULT_PROTECTION_SECONDS);
-        }
-
-        return droppedItem;
-    }
-
-    private void playDropEffects(Location location, int tier, boolean isElite) {
-        Particle particle = TIER_PARTICLES.getOrDefault(tier, Particle.VILLAGER_HAPPY);
-        location.getWorld().spawnParticle(particle, location.add(0, 1, 0),
-                isElite ? 20 : 10, 0.5, 0.5, 0.5, 0.1);
-
-        Sound sound = isElite ? dropsManager.getRaritySound(3) : dropsManager.getTierSound(tier);
-        location.getWorld().playSound(location, sound, 1.0f, 1.0f);
-    }
-
-    // Helper classes and methods
+    // Helper classes and utility methods
     private static class DropInfo {
         final String playerName;
         final int damage;
@@ -1433,7 +1399,27 @@ public class DropsHandler implements Listener {
         return damageData != null ? damageData.getSortedDamagers() : new ArrayList<>();
     }
 
-    // Public API methods
+    private Item dropItemWithEffects(LivingEntity entity, ItemStack item, int tier) {
+        Item droppedItem = entity.getWorld().dropItemNaturally(entity.getLocation(), item);
+
+        Player topDamager = getTopDamageDealer(entity);
+        if (topDamager != null) {
+            dropsManager.registerDropProtection(droppedItem, topDamager.getUniqueId(), DEFAULT_PROTECTION_SECONDS);
+        }
+
+        return droppedItem;
+    }
+
+    private void playDropEffects(Location location, int tier, boolean isElite) {
+        Particle particle = TIER_PARTICLES.getOrDefault(tier, Particle.VILLAGER_HAPPY);
+        location.getWorld().spawnParticle(particle, location.add(0, 1, 0),
+                isElite ? 20 : 10, 0.5, 0.5, 0.5, 0.1);
+
+        Sound sound = isElite ? dropsManager.getRaritySound(3) : dropsManager.getTierSound(tier);
+        location.getWorld().playSound(location, sound, 1.0f, 1.0f);
+    }
+
+    // Public API methods and debug functions
     public void setDropRate(int tier, int rate) {
         dropsManager.setDropRate(tier, rate);
         TextUtil.broadcastCentered(ChatColor.YELLOW + "DROP RATES" + ChatColor.GRAY + " - " +
@@ -1444,7 +1430,6 @@ public class DropsHandler implements Listener {
         return dropsManager.getDropRate(tier);
     }
 
-    //  Get independent drop rates for debugging
     public Map<Integer, Integer> getGemDropRates() {
         return new HashMap<>(GEM_DROP_RATES);
     }
@@ -1461,6 +1446,48 @@ public class DropsHandler implements Listener {
         return new HashMap<>(SCROLL_DROP_RATES);
     }
 
+    public Map<String, Object> getStatistics() {
+        Map<String, Object> stats = new HashMap<>();
+        stats.put("activeDamageTracking", mobDamageTracking.size());
+        stats.put("processedMobs", processedMobs.size());
+        stats.put("recentInteractions", recentPlayerInteractions.size());
+        stats.put("totalDamageEntries", mobDamageTracking.values().stream()
+                .mapToInt(data -> data.getDamageMap().size()).sum());
+        stats.put("totalInteractionEntries", recentPlayerInteractions.values().stream()
+                .mapToInt(Set::size).sum());
+
+        int cleanupKillsInTracking = 0;
+        try {
+            for (org.bukkit.World world : Bukkit.getWorlds()) {
+                for (LivingEntity entity : world.getLivingEntities()) {
+                    if (isCleanupKill(entity) && processedMobs.contains(entity.getUniqueId())) {
+                        cleanupKillsInTracking++;
+                    }
+                }
+            }
+        } catch (Exception e) {
+            // Silent fail
+        }
+
+        stats.put("cleanupKillsInTracking", cleanupKillsInTracking);
+        stats.put("teleportDestinationsAvailable", TeleportManager.getInstance().getAllDestinations().size());
+
+        // Add independent drop rate statistics
+        stats.put("gemDropRates", GEM_DROP_RATES);
+        stats.put("crateDropRates", CRATE_DROP_RATES);
+        stats.put("teleportBookDropRates", TELEPORT_BOOK_DROP_RATES);
+        stats.put("scrollDropRates", SCROLL_DROP_RATES);
+
+        stats.put("eliteConfigurationsLoaded", DropConfig.getEliteDropConfigs().size());
+
+        // Add loot buff statistics
+        stats.put("lootBuffActive", lootBuffManager.isBuffActive());
+        stats.put("lootBuffImprovedDrops", lootBuffManager.getImprovedDrops());
+
+        return stats;
+    }
+
+    // Debug methods
     public void debugTeleportBookDrop(Player player, int tier) {
         if (player == null) {
             return;
@@ -1507,9 +1534,6 @@ public class DropsHandler implements Listener {
         }
     }
 
-    /**
-     * Debug method to test named elite detection
-     */
     public void debugNamedEliteDetection(Player player, LivingEntity entity) {
         if (player == null || entity == null) {
             return;
@@ -1528,14 +1552,26 @@ public class DropsHandler implements Listener {
         if (analysis.getMobType() != null) {
             boolean hasConfig = DropConfig.getEliteDropConfig(analysis.getMobType()) != null;
             player.sendMessage(ChatColor.YELLOW + "Has Elite Config: " + ChatColor.WHITE + hasConfig);
+
+            if (hasConfig) {
+                EliteDropConfig config = DropConfig.getEliteDropConfig(analysis.getMobType());
+                List<Integer> configuredItemTypes = new ArrayList<>();
+
+                // Check each possible item type (1-8) to see if this elite has it configured
+                for (int itemType = 1; itemType <= 8; itemType++) {
+                    com.rednetty.server.mechanics.item.drops.types.ItemDetails itemDetails = config.getItemDetailsForType(itemType);
+                    if (itemDetails != null) {
+                        configuredItemTypes.add(itemType);
+                    }
+                }
+
+                player.sendMessage(ChatColor.YELLOW + "Configured Item Types: " + ChatColor.WHITE + configuredItemTypes);
+            }
         }
 
         player.sendMessage(ChatColor.GOLD + "===================");
     }
 
-    /**
-     *  Debug method to test independent drop rolling
-     */
     public void debugIndependentDrops(Player player, int tier) {
         if (player == null) {
             return;
@@ -1550,13 +1586,16 @@ public class DropsHandler implements Listener {
         if (lootBuffManager.isBuffActive()) {
             int buffRate = lootBuffManager.getActiveBuff().getBuffRate();
             player.sendMessage(ChatColor.GREEN + "Loot Buff Active: +" + buffRate + "%");
+            player.sendMessage(ChatColor.GREEN + "Improved Drops: " + lootBuffManager.getImprovedDrops());
+        } else {
+            player.sendMessage(ChatColor.RED + "No loot buff active");
         }
 
         player.sendMessage(ChatColor.GOLD + "===========================");
     }
 
     /**
-     *   mob detection result with better named elite detection
+     * FIXED: Enhanced mob detection result with better named elite detection
      */
     private static class MobAnalysis {
         private final int tier;
@@ -1564,7 +1603,7 @@ public class DropsHandler implements Listener {
         private final boolean isWorldBoss;
         private final boolean isNamedElite;
         private final String mobType;
-        private final String actualMobName; // ADDED: Store the actual mob name for debugging
+        private final String actualMobName;
 
         public MobAnalysis(int tier, boolean isElite, boolean isWorldBoss, boolean isNamedElite, String mobType, String actualMobName) {
             this.tier = tier;
@@ -1581,9 +1620,6 @@ public class DropsHandler implements Listener {
         public boolean isWorldBoss() { return isWorldBoss; }
         public boolean isNamedElite() { return isNamedElite; }
         public String getMobType() { return mobType; }
-
-        public String getActualMobName() {
-            return actualMobName;
-        }
+        public String getActualMobName() { return actualMobName; }
     }
 }

@@ -1,11 +1,6 @@
 package com.rednetty.server.commands.utility;
 
 import com.rednetty.server.YakRealms;
-import com.rednetty.server.mechanics.item.awakening.AwakeningStoneSystem;
-import com.rednetty.server.mechanics.item.binding.BindingRuneSystem;
-import com.rednetty.server.mechanics.item.corruption.CorruptionSystem;
-import com.rednetty.server.mechanics.item.essence.EssenceCrystalSystem;
-import com.rednetty.server.mechanics.item.forge.ForgeHammerSystem;
 import com.rednetty.server.mechanics.item.scroll.ScrollGenerator;
 import com.rednetty.server.mechanics.player.items.SpeedfishMechanics;
 import org.bukkit.Bukkit;

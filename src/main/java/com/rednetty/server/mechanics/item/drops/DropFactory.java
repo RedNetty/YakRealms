@@ -19,7 +19,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.logging.Logger;
 
 /**
- *  factory class for creating different types of drops with improved performance and visual effects
+ * Factory class for creating different types of drops with performance optimization and visual effects
  */
 public class DropFactory {
     private static DropFactory instance;
@@ -28,24 +28,29 @@ public class DropFactory {
     private final TeleportManager teleportManager;
     private final TeleportBookSystem teleportBookSystem;
 
-    //  cache management
+    // Cache management
     private final Map<Integer, List<TeleportDestination>> tieredDestinations = new HashMap<>();
     private volatile long lastDestinationCacheUpdate = 0;
-    private static final long CACHE_REFRESH_INTERVAL = TimeUnit.MINUTES.toMillis(1); // More readable
+    private static final long CACHE_REFRESH_INTERVAL = TimeUnit.MINUTES.toMillis(1);
 
     // Constants for gem calculation
     private static final int GEM_BASE_MULTIPLIER = 3;
     private static final int MAX_GEM_STACK = 64;
 
-    //  crate visual effects with Tier 6 Netherite integration
+    // Tier color mapping for visual consistency
     private static final Map<Integer, ChatColor> TIER_COLORS = Map.of(
             1, ChatColor.WHITE,
             2, ChatColor.GREEN,
             3, ChatColor.AQUA,
             4, ChatColor.LIGHT_PURPLE,
             5, ChatColor.YELLOW,
-            6, ChatColor.GOLD  // Updated for Netherite
+            6, ChatColor.GOLD
     );
+
+    // Message formatting constants
+    private static final String TELEPORT_SYMBOL = "⚡";
+    private static final String MAGIC_SYMBOL = "✨";
+    private static final String SEPARATOR = " ";
 
     /**
      * Private constructor for singleton pattern
@@ -73,7 +78,7 @@ public class DropFactory {
     }
 
     /**
-     * Creates a drop for a normal mob - delegates to DropsManager with  logging
+     * Creates a drop for a normal mob
      *
      * @param tier     The tier level (1-6)
      * @param itemType The item type (1-8)
@@ -87,13 +92,13 @@ public class DropFactory {
             logDropCreation("normal", tier, itemType, 0);
             return drop;
         } catch (Exception e) {
-            logger.warning("Failed to create normal drop for tier " + tier + ", itemType " + itemType + ": " + e.getMessage());
+            logger.warning(formatLogMessage("Failed to create normal drop", tier, itemType, 0, e));
             return createFallbackDrop();
         }
     }
 
     /**
-     * Creates a drop for an elite mob with  error handling
+     * Creates a drop for an elite mob
      *
      * @param tier     The tier level (1-6)
      * @param itemType The item type (1-8)
@@ -109,24 +114,23 @@ public class DropFactory {
             logDropCreation("elite", tier, itemType, rarity);
             return drop;
         } catch (Exception e) {
-            logger.warning("Failed to create elite drop for tier " + tier + ", itemType " + itemType +
-                    ", rarity " + rarity + ": " + e.getMessage());
+            logger.warning(formatLogMessage("Failed to create elite drop", tier, itemType, rarity, e));
             return createFallbackDrop();
         }
     }
 
     /**
-     * Creates an  crate drop with improved visual design
+     * Creates a crate drop with visual design
      *
      * @param tier The tier level (1-6)
-     * @return The created crate ItemStack with  visuals
+     * @return The created crate ItemStack with appropriate visuals
      */
     public ItemStack createCrateDrop(int tier) {
-        return YakRealms.getInstance().getCrateManager().createCrate(CrateType.getByTier(tier, false),false);
+        return YakRealms.getInstance().getCrateManager().createCrate(CrateType.getByTier(tier, false), false);
     }
 
     /**
-     * Creates  gem drop with tier-based scaling
+     * Creates gem drop with tier-based scaling
      *
      * @param tier The tier level (1-6)
      * @return The created gem ItemStack
@@ -141,14 +145,14 @@ public class DropFactory {
             logDropCreation("gem", tier, 0, 0);
             return gems;
         } catch (Exception e) {
-            logger.warning("Failed to create gem drop for tier " + tier + ": " + e.getMessage());
+            logger.warning(formatLogMessage("Failed to create gem drop", tier, 0, 0, e));
             // Fallback to basic gem amount
             return MoneyManager.makeGems(tier * 5);
         }
     }
 
     /**
-     * Creates scroll drop with  destination selection and error handling
+     * Creates scroll drop with destination selection and error handling
      *
      * @param tier The tier level (1-6)
      * @return The created scroll ItemStack
@@ -158,14 +162,14 @@ public class DropFactory {
 
         try {
             return ItemAPI.getScrollGenerator().createEnhancementScroll(tier, ThreadLocalRandom.current().nextInt(0, 1));
-
         } catch (Exception e) {
+            logger.warning(formatLogMessage("Failed to create scroll drop", tier, 0, 0, e));
             return createGenericScrollItem("Unknown Destination", tier);
         }
     }
 
     /**
-     * Creates  generic scroll with tier-based visual effects
+     * Creates generic scroll with tier-based visual effects
      */
     private ItemStack createGenericScrollItem(String destinationName, int tier) {
         ItemStack scroll = new ItemStack(Material.PAPER);
@@ -174,19 +178,13 @@ public class DropFactory {
         if (meta != null) {
             ChatColor tierColor = TIER_COLORS.getOrDefault(tier, ChatColor.YELLOW);
 
-            meta.setDisplayName(tierColor + "⚡ " + ChatColor.BOLD + destinationName +
-                    " Teleport Scroll " + ChatColor.RESET + tierColor + "⚡");
+            String displayName = formatScrollDisplayName(destinationName, tierColor);
+            meta.setDisplayName(displayName);
 
-            List<String> lore = Arrays.asList(
-                    "",
-                    ChatColor.GRAY + "Right-click to teleport to " + ChatColor.WHITE + destinationName,
-                    ChatColor.GRAY + "Tier: " + tierColor + tier,
-                    "",
-                    tierColor + "✨ " + ChatColor.ITALIC + "Mystical transportation awaits..."
-            );
+            List<String> lore = createScrollLore(destinationName, tier, tierColor);
             meta.setLore(lore);
 
-            // Add visual enhancements
+            // Add visual enhancements but keep item movable
             meta.addItemFlags(ItemFlag.HIDE_ENCHANTS);
             scroll.setItemMeta(meta);
         }
@@ -195,7 +193,28 @@ public class DropFactory {
     }
 
     /**
-     * Refreshes the destination tier cache with improved performance
+     * Formats scroll display name consistently
+     */
+    private String formatScrollDisplayName(String destinationName, ChatColor tierColor) {
+        return tierColor + TELEPORT_SYMBOL + SEPARATOR + ChatColor.BOLD + destinationName +
+                " Teleport Scroll" + ChatColor.RESET + SEPARATOR + tierColor + TELEPORT_SYMBOL;
+    }
+
+    /**
+     * Creates scroll lore with consistent formatting
+     */
+    private List<String> createScrollLore(String destinationName, int tier, ChatColor tierColor) {
+        return Arrays.asList(
+                "",
+                ChatColor.GRAY + "Right-click to teleport to " + ChatColor.WHITE + destinationName,
+                ChatColor.GRAY + "Tier: " + tierColor + tier,
+                "",
+                tierColor + MAGIC_SYMBOL + SEPARATOR + ChatColor.ITALIC + "Mystical transportation awaits..."
+        );
+    }
+
+    /**
+     * Refreshes the destination tier cache
      */
     private synchronized void refreshDestinationCache() {
         long currentTime = System.currentTimeMillis();
@@ -214,7 +233,7 @@ public class DropFactory {
                 return;
             }
 
-            // Group destinations by tier with  logic
+            // Group destinations by tier
             for (TeleportDestination dest : allDestinations) {
                 int destTier = calculateDestinationTier(dest);
                 tieredDestinations.computeIfAbsent(destTier, k -> new ArrayList<>()).add(dest);
@@ -232,7 +251,7 @@ public class DropFactory {
     }
 
     /**
-     *  destination tier calculation with better logic
+     * Calculates destination tier based on properties
      */
     private int calculateDestinationTier(TeleportDestination destination) {
         if (destination.isPremium()) {
@@ -260,14 +279,14 @@ public class DropFactory {
     }
 
     /**
-     * Selects optimal destination based on tier with improved algorithm
+     * Selects optimal destination based on tier
      */
     private String selectOptimalDestination(int tier) {
         refreshDestinationCache();
 
         List<TeleportDestination> eligibleDestinations = new ArrayList<>();
 
-        //  tier-based destination selection
+        // Tier-based destination selection
         switch (tier) {
             case 1:
             case 2:
@@ -338,7 +357,7 @@ public class DropFactory {
     }
 
     /**
-     *  fallback destination selection
+     * Fallback destination selection
      */
     private TeleportDestination getFallbackDestination() {
         return teleportManager.getAllDestinations().stream()
@@ -348,7 +367,7 @@ public class DropFactory {
     }
 
     /**
-     * Creates  lore for crates with visual elements
+     * Creates lore for crates with visual elements
      */
     private List<String> createCrateLore(int tier, ChatColor tierColor) {
         List<String> lore = new ArrayList<>();
@@ -366,7 +385,8 @@ public class DropFactory {
             lore.add("");
         }
 
-        lore.add(tierColor + "✨ " + ChatColor.BOLD + "MAGICAL CONTAINER" + ChatColor.RESET + " " + tierColor + "✨");
+        lore.add(tierColor + MAGIC_SYMBOL + SEPARATOR + ChatColor.BOLD + "MAGICAL CONTAINER" +
+                ChatColor.RESET + SEPARATOR + tierColor + MAGIC_SYMBOL);
         return lore;
     }
 
@@ -392,13 +412,13 @@ public class DropFactory {
             case 3 -> "Mystical container radiating magical energy";
             case 4 -> "Ancient chest blessed by powerful forces";
             case 5 -> "Legendary container of immense power";
-            case 6 -> "Nether Forged chest forged in the depths of the Nether";
+            case 6 -> "Netherite forged chest from the depths of the Nether";
             default -> "";
         };
     }
 
     /**
-     * Calculates gem amount with  scaling
+     * Calculates gem amount with exponential scaling
      */
     private int calculateGemAmount(int tier) {
         int baseAmount = 1;
@@ -420,7 +440,7 @@ public class DropFactory {
             // Add tier information to existing lore
             currentLore.add("");
             currentLore.add(ChatColor.GRAY + "Scroll Tier: " + tierColor + ChatColor.BOLD + tier);
-            currentLore.add(tierColor + "⚡ Instant Teleportation ⚡");
+            currentLore.add(tierColor + TELEPORT_SYMBOL + " Instant Teleportation " + TELEPORT_SYMBOL);
 
             meta.setLore(currentLore);
             scroll.setItemMeta(meta);
@@ -450,13 +470,21 @@ public class DropFactory {
     }
 
     /**
-     *  logging for drop creation
+     * Standardized logging for drop creation
      */
     private void logDropCreation(String dropType, int tier, int itemType, int rarity) {
         if (logger.isLoggable(java.util.logging.Level.FINE)) {
             logger.fine(String.format("Created %s drop: tier=%d, itemType=%d, rarity=%d",
                     dropType, tier, itemType, rarity));
         }
+    }
+
+    /**
+     * Formats log messages consistently
+     */
+    private String formatLogMessage(String message, int tier, int itemType, int rarity, Exception e) {
+        return String.format("%s for tier %d, itemType %d, rarity %d: %s",
+                message, tier, itemType, rarity, e.getMessage());
     }
 
     /**

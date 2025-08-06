@@ -1,7 +1,7 @@
 package com.rednetty.server.commands.staff.admin;
 
 import com.rednetty.server.YakRealms;
-import com.rednetty.server.mechanics.ui.tab.TabPluginIntegration;
+import com.rednetty.server.mechanics.ui.TabPluginIntegration;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.command.Command;

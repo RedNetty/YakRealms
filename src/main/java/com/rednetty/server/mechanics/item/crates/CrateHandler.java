@@ -33,8 +33,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Logger;
 
 /**
- *  event handler for crate-related interactions using 1.20.4 features
- * Provides comprehensive event handling with improved UX and error handling
+ * Event handler for crate-related interactions using 1.20.4 features.
+ * Provides comprehensive event handling with improved UX and error handling.
  */
 public class CrateHandler implements Listener {
     private final YakRealms plugin;
@@ -43,24 +43,36 @@ public class CrateHandler implements Listener {
     private final CrateFactory crateFactory;
     private final EconomyManager economyManager;
 
-    //  spam prevention and cooldown management
+    // Spam prevention and cooldown management
     private final Set<UUID> processingClicks = ConcurrentHashMap.newKeySet();
     private final Map<UUID, Long> lastClickTimes = new ConcurrentHashMap<>();
     private final Map<UUID, Long> lastScrapTimes = new ConcurrentHashMap<>();
     private final Map<UUID, Integer> clickCounts = new ConcurrentHashMap<>();
 
-    //  cooldown settings
-    private static final long CLICK_COOLDOWN_MS = 500; // 0.5 second between clicks
-    private static final long SCRAP_COOLDOWN_MS = 2000; // 2 seconds between scraps
-    private static final long SPAM_THRESHOLD_MS = 5000; // 5 seconds for spam detection
-    private static final int MAX_CLICKS_PER_THRESHOLD = 10; // Max clicks in threshold period
-
     // Animation inventory tracking
     private final Map<UUID, String> animationInventories = new ConcurrentHashMap<>();
+
+    // Cooldown and limit constants
+    private static final long CLICK_COOLDOWN_MS = 500;
+    private static final long SCRAP_COOLDOWN_MS = 2000;
+    private static final long SPAM_THRESHOLD_MS = 5000;
+    private static final int MAX_CLICKS_PER_THRESHOLD = 10;
+    private static final int REQUIRED_INVENTORY_SLOTS = 3;
+    private static final long CLEANUP_INTERVAL_TICKS = 600L;
+    private static final long DATA_CLEANUP_AGE_MS = 300000L;
+    private static final long PLAYER_JOIN_DELAY_TICKS = 40L;
+    private static final long INVENTORY_UPDATE_DELAY_TICKS = 1L;
+
+    // Animation inventory identifier
     private static final String ANIMATION_INVENTORY_TITLE = "✦ Mystical Crate Opening ✦";
 
+    // Message formatting constants
+    private static final String MESSAGE_PREFIX_ERROR = ChatColor.RED + "✗ " + ChatColor.BOLD + "ERROR" + ChatColor.RED + " ✗";
+    private static final String MESSAGE_PREFIX_WARNING = ChatColor.YELLOW + "⚠ " + ChatColor.BOLD + "WARNING" + ChatColor.YELLOW + " ⚠";
+    private static final String MESSAGE_PREFIX_SUCCESS = ChatColor.GREEN + "✓ " + ChatColor.BOLD + "SUCCESS" + ChatColor.GREEN + " ✓";
+
     /**
-     * Constructor
+     * Constructor for CrateHandler.
      */
     public CrateHandler() {
         this.plugin = YakRealms.getInstance();
@@ -69,12 +81,12 @@ public class CrateHandler implements Listener {
         this.crateFactory = crateManager.getCrateFactory();
         this.economyManager = EconomyManager.getInstance();
 
-        // Start cleanup task for expired data
         startCleanupTask();
     }
 
     /**
-     *  crate opening via inventory clicking with modern UX
+     * Handles crate opening via inventory clicking with modern UX.
+     * Only intercepts specific click types to allow normal inventory manipulation.
      */
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onInventoryClick(InventoryClickEvent event) {
@@ -82,51 +94,33 @@ public class CrateHandler implements Listener {
             return;
         }
 
-        // Check if this is an animation inventory - always cancel these
+        // Always cancel clicks in animation inventories
         if (isAnimationInventory(event.getView().getTitle())) {
             event.setCancelled(true);
             return;
         }
 
-        // Get the clicked item - could be current item or cursor depending on action
         ItemStack clickedItem = event.getCurrentItem();
         ItemStack cursorItem = event.getCursor();
 
-        // Debug logging
-        logger.fine("Inventory click - Player: " + player.getName() +
-                ", Click: " + event.getClick() +
-                ", Slot: " + event.getSlot() +
-                ", SlotType: " + event.getSlotType() +
-                ", InventoryType: " + event.getInventory().getType() +
-                ", CurrentItem: " + (clickedItem != null ? clickedItem.getType() : "null") +
-                ", CursorItem: " + (cursorItem != null ? cursorItem.getType() : "null"));
+        logInventoryClick(player, event, clickedItem, cursorItem);
 
-        // Handle crate key interactions first (drag and drop)
+        // Handle crate key interactions (drag and drop)
         if (isCrateKeyInteraction(event)) {
             event.setCancelled(true);
             handleCrateKeyUsage(player, event);
             return;
         }
 
-        // Handle crate inventory interactions -  detection
-        if (isValidCrateInventoryClick(event) && isCrateItem(clickedItem)) {
+        // Handle crate opening - only for LEFT clicks to preserve inventory manipulation
+        if (shouldHandleCrateOpening(event, clickedItem)) {
             event.setCancelled(true);
             handleCrateInventoryClick(player, clickedItem, event);
-            return;
-        }
-
-        // Additional check for clicking crates in other inventories
-        if (clickedItem != null && isCrateItem(clickedItem) && isPlayerRelatedInventory(event)) {
-            // Only handle left clicks for opening
-            if (event.getClick() == ClickType.LEFT) {
-                event.setCancelled(true);
-                handleCrateInventoryClick(player, clickedItem, event);
-            }
         }
     }
 
     /**
-     *  crate interactions via right-clicking in hand
+     * Handles crate interactions via right-clicking in hand.
      */
     @EventHandler(priority = EventPriority.HIGH)
     public void onPlayerInteract(PlayerInteractEvent event) {
@@ -143,18 +137,16 @@ public class CrateHandler implements Listener {
 
         event.setCancelled(true);
 
-        //  duel check (if duel system exists)
         if (isPlayerInDuel(player)) {
             sendDuelMessage(player);
             return;
         }
 
-        // Handle right-click for  scrap value
         handleCrateScrapValue(player, item);
     }
 
     /**
-     * Handles animation inventory close events
+     * Handles animation inventory close events.
      */
     @EventHandler(priority = EventPriority.MONITOR)
     public void onInventoryClose(InventoryCloseEvent event) {
@@ -162,14 +154,11 @@ public class CrateHandler implements Listener {
             return;
         }
 
-        // Check if closing an animation inventory
         if (isAnimationInventory(event.getView().getTitle())) {
             UUID playerId = player.getUniqueId();
             animationInventories.remove(playerId);
 
-            // If player is still in processing, this might be an unexpected close
             if (crateManager.getProcessingPlayers().contains(playerId)) {
-                // Send notification but don't interrupt the process
                 player.spigot().sendMessage(ChatMessageType.ACTION_BAR,
                         new TextComponent(ChatColor.YELLOW + "⚠ Crate is still opening in the background..."));
             }
@@ -177,78 +166,60 @@ public class CrateHandler implements Listener {
     }
 
     /**
-     *  player join handling
+     * Handles player join events.
      */
     @EventHandler(priority = EventPriority.MONITOR)
     public void onPlayerJoin(PlayerJoinEvent event) {
         Player player = event.getPlayer();
         UUID playerId = player.getUniqueId();
 
-        // Clean up any stale data for this player
-        processingClicks.remove(playerId);
-        lastClickTimes.remove(playerId);
-        lastScrapTimes.remove(playerId);
-        clickCounts.remove(playerId);
-        animationInventories.remove(playerId);
+        cleanupPlayerData(playerId);
 
-        // Send welcome message about crates if they have any
         new BukkitRunnable() {
             @Override
             public void run() {
                 checkAndNotifyCrates(player);
             }
-        }.runTaskLater(plugin, 380L); // 2 seconds after join
+        }.runTaskLater(plugin, PLAYER_JOIN_DELAY_TICKS);
     }
 
     /**
-     *  player quit handling
+     * Handles player quit events.
      */
     @EventHandler(priority = EventPriority.MONITOR)
     public void onPlayerQuit(PlayerQuitEvent event) {
         Player player = event.getPlayer();
         UUID playerId = player.getUniqueId();
 
-        // Clean up all player data
-        processingClicks.remove(playerId);
-        lastClickTimes.remove(playerId);
-        lastScrapTimes.remove(playerId);
-        clickCounts.remove(playerId);
-        animationInventories.remove(playerId);
-
-        // Cancel any active animations
+        cleanupPlayerData(playerId);
         crateManager.getAnimationManager().cancelAnimation(playerId);
     }
 
     /**
-     *  crate inventory click handler with modern UX
+     * Handles crate inventory click with modern UX.
      */
     private void handleCrateInventoryClick(Player player, ItemStack crateItem, InventoryClickEvent event) {
         UUID playerId = player.getUniqueId();
 
-        //  spam prevention
         if (!checkCooldown(player, CLICK_COOLDOWN_MS, lastClickTimes)) {
             return;
         }
 
-        // Check if player is already processing a crate
         if (crateManager.getProcessingPlayers().contains(playerId)) {
             sendProcessingMessage(player);
             return;
         }
 
-        //  duel check
         if (isPlayerInDuel(player)) {
             sendDuelMessage(player);
             return;
         }
 
-        //  inventory space check
         if (!hasInventorySpace(player)) {
             sendInventoryFullMessage(player);
             return;
         }
 
-        // Check if crate is locked
         if (isCrateLocked(crateItem)) {
             sendLockedCrateMessage(player);
             return;
@@ -257,24 +228,13 @@ public class CrateHandler implements Listener {
         processingClicks.add(playerId);
 
         try {
-            //  opening attempt with user feedback
             sendOpeningStartMessage(player, crateItem);
 
             boolean success = crateManager.openCrate(player, crateItem);
 
             if (success) {
-                // Consume the crate item with  feedback
                 consumeCrateItem(event, crateItem);
-
-                // Force inventory update to prevent ghost items
-                new BukkitRunnable() {
-                    @Override
-                    public void run() {
-                        player.updateInventory();
-                    }
-                }.runTaskLater(plugin, 1L);
-
-                // Track the animation inventory
+                scheduleInventoryUpdate(player);
                 animationInventories.put(playerId, ANIMATION_INVENTORY_TITLE);
 
                 logger.fine("Player " + player.getName() + " successfully opened a crate");
@@ -291,7 +251,7 @@ public class CrateHandler implements Listener {
     }
 
     /**
-     *  crate key usage handler
+     * Handles crate key usage.
      */
     private void handleCrateKeyUsage(Player player, InventoryClickEvent event) {
         ItemStack cursor = event.getCursor();
@@ -302,54 +262,36 @@ public class CrateHandler implements Listener {
         }
 
         if (!isCrateLocked(target)) {
-            player.sendMessage(ChatColor.RED + "✗ This crate is not locked!");
-            playErrorSound(player);
+            sendMessage(player, ChatColor.RED + "This crate is not locked!", Sound.BLOCK_NOTE_BLOCK_BASS);
             return;
         }
 
-        //  validation
         CrateType crateType = crateFactory.determineCrateType(target);
         if (crateType == null) {
-            player.sendMessage(ChatColor.RED + "✗ Invalid crate type!");
-            playErrorSound(player);
+            sendMessage(player, ChatColor.RED + "Invalid crate type!", Sound.BLOCK_NOTE_BLOCK_BASS);
             return;
         }
 
-        //  key validation (placeholder for future key type checking)
         if (!validateCrateKey(cursor, crateType)) {
-            player.sendMessage(ChatColor.RED + "✗ This key cannot unlock this crate type!");
-            playErrorSound(player);
+            sendMessage(player, ChatColor.RED + "This key cannot unlock this crate type!", Sound.BLOCK_NOTE_BLOCK_BASS);
             return;
         }
 
-        // Unlock the crate with  effects
         ItemStack unlockedCrate = unlockCrateWithEffects(player, target);
         event.setCurrentItem(unlockedCrate);
-
-        // Consume the key
         consumeKeyItem(event, cursor);
-
-        // Force inventory update to prevent ghost items
-        new BukkitRunnable() {
-            @Override
-            public void run() {
-                player.updateInventory();
-            }
-        }.runTaskLater(plugin, 1L);
-
-        //  success feedback
+        scheduleInventoryUpdate(player);
         sendKeySuccessMessage(player, crateType);
 
         logger.fine("Player " + player.getName() + " unlocked a " + crateType + " crate");
     }
 
     /**
-     *  crate scrap value handler with modern UX
+     * Handles crate scrap value with modern UX.
      */
     private void handleCrateScrapValue(Player player, ItemStack crateItem) {
         UUID playerId = player.getUniqueId();
 
-        //  cooldown check for scrapping
         if (!checkCooldown(player, SCRAP_COOLDOWN_MS, lastScrapTimes)) {
             long remaining = getRemainingCooldown(playerId, SCRAP_COOLDOWN_MS, lastScrapTimes);
             player.spigot().sendMessage(ChatMessageType.ACTION_BAR,
@@ -359,33 +301,27 @@ public class CrateHandler implements Listener {
 
         CrateType crateType = crateFactory.determineCrateType(crateItem);
         if (crateType == null) {
-            player.sendMessage(ChatColor.RED + "✗ Invalid crate type!");
-            playErrorSound(player);
+            sendMessage(player, ChatColor.RED + "Invalid crate type!", Sound.BLOCK_NOTE_BLOCK_BASS);
             return;
         }
 
-        //  scrap value calculation
         int scrapValue = calculateScrapValue(crateType);
 
-        // Show confirmation for valuable crates
         if (crateType.getTier() >= 4) {
             sendScrapConfirmation(player, crateType, scrapValue);
             return;
         }
 
-        // Perform the scrap operation
         performScrapOperation(player, crateItem, crateType, scrapValue);
     }
 
     /**
-     * Performs the actual scrap operation with  effects
+     * Performs the actual scrap operation with effects.
      */
     private void performScrapOperation(Player player, ItemStack crateItem, CrateType crateType, int scrapValue) {
-        // Try to give gems to player
         var result = economyManager.addBankGems(player.getUniqueId(), scrapValue);
 
         if (result.isSuccess()) {
-            // Remove the crate from hand -  to prevent ghost items
             ItemStack handItem = player.getInventory().getItemInMainHand();
             if (handItem.getAmount() > 1) {
                 ItemStack reducedItem = handItem.clone();
@@ -395,21 +331,9 @@ public class CrateHandler implements Listener {
                 player.getInventory().setItemInMainHand(new ItemStack(Material.AIR));
             }
 
-            // Force inventory update to prevent ghost items
-            new BukkitRunnable() {
-                @Override
-                public void run() {
-                    player.updateInventory();
-                }
-            }.runTaskLater(plugin, 1L);
-
-            //  success message with animations
+            scheduleInventoryUpdate(player);
             sendScrapSuccessMessage(player, crateType, scrapValue);
-
-            //  effects
             playScrapEffects(player, crateType);
-
-            // Update scrap cooldown
             lastScrapTimes.put(player.getUniqueId(), System.currentTimeMillis());
 
         } else {
@@ -418,7 +342,7 @@ public class CrateHandler implements Listener {
     }
 
     /**
-     *  validation and utility methods
+     * Validation and utility methods
      */
     private boolean checkCooldown(Player player, long cooldownMs, Map<UUID, Long> timeMap) {
         UUID playerId = player.getUniqueId();
@@ -429,10 +353,8 @@ public class CrateHandler implements Listener {
             return false;
         }
 
-        // Update click count for spam detection
         updateClickCount(playerId, currentTime);
 
-        // Check for spam
         if (isPlayerSpamming(playerId)) {
             sendSpamWarning(player);
             return false;
@@ -445,13 +367,12 @@ public class CrateHandler implements Listener {
     private void updateClickCount(UUID playerId, long currentTime) {
         clickCounts.merge(playerId, 1, Integer::sum);
 
-        // Reset count after threshold period
         new BukkitRunnable() {
             @Override
             public void run() {
                 clickCounts.computeIfPresent(playerId, (id, count) -> Math.max(0, count - 1));
             }
-        }.runTaskLater(plugin, SPAM_THRESHOLD_MS / 50); // Convert to ticks
+        }.runTaskLater(plugin, SPAM_THRESHOLD_MS / 50);
     }
 
     private boolean isPlayerSpamming(UUID playerId) {
@@ -474,7 +395,7 @@ public class CrateHandler implements Listener {
                 emptySlots++;
             }
         }
-        return emptySlots >= 3; // Require at least 3 empty slots
+        return emptySlots >= REQUIRED_INVENTORY_SLOTS;
     }
 
     private boolean isAnimationInventory(String title) {
@@ -482,35 +403,48 @@ public class CrateHandler implements Listener {
     }
 
     /**
-     *  Better detection of valid crate inventory clicks
+     * Determines if a crate opening should be handled based on click type and context.
+     * This allows normal inventory manipulation while preserving opening functionality.
+     */
+    private boolean shouldHandleCrateOpening(InventoryClickEvent event, ItemStack clickedItem) {
+        if (!isCrateItem(clickedItem)) {
+            return false;
+        }
+
+        // Only handle LEFT clicks for opening to allow other clicks for inventory manipulation
+        if (event.getClick() != ClickType.LEFT) {
+            return false;
+        }
+
+        // Must be in a player-related inventory
+        return isPlayerRelatedInventory(event) && isValidCrateInventoryClick(event);
+    }
+
+    /**
+     * Better detection of valid crate inventory clicks.
      */
     private boolean isValidCrateInventoryClick(InventoryClickEvent event) {
-        // Handle player inventory (both when opened normally and when accessed through other GUIs)
         if (event.getSlotType() == InventoryType.SlotType.CONTAINER ||
                 event.getSlotType() == InventoryType.SlotType.QUICKBAR) {
             return true;
         }
 
-        // Handle clicks in player's own inventory
         if (event.getInventory().getType() == InventoryType.PLAYER) {
             return true;
         }
 
-        // Handle clicks in the bottom inventory when a GUI is open
         if (event.getView().getBottomInventory().equals(event.getClickedInventory())) {
             return true;
         }
 
-        // Handle specific slot types that are part of player inventory
         return event.getSlotType() != InventoryType.SlotType.ARMOR &&
                 event.getSlotType() != InventoryType.SlotType.OUTSIDE;
     }
 
     /**
-     *  Better detection of player-related inventories
+     * Better detection of player-related inventories.
      */
     private boolean isPlayerRelatedInventory(InventoryClickEvent event) {
-        // Check if the clicked inventory belongs to the player
         return event.getClickedInventory() != null &&
                 (event.getClickedInventory().equals(event.getView().getBottomInventory()) ||
                         event.getInventory().getType() == InventoryType.PLAYER ||
@@ -532,14 +466,12 @@ public class CrateHandler implements Listener {
             return false;
         }
 
-        // Check NBT data for locked status
         com.rednetty.server.utils.nbt.NBTAccessor nbt =
                 new com.rednetty.server.utils.nbt.NBTAccessor(crateItem);
         if (nbt.hasKey("locked")) {
             return nbt.getBoolean("locked");
         }
 
-        // Check lore for locked indicator
         if (crateItem.getItemMeta().hasLore()) {
             return crateItem.getItemMeta().getLore().stream()
                     .anyMatch(line -> line.contains("LOCKED"));
@@ -549,23 +481,20 @@ public class CrateHandler implements Listener {
     }
 
     private boolean validateCrateKey(ItemStack key, CrateType crateType) {
-        //  key validation - placeholder for future implementation
-        // For now, all keys can open all crates
+        // Key validation - placeholder for future implementation
         return true;
     }
 
     private boolean isPlayerInDuel(Player player) {
-        //  duel check - placeholder for integration with duel system
-        // return Duels.duelers.containsKey(player);
+        // Duel check - placeholder for integration with duel system
         return false;
     }
 
     /**
-     *  item manipulation methods -  ghost item bug
+     * Item manipulation methods to prevent ghost item bugs.
      */
     private void consumeCrateItem(InventoryClickEvent event, ItemStack crateItem) {
         if (crateItem.getAmount() > 1) {
-            // Create a new ItemStack with reduced amount to prevent ghost items
             ItemStack reducedItem = crateItem.clone();
             reducedItem.setAmount(crateItem.getAmount() - 1);
             event.setCurrentItem(reducedItem);
@@ -576,7 +505,6 @@ public class CrateHandler implements Listener {
 
     private void consumeKeyItem(InventoryClickEvent event, ItemStack keyItem) {
         if (keyItem.getAmount() > 1) {
-            // Create a new ItemStack with reduced amount to prevent ghost items
             ItemStack reducedKey = keyItem.clone();
             reducedKey.setAmount(keyItem.getAmount() - 1);
             event.setCursor(reducedKey);
@@ -588,17 +516,14 @@ public class CrateHandler implements Listener {
     private ItemStack unlockCrateWithEffects(Player player, ItemStack lockedCrate) {
         ItemStack unlocked = lockedCrate.clone();
 
-        // Remove locked status from NBT
         com.rednetty.server.utils.nbt.NBTAccessor nbt =
                 new com.rednetty.server.utils.nbt.NBTAccessor(unlocked);
         nbt.setBoolean("locked", false);
 
-        // Remove locked lines from lore
         if (unlocked.hasItemMeta() && unlocked.getItemMeta().hasLore()) {
             java.util.List<String> lore = new java.util.ArrayList<>(unlocked.getItemMeta().getLore());
             lore.removeIf(line -> line.contains("LOCKED") || line.contains("Requires a"));
 
-            // Remove trailing empty lines
             while (!lore.isEmpty() && lore.get(lore.size() - 1).trim().isEmpty()) {
                 lore.remove(lore.size() - 1);
             }
@@ -608,32 +533,28 @@ public class CrateHandler implements Listener {
             unlocked.setItemMeta(meta);
         }
 
-        // Play unlock effects
         playUnlockEffects(player);
-
         return nbt.update();
     }
 
     /**
-     *  scrap value calculation
+     * Scrap value calculation based on crate tier and type.
      */
     private int calculateScrapValue(CrateType crateType) {
         int baseValue = switch (crateType.getTier()) {
-            case 1 -> 75;   // Increased from 50
-            case 2 -> 150;  // Increased from 125
-            case 3 -> 300;  // Increased from 250
-            case 4 -> 600;  // Increased from 500
-            case 5 -> 1250; // Increased from 1000
-            case 6 -> 2500; // Increased from 2000
+            case 1 -> 75;
+            case 2 -> 150;
+            case 3 -> 300;
+            case 4 -> 600;
+            case 5 -> 1250;
+            case 6 -> 2500;
             default -> 50;
         };
 
-        // Halloween crates are worth 75% more (increased from 50%)
         if (crateType.isHalloween()) {
             baseValue = (int) (baseValue * 1.75);
         }
 
-        // Add small random variation (±10%)
         int variation = (int) (baseValue * 0.1);
         int randomBonus = (int) (Math.random() * variation * 2) - variation;
 
@@ -641,8 +562,15 @@ public class CrateHandler implements Listener {
     }
 
     /**
-     *  message sending methods
+     * Centralized message sending methods with consistent formatting.
      */
+    private void sendMessage(Player player, String message, Sound sound) {
+        player.sendMessage(message);
+        if (sound != null) {
+            player.playSound(player.getLocation(), sound, 1.0f, 1.0f);
+        }
+    }
+
     private void sendProcessingMessage(Player player) {
         player.sendMessage(ChatColor.RED + "⚡ You are already opening a mystical crate!");
         player.sendMessage(ChatColor.GRAY + "Please wait for the current ritual to complete...");
@@ -659,10 +587,8 @@ public class CrateHandler implements Listener {
         player.sendMessage("");
         player.sendMessage(ChatColor.RED + "⚠ " + ChatColor.BOLD + "MYSTICAL OVERFLOW PROTECTION" + ChatColor.RED + " ⚠");
         player.sendMessage(ChatColor.GRAY + "Your inventory lacks space for the mystical energies!");
-        player.sendMessage(ChatColor.YELLOW + "Please ensure at least 3 empty slots and try again.");
+        player.sendMessage(ChatColor.YELLOW + "Please ensure at least " + REQUIRED_INVENTORY_SLOTS + " empty slots and try again.");
         player.sendMessage("");
-        
-
         playErrorSound(player);
     }
 
@@ -672,7 +598,6 @@ public class CrateHandler implements Listener {
         player.sendMessage(ChatColor.YELLOW + "You need a " + ChatColor.AQUA + "Crate Key" +
                 ChatColor.YELLOW + " to break the enchantment.");
 
-        // Play locked sound
         player.playSound(player.getLocation(), Sound.BLOCK_CHEST_LOCKED, 1.0f, 1.0f);
     }
 
@@ -701,13 +626,11 @@ public class CrateHandler implements Listener {
         player.sendMessage(ChatColor.GRAY + "The ancient bindings have been dissolved by your key's power.");
         player.sendMessage("");
 
-        // Success sounds
         player.playSound(player.getLocation(), Sound.BLOCK_CHEST_OPEN, 1.0f, 1.2f);
         player.playSound(player.getLocation(), Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 1.0f, 1.5f);
     }
 
     private void sendScrapConfirmation(Player player, CrateType crateType, int scrapValue) {
-        // For high-tier crates, require confirmation (placeholder implementation)
         player.sendMessage(ChatColor.YELLOW + "⚠ " + ChatColor.BOLD + "HIGH VALUE CRATE DETECTED");
 
         String crateName = (crateType.isHalloween() ? "Halloween " : "") + crateType.getDisplayName();
@@ -715,7 +638,6 @@ public class CrateHandler implements Listener {
                 " Crate will give " + ChatColor.GREEN + TextUtil.formatNumber(scrapValue) + "g");
         player.sendMessage(ChatColor.GRAY + "Right-click again within 5 seconds to confirm.");
 
-        // This would require a confirmation system - for now, just proceed
         performScrapOperation(player, player.getInventory().getItemInMainHand(), crateType, scrapValue);
     }
 
@@ -741,7 +663,6 @@ public class CrateHandler implements Listener {
 
         player.sendMessage("");
 
-        //  action bar feedback
         player.spigot().sendMessage(ChatMessageType.ACTION_BAR,
                 new TextComponent(ChatColor.GREEN + "+" + TextUtil.formatNumber(scrapValue) + "g " +
                         ChatColor.GRAY + "• Balance updated!"));
@@ -760,24 +681,22 @@ public class CrateHandler implements Listener {
     }
 
     private void sendErrorMessage(Player player, String message) {
-        player.sendMessage(ChatColor.RED + "✗ " + ChatColor.BOLD + "ERROR" + ChatColor.RED + " ✗");
+        player.sendMessage(MESSAGE_PREFIX_ERROR);
         player.sendMessage(ChatColor.GRAY + message);
         playErrorSound(player);
     }
 
     /**
-     *  sound and effect methods
+     * Sound and effect methods.
      */
     private void playErrorSound(Player player) {
         player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_BASS, 1.0f, 0.5f);
     }
 
     private void playUnlockEffects(Player player) {
-        // Sound effects
         player.playSound(player.getLocation(), Sound.BLOCK_CHEST_OPEN, 1.0f, 1.2f);
         player.playSound(player.getLocation(), Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 1.0f, 1.5f);
 
-        // Particle effects
         player.getWorld().spawnParticle(Particle.VILLAGER_HAPPY,
                 player.getLocation().add(0, 2, 0), 15, 1, 1, 1, 0.1);
         player.getWorld().spawnParticle(Particle.ENCHANTMENT_TABLE,
@@ -785,11 +704,9 @@ public class CrateHandler implements Listener {
     }
 
     private void playScrapEffects(Player player, CrateType crateType) {
-        //  scrap sound
         player.playSound(player.getLocation(), Sound.BLOCK_ANVIL_USE, 1.0f, 1.2f);
         player.playSound(player.getLocation(), Sound.ENTITY_ITEM_PICKUP, 0.8f, 1.5f);
 
-        // Tier-based particle effects
         Particle scrapParticle = switch (crateType.getTier()) {
             case 1, 2 -> Particle.CRIT;
             case 3, 4 -> Particle.ENCHANTMENT_TABLE;
@@ -800,7 +717,6 @@ public class CrateHandler implements Listener {
         player.getWorld().spawnParticle(scrapParticle,
                 player.getLocation().add(0, 1.5, 0), 8, 0.5, 0.5, 0.5, 0.1);
 
-        // Halloween special effects
         if (crateType.isHalloween()) {
             player.getWorld().spawnParticle(Particle.FLAME,
                     player.getLocation().add(0, 1.5, 0), 5, 0.3, 0.3, 0.3, 0.05);
@@ -808,10 +724,9 @@ public class CrateHandler implements Listener {
     }
 
     /**
-     * Player notification methods
+     * Player notification methods.
      */
     private void checkAndNotifyCrates(Player player) {
-        // Check if player has any crates in inventory
         int crateCount = 0;
         for (ItemStack item : player.getInventory().getContents()) {
             if (isCrateItem(item)) {
@@ -827,13 +742,42 @@ public class CrateHandler implements Listener {
             player.sendMessage(ChatColor.GRAY + "Click them in your inventory to begin the unsealing ritual.");
             player.sendMessage("");
 
-            // Play notification sound
             player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_CHIME, 0.6f, 1.5f);
         }
     }
 
     /**
-     * Cleanup and maintenance
+     * Utility methods for code organization.
+     */
+    private void logInventoryClick(Player player, InventoryClickEvent event, ItemStack clickedItem, ItemStack cursorItem) {
+        logger.fine("Inventory click - Player: " + player.getName() +
+                ", Click: " + event.getClick() +
+                ", Slot: " + event.getSlot() +
+                ", SlotType: " + event.getSlotType() +
+                ", InventoryType: " + event.getInventory().getType() +
+                ", CurrentItem: " + (clickedItem != null ? clickedItem.getType() : "null") +
+                ", CursorItem: " + (cursorItem != null ? cursorItem.getType() : "null"));
+    }
+
+    private void cleanupPlayerData(UUID playerId) {
+        processingClicks.remove(playerId);
+        lastClickTimes.remove(playerId);
+        lastScrapTimes.remove(playerId);
+        clickCounts.remove(playerId);
+        animationInventories.remove(playerId);
+    }
+
+    private void scheduleInventoryUpdate(Player player) {
+        new BukkitRunnable() {
+            @Override
+            public void run() {
+                player.updateInventory();
+            }
+        }.runTaskLater(plugin, INVENTORY_UPDATE_DELAY_TICKS);
+    }
+
+    /**
+     * Cleanup and maintenance methods.
      */
     private void startCleanupTask() {
         new BukkitRunnable() {
@@ -841,30 +785,25 @@ public class CrateHandler implements Listener {
             public void run() {
                 performCleanup();
             }
-        }.runTaskTimerAsynchronously(plugin, 600L, 600L); // Every 30 seconds
+        }.runTaskTimerAsynchronously(plugin, CLEANUP_INTERVAL_TICKS, CLEANUP_INTERVAL_TICKS);
     }
 
     private void performCleanup() {
         long currentTime = System.currentTimeMillis();
 
-        // Clean up old click times (older than 5 minutes)
         lastClickTimes.entrySet().removeIf(entry ->
-                currentTime - entry.getValue() > 300000);
+                currentTime - entry.getValue() > DATA_CLEANUP_AGE_MS);
 
-        // Clean up old scrap times (older than 5 minutes)
         lastScrapTimes.entrySet().removeIf(entry ->
-                currentTime - entry.getValue() > 300000);
+                currentTime - entry.getValue() > DATA_CLEANUP_AGE_MS);
 
-        // Clean up old click counts (older than spam threshold)
         clickCounts.entrySet().removeIf(entry -> entry.getValue() <= 0);
 
-        // Clean up processing clicks for offline players
         processingClicks.removeIf(playerId -> {
             Player player = plugin.getServer().getPlayer(playerId);
             return player == null || !player.isOnline();
         });
 
-        // Clean up animation inventories for offline players
         animationInventories.entrySet().removeIf(entry -> {
             Player player = plugin.getServer().getPlayer(entry.getKey());
             return player == null || !player.isOnline();
@@ -872,7 +811,7 @@ public class CrateHandler implements Listener {
     }
 
     /**
-     * Gets handler statistics for debugging
+     * Gets handler statistics for debugging.
      */
     public Map<String, Object> getHandlerStats() {
         Map<String, Object> stats = new java.util.HashMap<>();
@@ -889,10 +828,9 @@ public class CrateHandler implements Listener {
     }
 
     /**
-     *  cleanup method for shutdown
+     * Cleanup method for shutdown.
      */
     public void cleanup() {
-        // Clear all tracking data
         processingClicks.clear();
         lastClickTimes.clear();
         lastScrapTimes.clear();

@@ -31,7 +31,7 @@ public class HealthListener extends BaseListener {
     private final YakPlayerManager playerManager;
     private final AlignmentMechanics alignmentMechanics;
 
-    
+
     private final Map<String, Long> pendingRecalculations = new ConcurrentHashMap<>();
     private static final long RECALCULATION_COOLDOWN = 1000L; // 1 second cooldown
 
@@ -57,7 +57,7 @@ public class HealthListener extends BaseListener {
             return;
         }
 
-        
+
         String playerName = player.getName();
         long currentTime = System.currentTimeMillis();
         Long lastRecalculation = pendingRecalculations.get(playerName);
@@ -106,12 +106,12 @@ public class HealthListener extends BaseListener {
             // Ensure minimum health
             baseHealth = Math.max(baseHealth, 20.0);
 
-            
+
             double currentMaxHealth = player.getMaxHealth();
             if (Math.abs(currentMaxHealth - baseHealth) > 0.5) {
                 player.setMaxHealth(baseHealth);
 
-                
+
                 if (player.getHealth() > baseHealth) {
                     player.setHealth(baseHealth);
                 }
@@ -120,11 +120,11 @@ public class HealthListener extends BaseListener {
                         currentMaxHealth + " -> " + baseHealth);
             }
 
-            
+
             player.setHealthScale(20.0);
             player.setHealthScaled(true);
 
-            
+
             new BukkitRunnable() {
                 @Override
                 public void run() {
@@ -184,7 +184,7 @@ public class HealthListener extends BaseListener {
 
         Player player = (Player) event.getWhoClicked();
 
-        
+
         boolean isArmorChange = false;
         if (event.getSlot() >= 36 && event.getSlot() <= 39) { // Armor slots
             isArmorChange = true;
@@ -195,7 +195,7 @@ public class HealthListener extends BaseListener {
         }
 
         if (isArmorChange) {
-            
+
             new BukkitRunnable() {
                 @Override
                 public void run() {
@@ -271,7 +271,7 @@ public class HealthListener extends BaseListener {
             player.setHealth(newHealth);
         }
 
-        
+
         new BukkitRunnable() {
             @Override
             public void run() {
@@ -293,7 +293,7 @@ public class HealthListener extends BaseListener {
         List<String> lore = item.getItemMeta().getLore();
         for (String line : lore) {
             String cleanLine = ChatColor.stripColor(line);
-            if (cleanLine.contains("HP") && !cleanLine.contains("REGEN") && cleanLine.contains("Heals")) {
+            if (cleanLine.contains("HP") && !cleanLine.contains("REGEN") && cleanLine.contains("restores")) {
                 return true;
             }
         }
@@ -313,7 +313,7 @@ public class HealthListener extends BaseListener {
         for (String line : lore) {
             String cleanLine = ChatColor.stripColor(line);
 
-            if (cleanLine.contains("Heals") && cleanLine.contains("HP")) {
+            if (cleanLine.contains("restores") && cleanLine.contains("HP")) {
                 try {
                     // Extract number from format like "Heals 100 HP"
                     String[] parts = cleanLine.split(" ");
@@ -339,7 +339,7 @@ public class HealthListener extends BaseListener {
     public void onPlayerJoin(PlayerJoinEvent event) {
         Player player = event.getPlayer();
 
-        
+
         new BukkitRunnable() {
             @Override
             public void run() {

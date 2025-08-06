@@ -5,6 +5,7 @@ import com.google.gson.annotations.SerializedName;
 import com.rednetty.server.YakRealms;
 import com.rednetty.server.mechanics.chat.ChatTag;
 import com.rednetty.server.mechanics.player.moderation.Rank;
+import com.rednetty.server.utils.text.TextUtil;
 import lombok.Getter;
 import lombok.Setter;
 import org.bson.codecs.pojo.annotations.BsonId;
@@ -27,14 +28,8 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
- * UPDATED YakPlayer with FIXED combat logout integration + comprehensive inventory management
- *
- * MAJOR UPDATES:
- * - Enhanced combat logout state management with proper enum transitions
- * - Improved inventory serialization for cross-server sync compatibility
- * - Better coordination with CombatLogoutMechanics and DeathMechanics
- * - Comprehensive respawn item handling for all death scenarios
- * - Bulletproof limbo loading support with combat logout awareness
+ * YakPlayer - Comprehensive player data management with combat logout integration
+ * and cross-server inventory synchronization support
  */
 @Getter
 @Setter
@@ -51,10 +46,13 @@ public class YakPlayer {
     private static final int MIN_LEVEL = 1;
     private static final int MAX_USERNAME_LENGTH = 16;
 
+    // ========================================
+    // PLAYER IDENTIFICATION
+    // ========================================
+
     @BsonId
     private final UUID uuid;
 
-    // Basic identification
     @Expose
     @SerializedName("username")
     @BsonProperty("username")
@@ -85,7 +83,10 @@ public class YakPlayer {
     @BsonProperty("total_playtime")
     private long totalPlaytime = 0;
 
-    // Player progression and stats
+    // ========================================
+    // PLAYER PROGRESSION AND STATISTICS
+    // ========================================
+
     @Expose
     @SerializedName("level")
     @BsonProperty("level")
@@ -131,7 +132,10 @@ public class YakPlayer {
     @BsonProperty("distance_traveled")
     private double distanceTraveled = 0.0;
 
-    // Economy data - ONLY bank balance, no virtual player balance
+    // ========================================
+    // ECONOMY SYSTEM
+    // ========================================
+
     @Expose
     @SerializedName("bank_gems")
     @BsonProperty("bank_gems")
@@ -142,7 +146,10 @@ public class YakPlayer {
     @BsonProperty("elite_shards")
     private int eliteShards = 0;
 
-    // Bank system
+    // ========================================
+    // BANK SYSTEM
+    // ========================================
+
     @Expose
     @SerializedName("bank_pages")
     @BsonProperty("bank_pages")
@@ -163,7 +170,10 @@ public class YakPlayer {
     @BsonProperty("bank_access_log")
     private final List<String> bankAccessLog = new ArrayList<>();
 
-    // Alignment data
+    // ========================================
+    // ALIGNMENT SYSTEM
+    // ========================================
+
     @Expose
     @SerializedName("alignment")
     @BsonProperty("alignment")
@@ -184,7 +194,10 @@ public class YakPlayer {
     @BsonProperty("alignment_changes")
     private int alignmentChanges = 0;
 
-    // Moderation data
+    // ========================================
+    // MODERATION DATA
+    // ========================================
+
     @Expose
     @SerializedName("rank")
     @BsonProperty("rank")
@@ -220,7 +233,10 @@ public class YakPlayer {
     @BsonProperty("last_warning")
     private long lastWarning = 0;
 
-    // Chat data
+    // ========================================
+    // CHAT SYSTEM
+    // ========================================
+
     @Expose
     @SerializedName("chat_tag")
     @BsonProperty("chat_tag")
@@ -236,7 +252,10 @@ public class YakPlayer {
     @BsonProperty("chat_color")
     private String chatColor = "WHITE";
 
-    // Mount and Guild data
+    // ========================================
+    // MOUNT AND GUILD SYSTEM
+    // ========================================
+
     @Expose
     @SerializedName("horse_tier")
     @BsonProperty("horse_tier")
@@ -262,7 +281,10 @@ public class YakPlayer {
     @BsonProperty("guild_contribution")
     private int guildContribution = 0;
 
-    // Player preferences
+    // ========================================
+    // PLAYER PREFERENCES
+    // ========================================
+
     @Expose
     @SerializedName("toggle_settings")
     @BsonProperty("toggle_settings")
@@ -273,7 +295,10 @@ public class YakPlayer {
     @BsonProperty("notification_settings")
     private final Map<String, Boolean> notificationSettings = new ConcurrentHashMap<>();
 
-    // Quest system
+    // ========================================
+    // QUEST SYSTEM
+    // ========================================
+
     @Expose
     @SerializedName("current_quest")
     @BsonProperty("current_quest")
@@ -304,7 +329,10 @@ public class YakPlayer {
     @BsonProperty("last_daily_quest_reset")
     private long lastDailyQuestReset = 0;
 
-    // Profession data
+    // ========================================
+    // PROFESSION SYSTEM
+    // ========================================
+
     @Expose
     @SerializedName("pickaxe_level")
     @BsonProperty("pickaxe_level")
@@ -345,7 +373,10 @@ public class YakPlayer {
     @BsonProperty("woodcutting_xp")
     private int woodcuttingXp = 0;
 
-    // PvP stats
+    // ========================================
+    // PVP STATISTICS
+    // ========================================
+
     @Expose
     @SerializedName("t1_kills")
     @BsonProperty("t1_kills")
@@ -391,7 +422,10 @@ public class YakPlayer {
     @BsonProperty("pvp_rating")
     private int pvpRating = 1000;
 
-    // World Boss tracking
+    // ========================================
+    // WORLD BOSS SYSTEM
+    // ========================================
+
     @Expose
     @SerializedName("world_boss_damage")
     @BsonProperty("world_boss_damage")
@@ -402,7 +436,10 @@ public class YakPlayer {
     @BsonProperty("world_boss_kills")
     private final Map<String, Integer> worldBossKills = new ConcurrentHashMap<>();
 
-    // Social settings
+    // ========================================
+    // SOCIAL SETTINGS
+    // ========================================
+
     @Expose
     @SerializedName("trade_disabled")
     @BsonProperty("trade_disabled")
@@ -423,7 +460,10 @@ public class YakPlayer {
     @BsonProperty("energy_disabled")
     private boolean energyDisabled = false;
 
-    // Location and state data
+    // ========================================
+    // LOCATION AND STATE DATA
+    // ========================================
+
     @Expose
     @SerializedName("world")
     @BsonProperty("world")
@@ -459,7 +499,10 @@ public class YakPlayer {
     @BsonProperty("previous_location")
     private String previousLocation;
 
-    // UPDATED: Enhanced inventory data for combat logout compatibility
+    // ========================================
+    // INVENTORY SYSTEM
+    // ========================================
+
     @Expose
     @SerializedName("inventory_contents")
     @BsonProperty("inventory_contents")
@@ -480,7 +523,10 @@ public class YakPlayer {
     @BsonProperty("offhand_item")
     private String serializedOffhand;
 
-    // UPDATED: Enhanced respawn items storage for combat logout integration
+    // ========================================
+    // RESPAWN ITEMS SYSTEM
+    // ========================================
+
     @Expose
     @SerializedName("respawn_items")
     @BsonProperty("respawn_items")
@@ -496,7 +542,10 @@ public class YakPlayer {
     @BsonProperty("death_timestamp")
     private long deathTimestamp = 0;
 
-    // Player stats
+    // ========================================
+    // PLAYER STATISTICS
+    // ========================================
+
     @Expose
     @SerializedName("health")
     @BsonProperty("health")
@@ -547,7 +596,10 @@ public class YakPlayer {
     @BsonProperty("active_potion_effects")
     private final List<String> activePotionEffects = new ArrayList<>();
 
-    // Achievement and reward tracking
+    // ========================================
+    // ACHIEVEMENT SYSTEM
+    // ========================================
+
     @Expose
     @SerializedName("achievements")
     @BsonProperty("achievements")
@@ -568,7 +620,10 @@ public class YakPlayer {
     @BsonProperty("last_daily_reward")
     private long lastDailyReward = 0;
 
-    // Event participation tracking
+    // ========================================
+    // EVENT SYSTEM
+    // ========================================
+
     @Expose
     @SerializedName("events_participated")
     @BsonProperty("events_participated")
@@ -579,7 +634,10 @@ public class YakPlayer {
     @BsonProperty("event_wins")
     private final Map<String, Integer> eventWins = new ConcurrentHashMap<>();
 
-    // Combat statistics
+    // ========================================
+    // COMBAT STATISTICS
+    // ========================================
+
     @Expose
     @SerializedName("damage_dealt")
     @BsonProperty("damage_dealt")
@@ -600,7 +658,10 @@ public class YakPlayer {
     @BsonProperty("damage_dodged")
     private long damageDodged = 0;
 
-    // UPDATED: Enhanced combat logout state management
+    // ========================================
+    // COMBAT LOGOUT SYSTEM
+    // ========================================
+
     @Expose
     @SerializedName("combat_logout_state")
     @BsonProperty("combat_logout_state")
@@ -616,13 +677,20 @@ public class YakPlayer {
     @BsonProperty("combat_logout_alignment")
     private String combatLogoutAlignment = null;
 
-    // Non-serialized transient fields
+    // ========================================
+    // TRANSIENT FIELDS
+    // ========================================
+
     private transient Player bukkitPlayer;
     private transient boolean inCombat = false;
     private transient long lastCombatTime = 0;
     private transient final Map<String, Object> temporaryData = new ConcurrentHashMap<>();
     private transient long sessionStartTime;
     private transient final AtomicBoolean inventoryBeingApplied = new AtomicBoolean(false);
+
+    // ========================================
+    // CONSTRUCTORS
+    // ========================================
 
     /**
      * Constructor for creating a new YakPlayer
@@ -666,46 +734,12 @@ public class YakPlayer {
         initializeDefaultSettings();
     }
 
-    /**
-     * Initialize default settings for new players
-     */
-    private void initializeDefaultSettings() {
-        // Default notification settings
-        notificationSettings.put("buddy_join", true);
-        notificationSettings.put("buddy_leave", true);
-        notificationSettings.put("guild_messages", true);
-        notificationSettings.put("trade_requests", true);
-        notificationSettings.put("party_invites", true);
-
-        // Default toggle settings -  to handle unknown toggles
-        toggleSettings.add("Player Messages");
-        toggleSettings.add("Drop Protection");
-        toggleSettings.add("Sound Effects");
-    }
-
-    /**
-     * Validate and clean username
-     */
-    private String validateUsername(String username) {
-        if (username == null || username.trim().isEmpty()) {
-            throw new IllegalArgumentException("Username cannot be null or empty");
-        }
-
-        String cleaned = username.trim();
-        if (cleaned.length() > MAX_USERNAME_LENGTH) {
-            logger.warning("Username exceeds maximum length: " + cleaned);
-            cleaned = cleaned.substring(0, MAX_USERNAME_LENGTH);
-        }
-
-        return cleaned;
-    }
-
     // ========================================
-    // UPDATED COMBAT LOGOUT STATE MANAGEMENT
+    // COMBAT LOGOUT STATE MANAGEMENT
     // ========================================
 
     /**
-     * UPDATED Combat logout state enum with proper transitions
+     * Combat logout state enum with proper transitions
      */
     public enum CombatLogoutState {
         NONE,        // No combat logout
@@ -714,11 +748,8 @@ public class YakPlayer {
         COMPLETED    // Combat logout completed (player respawned, cleanup done)
     }
 
-
     /**
-     * CRITICAL FIX: Set combat logout state with improved validation and logging
-     *
-     * Replace the existing setCombatLogoutState method with this version
+     * Set combat logout state with validation and logging
      */
     public void setCombatLogoutState(CombatLogoutState newState) {
         CombatLogoutState oldState = this.combatLogoutState;
@@ -742,7 +773,7 @@ public class YakPlayer {
             // Log warning but allow the transition anyway for system stability
             logger.warning("Invalid combat logout state transition for " + username + ": " + oldState + " -> " + newState);
 
-            // CRITICAL FIX: Allow the transition anyway but log it as forced
+            // Allow the transition anyway but log it as forced
             this.combatLogoutState = newState;
             this.combatLogoutTimestamp = System.currentTimeMillis();
 
@@ -756,10 +787,9 @@ public class YakPlayer {
             logger.info("Forced combat logout state transition for " + username + ": " + oldState + " -> " + newState);
         }
     }
+
     /**
-     * CRITICAL FIX: Validate combat logout state transitions (more permissive to handle edge cases)
-     *
-     * Replace the existing isValidCombatLogoutStateTransition method with this version
+     * Validate combat logout state transitions with permissive handling for edge cases
      */
     private boolean isValidCombatLogoutStateTransition(CombatLogoutState from, CombatLogoutState to) {
         if (from == null) from = CombatLogoutState.NONE;
@@ -771,8 +801,8 @@ public class YakPlayer {
                 // From NONE, allow most transitions for fresh combat logouts and database loading
                 return to == CombatLogoutState.PROCESSING ||
                         to == CombatLogoutState.PROCESSED ||
-                        to == CombatLogoutState.COMPLETED ||  // Allow for database loading edge cases
-                        to == CombatLogoutState.NONE;         // Allow staying in NONE
+                        to == CombatLogoutState.COMPLETED ||
+                        to == CombatLogoutState.NONE;
 
             case PROCESSING:
                 // From PROCESSING, can go to PROCESSED, COMPLETED, or back to NONE (on error)
@@ -797,21 +827,21 @@ public class YakPlayer {
     }
 
     /**
-     * WORKING: Check if player is in any combat logout state
+     * Check if player is in any combat logout state
      */
     public boolean isInCombatLogoutState() {
         return combatLogoutState != null && combatLogoutState != CombatLogoutState.NONE;
     }
 
     /**
-     * WORKING: Check if combat logout processing is complete
+     * Check if combat logout processing is complete
      */
     public boolean isCombatLogoutProcessed() {
         return combatLogoutState == CombatLogoutState.PROCESSED || combatLogoutState == CombatLogoutState.COMPLETED;
     }
 
     /**
-     * WORKING: Get time since combat logout started
+     * Get time since combat logout started
      */
     public long getCombatLogoutAge() {
         if (combatLogoutTimestamp <= 0) {
@@ -821,18 +851,18 @@ public class YakPlayer {
     }
 
     /**
-     * WORKING: Get combat logout alignment (at time of logout)
+     * Get combat logout alignment (at time of logout)
      */
     public String getCombatLogoutAlignment() {
         return combatLogoutAlignment != null ? combatLogoutAlignment : alignment;
     }
 
     // ========================================
-    // UPDATED INVENTORY SYSTEM WITH COMBAT LOGOUT SUPPORT
+    // INVENTORY MANAGEMENT SYSTEM
     // ========================================
 
     /**
-     * UPDATED: Update inventory from player - enhanced for combat logout processing
+     * Update inventory from player with combat logout processing support
      */
     public void updateInventory(Player player) {
         if (player == null) return;
@@ -847,7 +877,7 @@ public class YakPlayer {
             ItemStack[] enderContents = player.getEnderChest().getContents();
             ItemStack offhandItem = player.getInventory().getItemInOffHand();
 
-            // Enhanced serialization with combat logout awareness
+            // Serialize inventory data with validation
             this.serializedInventory = ItemSerializer.serializeItemStacksWithValidation(inventoryContents, "inventory");
             this.serializedArmor = ItemSerializer.serializeItemStacksWithValidation(armorContents, "armor");
             this.serializedEnderChest = ItemSerializer.serializeItemStacksWithValidation(enderContents, "enderchest");
@@ -862,7 +892,7 @@ public class YakPlayer {
     }
 
     /**
-     * UPDATED: Apply inventory to player - enhanced with combat logout state awareness
+     * Apply inventory to player with combat logout state awareness
      */
     public void applyInventory(Player player) {
         if (player == null) return;
@@ -878,10 +908,8 @@ public class YakPlayer {
             logger.info("Applying inventory to player: " + player.getName() +
                     (isCombatLogoutRejoin ? " (combat logout processed inventory)" : " (normal inventory)"));
 
-            // Step 1: Clear inventory ONCE only
+            // Clear inventory and apply sequentially
             clearInventoryForLoading(player);
-
-            // Step 2: Apply inventory sequentially with proper validation
             applyInventorySequentially(player, isCombatLogoutRejoin);
 
         } catch (Exception e) {
@@ -893,11 +921,10 @@ public class YakPlayer {
     }
 
     /**
-     * Proper inventory clearing for loading (not aggressive)
+     * Clear inventory for loading (not aggressive)
      */
     private void clearInventoryForLoading(Player player) {
         try {
-            // Single clear without excessive force
             player.getInventory().clear();
             player.getInventory().setArmorContents(new ItemStack[4]);
             player.getEnderChest().clear();
@@ -911,7 +938,7 @@ public class YakPlayer {
     }
 
     /**
-     * UPDATED: Apply inventory sequentially with combat logout awareness
+     * Apply inventory sequentially with combat logout awareness
      */
     private void applyInventorySequentially(Player player, boolean isCombatLogoutRejoin) {
         // Apply main inventory immediately
@@ -937,7 +964,7 @@ public class YakPlayer {
     }
 
     /**
-     * UPDATED: Apply main inventory with combat logout awareness
+     * Apply main inventory with combat logout awareness
      */
     private void applyMainInventory(Player player, boolean isCombatLogoutRejoin) {
         if (serializedInventory == null || serializedInventory.isEmpty()) {
@@ -949,7 +976,6 @@ public class YakPlayer {
         try {
             ItemStack[] contents = ItemSerializer.repairInventoryData(serializedInventory, player.getInventory().getSize());
             if (contents != null) {
-                // Apply items without clearing again
                 int itemsApplied = 0;
                 for (int i = 0; i < contents.length && i < player.getInventory().getSize(); i++) {
                     if (contents[i] != null && contents[i].getType() != Material.AIR) {
@@ -967,7 +993,7 @@ public class YakPlayer {
     }
 
     /**
-     * UPDATED: Apply armor with combat logout awareness
+     * Apply armor with combat logout awareness
      */
     private void applyArmor(Player player, boolean isCombatLogoutRejoin) {
         if (serializedArmor == null || serializedArmor.isEmpty()) {
@@ -981,28 +1007,22 @@ public class YakPlayer {
             if (armor != null) {
                 int armorApplied = 0;
 
-                // Correct armor slot mapping
                 // Bukkit armor array order: [Boots, Leggings, Chestplate, Helmet]
-
-                // Index 0 = Boots
                 if (armor.length > 0 && armor[0] != null && armor[0].getType() != Material.AIR) {
                     player.getInventory().setBoots(armor[0].clone());
                     armorApplied++;
                 }
 
-                // Index 1 = Leggings
                 if (armor.length > 1 && armor[1] != null && armor[1].getType() != Material.AIR) {
                     player.getInventory().setLeggings(armor[1].clone());
                     armorApplied++;
                 }
 
-                // Index 2 = Chestplate
                 if (armor.length > 2 && armor[2] != null && armor[2].getType() != Material.AIR) {
                     player.getInventory().setChestplate(armor[2].clone());
                     armorApplied++;
                 }
 
-                // Index 3 = Helmet
                 if (armor.length > 3 && armor[3] != null && armor[3].getType() != Material.AIR) {
                     player.getInventory().setHelmet(armor[3].clone());
                     armorApplied++;
@@ -1018,7 +1038,7 @@ public class YakPlayer {
     }
 
     /**
-     * UPDATED: Apply ender chest and offhand with combat logout awareness
+     * Apply ender chest and offhand with combat logout awareness
      */
     private void applyEnderChestAndOffhand(Player player, boolean isCombatLogoutRejoin) {
         try {
@@ -1028,7 +1048,6 @@ public class YakPlayer {
             if (serializedEnderChest != null && !serializedEnderChest.isEmpty()) {
                 ItemStack[] enderContents = ItemSerializer.repairInventoryData(serializedEnderChest, 27);
                 if (enderContents != null) {
-                    // Apply with validation
                     for (int i = 0; i < enderContents.length && i < 27; i++) {
                         if (enderContents[i] != null && enderContents[i].getType() != Material.AIR) {
                             player.getEnderChest().setItem(i, enderContents[i].clone());
@@ -1062,7 +1081,7 @@ public class YakPlayer {
     }
 
     /**
-     * UPDATED: Final validation with combat logout awareness
+     * Final validation with combat logout awareness
      */
     private void validateInventoryApplication(Player player, boolean isCombatLogoutRejoin) {
         try {
@@ -1089,7 +1108,7 @@ public class YakPlayer {
             // Final force update
             player.updateInventory();
 
-            // Check if we have expected data but no items (improved check)
+            // Check if we have expected data but no items
             boolean hasSerializedData = hasValidSerializedData();
 
             if (hasSerializedData && itemCount == 0 && armorCount == 0) {
@@ -1119,11 +1138,11 @@ public class YakPlayer {
     }
 
     // ========================================
-    // UPDATED RESPAWN ITEMS MANAGEMENT WITH COMBAT LOGOUT INTEGRATION
+    // RESPAWN ITEMS MANAGEMENT
     // ========================================
 
     /**
-     * UPDATED: Set respawn items with combat logout state awareness
+     * Set respawn items with combat logout state awareness
      */
     public boolean setRespawnItems(List<ItemStack> items) {
         if (items == null || items.isEmpty()) {
@@ -1200,7 +1219,7 @@ public class YakPlayer {
     }
 
     /**
-     * UPDATED: Clear respawn items with combat logout state logging
+     * Clear respawn items with combat logout state logging
      */
     public void clearRespawnItems() {
         this.serializedRespawnItems = null;
@@ -1250,7 +1269,7 @@ public class YakPlayer {
     }
 
     /**
-     * UPDATED: Disconnect player with combat logout state preservation
+     * Disconnect player with combat logout state preservation
      */
     public void disconnect() {
         this.lastLogout = Instant.now().getEpochSecond();
@@ -1277,39 +1296,45 @@ public class YakPlayer {
     }
 
     // ========================================
-    // UTILITY METHODS
+    // PLAYER DATA MANAGEMENT
     // ========================================
 
     /**
-     * Check if player is online
+     * Initialize default settings for new players
      */
-    public boolean isOnline() {
-        return bukkitPlayer != null && bukkitPlayer.isOnline();
-    }
+    private void initializeDefaultSettings() {
+        // Default notification settings
+        notificationSettings.put("buddy_join", true);
+        notificationSettings.put("buddy_leave", true);
+        notificationSettings.put("guild_messages", true);
+        notificationSettings.put("trade_requests", true);
+        notificationSettings.put("party_invites", true);
 
-    public boolean isBuddy(String buddyName) {
-        if (buddyName == null) return false;
-        return buddies.contains(buddyName.toLowerCase().trim());
+        // Default toggle settings
+        toggleSettings.add("Player Messages");
+        toggleSettings.add("Drop Protection");
+        toggleSettings.add("Sound Effects");
     }
 
     /**
-     * UPDATED: Clear temporary data while preserving combat logout state
+     * Validate and clean username
      */
-    public void clearTemporaryData() {
-        CombatLogoutState savedState = combatLogoutState;
-        long savedTimestamp = combatLogoutTimestamp;
-        String savedAlignment = combatLogoutAlignment;
+    private String validateUsername(String username) {
+        if (username == null || username.trim().isEmpty()) {
+            throw new IllegalArgumentException("Username cannot be null or empty");
+        }
 
-        temporaryData.clear();
+        String cleaned = username.trim();
+        if (cleaned.length() > MAX_USERNAME_LENGTH) {
+            logger.warning("Username exceeds maximum length: " + cleaned);
+            cleaned = cleaned.substring(0, MAX_USERNAME_LENGTH);
+        }
 
-        // Restore combat logout state
-        combatLogoutState = savedState;
-        combatLogoutTimestamp = savedTimestamp;
-        combatLogoutAlignment = savedAlignment;
+        return cleaned;
     }
 
     /**
-     * Update location - improved validation
+     * Update location with improved validation
      */
     public void updateLocation(Location location) {
         if (location == null || location.getWorld() == null) {
@@ -1370,7 +1395,7 @@ public class YakPlayer {
     }
 
     /**
-     * Apply stats to player with option to skip game mode (SMOOTH LIMBO FIX)
+     * Apply stats to player with option to skip game mode (for limbo handling)
      */
     public void applyStats(Player player, boolean skipGameMode) {
         if (player == null) return;
@@ -1391,7 +1416,7 @@ public class YakPlayer {
             player.setExp(xpProgress);
             player.setTotalExperience(totalExperience);
 
-            // Apply game mode ONLY if not skipping (not in limbo)
+            // Apply game mode only if not skipping (not in limbo)
             if (!skipGameMode) {
                 try {
                     GameMode mode = GameMode.valueOf(gameMode);
@@ -1448,13 +1473,17 @@ public class YakPlayer {
         }
     }
 
+    // ========================================
+    // SOCIAL SYSTEM
+    // ========================================
+
     public boolean addBuddy(String buddyName) {
         if (buddyName == null || buddyName.trim().isEmpty()) {
             return false;
         }
 
         if (buddies.size() >= MAX_BUDDIES) {
-            sendMessageIfOnline(ChatColor.RED + "You have reached the maximum number of buddies (" + MAX_BUDDIES + ").");
+            sendMessageIfOnline(TextUtil.colorize("&cYou have reached the maximum number of buddies (" + MAX_BUDDIES + ")."));
             return false;
         }
 
@@ -1462,18 +1491,18 @@ public class YakPlayer {
 
         // Prevent adding self
         if (normalizedName.equals(username.toLowerCase())) {
-            sendMessageIfOnline(ChatColor.RED + "You cannot add yourself as a buddy!");
+            sendMessageIfOnline(TextUtil.colorize("&cYou cannot add yourself as a buddy!"));
             return false;
         }
 
         // Prevent adding blocked players
         if (blockedPlayers.contains(normalizedName)) {
-            sendMessageIfOnline(ChatColor.RED + "You cannot add a blocked player as a buddy!");
+            sendMessageIfOnline(TextUtil.colorize("&cYou cannot add a blocked player as a buddy!"));
             return false;
         }
 
         if (buddies.add(normalizedName)) {
-            sendMessageIfOnline(ChatColor.GREEN + "Successfully added " + buddyName + " as a buddy!");
+            sendMessageIfOnline(TextUtil.colorize("&aSuccessfully added " + buddyName + " as a buddy!"));
 
             // Play sound if online
             Player player = getBukkitPlayer();
@@ -1486,8 +1515,40 @@ public class YakPlayer {
         return false;
     }
 
+    public boolean removeBuddy(String buddyName) {
+        if (buddyName == null) return false;
+
+        boolean removed = buddies.remove(buddyName.toLowerCase().trim());
+        if (removed) {
+            sendMessageIfOnline(TextUtil.colorize("&eRemoved " + buddyName + " from your buddy list."));
+
+            // Play sound if online
+            Player player = getBukkitPlayer();
+            if (player != null) {
+                player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_BASS, 0.5f, 1.0f);
+            }
+        }
+        return removed;
+    }
+
+    public boolean isBuddy(String buddyName) {
+        if (buddyName == null) return false;
+        return buddies.contains(buddyName.toLowerCase().trim());
+    }
+
+    public void unlockChatTag(ChatTag tag) {
+        if (tag == null) return;
+
+        unlockedChatTags.add(tag.name());
+        sendMessageIfOnline(TextUtil.colorize("&aUnlocked chat tag: " + tag.getTag()));
+    }
+
+    // ========================================
+    // DISPLAY AND FORMATTING
+    // ========================================
+
     /**
-     * Get formatted display name - NO CACHING for cross-server sync
+     * Get formatted display name without caching for cross-server sync
      */
     public String getFormattedDisplayName() {
         StringBuilder displayName = new StringBuilder();
@@ -1532,41 +1593,82 @@ public class YakPlayer {
         }
     }
 
+    /**
+     * Format playtime as readable string
+     */
+    public String getFormattedTotalPlaytime() {
+        long totalSeconds = totalPlaytime;
+        long days = totalSeconds / 86400;
+        long hours = (totalSeconds % 86400) / 3600;
+        long minutes = (totalSeconds % 3600) / 60;
+
+        if (days > 0) {
+            return String.format("%dd %dh %dm", days, hours, minutes);
+        } else if (hours > 0) {
+            return String.format("%dh %dm", hours, minutes);
+        } else {
+            return String.format("%dm", minutes);
+        }
+    }
+
+    /**
+     * Get time since death with combat logout awareness
+     */
+    public String getTimeSinceDeath() {
+        if (deathTimestamp <= 0) {
+            return "Never";
+        }
+
+        long timeDiff = System.currentTimeMillis() - deathTimestamp;
+        long seconds = timeDiff / 1000;
+        long minutes = seconds / 60;
+        long hours = minutes / 60;
+        long days = hours / 24;
+
+        String timeString;
+        if (days > 0) {
+            timeString = days + " days, " + (hours % 24) + " hours ago";
+        } else if (hours > 0) {
+            timeString = hours + " hours, " + (minutes % 60) + " minutes ago";
+        } else if (minutes > 0) {
+            timeString = minutes + " minutes, " + (seconds % 60) + " seconds ago";
+        } else {
+            timeString = seconds + " seconds ago";
+        }
+
+        if (isInCombatLogoutState()) {
+            timeString += " (combat logout: " + combatLogoutState + ")";
+        }
+
+        return timeString;
+    }
+
     // ========================================
-    // CUSTOM SETTERS WITH VALIDATION
+    // UTILITY METHODS
     // ========================================
 
-    public void setUsername(String username) {
-        this.username = validateUsername(username);
+    /**
+     * Check if player is online
+     */
+    public boolean isOnline() {
+        return bukkitPlayer != null && bukkitPlayer.isOnline();
     }
 
-    public void setBankGems(int bankGems) {
-        this.bankGems = Math.max(MIN_GEMS, Math.min(MAX_GEMS, bankGems));
-    }
+    /**
+     * Clear temporary data while preserving combat logout state
+     */
+    public void clearTemporaryData() {
+        CombatLogoutState savedState = combatLogoutState;
+        long savedTimestamp = combatLogoutTimestamp;
+        String savedAlignment = combatLogoutAlignment;
 
-    public void setLevel(int level) {
-        this.level = Math.max(MIN_LEVEL, Math.min(MAX_LEVEL, level));
-    }
+        temporaryData.clear();
 
-    public void setRank(String rank) {
-        this.rank = rank != null ? rank : "DEFAULT";
+        // Restore combat logout state
+        combatLogoutState = savedState;
+        combatLogoutTimestamp = savedTimestamp;
+        combatLogoutAlignment = savedAlignment;
     }
-
-    public void setAlignment(String alignment) {
-        this.alignment = alignment != null ? alignment : "LAWFUL";
-    }
-
-    public void setChatTag(String chatTag) {
-        this.chatTag = chatTag != null ? chatTag : "DEFAULT";
-    }
-
-    public void setGuildName(String guildName) {
-        this.guildName = guildName != null ? guildName : "";
-    }
-
-    // ========================================
-    // HELPER METHODS FOR EXTERNAL COMPATIBILITY
-    // ========================================
 
     /**
      * Check if player is in guild
@@ -1603,65 +1705,85 @@ public class YakPlayer {
     }
 
     /**
-     * Format playtime as readable string
+     * Toggle handling with graceful error handling
      */
-    public String getFormattedTotalPlaytime() {
-        long totalSeconds = totalPlaytime;
-        long days = totalSeconds / 86400;
-        long hours = (totalSeconds % 86400) / 3600;
-        long minutes = (totalSeconds % 3600) / 60;
+    public boolean isToggled(String setting) {
+        if (setting == null) return false;
 
-        if (days > 0) {
-            return String.format("%dd %dh %dm", days, hours, minutes);
-        } else if (hours > 0) {
-            return String.format("%dh %dm", hours, minutes);
-        } else {
-            return String.format("%dm", minutes);
+        // Handle known invalid toggles
+        if ("God Mode Disabled".equals(setting)) {
+            logger.fine("Attempted to check invalid toggle: " + setting + " for " + username);
+            return false;
         }
-    }
 
-    public void unlockChatTag(ChatTag tag) {
-        if (tag == null) return;
-
-        unlockedChatTags.add(tag.name());
-
-        sendMessageIfOnline(ChatColor.GREEN + "Unlocked chat tag: " + tag.getTag());
+        return toggleSettings.contains(setting);
     }
 
     /**
-     * UPDATED: Get time since death with combat logout awareness
+     * Toggle setting with graceful error handling
      */
-    public String getTimeSinceDeath() {
-        if (deathTimestamp <= 0) {
-            return "Never";
+    public boolean toggleSetting(String setting) {
+        if (setting == null || setting.trim().isEmpty()) {
+            return false;
         }
 
-        long timeDiff = System.currentTimeMillis() - deathTimestamp;
-        long seconds = timeDiff / 1000;
-        long minutes = seconds / 60;
-        long hours = minutes / 60;
-        long days = hours / 24;
+        // Handle known invalid toggles
+        if ("God Mode Disabled".equals(setting)) {
+            logger.warning("Attempted to toggle invalid setting: " + setting + " for " + username);
+            return false;
+        }
 
-        String timeString;
-        if (days > 0) {
-            timeString = days + " days, " + (hours % 24) + " hours ago";
-        } else if (hours > 0) {
-            timeString = hours + " hours, " + (minutes % 60) + " minutes ago";
-        } else if (minutes > 0) {
-            timeString = minutes + " minutes, " + (seconds % 60) + " seconds ago";
+        boolean wasToggled = toggleSettings.contains(setting);
+        if (wasToggled) {
+            toggleSettings.remove(setting);
         } else {
-            timeString = seconds + " seconds ago";
+            toggleSettings.add(setting);
         }
 
-        if (isInCombatLogoutState()) {
-            timeString += " (combat logout: " + combatLogoutState + ")";
-        }
+        return !wasToggled;
+    }
 
-        return timeString;
+    private void sendMessageIfOnline(String message) {
+        Player player = getBukkitPlayer();
+        if (player != null && player.isOnline()) {
+            player.sendMessage(message);
+        }
     }
 
     // ========================================
-    // CONVENIENCE METHODS FOR EXTERNAL CLASSES
+    // CUSTOM SETTERS WITH VALIDATION
+    // ========================================
+
+    public void setUsername(String username) {
+        this.username = validateUsername(username);
+    }
+
+    public void setBankGems(int bankGems) {
+        this.bankGems = Math.max(MIN_GEMS, Math.min(MAX_GEMS, bankGems));
+    }
+
+    public void setLevel(int level) {
+        this.level = Math.max(MIN_LEVEL, Math.min(MAX_LEVEL, level));
+    }
+
+    public void setRank(String rank) {
+        this.rank = rank != null ? rank : "DEFAULT";
+    }
+
+    public void setAlignment(String alignment) {
+        this.alignment = alignment != null ? alignment : "LAWFUL";
+    }
+
+    public void setChatTag(String chatTag) {
+        this.chatTag = chatTag != null ? chatTag : "DEFAULT";
+    }
+
+    public void setGuildName(String guildName) {
+        this.guildName = guildName != null ? guildName : "";
+    }
+
+    // ========================================
+    // COLLECTION GETTERS WITH DEFENSIVE COPYING
     // ========================================
 
     // Temporary data management
@@ -1730,19 +1852,18 @@ public class YakPlayer {
         return new HashSet<>(completedQuests);
     }
 
-    /**
-     * Toggle handling - handles unknown toggles gracefully
-     */
-    public boolean isToggled(String setting) {
-        if (setting == null) return false;
+    public boolean hasToggleSetting(String setting) {
+        return setting != null && toggleSettings.contains(setting);
+    }
 
-        // Handle known invalid toggles
-        if ("God Mode Disabled".equals(setting)) {
-            logger.fine("Attempted to check invalid toggle: " + setting + " for " + username);
-            return false;
+    public boolean getNotificationSetting(String type) {
+        return type != null && notificationSettings.getOrDefault(type, true);
+    }
+
+    public void setNotificationSetting(String type, boolean enabled) {
+        if (type != null) {
+            notificationSettings.put(type, enabled);
         }
-
-        return toggleSettings.contains(setting);
     }
 
     public Map<String, Integer> getWorldBossDamage() {
@@ -1777,52 +1898,6 @@ public class YakPlayer {
         return new HashMap<>(eventWins);
     }
 
-    // Simple methods for external classes
-    public boolean hasToggleSetting(String setting) {
-        return setting != null && toggleSettings.contains(setting);
-    }
-
-    public boolean getNotificationSetting(String type) {
-        return type != null && notificationSettings.getOrDefault(type, true);
-    }
-
-    public void setNotificationSetting(String type, boolean enabled) {
-        if (type != null) {
-            notificationSettings.put(type, enabled);
-        }
-    }
-
-    /**
-     * Toggle setting - handles unknown toggles gracefully
-     */
-    public boolean toggleSetting(String setting) {
-        if (setting == null || setting.trim().isEmpty()) {
-            return false;
-        }
-
-        // Handle known invalid toggles
-        if ("God Mode Disabled".equals(setting)) {
-            logger.warning("Attempted to toggle invalid setting: " + setting + " for " + username);
-            return false;
-        }
-
-        boolean wasToggled = toggleSettings.contains(setting);
-        if (wasToggled) {
-            toggleSettings.remove(setting);
-        } else {
-            toggleSettings.add(setting);
-        }
-
-        return !wasToggled;
-    }
-
-    private void sendMessageIfOnline(String message) {
-        Player player = getBukkitPlayer();
-        if (player != null && player.isOnline()) {
-            player.sendMessage(message);
-        }
-    }
-
     public UUID getUUID() {
         return uuid;
     }
@@ -1831,41 +1906,24 @@ public class YakPlayer {
         unlockedChatTags = new HashSet<>(tags);
     }
 
-    public boolean removeBuddy(String buddyName) {
-        if (buddyName == null) return false;
-
-        boolean removed = buddies.remove(buddyName.toLowerCase().trim());
-        if (removed) {
-            sendMessageIfOnline(ChatColor.YELLOW + "Removed " + buddyName + " from your buddy list.");
-
-            // Play sound if online
-            Player player = getBukkitPlayer();
-            if (player != null) {
-                player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_BASS, 0.5f, 1.0f);
-            }
-        }
-        return removed;
-    }
-
     public void setToggleSettings(HashSet<String> toggleSettings) {
-        // Implementation handled by setToggleSettings(Collection<String>)
+        setToggleSettings((Collection<String>) toggleSettings);
     }
 
     public void setBuddies(List<String> buddies) {
         this.buddies = new HashSet<>(buddies);
     }
 
-    // Getter for toggle settings
     public Set<String> getToggleSettings() {
         return new HashSet<>(toggleSettings);
     }
 
     // ========================================
-    // UPDATED UTILITY CLASSES WITH COMBAT LOGOUT SUPPORT
+    // UTILITY CLASSES
     // ========================================
 
     /**
-     * UPDATED ItemSerializer with enhanced error handling and combat logout awareness
+     * ItemSerializer with enhanced error handling and combat logout awareness
      */
     public static class ItemSerializer {
         private static final Logger logger = YakRealms.getInstance().getLogger();
@@ -1900,7 +1958,6 @@ public class YakPlayer {
             }
         }
 
-        // Overloaded method for backward compatibility
         public static String serializeItemStacksWithValidation(ItemStack[] items) {
             return serializeItemStacksWithValidation(items, "unknown");
         }
@@ -1980,7 +2037,6 @@ public class YakPlayer {
             return serializeItemStacksWithValidation(new ItemStack[]{item}, context);
         }
 
-        // Overloaded method for backward compatibility
         public static String serializeItemStackWithValidation(ItemStack item) {
             return serializeItemStackWithValidation(item, "unknown");
         }
