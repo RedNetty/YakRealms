@@ -5,10 +5,9 @@ import com.rednetty.server.mechanics.player.YakPlayer;
 import com.rednetty.server.mechanics.player.YakPlayerManager;
 import com.rednetty.server.utils.nbt.NBTAccessor;
 import com.rednetty.server.utils.text.TextUtil;
-import org.bukkit.Bukkit;
-import org.bukkit.ChatColor;
-import org.bukkit.Material;
-import org.bukkit.Sound;
+import com.rednetty.server.utils.menu.Menu;
+import com.rednetty.server.utils.menu.MenuItem;
+import org.bukkit.*;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
@@ -35,28 +34,79 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
- * Manages bank inventories and transactions with improved saving mechanisms
+ * Enhanced Bank Manager with multi-page storage, upgrades, and collection bins
+ * Backwards compatible with existing YakRealms bank system
  */
 public class BankManager implements Listener {
     // Constants
     public static final int BANK_SIZE = 54;
     public static final int BANK_CONTENT_SIZE = BANK_SIZE - 9; // Usable area excluding bottom row
     public static final String BANK_TITLE_PREFIX = "Bank Chest (";
-    public static final String BANK_TITLE_SUFFIX = "/1)";
+    public static final String BANK_TITLE_SUFFIX = ")";
+    public static final String COLLECTION_BIN_TITLE = "Collection Bin";
+    public static final int MAX_BANK_PAGES = 10;
+    public static final int BASE_BANK_PAGES = 1;
+
     private static BankManager instance;
     private final Logger logger;
 
-    // Cache for bank inventories
+    // Cache for bank inventories and collection bins
     private final Map<UUID, Map<Integer, Inventory>> playerBanks = new ConcurrentHashMap<>();
+    private final Map<UUID, Inventory> collectionBins = new ConcurrentHashMap<>();
 
-    // Players in withdraw prompts
+    // Players in withdraw prompts and upgrade prompts
     private final Set<UUID> withdrawPrompt = Collections.newSetFromMap(new ConcurrentHashMap<>());
+    private final Set<UUID> upgradePrompt = Collections.newSetFromMap(new ConcurrentHashMap<>());
 
     // Player viewing another player's bank
     private final Map<UUID, UUID> bankViewMap = new ConcurrentHashMap<>();
 
     // Track dirty bank pages that need saving
     private final Map<UUID, Set<Integer>> dirtyBankPages = new ConcurrentHashMap<>();
+
+    // Bank upgrade tiers and costs
+    public enum BankUpgradeTier {
+        TIER_1(1, 0),       // Base tier
+        TIER_2(2, 50),      // 2 pages for 50 gems
+        TIER_3(3, 125),     // 3 pages for 125 gems
+        TIER_4(4, 500),     // 4 pages for 500 gems
+        TIER_5(5, 1500),    // 5 pages for 1500 gems
+        TIER_6(6, 3500),    // 6 pages for 3500 gems
+        TIER_7(7, 7500),    // 7 pages for 7500 gems
+        TIER_8(8, 15000),   // 8 pages for 15000 gems
+        TIER_9(9, 30000),   // 9 pages for 30000 gems
+        TIER_10(10, 50000); // 10 pages for 50000 gems
+
+        private final int pages;
+        private final int cost;
+
+        BankUpgradeTier(int pages, int cost) {
+            this.pages = pages;
+            this.cost = cost;
+        }
+
+        public int getPages() { return pages; }
+        public int getCost() { return cost; }
+
+        public static BankUpgradeTier getTier(int pages) {
+            for (BankUpgradeTier tier : values()) {
+                if (tier.pages == pages) {
+                    return tier;
+                }
+            }
+            return TIER_1;
+        }
+
+        public BankUpgradeTier getNext() {
+            BankUpgradeTier[] tiers = values();
+            int nextIndex = ordinal() + 1;
+            return nextIndex < tiers.length ? tiers[nextIndex] : this;
+        }
+
+        public boolean hasNext() {
+            return ordinal() < values().length - 1;
+        }
+    }
 
     /**
      * Private constructor for singleton pattern
@@ -67,8 +117,6 @@ public class BankManager implements Listener {
 
     /**
      * Gets the singleton instance
-     *
-     * @return The BankManager instance
      */
     public static BankManager getInstance() {
         if (instance == null) {
@@ -78,7 +126,7 @@ public class BankManager implements Listener {
     }
 
     /**
-     * Initialize the bank system
+     * Initialize the enhanced bank system
      */
     public void onEnable() {
         Bukkit.getServer().getPluginManager().registerEvents(this, YakRealms.getInstance());
@@ -89,7 +137,7 @@ public class BankManager implements Listener {
                 20L * 60 * 5  // 5 minutes interval
         );
 
-        logger.info("Bank system has been enabled");
+        logger.info("Enhanced Bank system has been enabled with multi-page support");
     }
 
     /**
@@ -97,7 +145,7 @@ public class BankManager implements Listener {
      */
     public void onDisable() {
         saveBanks();
-        logger.info("Bank system has been disabled");
+        logger.info("Enhanced Bank system has been disabled");
     }
 
     /**
@@ -127,8 +175,14 @@ public class BankManager implements Listener {
                 }
             }
 
+            // Save collection bins
+            for (Map.Entry<UUID, Inventory> entry : collectionBins.entrySet()) {
+                saveCollectionBin(entry.getValue(), entry.getKey());
+                savedCount++;
+            }
+
             if (savedCount > 0) {
-                logger.fine("Auto-saved " + savedCount + " bank pages");
+                logger.fine("Auto-saved " + savedCount + " bank pages and collection bins");
             }
         } catch (Exception e) {
             logger.log(Level.SEVERE, "Error during auto-save of banks", e);
@@ -153,22 +207,25 @@ public class BankManager implements Listener {
                 }
             }
 
+            // Save collection bins
+            for (Map.Entry<UUID, Inventory> entry : collectionBins.entrySet()) {
+                saveCollectionBin(entry.getValue(), entry.getKey());
+                savedCount++;
+            }
+
             // Clear cache after saving
             playerBanks.clear();
+            collectionBins.clear();
             dirtyBankPages.clear();
 
-            logger.info("Successfully saved " + savedCount + " bank pages");
+            logger.info("Successfully saved " + savedCount + " bank pages and collection bins");
         } catch (Exception e) {
             logger.log(Level.SEVERE, "Error saving banks", e);
         }
     }
 
     /**
-     * Save a specific bank inventory with improved persistence
-     *
-     * @param inventory  The bank inventory
-     * @param playerUuid The player's UUID
-     * @param page       The bank page
+     * Save a specific bank inventory
      */
     private void saveBank(Inventory inventory, UUID playerUuid, int page) {
         try {
@@ -208,6 +265,24 @@ public class BankManager implements Listener {
     }
 
     /**
+     * Save collection bin
+     */
+    private void saveCollectionBin(Inventory inventory, UUID playerUuid) {
+        try {
+            YakPlayer yakPlayer = YakPlayerManager.getInstance().getPlayer(playerUuid);
+
+            if (yakPlayer != null) {
+                String serializedItems = serializeInventory(inventory);
+                yakPlayer.setSerializedCollectionBin(serializedItems);
+                YakPlayerManager.getInstance().savePlayer(yakPlayer);
+                logger.fine("Saved collection bin for player " + yakPlayer.getUsername());
+            }
+        } catch (Exception e) {
+            logger.log(Level.SEVERE, "Error saving collection bin for player " + playerUuid, e);
+        }
+    }
+
+    /**
      * Mark a bank page as dirty (needs saving)
      */
     private void markBankDirty(UUID playerUuid, int page) {
@@ -215,63 +290,24 @@ public class BankManager implements Listener {
     }
 
     /**
-     * Serialize an inventory to Base64 string
-     */
-    private String serializeInventory(Inventory inventory) {
-        try {
-            ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
-            BukkitObjectOutputStream dataOutput = new BukkitObjectOutputStream(outputStream);
-
-            // Only serialize the bank content area (not UI elements)
-            dataOutput.writeInt(BANK_CONTENT_SIZE);
-
-            for (int i = 0; i < BANK_CONTENT_SIZE; i++) {
-                dataOutput.writeObject(inventory.getItem(i));
-            }
-
-            dataOutput.close();
-            return Base64.getEncoder().encodeToString(outputStream.toByteArray());
-        } catch (Exception e) {
-            logger.log(Level.SEVERE, "Error serializing bank inventory", e);
-            return null;
-        }
-    }
-
-    /**
-     * Deserialize an inventory from Base64 string
-     */
-    private void deserializeInventory(String data, Inventory inventory) {
-        try {
-            ByteArrayInputStream inputStream = new ByteArrayInputStream(Base64.getDecoder().decode(data));
-            BukkitObjectInputStream dataInput = new BukkitObjectInputStream(inputStream);
-
-            int size = dataInput.readInt();
-
-            for (int i = 0; i < size; i++) {
-                if (i < BANK_CONTENT_SIZE) {
-                    inventory.setItem(i, (ItemStack) dataInput.readObject());
-                } else {
-                    // Skip extra items if somehow size is larger than BANK_CONTENT_SIZE
-                    dataInput.readObject();
-                }
-            }
-
-            dataInput.close();
-        } catch (Exception e) {
-            logger.log(Level.SEVERE, "Error deserializing bank inventory", e);
-        }
-    }
-
-    /**
-     * Get a player's bank inventory
-     *
-     * @param player The player
-     * @param page   The bank page
-     * @return The bank inventory
+     * Get a player's bank inventory for specific page
      */
     public Inventory getBank(Player player, int page) {
         UUID viewerUuid = player.getUniqueId();
         UUID targetUuid = bankViewMap.getOrDefault(viewerUuid, viewerUuid);
+
+        // Validate page number
+        YakPlayer yakPlayer = YakPlayerManager.getInstance().getPlayer(targetUuid);
+        if (yakPlayer == null) {
+            logger.warning("No YakPlayer found for bank access: " + targetUuid);
+            return null;
+        }
+
+        int maxPages = yakPlayer.getBankPages();
+        if (page < 1 || page > maxPages) {
+            logger.warning("Invalid bank page " + page + " for player " + yakPlayer.getUsername() + " (max: " + maxPages + ")");
+            return null;
+        }
 
         // Get or create page map for this player
         Map<Integer, Inventory> playerBankPages = playerBanks.computeIfAbsent(targetUuid, k -> new ConcurrentHashMap<>());
@@ -280,25 +316,22 @@ public class BankManager implements Listener {
         Inventory cachedBank = playerBankPages.get(page);
         if (cachedBank != null) {
             // Update UI before returning
-            updateBankUI(cachedBank, player);
+            updateBankUI(cachedBank, player, page, maxPages);
             return cachedBank;
         }
 
         // Create new bank inventory
-        String title = BANK_TITLE_PREFIX + page + BANK_TITLE_SUFFIX;
+        String title = BANK_TITLE_PREFIX + page + "/" + maxPages + BANK_TITLE_SUFFIX;
         Inventory bankInv = Bukkit.createInventory(null, BANK_SIZE, title);
 
         // Load bank contents from YakPlayer if available
-        YakPlayer yakPlayer = YakPlayerManager.getInstance().getPlayer(targetUuid);
-        if (yakPlayer != null) {
-            String serializedItems = yakPlayer.getSerializedBankItems(page);
-            if (serializedItems != null && !serializedItems.isEmpty()) {
-                deserializeInventory(serializedItems, bankInv);
-            }
+        String serializedItems = yakPlayer.getSerializedBankItems(page);
+        if (serializedItems != null && !serializedItems.isEmpty()) {
+            deserializeInventory(serializedItems, bankInv);
         }
 
         // Initialize UI elements
-        initializeBankInventory(bankInv, player);
+        initializeBankInventory(bankInv, player, page, maxPages);
 
         // Cache and return
         playerBankPages.put(page, bankInv);
@@ -306,59 +339,114 @@ public class BankManager implements Listener {
     }
 
     /**
-     * Initialize a bank inventory with UI elements
-     *
-     * @param inventory The inventory to initialize
-     * @param player    The player whose bank it is
+     * Get collection bin for player
      */
-    private void initializeBankInventory(Inventory inventory, Player player) {
+    public Inventory getCollectionBin(Player player) {
+        UUID playerUuid = player.getUniqueId();
+
+        Inventory cachedBin = collectionBins.get(playerUuid);
+        if (cachedBin != null) {
+            return cachedBin;
+        }
+
+        // Create new collection bin
+        Inventory binInv = Bukkit.createInventory(null, BANK_SIZE, COLLECTION_BIN_TITLE);
+
+        // Load from YakPlayer data
+        YakPlayer yakPlayer = YakPlayerManager.getInstance().getPlayer(playerUuid);
+        if (yakPlayer != null) {
+            String serializedItems = yakPlayer.getSerializedCollectionBin();
+            if (serializedItems != null && !serializedItems.isEmpty()) {
+                deserializeInventory(serializedItems, binInv);
+            }
+        }
+
+        collectionBins.put(playerUuid, binInv);
+        return binInv;
+    }
+
+    /**
+     * Initialize a bank inventory with UI elements
+     */
+    private void initializeBankInventory(Inventory inventory, Player player, int page, int maxPages) {
         // Bottom row border
-        ItemStack glass = createItem(Material.GLASS_PANE, " ", null);
+        ItemStack glass = createItem(Material.GRAY_STAINED_GLASS_PANE, " ", null);
         for (int i = BANK_CONTENT_SIZE; i < BANK_SIZE; i++) {
             inventory.setItem(i, glass);
         }
 
         // Navigation buttons
-        inventory.setItem(BANK_SIZE - 9, createItem(Material.ARROW, ChatColor.GREEN + "Previous Page", null));
-        inventory.setItem(BANK_SIZE - 1, createItem(Material.ARROW, ChatColor.GREEN + "Next Page", null));
+        if (page > 1) {
+            inventory.setItem(BANK_SIZE - 9, createItem(Material.ARROW, ChatColor.GREEN + "Previous Page",
+                    Arrays.asList(ChatColor.GRAY + "Go to page " + (page - 1))));
+        }
+
+        if (page < maxPages) {
+            inventory.setItem(BANK_SIZE - 1, createItem(Material.ARROW, ChatColor.GREEN + "Next Page",
+                    Arrays.asList(ChatColor.GRAY + "Go to page " + (page + 1))));
+        }
+
+        // Upgrade button
+        BankUpgradeTier currentTier = BankUpgradeTier.getTier(maxPages);
+        if (currentTier.hasNext()) {
+            BankUpgradeTier nextTier = currentTier.getNext();
+            inventory.setItem(BANK_SIZE - 7, createItem(Material.CHEST, ChatColor.GOLD + "Upgrade Bank",
+                    Arrays.asList(
+                            ChatColor.GRAY + "Current: " + ChatColor.WHITE + maxPages + " pages",
+                            ChatColor.GRAY + "Upgrade to: " + ChatColor.WHITE + nextTier.getPages() + " pages",
+                            ChatColor.GRAY + "Cost: " + ChatColor.YELLOW + nextTier.getCost() + " gems",
+                            "",
+                            ChatColor.YELLOW + "Click to upgrade!"
+                    )));
+        }
+
+        // Collection bin button
+        inventory.setItem(BANK_SIZE - 3, createItem(Material.TRAPPED_CHEST, ChatColor.BLUE + "Collection Bin",
+                Arrays.asList(ChatColor.GRAY + "Access your collection bin")));
 
         // Gem balance display
         inventory.setItem(BANK_SIZE - 5, createGemBankItem(player));
     }
 
     /**
+     * Update the bank UI elements
+     */
+    private void updateBankUI(Inventory inventory, Player player, int page, int maxPages) {
+        initializeBankInventory(inventory, player, page, maxPages);
+    }
+
+    /**
      * Create the gem balance indicator for the bank
-     *
-     * @param player The player
-     * @return The gem balance ItemStack
      */
     private ItemStack createGemBankItem(Player player) {
         YakPlayer yakPlayer = YakPlayerManager.getInstance().getPlayer(player);
         int balance = yakPlayer != null ? yakPlayer.getBankGems() : 0;
 
-        return createItem(Material.EMERALD, ChatColor.GREEN.toString() + balance + ChatColor.GREEN + ChatColor.BOLD + " GEM(s)", Collections.singletonList(ChatColor.GRAY + "Right Click to create " + ChatColor.GREEN + "A GEM NOTE"));
+        return createItem(Material.EMERALD,
+                ChatColor.GREEN.toString() + balance + ChatColor.GREEN + ChatColor.BOLD + " GEM(s)",
+                Collections.singletonList(ChatColor.GRAY + "Right Click to create " + ChatColor.GREEN + "A GEM NOTE"));
     }
 
     /**
-     * Create a bank note item
-     *
-     * @param amount The gem amount
-     * @return The bank note ItemStack
+     * Create a bank note item with unique ID
      */
     public ItemStack createBankNote(int amount) {
         ItemStack note = new ItemStack(Material.PAPER);
         ItemMeta meta = note.getItemMeta();
         meta.setDisplayName(ChatColor.GREEN + "Bank Note");
+
         NBTAccessor nbt = new NBTAccessor(note);
         nbt.setInt("note_id", ThreadLocalRandom.current().nextInt(0, Integer.MAX_VALUE));
-
+        nbt.setInt("gem_value", amount);
         note = nbt.update();
-        meta.setLore(Arrays.asList(ChatColor.WHITE.toString() + ChatColor.BOLD + "Value: " + ChatColor.WHITE + amount + " Gems", ChatColor.GRAY + "Exchange at any bank for GEM(s)"));
+
+        meta.setLore(Arrays.asList(
+                ChatColor.WHITE.toString() + ChatColor.BOLD + "Value: " + ChatColor.WHITE + amount + " Gems",
+                ChatColor.GRAY + "Exchange at any bank for GEM(s)"
+        ));
         note.setItemMeta(meta);
         return note;
     }
-
-    /* Event Handlers */
 
     /**
      * Handle right-clicking on an ender chest to open the bank
@@ -370,8 +458,6 @@ public class BankManager implements Listener {
         }
 
         Player player = event.getPlayer();
-
-        // Prevent default chest opening
         event.setCancelled(true);
 
         // Don't reopen if already viewing bank
@@ -379,69 +465,22 @@ public class BankManager implements Listener {
             return;
         }
 
+        // Check if player is sneaking for upgrade prompt
+        if (player.isSneaking()) {
+            promptBankUpgrade(player);
+            return;
+        }
+
         // Open bank inventory
         try {
             Inventory bankInv = getBank(player, 1);
-            player.openInventory(bankInv);
-            player.playSound(player.getLocation(), Sound.BLOCK_CHEST_OPEN, 1.0f, 1.0f);
+            if (bankInv != null) {
+                player.openInventory(bankInv);
+                player.playSound(player.getLocation(), Sound.BLOCK_CHEST_OPEN, 1.0f, 1.0f);
+            }
         } catch (Exception e) {
             player.sendMessage(ChatColor.RED + "There was an error opening your bank.");
             logger.log(Level.SEVERE, "Error opening bank for player " + player.getName(), e);
-        }
-    }
-
-    /**
-     * Handle inventory open event to update the bank UI
-     */
-    @EventHandler
-    public void onInventoryOpen(InventoryOpenEvent event) {
-        if (!(event.getPlayer() instanceof Player player)) return;
-
-        Inventory inventory = event.getInventory();
-        String title = event.getView().getTitle();
-
-        if (title.contains(BANK_TITLE_PREFIX) && !title.contains("Guild")) {
-            updateBankUI(inventory, player);
-        }
-    }
-
-    /**
-     * Update the bank UI elements
-     */
-    private void updateBankUI(Inventory inventory, Player player) {
-        // Update the gem balance display
-        inventory.setItem(BANK_SIZE - 5, createGemBankItem(player));
-    }
-
-    /**
-     * Handle inventory close event to save the bank
-     */
-    @EventHandler
-    public void onInventoryClose(InventoryCloseEvent event) {
-        if (!(event.getPlayer() instanceof Player)) return;
-
-        String title = event.getView().getTitle();
-        if (title.contains(BANK_TITLE_PREFIX) && !title.contains("Guild")) {
-            Player player = (Player) event.getPlayer();
-
-            try {
-                int page = Integer.parseInt(title.substring(title.indexOf("(") + 1, title.indexOf("/")));
-                UUID playerUuid = player.getUniqueId();
-
-                // Mark this page as dirty for saving
-                markBankDirty(playerUuid, page);
-
-                // Immediate save of the bank page
-                Inventory bankInventory = event.getInventory();
-                saveBank(bankInventory, playerUuid, page);
-
-                // Remove from viewing map
-                bankViewMap.remove(player.getUniqueId());
-
-                logger.fine("Bank closed and saved for player " + player.getName() + " page " + page);
-            } catch (Exception e) {
-                logger.log(Level.SEVERE, "Error saving bank on close for player " + player.getName(), e);
-            }
         }
     }
 
@@ -462,18 +501,29 @@ public class BankManager implements Listener {
             return;
         }
 
+        // Handle collection bin
+        if (title.equals(COLLECTION_BIN_TITLE)) {
+            handleCollectionBinClick(event, player);
+            return;
+        }
+
         // Only proceed for bank inventories
         if (!title.contains(BANK_TITLE_PREFIX) || title.contains("Guild")) {
             return;
         }
 
-        // Mark bank as dirty when items are modified
+        // Parse page from title
+        int page;
         try {
-            int page = Integer.parseInt(title.substring(title.indexOf("(") + 1, title.indexOf("/")));
-            markBankDirty(player.getUniqueId(), page);
+            String pageStr = title.substring(title.indexOf("(") + 1, title.indexOf("/"));
+            page = Integer.parseInt(pageStr);
         } catch (Exception e) {
             logger.log(Level.WARNING, "Error parsing bank page from title: " + title, e);
+            return;
         }
+
+        // Mark bank as dirty when items are modified
+        markBankDirty(player.getUniqueId(), page);
 
         // Determine click location and action
         if (event.getRawSlot() >= BANK_SIZE) {
@@ -491,9 +541,275 @@ public class BankManager implements Listener {
         } else {
             // Clicked in bank UI (bottom row)
             event.setCancelled(true);
-            handleBankUIClick(event, player);
+            handleBankUIClick(event, player, page);
         }
     }
+
+    /**
+     * Handle collection bin clicks
+     */
+    private void handleCollectionBinClick(InventoryClickEvent event, Player player) {
+        event.setCancelled(true);
+
+        if (event.isShiftClick()) return; // No shift clicks
+        if (event.getRawSlot() >= event.getInventory().getSize()) return; // Only handle clicks in bin
+
+        ItemStack clickedItem = event.getCurrentItem();
+        if (clickedItem == null || clickedItem.getType() == Material.AIR) return;
+
+        // Return the item to player inventory
+        if (player.getInventory().firstEmpty() >= 0) {
+            event.setCurrentItem(new ItemStack(Material.AIR));
+            player.getInventory().addItem(clickedItem);
+            player.playSound(player.getLocation(), Sound.ENTITY_ITEM_PICKUP, 1.0f, 1.0f);
+        } else {
+            player.sendMessage(ChatColor.RED + "Your inventory is full!");
+        }
+    }
+
+    /**
+     * Handle clicks on the bank UI elements (bottom row)
+     */
+    private void handleBankUIClick(InventoryClickEvent event, Player player, int currentPage) {
+        int slot = event.getSlot();
+        YakPlayer yakPlayer = YakPlayerManager.getInstance().getPlayer(player);
+        if (yakPlayer == null) return;
+
+        int maxPages = yakPlayer.getBankPages();
+
+        // Gem balance - open withdrawal prompt
+        if (slot == BANK_SIZE - 5 && event.getClick() == ClickType.RIGHT) {
+            promptForWithdraw(player);
+        }
+        // Previous page
+        else if (slot == BANK_SIZE - 9 && currentPage > 1) {
+            changeBankPage(player, currentPage - 1);
+        }
+        // Next page
+        else if (slot == BANK_SIZE - 1 && currentPage < maxPages) {
+            changeBankPage(player, currentPage + 1);
+        }
+        // Upgrade bank
+        else if (slot == BANK_SIZE - 7) {
+            promptBankUpgrade(player);
+        }
+        // Collection bin
+        else if (slot == BANK_SIZE - 3) {
+            openCollectionBin(player);
+        }
+    }
+
+    /**
+     * Change to a different bank page
+     */
+    private void changeBankPage(Player player, int newPage) {
+        try {
+            // Save current page before switching
+            String currentTitle = player.getOpenInventory().getTitle();
+            int currentPage = Integer.parseInt(currentTitle.substring(currentTitle.indexOf("(") + 1, currentTitle.indexOf("/")));
+
+            markBankDirty(player.getUniqueId(), currentPage);
+            saveBank(player.getOpenInventory().getTopInventory(), player.getUniqueId(), currentPage);
+
+            // Open new page
+            player.closeInventory();
+            Inventory newBankInv = getBank(player, newPage);
+            if (newBankInv != null) {
+                player.openInventory(newBankInv);
+                player.playSound(player.getLocation(), Sound.ENTITY_BAT_TAKEOFF, 1.0f, 1.25f);
+            }
+
+        } catch (Exception e) {
+            player.sendMessage(ChatColor.RED + "Could not change bank page.");
+            logger.log(Level.WARNING, "Error changing bank page for player " + player.getName(), e);
+        }
+    }
+
+    /**
+     * Open collection bin
+     */
+    private void openCollectionBin(Player player) {
+        try {
+            Inventory binInv = getCollectionBin(player);
+            player.closeInventory();
+            player.openInventory(binInv);
+            player.playSound(player.getLocation(), Sound.BLOCK_CHEST_OPEN, 1.0f, 1.0f);
+        } catch (Exception e) {
+            player.sendMessage(ChatColor.RED + "Could not open collection bin.");
+            logger.log(Level.WARNING, "Error opening collection bin for player " + player.getName(), e);
+        }
+    }
+
+    /**
+     * Prompt player for bank upgrade
+     */
+    private void promptBankUpgrade(Player player) {
+        YakPlayer yakPlayer = YakPlayerManager.getInstance().getPlayer(player);
+        if (yakPlayer == null) return;
+
+        BankUpgradeTier currentTier = BankUpgradeTier.getTier(yakPlayer.getBankPages());
+        if (!currentTier.hasNext()) {
+            player.sendMessage(ChatColor.RED + "You've reached the maximum bank size!");
+            return;
+        }
+
+        BankUpgradeTier nextTier = currentTier.getNext();
+        int currentGems = EconomyManager.getInstance().getPhysicalGems(player);
+
+        player.closeInventory();
+        player.sendMessage("");
+        player.sendMessage(ChatColor.DARK_GRAY + "           *** " + ChatColor.GREEN + ChatColor.BOLD + "Bank Upgrade Confirmation" + ChatColor.DARK_GRAY + " ***");
+        player.sendMessage(ChatColor.DARK_GRAY + "           CURRENT Pages: " + ChatColor.GREEN + currentTier.getPages() + ChatColor.DARK_GRAY + "          NEW Pages: " + ChatColor.GREEN + nextTier.getPages());
+        player.sendMessage(ChatColor.DARK_GRAY + "                  Upgrade Cost: " + ChatColor.GREEN + "" + nextTier.getCost() + " Gem(s)");
+        player.sendMessage(ChatColor.DARK_GRAY + "                  Your Gems: " + ChatColor.YELLOW + "" + currentGems + " Gem(s)");
+        player.sendMessage("");
+
+        if (currentGems >= nextTier.getCost()) {
+            player.sendMessage(ChatColor.GREEN + "Enter '" + ChatColor.BOLD + "confirm" + ChatColor.GREEN + "' to confirm your upgrade.");
+        } else {
+            player.sendMessage(ChatColor.RED + "You don't have enough gems for this upgrade!");
+        }
+
+        player.sendMessage("");
+        player.sendMessage("" + ChatColor.RED + ChatColor.BOLD + "WARNING:" + ChatColor.RED + " Bank upgrades are " + ChatColor.BOLD + ChatColor.RED + "NOT" + ChatColor.RED + " reversible or refundable. Type 'cancel' to void this upgrade request.");
+        player.sendMessage("");
+
+        upgradePrompt.add(player.getUniqueId());
+    }
+
+    /**
+     * Handle chat input for bank upgrade prompt
+     */
+    @EventHandler(priority = EventPriority.LOWEST)
+    public void onAsyncPlayerChatForUpgrade(AsyncPlayerChatEvent event) {
+        Player player = event.getPlayer();
+
+        if (!upgradePrompt.contains(player.getUniqueId())) {
+            return;
+        }
+
+        event.setCancelled(true);
+        String message = event.getMessage().toLowerCase();
+
+        upgradePrompt.remove(player.getUniqueId());
+
+        if (message.equals("cancel")) {
+            player.sendMessage(ChatColor.RED + "Bank upgrade cancelled.");
+            return;
+        }
+
+        if (!message.equals("confirm")) {
+            player.sendMessage(ChatColor.RED + "Invalid response. Bank upgrade cancelled.");
+            return;
+        }
+
+        // Process upgrade
+        Bukkit.getScheduler().runTask(YakRealms.getInstance(), () -> processBankUpgrade(player));
+    }
+
+    /**
+     * Process bank upgrade
+     */
+    private void processBankUpgrade(Player player) {
+        YakPlayer yakPlayer = YakPlayerManager.getInstance().getPlayer(player);
+        if (yakPlayer == null) return;
+
+        BankUpgradeTier currentTier = BankUpgradeTier.getTier(yakPlayer.getBankPages());
+        if (!currentTier.hasNext()) {
+            player.sendMessage(ChatColor.RED + "You've reached the maximum bank size!");
+            return;
+        }
+
+        BankUpgradeTier nextTier = currentTier.getNext();
+
+        // Check if player has enough gems
+        TransactionResult result = EconomyManager.getInstance().removePhysicalGems(player, nextTier.getCost());
+        if (!result.isSuccess()) {
+            player.sendMessage(ChatColor.RED + "You don't have enough gems for this upgrade!");
+            player.sendMessage(ChatColor.RED + "Required: " + nextTier.getCost() + " gems");
+            return;
+        }
+
+        // Upgrade the bank
+        yakPlayer.setBankPages(nextTier.getPages());
+        YakPlayerManager.getInstance().savePlayer(yakPlayer);
+
+        // Success message
+        player.sendMessage("");
+        player.sendMessage(ChatColor.GREEN + "" + ChatColor.BOLD + "*** BANK UPGRADE TO " + nextTier.getPages() + " PAGES COMPLETE ***");
+        player.sendMessage(ChatColor.GREEN + "Your bank now has " + nextTier.getPages() + " pages!");
+        player.playSound(player.getLocation(), Sound.ENTITY_PLAYER_LEVELUP, 1F, 1.25F);
+
+        // Clear any cached bank pages to refresh UI
+        Map<Integer, Inventory> playerBankPages = playerBanks.get(player.getUniqueId());
+        if (playerBankPages != null) {
+            playerBankPages.clear();
+        }
+    }
+
+    /**
+     * Add item to collection bin if inventory full
+     */
+    public boolean addToCollectionBinIfNeeded(Player player, ItemStack item) {
+        if (player.getInventory().firstEmpty() != -1) {
+            return false; // Inventory has space
+        }
+
+        Inventory binInv = getCollectionBin(player);
+        if (binInv.firstEmpty() != -1) {
+            binInv.addItem(item);
+            player.sendMessage(ChatColor.YELLOW + "Item sent to collection bin (inventory full)");
+            return true;
+        }
+
+        return false; // Collection bin also full
+    }
+
+    /**
+     * Serialize an inventory to Base64 string
+     */
+    private String serializeInventory(Inventory inventory) {
+        try {
+            ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+            BukkitObjectOutputStream dataOutput = new BukkitObjectOutputStream(outputStream);
+
+            // Only serialize the content area (not UI elements)
+            dataOutput.writeInt(BANK_CONTENT_SIZE);
+
+            for (int i = 0; i < BANK_CONTENT_SIZE; i++) {
+                dataOutput.writeObject(inventory.getItem(i));
+            }
+
+            dataOutput.close();
+            return Base64.getEncoder().encodeToString(outputStream.toByteArray());
+        } catch (Exception e) {
+            logger.log(Level.SEVERE, "Error serializing inventory", e);
+            return null;
+        }
+    }
+
+    /**
+     * Deserialize an inventory from Base64 string
+     */
+    private void deserializeInventory(String data, Inventory inventory) {
+        try {
+            ByteArrayInputStream inputStream = new ByteArrayInputStream(Base64.getDecoder().decode(data));
+            BukkitObjectInputStream dataInput = new BukkitObjectInputStream(inputStream);
+
+            int size = dataInput.readInt();
+
+            for (int i = 0; i < size && i < BANK_CONTENT_SIZE; i++) {
+                inventory.setItem(i, (ItemStack) dataInput.readObject());
+            }
+
+            dataInput.close();
+        } catch (Exception e) {
+            logger.log(Level.SEVERE, "Error deserializing inventory", e);
+        }
+    }
+
+    // Handle other existing bank operations (withdraw prompts, currency handling, etc.)
+    // ... (keeping existing methods from the original BankManager for backwards compatibility)
 
     /**
      * Handle merging of bank notes
@@ -549,7 +865,12 @@ public class BankManager implements Listener {
                 bankInv.setItem(firstEmpty, itemToAdd);
                 event.setCurrentItem(null);
             } else {
-                player.sendMessage(ChatColor.RED + "Your bank is full. Unable to deposit items.");
+                // Try to add to collection bin
+                if (!addToCollectionBinIfNeeded(player, clickedItem)) {
+                    player.sendMessage(ChatColor.RED + "Your bank and collection bin are full!");
+                } else {
+                    event.setCurrentItem(null);
+                }
             }
         }
 
@@ -590,81 +911,19 @@ public class BankManager implements Listener {
     }
 
     /**
-     * Handle clicks on the bank UI elements (bottom row)
-     */
-    private void handleBankUIClick(InventoryClickEvent event, Player player) {
-        int slot = event.getSlot();
-
-        // Gem balance - open withdrawal prompt
-        if (slot == BANK_SIZE - 5 && event.getClick() == ClickType.RIGHT) {
-            promptForWithdraw(player);
-        }
-        // Previous page
-        else if (slot == BANK_SIZE - 9) {
-            changeBankPage(player, -1);
-        }
-        // Next page
-        else if (slot == BANK_SIZE - 1) {
-            changeBankPage(player, 1);
-        }
-    }
-
-    /**
-     * Change to a different bank page
-     */
-    private void changeBankPage(Player player, int delta) {
-        try {
-            String title = player.getOpenInventory().getTitle();
-            int currentPage = Integer.parseInt(title.substring(title.indexOf("(") + 1, title.indexOf("/")));
-            int newPage = currentPage + delta;
-
-            YakPlayer yakPlayer = YakPlayerManager.getInstance().getPlayer(player);
-
-            // Check if player has access to this page
-            int maxPages = yakPlayer != null ? yakPlayer.getBankPages() : 1;
-
-            if (newPage < 1 || newPage > maxPages) {
-                player.sendMessage(ChatColor.RED + "You do not have access to that bank page.");
-                return;
-            }
-
-            // Save current page before switching
-            markBankDirty(player.getUniqueId(), currentPage);
-            saveBank(player.getOpenInventory().getTopInventory(), player.getUniqueId(), currentPage);
-
-            // Open new page
-            player.closeInventory();
-            player.openInventory(getBank(player, newPage));
-            player.playSound(player.getLocation(), Sound.ENTITY_BAT_TAKEOFF, 1.0f, 1.25f);
-
-        } catch (Exception e) {
-            player.sendMessage(ChatColor.RED + "Could not change bank page.");
-            logger.log(Level.WARNING, "Error changing bank page for player " + player.getName(), e);
-        }
-    }
-
-    /**
-     * Process the deposit of currency items with updated economy system
+     * Process the deposit of currency items
      */
     private void processCurrencyDeposit(Player player, ItemStack item) {
         int totalAmount = 0;
 
         try {
-            if (item.getType() == Material.EMERALD) {
-                // Check if it's actually a gem item (not just any emerald)
-                if (isValidGemItem(item)) {
-                    totalAmount = item.getAmount();
-                    player.getInventory().removeItem(item);
-                } else {
-                    player.sendMessage(ChatColor.RED + "This emerald is not a valid gem currency.");
-                    return;
-                }
+            if (item.getType() == Material.EMERALD && isValidGemItem(item)) {
+                totalAmount = item.getAmount();
+                player.getInventory().removeItem(item);
             } else if (item.getType() == Material.PAPER && isBankNote(item)) {
-                // Bank note
                 totalAmount = extractGemValue(item);
                 player.getInventory().removeItem(item);
             } else if (item.getType() == Material.INK_SAC) {
-                // Gem pouch
                 GemPouchManager pouchManager = GemPouchManager.getInstance();
                 if (pouchManager.isGemPouch(item)) {
                     totalAmount = pouchManager.getCurrentValue(item);
@@ -673,13 +932,8 @@ public class BankManager implements Listener {
             }
 
             if (totalAmount > 0) {
-                // Add to player's bank balance
-                YakPlayer yakPlayer = YakPlayerManager.getInstance().getPlayer(player);
-                if (yakPlayer != null) {
-                    yakPlayer.setBankGems(yakPlayer.getBankGems() + totalAmount);
-                    YakPlayerManager.getInstance().savePlayer(yakPlayer);
-
-                    // Update display
+                TransactionResult result = EconomyManager.getInstance().addBankGems(player, totalAmount);
+                if (result.isSuccess()) {
                     updatePlayerBalance(player, totalAmount, true);
                 }
             }
@@ -687,18 +941,6 @@ public class BankManager implements Listener {
             player.sendMessage(ChatColor.RED + "Failed to process currency deposit.");
             logger.log(Level.WARNING, "Error processing currency deposit for player " + player.getName(), e);
         }
-    }
-
-    /**
-     * Check if an emerald item is a valid gem currency item
-     */
-    private boolean isValidGemItem(ItemStack item) {
-        if (item == null || item.getType() != Material.EMERALD || !item.hasItemMeta()) {
-            return false;
-        }
-
-        ItemMeta meta = item.getItemMeta();
-        return meta.hasDisplayName() && meta.getDisplayName().contains("Gem");
     }
 
     /**
@@ -741,23 +983,13 @@ public class BankManager implements Listener {
             return;
         }
 
-        // Check if player has a balance
-        YakPlayer yakPlayer = YakPlayerManager.getInstance().getPlayer(player);
-        int balance = yakPlayer != null ? yakPlayer.getBankGems() : 0;
-
-        if (balance <= 0) {
-            withdrawPrompt.remove(player.getUniqueId());
-            TextUtil.sendCenteredMessage(player, ChatColor.RED + "Your bank balance is zero. Withdrawal cannot be processed.");
-            return;
-        }
-
         // Parse amount
         try {
             int amount = Integer.parseInt(message);
-            // Schedule processing on the main thread for safety
+            // Schedule processing on the main thread
             Bukkit.getScheduler().runTask(YakRealms.getInstance(), () -> processWithdraw(player, amount));
         } catch (NumberFormatException e) {
-            TextUtil.sendCenteredMessage(player, ChatColor.RED + "Please enter a NUMBER, the amount you'd like to WITHDRAW " + "from your bank account. Or type 'cancel' to void the withdrawal.");
+            TextUtil.sendCenteredMessage(player, ChatColor.RED + "Please enter a NUMBER or type 'cancel'.");
         }
     }
 
@@ -766,54 +998,24 @@ public class BankManager implements Listener {
      */
     private void processWithdraw(Player player, int amount) {
         if (!withdrawPrompt.contains(player.getUniqueId())) {
-            return; // Player may have disconnected or operation was cancelled
+            return;
         }
 
-        YakPlayer yakPlayer = YakPlayerManager.getInstance().getPlayer(player);
-        int balance = yakPlayer != null ? yakPlayer.getBankGems() : 0;
+        withdrawPrompt.remove(player.getUniqueId());
 
-        if (amount <= 0) {
-            TextUtil.sendCenteredMessage(player, ChatColor.RED + "You must enter a POSITIVE amount.");
-        } else if (amount > balance) {
-            TextUtil.sendCenteredMessage(player, ChatColor.GRAY + "You cannot withdraw more GEMS than you have stored. " + "Current balance: " + balance + " GEM(s)");
+        TransactionResult result = EconomyManager.getInstance().withdrawFromBank(player, amount);
+        if (result.isSuccess()) {
+            updatePlayerBalance(player, amount, false);
         } else {
-            withdrawPrompt.remove(player.getUniqueId());
-
-            // Process the withdrawal
-            if (yakPlayer != null) {
-                yakPlayer.setBankGems(balance - amount);
-                YakPlayerManager.getInstance().savePlayer(yakPlayer);
-
-                // Give bank note to player
-                givePlayerBankNote(player, amount);
-
-                // Update display
-                updatePlayerBalance(player, amount, false);
-            }
+            player.sendMessage(ChatColor.RED + result.getMessage());
         }
     }
 
     /**
-     * Give a bank note to a player
-     */
-    private void givePlayerBankNote(Player player, int amount) {
-        ItemStack bankNote = createBankNote(amount);
-
-        if (player.getInventory().firstEmpty() != -1) {
-            player.getInventory().addItem(bankNote);
-        } else {
-            // Drop at player's feet if inventory is full
-            player.getWorld().dropItemNaturally(player.getLocation(), bankNote);
-            player.sendMessage(ChatColor.YELLOW + "Your inventory was full. The bank note was dropped at your feet.");
-        }
-    }
-
-    /**
-     * Update the player's balance and display
+     * Update the player's balance display
      */
     private void updatePlayerBalance(Player player, int amount, boolean isDeposit) {
         try {
-            // Display messages
             String prefix = isDeposit ? "&a+" : "&c-";
             TextUtil.sendCenteredMessage(player, TextUtil.colorize(prefix + amount + (isDeposit ? "&a&lG" : "&c&lG") + " &7➜ " + (isDeposit ? "Your Bank" : "Your Inventory")));
 
@@ -822,7 +1024,6 @@ public class BankManager implements Listener {
 
             TextUtil.sendCenteredMessage(player, TextUtil.colorize("&a&lNew Balance: &a" + newBalance + " &aGEM(s)"));
 
-            // Play sound effect
             player.playSound(player.getLocation(), Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 1.0f, 1.0f);
 
             // Update bank UI if open
@@ -830,46 +1031,81 @@ public class BankManager implements Listener {
                 player.getOpenInventory().setItem(BANK_SIZE - 5, createGemBankItem(player));
             }
 
-            // Update inventory
             player.updateInventory();
         } catch (Exception e) {
             logger.log(Level.WARNING, "Error updating player balance for " + player.getName(), e);
         }
     }
 
-    /* Utility Methods */
-
     /**
-     * Check if an item is a currency item
+     * Handle inventory close event to save the bank
      */
+    @EventHandler
+    public void onInventoryClose(InventoryCloseEvent event) {
+        if (!(event.getPlayer() instanceof Player)) return;
+
+        String title = event.getView().getTitle();
+        Player player = (Player) event.getPlayer();
+
+        if (title.contains(BANK_TITLE_PREFIX) && !title.contains("Guild")) {
+            try {
+                String pageStr = title.substring(title.indexOf("(") + 1, title.indexOf("/"));
+                int page = Integer.parseInt(pageStr);
+                UUID playerUuid = player.getUniqueId();
+
+                // Mark this page as dirty for saving
+                markBankDirty(playerUuid, page);
+
+                // Immediate save of the bank page
+                Inventory bankInventory = event.getInventory();
+                saveBank(bankInventory, playerUuid, page);
+
+                // Remove from viewing map
+                bankViewMap.remove(player.getUniqueId());
+
+                logger.fine("Bank closed and saved for player " + player.getName() + " page " + page);
+            } catch (Exception e) {
+                logger.log(Level.SEVERE, "Error saving bank on close for player " + player.getName(), e);
+            }
+        } else if (title.equals(COLLECTION_BIN_TITLE)) {
+            // Save collection bin
+            saveCollectionBin(event.getInventory(), player.getUniqueId());
+            logger.fine("Collection bin closed and saved for player " + player.getName());
+        }
+    }
+
+    // Utility methods
     private boolean isCurrencyItem(ItemStack item) {
         if (item == null) return false;
-
         return isValidGemItem(item) || isBankNote(item) || (item.getType() == Material.INK_SAC && GemPouchManager.getInstance().isGemPouch(item));
     }
 
-    /**
-     * Check if an item is a bank note
-     */
+    private boolean isValidGemItem(ItemStack item) {
+        if (item == null || item.getType() != Material.EMERALD || !item.hasItemMeta()) {
+            return false;
+        }
+        ItemMeta meta = item.getItemMeta();
+        return meta.hasDisplayName() && meta.getDisplayName().contains("Gem");
+    }
+
     private boolean isBankNote(ItemStack item) {
         if (item == null || item.getType() != Material.PAPER || !item.hasItemMeta()) return false;
-
         ItemMeta meta = item.getItemMeta();
         return meta.hasDisplayName() && meta.getDisplayName().equals(ChatColor.GREEN + "Bank Note") && meta.hasLore() && !meta.getLore().isEmpty() && meta.getLore().get(0).contains("Value");
     }
 
-    /**
-     * Extract the gem value from a bank note
-     */
     private int extractGemValue(ItemStack item) {
         if (!isBankNote(item)) return 0;
-
         try {
+            NBTAccessor nbt = new NBTAccessor(item);
+            if (nbt.hasTag("gem_value")) {
+                return nbt.getInt("gem_value");
+            }
+            // Fallback to parsing from lore
             List<String> lore = item.getItemMeta().getLore();
             String valueLine = ChatColor.stripColor(lore.get(0));
             String[] parts = valueLine.split(": ");
             if (parts.length < 2) return 0;
-
             String valueStr = parts[1].split(" Gems")[0];
             return Integer.parseInt(valueStr);
         } catch (Exception e) {
@@ -877,9 +1113,6 @@ public class BankManager implements Listener {
         }
     }
 
-    /**
-     * Create an ItemStack with custom name and lore
-     */
     private ItemStack createItem(Material material, String name, List<String> lore) {
         ItemStack item = new ItemStack(material);
         ItemMeta meta = item.getItemMeta();
@@ -891,19 +1124,27 @@ public class BankManager implements Listener {
         return item;
     }
 
-    /**
-     * Create a gem item with specified amount
-     */
     public ItemStack createGems(int amount) {
         if (amount <= 0) return null;
-
-        ItemStack gem = new ItemStack(Material.EMERALD, Math.min(amount, 64)); // Cap at stack size
-
+        ItemStack gem = new ItemStack(Material.EMERALD, Math.min(amount, 64));
         ItemMeta meta = gem.getItemMeta();
         meta.setDisplayName(ChatColor.WHITE + "Gem");
         meta.setLore(Collections.singletonList(ChatColor.GRAY + "The currency of Andalucia"));
-
         gem.setItemMeta(meta);
         return gem;
+    }
+
+    // Public getters for other classes
+    public int getMaxPages() { return MAX_BANK_PAGES; }
+    public boolean hasCollectionBinItems(Player player) {
+        Inventory bin = collectionBins.get(player.getUniqueId());
+        if (bin == null) return false;
+
+        for (ItemStack item : bin.getContents()) {
+            if (item != null && item.getType() != Material.AIR) {
+                return true;
+            }
+        }
+        return false;
     }
 }
