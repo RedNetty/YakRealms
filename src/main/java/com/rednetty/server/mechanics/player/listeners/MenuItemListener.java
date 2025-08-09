@@ -1,6 +1,10 @@
 package com.rednetty.server.mechanics.player.listeners;
 
 import com.rednetty.server.YakRealms;
+import com.rednetty.server.mechanics.combat.death.DeathMechanics;
+import com.rednetty.server.mechanics.combat.logout.CombatLogoutMechanics;
+import com.rednetty.server.mechanics.economy.vendors.VendorManager;
+import com.rednetty.server.mechanics.economy.vendors.VendorSystemInitializer;
 import com.rednetty.server.mechanics.item.MenuItemManager;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
@@ -104,20 +108,20 @@ public class MenuItemListener extends BaseListener {
         removeMenuItemsFromInventory(player);
     }
 
-    @EventHandler(priority = EventPriority.HIGHEST)
+    @EventHandler(priority = EventPriority.LOW) // Changed from HIGHEST to avoid blocking other systems
     public void onInventoryClick(InventoryClickEvent event) {
         if (!(event.getWhoClicked() instanceof Player player)) return;
 
-        // Check for menu item interactions first
+        // CRITICAL FIX: Check if other systems are processing first
+        if (isSystemProcessingInventory(player)) {
+            return; // Let other systems handle
+        }
+
+        // Check for menu item interactions
         if (menuItemManager.isMenuItem(event.getCurrentItem()) ||
                 menuItemManager.isMenuItem(event.getCursor())) {
             event.setCancelled(true);
-
-            // Handle menu item click action if clicking on a menu item
-            if (menuItemManager.isMenuItem(event.getCurrentItem())) {
-                menuItemManager.handleMenuItemClick(player, event.getCurrentItem(), event);
-            }
-
+            handleMenuItemClick(player, event.getCurrentItem(), event);
             removeMenuItemsFromInventory(player);
             return;
         }
@@ -206,9 +210,15 @@ public class MenuItemListener extends BaseListener {
         }
     }
 
-    @EventHandler(priority = EventPriority.HIGHEST)
+    private boolean isSystemProcessingInventory(Player player) {
+        return DeathMechanics.getInstance().isProcessingDeath(player.getUniqueId()) ||
+                CombatLogoutMechanics.getInstance().isCombatLoggingOut(player);
+    }
+    @EventHandler(priority = EventPriority.LOW) // Changed from HIGHEST
     public void onPlayerDropItem(PlayerDropItemEvent event) {
-        if (menuItemManager.isMenuItem(event.getItemDrop().getItemStack())) {
+        // CRITICAL FIX: Only cancel if no other system is handling the item
+        if (menuItemManager.isMenuItem(event.getItemDrop().getItemStack()) &&
+                !isItemBeingProcessedByOtherSystems(event.getItemDrop().getItemStack())) {
             event.setCancelled(true);
             event.getItemDrop().remove();
             removeMenuItemsFromInventory(event.getPlayer());

@@ -1,6 +1,7 @@
 package com.rednetty.server.mechanics.combat.logout;
 
 import com.rednetty.server.YakRealms;
+import com.rednetty.server.mechanics.combat.death.DeathMechanics;
 import com.rednetty.server.mechanics.combat.pvp.ForceFieldManager;
 import com.rednetty.server.mechanics.player.YakPlayer;
 import com.rednetty.server.mechanics.player.YakPlayerManager;
@@ -242,6 +243,15 @@ public class CombatLogoutMechanics implements Listener {
             return;
         }
 
+        // CRITICAL FIX: Check if DeathMechanics is already processing this player
+        if (DeathMechanics.getInstance().isProcessingDeath(playerId)) {
+            logger.info("COORDINATION: DeathMechanics already processing " + player.getName() + ", skipping combat logout");
+            combatTaggedPlayers.remove(playerId);
+            lastAttackers.remove(playerId);
+            duplicationsPrevented.incrementAndGet();
+            return;
+        }
+
         // CRITICAL FIX: Atomic processing lock to prevent duplication
         if (!combatLogoutProcessingLock.add(playerId)) {
             logger.warning("DUPLICATION PREVENTION: Combat logout already being processed for " + player.getName());
@@ -249,64 +259,40 @@ public class CombatLogoutMechanics implements Listener {
             return;
         }
 
+        totalCombatLogouts.incrementAndGet();
+
         try {
-            logger.warning("=== FIXED COMBAT LOGOUT DETECTED: " + player.getName() + " ===");
-            totalCombatLogouts.incrementAndGet();
-
-            if (!initializeCombatLogoutProcessing(playerId)) {
-                return;
-            }
-
-            YakPlayer yakPlayer = retrievePlayerDataForCombatLogout(playerId, player.getName());
+            YakPlayer yakPlayer = playerManager.getPlayer(playerId);
             if (yakPlayer == null) {
+                logger.warning("No YakPlayer found for combat logout: " + player.getName());
+                failedProcesses.incrementAndGet();
                 return;
             }
+
+            // Set state to prevent DeathMechanics interference
+            yakPlayer.setTemporaryData("combat_logout_processing", true);
+            playerManager.savePlayer(yakPlayer);
 
             boolean success = processCombatLogoutFixed(player, yakPlayer);
-            updateProcessingMetrics(success);
 
             if (success) {
+                successfulProcesses.incrementAndGet();
+                coordinationSuccesses.incrementAndGet();
                 updateQuitMessage(event, player.getName());
                 logger.info("FIXED: Combat logout processed successfully for " + player.getName());
             } else {
-                logger.severe("FIXED: Combat logout processing failed for " + player.getName());
+                failedProcesses.incrementAndGet();
+                coordinationFailures.incrementAndGet();
+                logger.warning("FIXED: Combat logout processing failed for " + player.getName());
             }
 
         } catch (Exception e) {
-            logger.log(Level.SEVERE, "FIXED: Error processing combat logout for " + player.getName(), e);
             failedProcesses.incrementAndGet();
             coordinationFailures.incrementAndGet();
+            logger.severe("FIXED: Error processing combat logout for " + player.getName() + ": " + e.getMessage());
+            e.printStackTrace();
         } finally {
             finalizeCombatLogoutProcessing(playerId, player.getName());
-        }
-    }
-
-    private boolean initializeCombatLogoutProcessing(UUID playerId) {
-        processingCombatLogouts.add(playerId);
-        playerManager.markPlayerEnteringCombatLogout(playerId);
-        return true;
-    }
-
-    private YakPlayer retrievePlayerDataForCombatLogout(UUID playerId, String playerName) {
-        YakPlayer yakPlayer = playerManager.getPlayerForCombatLogout(playerId);
-        if (yakPlayer == null) {
-            logger.severe("FIXED: No YakPlayer data for combat logout: " + playerName);
-            coordinationFailures.incrementAndGet();
-            failedProcesses.incrementAndGet();
-            playerManager.markPlayerFinishedCombatLogout(playerId);
-            return null;
-        }
-
-        logger.info("FIXED: Successfully retrieved YakPlayer data for combat logout: " + playerName);
-        coordinationSuccesses.incrementAndGet();
-        return yakPlayer;
-    }
-
-    private void updateProcessingMetrics(boolean success) {
-        if (success) {
-            successfulProcesses.incrementAndGet();
-        } else {
-            failedProcesses.incrementAndGet();
         }
     }
 
@@ -749,6 +735,7 @@ public class CombatLogoutMechanics implements Listener {
         YakPlayer yakPlayer = playerManager.getPlayer(playerId);
         if (yakPlayer != null) {
             yakPlayer.setCombatLogoutState(YakPlayer.CombatLogoutState.COMPLETED);
+            yakPlayer.removeTemporaryData("combat_logout_processing");
             playerManager.savePlayer(yakPlayer);
             logger.info("FIXED: Set combat logout state to COMPLETED for " + playerId);
         }

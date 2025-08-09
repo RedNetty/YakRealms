@@ -175,27 +175,36 @@ public class ChestEventHandler implements Listener {
         try {
             UUID playerId = player.getUniqueId();
 
-            // Check if this player was viewing a loot chest inventory
-            ChestLocation chestLocation = playerToChest.remove(playerId);
+            // CRITICAL FIX: Atomic operation for chest mapping
+            ChestLocation chestLocation;
+            synchronized (playerToChest) {
+                chestLocation = playerToChest.remove(playerId);
+                if (chestLocation != null) {
+                    chestToPlayer.remove(chestLocation);
+                }
+            }
+
             if (chestLocation == null) {
                 return; // Not a loot chest inventory
             }
 
-            // Remove reverse mapping
-            chestToPlayer.remove(chestLocation);
-
-            // Get the chest from registry
+            // Get the chest from registry with validation
             Chest chest = manager.getRegistry().getChest(chestLocation);
             if (chest == null) {
                 logger.warning("Player " + player.getName() + " closed inventory for non-existent chest at " + chestLocation);
                 return;
             }
 
-            // Handle inventory close with a slight delay to avoid sync issues
+            // CRITICAL FIX: Prevent concurrent modification with state lock
             Bukkit.getScheduler().runTask(YakRealms.getInstance(), () -> {
                 synchronized (manager.getStateLock()) {
                     try {
-                        handleLootChestInventoryClose(player, event.getInventory(), chest);
+                        // Verify chest still exists and hasn't been modified by another player
+                        if (manager.getRegistry().getChest(chestLocation) == chest) {
+                            handleLootChestInventoryClose(player, event.getInventory(), chest);
+                        } else {
+                            logger.info("Chest state changed during close, skipping inventory processing");
+                        }
                     } catch (Exception e) {
                         logger.warning("Error handling inventory close for player " + player.getName() + ": " + e.getMessage());
                     }

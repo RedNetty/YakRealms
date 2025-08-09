@@ -105,7 +105,7 @@ public class InventoryUtils {
     /**
      * CRITICAL FIX: Get all items from player with deduplication and validation
      *
-     * THIS WAS THE ROOT CAUSE OF ARMOR DUPLICATION - NOW COMPLETELY 
+     * THIS WAS THE ROOT CAUSE OF ARMOR DUPLICATION - NOW COMPLETELY
      *
      * The original version was capturing armor from BOTH:
      * - Worn armor slots (36-39)
@@ -119,65 +119,50 @@ public class InventoryUtils {
             return new ArrayList<>();
         }
 
-        YakRealms.log("=== COLLECTING ALL PLAYER ITEMS () ===");
+        YakRealms.log("=== COLLECTING ALL PLAYER ITEMS (FIXED) ===");
         List<ItemStack> allItems = new ArrayList<>();
-        Set<String> processedItems = new HashSet<>(); // Track processed items to prevent dupes
+        PlayerInventory inventory = player.getInventory();
 
         try {
-            // : Main inventory (hotbar + main inventory) - ONLY 36 slots, NOT armor slots
-            ItemStack[] mainInventory = player.getInventory().getContents();
-            if (mainInventory != null) {
-                for (int i = 0; i < Math.min(36, mainInventory.length); i++) { // : Only first 36 slots
-                    ItemStack item = mainInventory[i];
+            // CRITICAL FIX: Only collect from main inventory slots (0-35)
+            // This excludes armor slots (36-39) which are handled separately
+            ItemStack[] contents = inventory.getStorageContents(); // Gets only storage, not armor
+            if (contents != null) {
+                for (int i = 0; i < contents.length; i++) {
+                    ItemStack item = contents[i];
                     if (isValidItem(item)) {
-                        String itemKey = createItemKey(item, "main_" + i);
-                        if (!processedItems.contains(itemKey)) {
-                            allItems.add(item.clone());
-                            processedItems.add(itemKey);
-                            YakRealms.log("Collected from main inventory slot " + i + ": " +
-                                    getItemDisplayName(item) + " x" + item.getAmount());
-                        }
+                        allItems.add(item.clone());
+                        YakRealms.log("Collected from storage slot " + i + ": " + getItemDisplayName(item));
                     }
                 }
             }
 
-            // : Armor contents - SEPARATE from main inventory to prevent duplication
-            ItemStack[] armorContents = player.getInventory().getArmorContents();
+            // CRITICAL FIX: Armor collected separately with explicit armor slot checking
+            ItemStack[] armorContents = inventory.getArmorContents();
             if (armorContents != null) {
+                String[] armorSlots = {"boots", "leggings", "chestplate", "helmet"};
                 for (int i = 0; i < armorContents.length; i++) {
                     ItemStack armor = armorContents[i];
                     if (isValidItem(armor)) {
-                        String itemKey = createItemKey(armor, "armor_" + i);
-                        if (!processedItems.contains(itemKey)) {
-                            allItems.add(armor.clone());
-                            processedItems.add(itemKey);
-                            YakRealms.log("Collected from armor slot " + i + ": " +
-                                    getItemDisplayName(armor) + " x" + armor.getAmount());
-                        }
+                        allItems.add(armor.clone());
+                        YakRealms.log("Collected from " + armorSlots[i] + " slot: " + getItemDisplayName(armor));
                     }
                 }
             }
 
-            // : Offhand item - separate tracking
-            ItemStack offhandItem = player.getInventory().getItemInOffHand();
-            if (isValidItem(offhandItem)) {
-                String itemKey = createItemKey(offhandItem, "offhand");
-                if (!processedItems.contains(itemKey)) {
-                    allItems.add(offhandItem.clone());
-                    processedItems.add(itemKey);
-                    YakRealms.log("Collected from offhand: " +
-                            getItemDisplayName(offhandItem) + " x" + offhandItem.getAmount());
-                }
+            // CRITICAL FIX: Offhand handled separately
+            ItemStack offhand = inventory.getItemInOffHand();
+            if (isValidItem(offhand)) {
+                allItems.add(offhand.clone());
+                YakRealms.log("Collected from offhand: " + getItemDisplayName(offhand));
             }
 
-            YakRealms.log(" Collection complete: " + allItems.size() + " total items, " +
-                    processedItems.size() + " unique keys for " + player.getName());
-
+            YakRealms.log("FIXED: Total items collected: " + allItems.size());
             return allItems;
 
         } catch (Exception e) {
-            YakRealms.error("CRITICAL: Error in  getAllPlayerItems for " + player.getName(), e);
-            return new ArrayList<>();
+            YakRealms.error("FIXED: Error collecting player items", e);
+            return allItems; // Return what we managed to collect
         }
     }
 

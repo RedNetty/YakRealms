@@ -112,58 +112,53 @@ public class DeathMechanics implements Listener {
         YakRealms.log("FIXED DeathMechanics disabled");
     }
 
-    /**
-     * FIXED: Death event handler with atomic processing to prevent duplication
-     * Uses MONITOR priority to run AFTER combat mechanics but before other plugins
-     */
-    @EventHandler(priority = EventPriority.MONITOR)
+    @EventHandler(priority = EventPriority.LOW)
     public void onPlayerDeath(PlayerDeathEvent event) {
         Player player = event.getEntity();
         UUID playerId = player.getUniqueId();
 
-        totalDeaths.incrementAndGet();
+        // CRITICAL FIX: Check if combat logout is already processing
+        if (combatLogoutMechanics.isCombatLoggingOut(player)) {
+            YakRealms.log("COORDINATION: Combat logout processing " + player.getName() + ", death mechanics deferring");
+            skippedDeaths.incrementAndGet();
+            return;
+        }
 
         // CRITICAL FIX: Atomic death processing lock
         if (!deathProcessingLock.add(playerId)) {
-            YakRealms.log("DUPLICATION PREVENTION: Death already being processed for " + player.getName());
+            YakRealms.warn("DUPLICATION PREVENTION: Death already being processed for " + player.getName());
             duplicationsPrevented.incrementAndGet();
             return;
         }
 
+        totalDeaths.incrementAndGet();
+
         try {
-            YakRealms.log("=== FIXED DEATH EVENT START: " + player.getName() + " ===");
-
-            if (!isValidPlayer(player)) {
-                YakRealms.warn("FIXED: Invalid player in death event");
-                return;
-            }
-
-            YakPlayer yakPlayer = playerManager.getPlayer(player);
+            YakPlayer yakPlayer = playerManager.getPlayer(playerId);
             if (yakPlayer == null) {
-                YakRealms.warn("FIXED: No YakPlayer data for " + player.getName() + " during death");
+                YakRealms.warn("No YakPlayer found for death processing: " + player.getName());
                 return;
             }
 
-            // CRITICAL FIX: Enhanced combat logout detection
-            if (isCombatLogoutDeath(playerId, yakPlayer)) {
+            // Check if this is a combat logout completion (not a new death)
+            boolean isCombatLogout = yakPlayer.hasTemporaryData("combat_logout_processing") ||
+                    yakPlayer.getCombatLogoutState() == YakPlayer.CombatLogoutState.PROCESSING;
+
+            if (isCombatLogout) {
                 handleCombatLogoutDeath(event, player, yakPlayer);
-                return;
+            } else {
+                handleNormalDeath(event, player, yakPlayer);
             }
-
-            // Process normal death
-            handleNormalDeath(event, player, yakPlayer);
-            normalDeaths.incrementAndGet();
 
         } catch (Exception e) {
-            YakRealms.error("FIXED: Critical error processing death event for " + player.getName(), e);
-            e.printStackTrace();
+            YakRealms.error("FIXED: Critical error in death processing for " + player.getName(), e);
         } finally {
-            // Always release the lock
             deathProcessingLock.remove(playerId);
-            YakRealms.log("=== FIXED DEATH EVENT END: " + player.getName() + " ===");
         }
     }
-
+    public boolean isProcessingDeath(UUID playerId) {
+        return deathProcessingLock.contains(playerId);
+    }
     /**
      * FIXED: Enhanced combat logout detection with multiple validation layers
      */
@@ -362,8 +357,6 @@ public class DeathMechanics implements Listener {
         YakRealms.log("  - hasRespawnItems: " + hasRespawnItems);
         YakRealms.log("  - itemCount: " + (respawnItems != null ? respawnItems.size() : 0));
         YakRealms.log("  - combatLogoutState: " + combatState);
-        YakRealms.log("  - timeSinceDeath: " + yakPlayer.getTimeSinceDeath());
-
         if (respawnItems != null && !respawnItems.isEmpty()) {
             YakRealms.log("  - Items to restore:");
             for (int i = 0; i < Math.min(respawnItems.size(), 5); i++) {
