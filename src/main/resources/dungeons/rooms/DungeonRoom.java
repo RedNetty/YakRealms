@@ -21,7 +21,7 @@ import java.util.logging.Logger;
 import java.util.stream.Collectors;
 
 /**
- * : Complete Dungeon Room Management System
+ * Complete Dungeon Room Management System
  *
  * Manages individual rooms within dungeons, including mob spawning,
  * room events, player tracking, environmental effects, and room-specific
@@ -859,7 +859,7 @@ public class DungeonRoom {
 
     private void applyIceEffect(Player player) {
         player.addPotionEffect(new org.bukkit.potion.PotionEffect(
-                org.bukkit.potion.PotionEffectType.SLOW, 100, 0, true, false));
+                org.bukkit.potion.PotionEffectType.SLOWNESS, 100, 0, true, false));
     }
 
     private void applyDarknessEffect(Player player) {
@@ -875,7 +875,7 @@ public class DungeonRoom {
     private void removeRoomEffects(Player player) {
         // Remove room-specific effects when leaving
         player.removePotionEffect(org.bukkit.potion.PotionEffectType.POISON);
-        player.removePotionEffect(org.bukkit.potion.PotionEffectType.SLOW);
+        player.removePotionEffect(org.bukkit.potion.PotionEffectType.SLOWNESS);
         player.removePotionEffect(org.bukkit.potion.PotionEffectType.BLINDNESS);
         player.setFireTicks(0);
     }
@@ -886,7 +886,7 @@ public class DungeonRoom {
             Player player = Bukkit.getPlayer(playerId);
             if (player != null) {
                 player.playSound(player.getLocation(), org.bukkit.Sound.ENTITY_PLAYER_LEVELUP, 1.0f, 1.0f);
-                player.getWorld().spawnParticle(org.bukkit.Particle.TOTEM,
+                player.getWorld().spawnParticle(org.bukkit.Particle.TOTEM_OF_UNDYING,
                         player.getLocation().add(0, 2, 0), 30, 1, 1, 1, 0.1);
             }
         }
@@ -908,7 +908,7 @@ public class DungeonRoom {
         player.sendMessage(ChatColor.RED + "You triggered a trap!");
 
         // Visual effect
-        player.getWorld().spawnParticle(org.bukkit.Particle.EXPLOSION_NORMAL,
+        player.getWorld().spawnParticle(org.bukkit.Particle.EXPLOSION,
                 player.getLocation(), 10, 1, 1, 1, 0.1);
     }
 

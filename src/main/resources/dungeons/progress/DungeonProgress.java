@@ -14,7 +14,7 @@ import java.util.logging.Logger;
 import java.util.stream.Collectors;
 
 /**
- * : Complete Dungeon Progress Tracking System
+ * Complete Dungeon Progress Tracking System
  *
  * Manages objective tracking, progress updates, and completion detection
  * for dungeon instances. Handles complex objective dependencies and
@@ -753,7 +753,7 @@ public class DungeonProgress {
 
         // Example: Spawn celebration effects
         for (Player player : dungeonInstance.getOnlinePlayers()) {
-            player.getWorld().spawnParticle(org.bukkit.Particle.FIREWORKS_SPARK,
+            player.getWorld().spawnParticle(org.bukkit.Particle.FIREWORK,
                     player.getLocation().add(0, 2, 0), 20, 1, 1, 1, 0.1);
         }
     }
@@ -764,7 +764,7 @@ public class DungeonProgress {
     private void triggerDungeonCompletionEffects() {
         // Major celebration effects
         for (Player player : dungeonInstance.getOnlinePlayers()) {
-            player.getWorld().spawnParticle(org.bukkit.Particle.TOTEM,
+            player.getWorld().spawnParticle(org.bukkit.Particle.TOTEM_OF_UNDYING,
                     player.getLocation().add(0, 2, 0), 50, 2, 2, 2, 0.2);
             player.playSound(player.getLocation(), org.bukkit.Sound.UI_TOAST_CHALLENGE_COMPLETE, 1.0f, 1.0f);
         }

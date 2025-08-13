@@ -603,7 +603,7 @@ public class DropsManager {
 
             // Add enchantment glow for special elite drops
             if (EliteDropValidator.isSpecialEliteDrop(mobType)) {
-                item.addUnsafeEnchantment(org.bukkit.enchantments.Enchantment.DURABILITY, 1);
+                item.addUnsafeEnchantment(org.bukkit.enchantments.Enchantment.UNBREAKING, 1);
             }
 
             if (logger.isLoggable(java.util.logging.Level.FINE)) {

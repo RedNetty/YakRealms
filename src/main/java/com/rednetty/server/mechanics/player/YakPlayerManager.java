@@ -5,6 +5,7 @@ import com.rednetty.server.core.database.YakPlayerRepository;
 import com.rednetty.server.mechanics.chat.ChatMechanics;
 import com.rednetty.server.mechanics.chat.ChatTag;
 import com.rednetty.server.mechanics.combat.logout.CombatLogoutMechanics;
+import com.rednetty.server.mechanics.combat.death.DeathMechanics;
 import com.rednetty.server.mechanics.player.moderation.ModerationMechanics;
 import com.rednetty.server.mechanics.player.moderation.Rank;
 import com.rednetty.server.mechanics.player.listeners.PlayerListenerManager;
@@ -36,77 +37,37 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
- * COMPLETE UPDATED YakPlayerManager with COMPREHENSIVE SETTINGS PROTECTION
- *
- * MAJOR UPDATES:
- * - Enhanced settings protection system that preserves toggle changes during loading
- * - Immediate saving mechanism regardless of player protection status
- * - Pending changes system for settings made during loading states
- * - Enhanced coordination with combat logout system
- * - Bulletproof data integrity during all scenarios
- * - Recovery and repair mechanisms for corrupted settings
- * - Comprehensive debugging and monitoring tools
- * - Enhanced error handling and state management
- *
- * SETTINGS PROTECTION FEATURES:
- * - saveToggleSettingImmediate() - Immediate save regardless of state
- * - applyPendingSettingsChanges() - Apply changes after loading completes
- * - forceSettingsSave() - Emergency recovery method
- * - getPendingSettings() - Debug and monitoring support
+ * FULLY INTEGRATED YakPlayerManager - Complete coordination with death/combat systems
+ * ENSURES: All player loading/saving coordinates with DeathMechanics and CombatLogoutMechanics
  */
 public class YakPlayerManager implements Listener, CommandExecutor {
 
-    // ===============================================
-    // CONSTANTS & CONFIGURATION
-    // ===============================================
-
+    // Constants
     private static final Logger logger = Logger.getLogger(YakPlayerManager.class.getName());
     private static final Object INSTANCE_LOCK = new Object();
 
     // Timing constants
-    private static final long DATA_LOAD_TIMEOUT_MS = 15000L;
-    private static final long LIMBO_CHECK_INTERVAL_TICKS = 5L;
-    private static final long MAX_LIMBO_DURATION_TICKS = 600L;
+    private static final long DATA_LOAD_TIMEOUT_MS = 10000L;
+    private static final long LOADING_TIMEOUT_TICKS = 400L;
     private static final long DEFAULT_AUTO_SAVE_INTERVAL_TICKS = 6000L;
-    private static final long STALE_STATE_CLEANUP_INTERVAL_TICKS = 6000L;
-    private static final long STALE_STATE_MAX_AGE_MS = 120000L;
     private static final long BAN_CHECK_TIMEOUT_SECONDS = 5L;
-    private static final long COMBAT_LOGOUT_CHECK_TIMEOUT_SECONDS = 3L;
-    private static final long EMERGENCY_SHUTDOWN_TIMEOUT_SECONDS = 10L;
+    private static final long EMERGENCY_RECOVERY_DELAY = 60L;
+    private static final long COORDINATION_DELAY_TICKS = 1L;
 
     // Processing constants
     private static final int MAX_CONCURRENT_OPERATIONS = 10;
     private static final int DEFAULT_IO_THREADS = 4;
-    private static final int DEFAULT_PLAYERS_PER_SAVE_CYCLE = 10;
-    private static final int DEFAULT_MAX_BAN_CHECK_ATTEMPTS = 30;
 
-    // Delay constants (in ticks)
-    private static final long LIMBO_SETUP_DELAY = 5L;
-    private static final long INVENTORY_APPLICATION_DELAY = 20L;
-    private static final long STATS_APPLICATION_DELAY = 20L;
-    private static final long FINALIZATION_DELAY = 20L;
-    private static final long TELEPORT_COMPLETION_DELAY = 10L;
-    private static final long REJOIN_MESSAGE_DELAY = 20L;
-    private static final long MOTD_SEND_DELAY = 40L;
-
-    // ===============================================
-    // ENUMS
-    // ===============================================
-
+    // Enums
     public enum PlayerState {
-        OFFLINE, JOINING, LOADING, IN_LIMBO, READY,
-        IN_COMBAT_LOGOUT, PROCESSING_DEATH, FAILED
+        OFFLINE, LOADING, READY, FAILED, DEATH_PROCESSING, COMBAT_LOGOUT_PROCESSING
     }
 
     public enum LoadingPhase {
-        JOINING, IN_LIMBO, LOADING_DATA, APPLYING_INVENTORY,
-        APPLYING_STATS, FINALIZING, TELEPORTING, COMPLETED, FAILED
+        STARTING, LOADING_DATA, APPLYING_DATA, DEATH_COORDINATION, COMBAT_COORDINATION, COMPLETED, FAILED
     }
 
-    // ===============================================
-    // SINGLETON INSTANCE
-    // ===============================================
-
+    // Singleton instance
     private static volatile YakPlayerManager instance;
 
     public static YakPlayerManager getInstance() {
@@ -122,92 +83,84 @@ public class YakPlayerManager implements Listener, CommandExecutor {
         return result;
     }
 
-    // ===============================================
-    // CORE DEPENDENCIES
-    // ===============================================
-
+    // Core dependencies
     @Getter
     private YakPlayerRepository repository;
     private final Plugin plugin;
     private final LimboManager limboManager;
 
-    // ===============================================
-    // PLAYER TRACKING & STATE MANAGEMENT
-    // ===============================================
+    // INTEGRATED: Death and combat system references
+    private DeathMechanics deathMechanics;
+    private CombatLogoutMechanics combatLogoutMechanics;
 
-    // Player data tracking
+    // Player tracking with death/combat coordination
     private final Map<UUID, YakPlayer> onlinePlayers = new ConcurrentHashMap<>();
     private final Map<UUID, PlayerLoadingState> loadingStates = new ConcurrentHashMap<>();
     private final Map<UUID, PlayerState> playerStates = new ConcurrentHashMap<>();
-    private final Set<UUID> protectedPlayers = ConcurrentHashMap.newKeySet();
+    private final Set<UUID> playersInRecovery = ConcurrentHashMap.newKeySet();
 
-    // Combat logout coordination
+    // INTEGRATED: Death and combat coordination tracking
+    private final Set<UUID> playersInDeathProcessing = ConcurrentHashMap.newKeySet();
     private final Set<UUID> playersInCombatLogoutProcessing = ConcurrentHashMap.newKeySet();
-    private final Map<UUID, YakPlayer> pendingCombatLogoutCleanup = new ConcurrentHashMap<>();
+    private final Map<UUID, Long> deathProcessingStartTimes = new ConcurrentHashMap<>();
+    private final Map<UUID, Long> combatLogoutProcessingStartTimes = new ConcurrentHashMap<>();
 
-    // UPDATED SETTINGS PROTECTION: Track settings changes made during loading to preserve them
+    // ENHANCED settings protection with guaranteed persistence
     private final Map<UUID, Map<String, Boolean>> pendingSettingsChanges = new ConcurrentHashMap<>();
     private final Map<UUID, Long> settingsChangeTimestamps = new ConcurrentHashMap<>();
 
-    // State management with locks
+    // State management
     private final Map<UUID, ReentrantReadWriteLock> playerStateLocks = new ConcurrentHashMap<>();
-    private final Map<UUID, Long> lastStateChange = new ConcurrentHashMap<>();
 
-    // ===============================================
-    // THREAD MANAGEMENT & PERFORMANCE
-    // ===============================================
-
+    // Thread management
     private final ExecutorService ioExecutor;
+    private final ExecutorService saveExecutor;
+    private final ExecutorService coordinationExecutor; // NEW: For death/combat coordination
     private final Semaphore operationSemaphore = new Semaphore(MAX_CONCURRENT_OPERATIONS);
 
-    // UPDATED Performance tracking
+    // INTEGRATED: Performance tracking with death/combat metrics
     private final AtomicInteger totalPlayerJoins = new AtomicInteger(0);
     private final AtomicInteger totalPlayerQuits = new AtomicInteger(0);
     private final AtomicInteger successfulLoads = new AtomicInteger(0);
     private final AtomicInteger failedLoads = new AtomicInteger(0);
-    private final AtomicInteger combatLogoutRejoins = new AtomicInteger(0);
-    private final AtomicInteger combatLogoutCoordinations = new AtomicInteger(0);
+    private final AtomicInteger emergencyRecoveries = new AtomicInteger(0);
     private final AtomicInteger settingsProtectionSaves = new AtomicInteger(0);
-    private final AtomicInteger pendingSettingsApplied = new AtomicInteger(0);
-    private final AtomicInteger emergencySettingsSaves = new AtomicInteger(0);
-    private final AtomicInteger settingsProtectionFailures = new AtomicInteger(0);
+    private final AtomicInteger guaranteedSaves = new AtomicInteger(0);
+    private final AtomicInteger forcedInventorySaves = new AtomicInteger(0);
+    private final AtomicInteger saveFailures = new AtomicInteger(0);
 
-    // ===============================================
-    // SYSTEM STATE & CONFIGURATION
-    // ===============================================
+    // INTEGRATED: Death and combat coordination metrics
+    private final AtomicInteger deathCoordinations = new AtomicInteger(0);
+    private final AtomicInteger combatLogoutCoordinations = new AtomicInteger(0);
+    private final AtomicInteger systemConflictsDetected = new AtomicInteger(0);
+    private final AtomicInteger systemConflictsResolved = new AtomicInteger(0);
+    private final AtomicInteger coordinationTimeouts = new AtomicInteger(0);
 
     // System state
     private volatile boolean initialized = false;
     private volatile boolean shutdownInProgress = false;
     private volatile boolean systemHealthy = false;
-    private volatile boolean worldDetectionComplete = false;
 
     // Configuration
     private final long autoSaveInterval;
-    private final int playersPerSaveCycle;
 
     // World management
-    private volatile World voidLimboWorld;
-    private final List<String> preferredWorldNames = Arrays.asList("world", "overworld", "main", "lobby", "spawn");
+    private volatile World defaultWorld;
 
     // Background tasks
     private BukkitTask autoSaveTask;
     private BukkitTask loadingMonitorTask;
-    private BukkitTask settingsProtectionTask;
-
-    // ===============================================
-    // CONSTRUCTOR
-    // ===============================================
+    private BukkitTask emergencyRecoveryTask;
+    private BukkitTask guaranteedSaveTask;
+    private BukkitTask coordinationMonitorTask; // NEW: Monitor death/combat coordination
 
     private YakPlayerManager() {
         this.plugin = YakRealms.getInstance();
         this.limboManager = LimboManager.getInstance();
 
-        // Load configuration with defaults
-        this.autoSaveInterval = plugin.getConfig().getLong("player_manager.auto_save_interval_ticks", DEFAULT_AUTO_SAVE_INTERVAL_TICKS);
-        this.playersPerSaveCycle = plugin.getConfig().getInt("player_manager.players_per_save_cycle", DEFAULT_PLAYERS_PER_SAVE_CYCLE);
+        this.autoSaveInterval = plugin.getConfig().getLong("player_manager.auto_save_interval_ticks",
+                DEFAULT_AUTO_SAVE_INTERVAL_TICKS);
 
-        // Initialize thread pool
         int ioThreads = plugin.getConfig().getInt("player_manager.io_threads", DEFAULT_IO_THREADS);
         this.ioExecutor = Executors.newFixedThreadPool(ioThreads, r -> {
             Thread thread = new Thread(r, "YakPlayerManager-IO");
@@ -215,16 +168,23 @@ public class YakPlayerManager implements Listener, CommandExecutor {
             return thread;
         });
 
-        logger.info("UPDATED YakPlayerManager initialized with ENHANCED SETTINGS PROTECTION and combat logout coordination");
+        this.saveExecutor = Executors.newFixedThreadPool(2, r -> {
+            Thread thread = new Thread(r, "YakPlayerManager-GuaranteedSave");
+            thread.setDaemon(true);
+            return thread;
+        });
+
+        // NEW: Coordination executor for death/combat system coordination
+        this.coordinationExecutor = Executors.newFixedThreadPool(2, r -> {
+            Thread thread = new Thread(r, "YakPlayerManager-Coordination");
+            thread.setDaemon(true);
+            return thread;
+        });
+
+        logger.info("FULLY INTEGRATED YakPlayerManager initialized with death/combat coordination");
     }
 
-    // ===============================================
-    // INITIALIZATION & LIFECYCLE
-    // ===============================================
-
-    /**
-     * UPDATED: Initialize YakPlayerManager with enhanced features
-     */
+    // Initialization methods
     public void onEnable() {
         if (initialized) {
             logger.warning("YakPlayerManager already initialized!");
@@ -232,7 +192,7 @@ public class YakPlayerManager implements Listener, CommandExecutor {
         }
 
         try {
-            logger.info("Starting UPDATED YakPlayerManager with ENHANCED SETTINGS PROTECTION...");
+            logger.info("Starting FULLY INTEGRATED YakPlayerManager with death/combat coordination...");
 
             if (!initializeRepository()) {
                 logger.severe("Failed to initialize repository!");
@@ -240,42 +200,75 @@ public class YakPlayerManager implements Listener, CommandExecutor {
                 return;
             }
 
-            Bukkit.getServer().getPluginManager().registerEvents(this, plugin);
-            initializeWorldDetection();
-
-            if (voidLimboWorld != null) {
-                limboManager.initialize(voidLimboWorld);
+            // INTEGRATED: Initialize death and combat system references
+            if (!initializeDeathAndCombatIntegration()) {
+                logger.severe("Failed to initialize death/combat integration!");
+                systemHealthy = false;
+                return;
             }
 
+            Bukkit.getServer().getPluginManager().registerEvents(this, plugin);
+            initializeDefaultWorld();
             startBackgroundTasks();
 
             systemHealthy = true;
             initialized = true;
 
-            logger.info("UPDATED YakPlayerManager enabled successfully with ENHANCED SETTINGS PROTECTION");
+            logger.info("FULLY INTEGRATED YakPlayerManager enabled with complete death/combat coordination");
 
         } catch (Exception e) {
-            logger.log(Level.SEVERE, "Failed to initialize YakPlayerManager", e);
+            logger.log(Level.SEVERE, "Failed to initialize FULLY INTEGRATED YakPlayerManager", e);
             systemHealthy = false;
         }
     }
 
     /**
-     * Initialize the repository with timeout and retry logic
+     * INTEGRATED: Initialize death and combat system integration
      */
+    private boolean initializeDeathAndCombatIntegration() {
+        try {
+            logger.info("Initializing death and combat system integration...");
+
+            // Get references to death and combat systems (they should be initialized by PlayerMechanics)
+            this.deathMechanics = DeathMechanics.getInstance();
+            this.combatLogoutMechanics = CombatLogoutMechanics.getInstance();
+
+            if (deathMechanics == null) {
+                logger.warning("DeathMechanics not available during YakPlayerManager initialization");
+                // Don't fail initialization, systems might not be ready yet
+            } else {
+                logger.info("✓ DeathMechanics integration established");
+            }
+
+            if (combatLogoutMechanics == null) {
+                logger.warning("CombatLogoutMechanics not available during YakPlayerManager initialization");
+                // Don't fail initialization, systems might not be ready yet
+            } else {
+                logger.info("✓ CombatLogoutMechanics integration established");
+            }
+
+            logger.info("✓ Death and combat system integration completed");
+            return true;
+
+        } catch (Exception e) {
+            logger.log(Level.SEVERE, "Error initializing death/combat integration", e);
+            return false;
+        }
+    }
+
     private boolean initializeRepository() {
         try {
             logger.info("Initializing YakPlayerRepository...");
             this.repository = new YakPlayerRepository();
 
             int attempts = 0;
-            while (!repository.isInitialized() && attempts < DEFAULT_MAX_BAN_CHECK_ATTEMPTS) {
+            while (!repository.isInitialized() && attempts < 30) {
                 Thread.sleep(1000);
                 attempts++;
             }
 
             if (!repository.isInitialized()) {
-                logger.severe("Repository failed to initialize after " + DEFAULT_MAX_BAN_CHECK_ATTEMPTS + " seconds");
+                logger.severe("Repository failed to initialize after 30 seconds");
                 return false;
             }
 
@@ -288,520 +281,68 @@ public class YakPlayerManager implements Listener, CommandExecutor {
         }
     }
 
-    /**
-     * Initialize world detection with preferred world fallback
-     */
-    private void initializeWorldDetection() {
-        logger.info("Starting world detection...");
-
-        List<World> availableWorlds = Bukkit.getWorlds();
-        if (availableWorlds.isEmpty()) {
-            logger.warning("No worlds available during initialization");
-            return;
+    private void initializeDefaultWorld() {
+        List<World> worlds = Bukkit.getWorlds();
+        if (!worlds.isEmpty()) {
+            this.defaultWorld = worlds.get(0);
+            logger.info("Using default world: " + defaultWorld.getName());
+        } else {
+            logger.warning("No worlds available!");
         }
-
-        // Try preferred worlds first
-        for (String worldName : preferredWorldNames) {
-            World world = Bukkit.getWorld(worldName);
-            if (world != null) {
-                this.voidLimboWorld = world;
-                worldDetectionComplete = true;
-                logger.info("World detection SUCCESS - Using preferred world: " + worldName);
-                return;
-            }
-        }
-
-        // Use first available world as fallback
-        this.voidLimboWorld = availableWorlds.get(0);
-        worldDetectionComplete = true;
-        logger.info("World detection SUCCESS - Using fallback world: " + availableWorlds.get(0).getName());
     }
 
-    /**
-     * UPDATED: Start background monitoring and maintenance tasks with settings protection
-     */
     private void startBackgroundTasks() {
-        // Auto-save task
+        // Enhanced auto-save with death/combat coordination
         autoSaveTask = new BukkitRunnable() {
             @Override
             public void run() {
                 if (!shutdownInProgress) {
-                    performAutoSaveUpdated();
+                    performIntegratedAutoSave();
                 }
             }
         }.runTaskTimerAsynchronously(plugin, autoSaveInterval, autoSaveInterval);
 
-        // Loading state cleanup task
+        // Loading monitor with death/combat awareness
         loadingMonitorTask = new BukkitRunnable() {
             @Override
             public void run() {
-                cleanupStaleLoadingStates();
+                monitorLoadingPlayersWithCoordination();
             }
-        }.runTaskTimerAsynchronously(plugin, STALE_STATE_CLEANUP_INTERVAL_TICKS, STALE_STATE_CLEANUP_INTERVAL_TICKS);
+        }.runTaskTimerAsynchronously(plugin, 100L, 100L);
 
-        // UPDATED: Settings protection monitoring task
-        settingsProtectionTask = new BukkitRunnable() {
+        // Emergency recovery with coordination
+        emergencyRecoveryTask = new BukkitRunnable() {
             @Override
             public void run() {
-                if (!shutdownInProgress) {
-                    monitorSettingsProtection();
-                }
+                performIntegratedEmergencyRecovery();
             }
-        }.runTaskTimerAsynchronously(plugin, 1200L, 1200L); // Every minute
+        }.runTaskTimer(plugin, 1200L, 1200L);
 
-        logger.info("Background tasks started with settings protection monitoring");
-    }
-
-    /**
-     * UPDATED: Shutdown YakPlayerManager with settings protection cleanup
-     */
-    public void onDisable() {
-        if (shutdownInProgress) return;
-
-        shutdownInProgress = true;
-        logger.info("Starting UPDATED YakPlayerManager shutdown with ENHANCED SETTINGS PROTECTION...");
-
-        try {
-            // UPDATED: Force save any pending settings before shutdown
-            saveAllPendingSettingsOnShutdown();
-
-            // Cancel background tasks
-            cancelBackgroundTasks();
-
-            // Cancel all loading monitor tasks
-            cancelAllLoadingMonitorTasks();
-
-            // Cleanup systems
-            cleanupSystemsOnShutdown();
-
-            // Save all players and shutdown repository
-            saveAllPlayersOnShutdown();
-            shutdownRepository();
-
-            // Shutdown thread pool
-            shutdownExecutorService();
-
-            // Clear all data structures
-            clearAllDataStructures();
-
-            logger.info("UPDATED YakPlayerManager shutdown completed with ENHANCED SETTINGS PROTECTION");
-
-        } catch (Exception e) {
-            logger.log(Level.SEVERE, "Error during shutdown", e);
-        } finally {
-            initialized = false;
-        }
-    }
-
-    /**
-     * UPDATED: Save all pending settings changes before shutdown
-     */
-    private void saveAllPendingSettingsOnShutdown() {
-        if (pendingSettingsChanges.isEmpty()) return;
-
-        logger.info("Saving " + pendingSettingsChanges.size() + " pending settings changes on shutdown...");
-        int saved = 0;
-
-        for (Map.Entry<UUID, Map<String, Boolean>> entry : pendingSettingsChanges.entrySet()) {
-            UUID playerId = entry.getKey();
-            Map<String, Boolean> settings = entry.getValue();
-
-            if (settings != null && !settings.isEmpty()) {
-                try {
-                    if (forceSettingsSave(playerId)) {
-                        saved++;
-                    }
-                } catch (Exception e) {
-                    logger.log(Level.WARNING, "Error saving pending settings on shutdown for " + playerId, e);
-                }
+        // Guaranteed save task with coordination
+        guaranteedSaveTask = new BukkitRunnable() {
+            @Override
+            public void run() {
+                performCoordinatedGuaranteedInventorySaves();
             }
-        }
+        }.runTaskTimerAsynchronously(plugin, 300L, 300L);
 
-        logger.info("Saved " + saved + " pending settings on shutdown");
-    }
-
-    private void cancelBackgroundTasks() {
-        if (autoSaveTask != null && !autoSaveTask.isCancelled()) {
-            autoSaveTask.cancel();
-        }
-        if (loadingMonitorTask != null && !loadingMonitorTask.isCancelled()) {
-            loadingMonitorTask.cancel();
-        }
-        if (settingsProtectionTask != null && !settingsProtectionTask.isCancelled()) {
-            settingsProtectionTask.cancel();
-        }
-    }
-
-    private void cancelAllLoadingMonitorTasks() {
-        for (PlayerLoadingState state : loadingStates.values()) {
-            BukkitTask task = state.getMonitorTask();
-            if (task != null && !task.isCancelled()) {
-                task.cancel();
+        // NEW: Coordination monitoring task
+        coordinationMonitorTask = new BukkitRunnable() {
+            @Override
+            public void run() {
+                monitorDeathAndCombatCoordination();
             }
-        }
+        }.runTaskTimerAsynchronously(plugin, 100L, 100L); // Every 5 seconds
+
+        logger.info("INTEGRATED background tasks started with death/combat coordination monitoring");
     }
 
-    private void cleanupSystemsOnShutdown() {
-        if (limboManager.isInitialized()) {
-            limboManager.shutdown();
-        }
-    }
-
-    private void shutdownRepository() {
-        if (repository != null) {
-            repository.shutdown();
-        }
-    }
-
-    private void shutdownExecutorService() {
-        ioExecutor.shutdown();
-        try {
-            if (!ioExecutor.awaitTermination(EMERGENCY_SHUTDOWN_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
-                ioExecutor.shutdownNow();
-            }
-        } catch (InterruptedException e) {
-            ioExecutor.shutdownNow();
-            Thread.currentThread().interrupt();
-        }
-    }
-
-    private void clearAllDataStructures() {
-        onlinePlayers.clear();
-        loadingStates.clear();
-        playerStates.clear();
-        protectedPlayers.clear();
-        playerStateLocks.clear();
-        lastStateChange.clear();
-        playersInCombatLogoutProcessing.clear();
-        pendingCombatLogoutCleanup.clear();
-        pendingSettingsChanges.clear(); // UPDATED: Clear pending changes
-        settingsChangeTimestamps.clear(); // UPDATED: Clear timestamps
-    }
-
-    // ===============================================
-    // ENHANCED SETTINGS PROTECTION SYSTEM
-    // ===============================================
-
-    /**
-     * CRITICAL UPDATE: Save toggle setting change immediately regardless of player state
-     * This is the core method that preserves settings changes during loading states
-     */
-    public boolean saveToggleSettingImmediate(UUID playerId, String toggleName, boolean enabled) {
-        if (playerId == null || toggleName == null) {
-            return false;
-        }
-
-        long startTime = System.currentTimeMillis();
-        logger.info("SETTINGS PROTECTION: Immediate toggle save for " + playerId + " - " + toggleName + "=" + enabled);
-
-        try {
-            // Get current player if available
-            YakPlayer yakPlayer = getPlayer(playerId);
-
-            if (yakPlayer != null) {
-                // Player is loaded, apply setting immediately
-                boolean currentState = yakPlayer.isToggled(toggleName);
-                if (currentState != enabled) {
-                    yakPlayer.toggleSetting(toggleName);
-
-                    // IMMEDIATE save regardless of player state
-                    CompletableFuture.runAsync(() -> {
-                        try {
-                            repository.saveSync(yakPlayer);
-                            settingsProtectionSaves.incrementAndGet();
-                            long duration = System.currentTimeMillis() - startTime;
-                            logger.info("SETTINGS PROTECTION: Successfully saved toggle " + toggleName +
-                                    " for " + yakPlayer.getUsername() + " in " + duration + "ms");
-                        } catch (Exception e) {
-                            settingsProtectionFailures.incrementAndGet();
-                            logger.log(Level.SEVERE, "SETTINGS PROTECTION: Failed to save toggle " + toggleName, e);
-                        }
-                    }, ioExecutor);
-
-                    return true;
-                }
-                return true; // Already in desired state
-            }
-
-            // Player not loaded yet, store for later application
-            PlayerState state = getPlayerState(playerId);
-            if (state == PlayerState.LOADING || state == PlayerState.IN_LIMBO || state == PlayerState.JOINING) {
-                logger.info("SETTINGS PROTECTION: Storing pending toggle change during loading: " + toggleName + "=" + enabled);
-
-                Map<String, Boolean> playerSettings = pendingSettingsChanges.computeIfAbsent(playerId, k -> new ConcurrentHashMap<>());
-                playerSettings.put(toggleName, enabled);
-                settingsChangeTimestamps.put(playerId, System.currentTimeMillis());
-
-                return true;
-            }
-
-            logger.warning("SETTINGS PROTECTION: Cannot save toggle for player not online: " + playerId);
-            return false;
-
-        } catch (Exception e) {
-            settingsProtectionFailures.incrementAndGet();
-            logger.log(Level.SEVERE, "SETTINGS PROTECTION: Error in immediate save for " + playerId, e);
-            return false;
-        }
-    }
-
-    /**
-     * CRITICAL UPDATE: Apply pending settings changes after loading completes
-     */
-    private void applyPendingSettingsChanges(UUID playerId, YakPlayer yakPlayer) {
-        Map<String, Boolean> pendingChanges = pendingSettingsChanges.remove(playerId);
-        settingsChangeTimestamps.remove(playerId);
-
-        if (pendingChanges == null || pendingChanges.isEmpty()) {
-            return;
-        }
-
-        logger.info("SETTINGS PROTECTION: Applying " + pendingChanges.size() + " pending settings for " + yakPlayer.getUsername());
-
-        boolean hasChanges = false;
-        for (Map.Entry<String, Boolean> entry : pendingChanges.entrySet()) {
-            String toggleName = entry.getKey();
-            boolean desiredState = entry.getValue();
-            boolean currentState = yakPlayer.isToggled(toggleName);
-
-            if (currentState != desiredState) {
-                yakPlayer.toggleSetting(toggleName);
-                hasChanges = true;
-                pendingSettingsApplied.incrementAndGet();
-                logger.info("SETTINGS PROTECTION: Applied pending toggle " + toggleName + "=" + desiredState + " for " + yakPlayer.getUsername());
-            }
-        }
-
-        // Save if any changes were applied
-        if (hasChanges) {
-            try {
-                repository.saveSync(yakPlayer);
-                logger.info("SETTINGS PROTECTION: Saved pending settings changes for " + yakPlayer.getUsername());
-            } catch (Exception e) {
-                settingsProtectionFailures.incrementAndGet();
-                logger.log(Level.SEVERE, "SETTINGS PROTECTION: Failed to save pending changes", e);
-            }
-        }
-    }
-
-    /**
-     * UPDATED: Emergency method to force save settings for any player
-     */
-    public boolean forceSettingsSave(UUID playerId) {
-        if (playerId == null) return false;
-
-        try {
-            // Try to get from online players first
-            YakPlayer yakPlayer = getPlayer(playerId);
-
-            if (yakPlayer != null) {
-                repository.saveSync(yakPlayer);
-                emergencySettingsSaves.incrementAndGet();
-                logger.info("SETTINGS PROTECTION: Force saved settings for online player: " + yakPlayer.getUsername());
-                return true;
-            }
-
-            // Try to load from database and save pending changes
-            Map<String, Boolean> pendingChanges = pendingSettingsChanges.get(playerId);
-            if (pendingChanges != null && !pendingChanges.isEmpty()) {
-                CompletableFuture<Optional<YakPlayer>> playerFuture = repository.findById(playerId);
-                Optional<YakPlayer> playerOpt = playerFuture.get(5, TimeUnit.SECONDS);
-
-                if (playerOpt.isPresent()) {
-                    YakPlayer offlinePlayer = playerOpt.get();
-
-                    // Apply pending changes
-                    boolean hasChanges = false;
-                    for (Map.Entry<String, Boolean> entry : pendingChanges.entrySet()) {
-                        String toggleName = entry.getKey();
-                        boolean desiredState = entry.getValue();
-                        boolean currentState = offlinePlayer.isToggled(toggleName);
-
-                        if (currentState != desiredState) {
-                            offlinePlayer.toggleSetting(toggleName);
-                            hasChanges = true;
-                        }
-                    }
-
-                    if (hasChanges) {
-                        repository.saveSync(offlinePlayer);
-                        pendingSettingsChanges.remove(playerId);
-                        settingsChangeTimestamps.remove(playerId);
-                        emergencySettingsSaves.incrementAndGet();
-                        logger.info("SETTINGS PROTECTION: Applied and saved pending settings for offline player");
-                        return true;
-                    }
-                }
-            }
-
-            logger.warning("SETTINGS PROTECTION: No player data or pending changes found for: " + playerId);
-            return false;
-
-        } catch (Exception e) {
-            settingsProtectionFailures.incrementAndGet();
-            logger.log(Level.SEVERE, "SETTINGS PROTECTION: Error during force settings save for " + playerId, e);
-            return false;
-        }
-    }
-
-    /**
-     * UPDATED: Monitor settings protection system for issues
-     */
-    private void monitorSettingsProtection() {
-        try {
-            long currentTime = System.currentTimeMillis();
-            int stalePendingSettings = 0;
-
-            // Check for stale pending settings (older than 5 minutes)
-            Iterator<Map.Entry<UUID, Long>> iterator = settingsChangeTimestamps.entrySet().iterator();
-            while (iterator.hasNext()) {
-                Map.Entry<UUID, Long> entry = iterator.next();
-                UUID playerId = entry.getKey();
-                long timestamp = entry.getValue();
-
-                if (currentTime - timestamp > 300000) { // 5 minutes
-                    stalePendingSettings++;
-
-                    // Try to force save stale settings
-                    try {
-                        if (forceSettingsSave(playerId)) {
-                            logger.info("SETTINGS PROTECTION: Force saved stale pending settings for " + playerId);
-                        }
-                    } catch (Exception e) {
-                        logger.warning("SETTINGS PROTECTION: Failed to save stale settings for " + playerId);
-                    }
-
-                    iterator.remove();
-                    pendingSettingsChanges.remove(playerId);
-                }
-            }
-
-            // Log monitoring statistics
-            if (stalePendingSettings > 0 || pendingSettingsChanges.size() > 10) {
-                logger.info("SETTINGS PROTECTION MONITOR: " +
-                        "Pending=" + pendingSettingsChanges.size() +
-                        ", Stale=" + stalePendingSettings +
-                        ", Saves=" + settingsProtectionSaves.get() +
-                        ", Applied=" + pendingSettingsApplied.get() +
-                        ", Emergency=" + emergencySettingsSaves.get() +
-                        ", Failures=" + settingsProtectionFailures.get());
-            }
-
-        } catch (Exception e) {
-            logger.log(Level.WARNING, "SETTINGS PROTECTION: Error during monitoring", e);
-        }
-    }
-
-    /**
-     * UPDATED: Get pending settings count (for debugging)
-     */
-    public int getPendingSettingsCount() {
-        return pendingSettingsChanges.size();
-    }
-
-    /**
-     * UPDATED: Get pending settings for player (for debugging)
-     */
-    public Map<String, Boolean> getPendingSettings(UUID playerId) {
-        Map<String, Boolean> pending = pendingSettingsChanges.get(playerId);
-        return pending != null ? new HashMap<>(pending) : new HashMap<>();
-    }
-
-    /**
-     * UPDATED: Get settings protection statistics
-     */
-    public SettingsProtectionStats getSettingsProtectionStats() {
-        return new SettingsProtectionStats(
-                settingsProtectionSaves.get(),
-                pendingSettingsApplied.get(),
-                emergencySettingsSaves.get(),
-                settingsProtectionFailures.get(),
-                pendingSettingsChanges.size(),
-                settingsChangeTimestamps.size()
-        );
-    }
-
-    // ===============================================
-    // COMBAT LOGOUT COORDINATION
-    // ===============================================
-
-    /**
-     * Check if player is fully loaded for combat logout processing
-     */
-    public boolean isPlayerFullyLoaded(UUID playerId) {
-        if (playerId == null) return false;
-        PlayerState state = getPlayerState(playerId);
-        return state == PlayerState.READY;
-    }
-
-    /**
-     * Get player for combat logout processing (won't return null during processing)
-     */
-    public YakPlayer getPlayerForCombatLogout(UUID playerId) {
-        if (playerId == null) return null;
-
-        // First try online players
-        YakPlayer yakPlayer = onlinePlayers.get(playerId);
-        if (yakPlayer != null) {
-            return yakPlayer;
-        }
-
-        // If not found but in combat logout processing, try pending cleanup
-        if (playersInCombatLogoutProcessing.contains(playerId)) {
-            yakPlayer = pendingCombatLogoutCleanup.get(playerId);
-            if (yakPlayer != null) {
-                logger.info("Retrieved player from pending combat logout cleanup: " + yakPlayer.getUsername());
-                return yakPlayer;
-            }
-        }
-
-        return null;
-    }
-
-    /**
-     * Mark player as entering combat logout processing
-     */
-    public void markPlayerEnteringCombatLogout(UUID playerId) {
-        if (playerId == null) return;
-
-        playersInCombatLogoutProcessing.add(playerId);
-        logger.info("Marked player as entering combat logout processing: " + playerId);
-
-        // Move player data to pending cleanup to preserve it
-        YakPlayer yakPlayer = onlinePlayers.get(playerId);
-        if (yakPlayer != null) {
-            pendingCombatLogoutCleanup.put(playerId, yakPlayer);
-            logger.info("Moved player data to pending combat logout cleanup: " + yakPlayer.getUsername());
-        }
-    }
-
-    /**
-     * Mark player as finished with combat logout processing
-     */
-    public void markPlayerFinishedCombatLogout(UUID playerId) {
-        if (playerId == null) return;
-
-        playersInCombatLogoutProcessing.remove(playerId);
-        YakPlayer yakPlayer = pendingCombatLogoutCleanup.remove(playerId);
-
-        if (yakPlayer != null) {
-            logger.info("Completed combat logout processing cleanup for: " + yakPlayer.getUsername());
-            combatLogoutCoordinations.incrementAndGet();
-        }
-    }
-
-    // ===============================================
-    // EVENT HANDLERS
-    // ===============================================
-
-    /**
-     * Pre-login handler - validates bans and prepares player data
-     */
+    // Event handlers with integrated coordination
     @EventHandler(priority = EventPriority.LOWEST)
     public void onPlayerPreLogin(AsyncPlayerPreLoginEvent event) {
         if (shutdownInProgress || !systemHealthy) {
             event.disallow(AsyncPlayerPreLoginEvent.Result.KICK_OTHER,
-                    ChatColor.RED + "Server is not ready. Please try again in a moment.");
+                    ChatColor.RED + "Server is starting up. Please try again in a moment.");
             return;
         }
 
@@ -815,7 +356,6 @@ public class YakPlayerManager implements Listener, CommandExecutor {
             if (playerOpt.isPresent()) {
                 YakPlayer player = playerOpt.get();
 
-                // Check ban status
                 if (player.isBanned()) {
                     String banMessage = formatBanMessage(player);
                     if (banMessage != null) {
@@ -825,7 +365,6 @@ public class YakPlayerManager implements Listener, CommandExecutor {
                     }
                 }
 
-                // Update username if changed
                 if (!player.getUsername().equals(playerName)) {
                     player.setUsername(playerName);
                     repository.saveSync(player);
@@ -837,9 +376,6 @@ public class YakPlayerManager implements Listener, CommandExecutor {
         }
     }
 
-    /**
-     * UPDATED: Player join handler with proper combat logout rejoin detection and state reset
-     */
     @EventHandler(priority = EventPriority.LOWEST)
     public void onPlayerJoin(PlayerJoinEvent event) {
         Player player = event.getPlayer();
@@ -847,477 +383,142 @@ public class YakPlayerManager implements Listener, CommandExecutor {
         String playerName = player.getName();
 
         totalPlayerJoins.incrementAndGet();
-        logger.info("UPDATED: Player joining " + playerName + " (" + uuid + ")");
+        logger.info("INTEGRATED: Player joining: " + playerName + " (" + uuid + ")");
 
-        // Check for duplicate processing
-        if (loadingStates.containsKey(uuid) || onlinePlayers.containsKey(uuid)) {
-            logger.warning("Duplicate join event for player: " + playerName + " - cleaning up old state");
-            cleanupPlayerState(uuid, "duplicate_join");
-        }
+        cleanupPlayerState(uuid, "new_join");
 
-        // Check for combat logout rejoin
         if (handleCombatLogoutCheck(player, event)) {
-            return; // Combat logout rejoin handled
+            return;
         }
 
-        // Normal join processing
         handleNormalPlayerJoin(player);
     }
 
-    /**
-     * Check if this is a combat logout rejoin and handle accordingly
-     */
     private boolean handleCombatLogoutCheck(Player player, PlayerJoinEvent event) {
         UUID uuid = player.getUniqueId();
         String playerName = player.getName();
 
         try {
             CompletableFuture<Optional<YakPlayer>> playerFuture = repository.findById(uuid);
-            Optional<YakPlayer> playerOpt = playerFuture.get(COMBAT_LOGOUT_CHECK_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            Optional<YakPlayer> playerOpt = playerFuture.get(3, TimeUnit.SECONDS);
 
             if (playerOpt.isPresent()) {
                 YakPlayer yakPlayer = playerOpt.get();
                 YakPlayer.CombatLogoutState logoutState = yakPlayer.getCombatLogoutState();
 
-                // Only treat as combat logout rejoin if state is PROCESSED
-                boolean isCombatLogoutRejoin = (logoutState == YakPlayer.CombatLogoutState.PROCESSED);
-
-                logger.info("Player " + playerName + " combat logout state: " + logoutState +
-                        ", is rejoin: " + isCombatLogoutRejoin);
-
-                if (isCombatLogoutRejoin) {
-                    logger.info("Combat logout rejoin detected for " + playerName + " - processing completion");
-                    event.setJoinMessage(null); // Suppress default join message
+                if (logoutState == YakPlayer.CombatLogoutState.PROCESSED) {
+                    logger.info("INTEGRATED: Combat logout rejoin detected for " + playerName);
+                    combatLogoutCoordinations.incrementAndGet();
+                    event.setJoinMessage(null);
                     handleCombatLogoutRejoin(player, yakPlayer);
                     return true;
                 }
 
-                // Reset stale COMPLETED state
-                if (logoutState == YakPlayer.CombatLogoutState.COMPLETED) {
-                    logger.info("Resetting stale COMPLETED combat logout state to NONE for " + playerName);
+                if (logoutState != YakPlayer.CombatLogoutState.NONE) {
+                    logger.info("INTEGRATED: Resetting stale combat logout state for " + playerName + ": " + logoutState);
                     yakPlayer.setCombatLogoutState(YakPlayer.CombatLogoutState.NONE);
                     repository.saveSync(yakPlayer);
                 }
-            } else {
-                logger.info("No existing player data found for " + playerName + " - normal join");
             }
         } catch (Exception e) {
-            logger.log(Level.WARNING, "Error checking combat logout state for " + playerName, e);
+            logger.log(Level.WARNING, "INTEGRATED: Error checking combat logout state for " + playerName, e);
         }
 
-        return false; // Not a combat logout rejoin
+        return false;
     }
 
-    /**
-     * Handle normal player join process
-     */
     private void handleNormalPlayerJoin(Player player) {
         UUID uuid = player.getUniqueId();
         String playerName = player.getName();
 
-        logger.info("Processing normal join for " + playerName);
+        logger.info("INTEGRATED: Starting coordinated loading for " + playerName);
 
-        // Set initial state
-        if (!setPlayerState(uuid, PlayerState.JOINING, "player_join_event")) {
-            logger.severe("Failed to set initial state for " + playerName);
-            return;
-        }
+        setPlayerState(uuid, PlayerState.LOADING, "join_start");
 
-        // Create loading state
         PlayerLoadingState loadingState = new PlayerLoadingState(uuid, playerName);
         loadingStates.put(uuid, loadingState);
-        protectedPlayers.add(uuid);
 
-        // Start loading process
-        performLimboTeleportation(player, loadingState);
+        startCoordinatedLoading(player, loadingState);
     }
 
     /**
-     * Player movement handler for limbo restrictions
+     * INTEGRATED: Coordinated loading process with death/combat awareness
      */
-    @EventHandler(priority = EventPriority.HIGHEST)
-    public void onPlayerMove(PlayerMoveEvent event) {
-        UUID playerId = event.getPlayer().getUniqueId();
-
-        if (limboManager.isPlayerInLimbo(playerId)) {
-            Player player = event.getPlayer();
-            Location from = event.getFrom();
-            Location to = event.getTo();
-
-            if (to != null) {
-                event.setTo(from);
-                limboManager.maintainLimboState(player);
-            }
-        }
-    }
-
-    /**
-     * UPDATED: Player quit handler with proper combat logout coordination and state reset
-     */
-    @EventHandler(priority = EventPriority.MONITOR)
-    public void onPlayerQuit(PlayerQuitEvent event) {
-        Player player = event.getPlayer();
+    private void startCoordinatedLoading(Player player, PlayerLoadingState loadingState) {
         UUID uuid = player.getUniqueId();
-        String playerName = player.getName();
+        loadingState.setPhase(LoadingPhase.STARTING);
 
-        totalPlayerQuits.incrementAndGet();
-        logger.info("UPDATED: Player quitting: " + playerName);
-
-        try {
-            // Check if player is in combat logout processing
-            if (playersInCombatLogoutProcessing.contains(uuid)) {
-                logger.info("Player " + playerName + " is in combat logout processing - coordinating cleanup");
-                handleCombatLogoutPlayerQuit(player, uuid, playerName);
-                return;
-            }
-
-            // Normal quit processing
-            handleNormalPlayerQuit(player, uuid, playerName, event);
-
-        } catch (Exception e) {
-            logger.log(Level.SEVERE, "Error in UPDATED player quit for " + playerName, e);
-            performEmergencyQuitCleanup(uuid, playerName);
-        }
-    }
-
-    /**
-     * Handle quit for player in combat logout processing
-     */
-    private void handleCombatLogoutPlayerQuit(Player player, UUID uuid, String playerName) {
-        try {
-            logger.info("Handling combat logout quit for: " + playerName);
-
-            // Don't clean up player state yet - CombatLogoutMechanics needs the data
-            setPlayerState(uuid, PlayerState.OFFLINE, "combat_logout_quit");
-
-            logger.info("Combat logout quit handling complete for: " + playerName + " (data preserved for processing)");
-
-        } catch (Exception e) {
-            logger.log(Level.SEVERE, "Error handling combat logout quit for " + playerName, e);
-            markPlayerFinishedCombatLogout(uuid);
-        }
-    }
-
-    /**
-     * UPDATED: Handle normal player quit with proper state reset and settings protection
-     */
-    private void handleNormalPlayerQuit(Player player, UUID uuid, String playerName, PlayerQuitEvent event) {
-        logger.info("Handling normal quit for: " + playerName);
-
-        cleanupPlayerState(uuid, "normal_player_quit");
-        YakPlayer yakPlayer = onlinePlayers.remove(uuid);
-
-        if (yakPlayer == null) {
-            logger.warning("No player data found for quitting player: " + playerName);
-            return;
-        }
-
-        try {
-            // Update inventory if not protected
-            if (!protectedPlayers.contains(uuid) && !limboManager.isPlayerInLimbo(uuid)) {
-                yakPlayer.updateInventory(player);
-            }
-
-            // UPDATED: Save any pending settings immediately before quit
-            Map<String, Boolean> pendingSettings = pendingSettingsChanges.remove(uuid);
-            if (pendingSettings != null && !pendingSettings.isEmpty()) {
-                logger.info("SETTINGS PROTECTION: Applying " + pendingSettings.size() + " pending settings on quit for " + playerName);
-                boolean hasChanges = false;
-                for (Map.Entry<String, Boolean> entry : pendingSettings.entrySet()) {
-                    String toggleName = entry.getKey();
-                    boolean desiredState = entry.getValue();
-                    boolean currentState = yakPlayer.isToggled(toggleName);
-
-                    if (currentState != desiredState) {
-                        yakPlayer.toggleSetting(toggleName);
-                        hasChanges = true;
-                    }
-                }
-
-                if (hasChanges) {
-                    logger.info("SETTINGS PROTECTION: Applied pending settings on quit for " + playerName);
-                }
-            }
-            settingsChangeTimestamps.remove(uuid);
-
-            // Reset combat logout state to prevent future issues
-            YakPlayer.CombatLogoutState currentState = yakPlayer.getCombatLogoutState();
-            if (currentState != YakPlayer.CombatLogoutState.NONE) {
-                yakPlayer.setCombatLogoutState(YakPlayer.CombatLogoutState.NONE);
-                logger.info("CRITICAL UPDATE: Reset combat logout state from " + currentState + " to NONE for normal quit: " + playerName);
-            }
-
-            // Disconnect and save
-            yakPlayer.disconnect();
-            repository.saveSync(yakPlayer);
-
-            // Set quit message
-            setQuitMessage(event, player, yakPlayer);
-
-            logger.info("Normal quit processing complete for: " + playerName);
-
-        } catch (Exception e) {
-            logger.log(Level.SEVERE, "Error in normal quit processing for " + playerName, e);
-        }
-    }
-
-    /**
-     * Emergency cleanup for failed quit processing
-     */
-    private void performEmergencyQuitCleanup(UUID uuid, String playerName) {
-        try {
-            cleanupPlayerState(uuid, "emergency_quit_cleanup");
-            onlinePlayers.remove(uuid);
-            markPlayerFinishedCombatLogout(uuid);
-            pendingSettingsChanges.remove(uuid);
-            settingsChangeTimestamps.remove(uuid);
-        } catch (Exception emergencyError) {
-            logger.log(Level.SEVERE, "Emergency cleanup failed for " + playerName, emergencyError);
-        }
-    }
-
-    // ===============================================
-    // COMBAT LOGOUT REJOIN HANDLING
-    // ===============================================
-
-    /**
-     * Handle combat logout rejoin with proper state reset
-     */
-    private void handleCombatLogoutRejoin(Player player, YakPlayer yakPlayer) {
-        UUID uuid = player.getUniqueId();
-        String playerName = player.getName();
-
-        try {
-            combatLogoutRejoins.incrementAndGet();
-            logger.info("Processing combat logout rejoin for: " + playerName);
-
-            // Set player state and connect data
-            setPlayerState(uuid, PlayerState.READY, "combat_logout_rejoin");
-            yakPlayer.connect(player);
-            onlinePlayers.put(uuid, yakPlayer);
-
-            // UPDATED: Apply any pending settings changes first
-            applyPendingSettingsChanges(uuid, yakPlayer);
-
-            // Apply processed inventory and stats
-            yakPlayer.applyInventory(player);
-            yakPlayer.applyStats(player);
-
-            // Initialize systems
-            initializeRankSystem(player, yakPlayer);
-            initializeChatTagSystem(player, yakPlayer);
-
-            // Teleport to spawn
-            teleportToSpawn(player, yakPlayer);
-
-            // Clear combat logout data and reset state
-            clearCombatLogoutData(uuid, yakPlayer, playerName);
-
-            // Send messages and notifications
-            sendCombatLogoutRejoinMessages(player, yakPlayer);
-
-            logger.info("Combat logout rejoin completed for: " + playerName);
-
-        } catch (Exception e) {
-            logger.log(Level.SEVERE, "Error handling combat logout rejoin for " + playerName, e);
-            handleCombatLogoutRejoinFailure(player, yakPlayer, e);
-        }
-    }
-
-    private void teleportToSpawn(Player player, YakPlayer yakPlayer) {
-        World world = Bukkit.getWorlds().get(0);
-        if (world != null) {
-            Location spawnLocation = world.getSpawnLocation();
-            player.teleport(spawnLocation);
-            yakPlayer.updateLocation(spawnLocation);
-        }
-    }
-
-    private void clearCombatLogoutData(UUID uuid, YakPlayer yakPlayer, String playerName) {
-        // Clear combat logout data from CombatLogoutMechanics
-        CombatLogoutMechanics combatLogout = CombatLogoutMechanics.getInstance();
-        if (combatLogout != null) {
-            combatLogout.handleCombatLogoutRejoin(uuid);
-        }
-
-        // Reset combat logout state
-        yakPlayer.setCombatLogoutState(YakPlayer.CombatLogoutState.NONE);
-        logger.info("CRITICAL UPDATE: Reset combat logout state to NONE for " + playerName);
-
-        // Save the player data with the reset state
-        repository.saveSync(yakPlayer);
-        logger.info("CRITICAL UPDATE: Saved player data with reset combat logout state for " + playerName);
-    }
-
-    private void sendCombatLogoutRejoinMessages(Player player, YakPlayer yakPlayer) {
-        // Broadcast rejoin message
-        Bukkit.broadcastMessage(ChatColor.GRAY + "⟨" + ChatColor.DARK_GRAY + "✧" + ChatColor.GRAY + "⟩ " +
-                yakPlayer.getFormattedDisplayName() + ChatColor.DARK_GRAY + " returned from combat logout");
-
-        // Send completion message with delay
-        Bukkit.getScheduler().runTaskLater(YakRealms.getInstance(), () -> {
+        Bukkit.getScheduler().runTask(plugin, () -> {
             if (player.isOnline()) {
-                sendCombatLogoutCompletionMessage(player, yakPlayer);
+                applySafeLoadingState(player);
             }
-        }, REJOIN_MESSAGE_DELAY);
+        });
 
-        // Send MOTD with delay
-        Bukkit.getScheduler().runTaskLater(YakRealms.getInstance(), () -> {
-            if (player.isOnline() && PlayerListenerManager.getInstance() != null &&
-                    PlayerListenerManager.getInstance().getJoinLeaveListener() != null) {
-                PlayerListenerManager.getInstance().getJoinLeaveListener()
-                        .sendMotd(player, yakPlayer, true);
+        CompletableFuture.supplyAsync(() -> {
+            return loadPlayerDataWithCoordination(player);
+        }, ioExecutor).whenComplete((yakPlayer, error) -> {
+            Bukkit.getScheduler().runTask(plugin, () -> {
+                if (error != null || yakPlayer == null) {
+                    handleLoadingFailure(player, loadingState, error);
+                } else {
+                    completePlayerLoadingWithCoordination(player, loadingState, yakPlayer);
+                }
+            });
+        });
+
+        Bukkit.getScheduler().runTaskLater(plugin, () -> {
+            if (loadingStates.containsKey(uuid) && getPlayerState(uuid) == PlayerState.LOADING) {
+                logger.warning("INTEGRATED: Loading timeout for " + player.getName());
+                handleLoadingFailure(player, loadingState, new RuntimeException("Loading timeout"));
             }
-        }, MOTD_SEND_DELAY);
+        }, LOADING_TIMEOUT_TICKS);
     }
 
-    private void sendCombatLogoutCompletionMessage(Player player, YakPlayer yakPlayer) {
-        player.sendMessage("");
-        player.sendMessage(ChatColor.RED + "" + ChatColor.BOLD + "COMBAT LOGOUT CONSEQUENCES COMPLETED");
-        player.sendMessage(ChatColor.GRAY + "Your items were processed according to your " +
-                yakPlayer.getAlignment().toLowerCase() + " alignment.");
-        player.sendMessage(ChatColor.GRAY + "You have respawned at the spawn location.");
-        player.sendMessage(ChatColor.YELLOW + "You may now continue playing normally.");
-        player.sendMessage("");
-        player.playSound(player.getLocation(), Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 1.0f, 1.0f);
-    }
-
-    /**
-     * Handle combat logout rejoin failure with fallback to normal loading
-     */
-    private void handleCombatLogoutRejoinFailure(Player player, YakPlayer yakPlayer, Exception error) {
-        String playerName = player.getName();
-        UUID uuid = player.getUniqueId();
-
-        logger.warning("Combat logout rejoin failed, falling back to normal loading for: " + playerName);
-
-        // Clean up and reset state
-        onlinePlayers.remove(uuid);
-        yakPlayer.setCombatLogoutState(YakPlayer.CombatLogoutState.NONE);
-        repository.saveSync(yakPlayer);
-        logger.info("CRITICAL UPDATE: Reset combat logout state to NONE on error for " + playerName);
-
-        // Start normal loading process
-        if (setPlayerState(uuid, PlayerState.JOINING, "combat_logout_rejoin_fallback")) {
-            PlayerLoadingState loadingState = new PlayerLoadingState(uuid, playerName);
-            loadingStates.put(uuid, loadingState);
-            protectedPlayers.add(uuid);
-            performLimboTeleportation(player, loadingState);
-        } else {
-            logger.severe("Failed to set fallback state for " + playerName);
-        }
-    }
-
-    // ===============================================
-    // LOADING PROCESS - LIMBO TELEPORTATION
-    // ===============================================
-
-    /**
-     * Perform limbo teleportation for normal loading
-     */
-    private void performLimboTeleportation(Player player, PlayerLoadingState loadingState) {
+    private void applySafeLoadingState(Player player) {
         try {
-            UUID uuid = player.getUniqueId();
-            String playerName = player.getName();
-            logger.info("Starting limbo teleportation for " + playerName);
+            player.setGameMode(GameMode.ADVENTURE);
+            player.setAllowFlight(true);
+            player.setFlying(true);
+            player.setInvulnerable(true);
 
-            loadingState.storeOriginalState(player);
-            loadingState.setPhase(LoadingPhase.JOINING);
+            player.getInventory().clear();
+            player.updateInventory();
 
-            limboManager.startPlayerVisualEffects(player, LimboManager.LoadingPhase.JOINING);
+            player.sendMessage("");
+            player.sendMessage(ChatColor.AQUA + "" + ChatColor.BOLD + "Loading your character...");
+            player.sendMessage(ChatColor.GRAY + "Coordinating with game systems...");
+            player.sendMessage("");
 
-            World targetWorld = getLimboWorld();
-            logger.info("Using world '" + targetWorld.getName() + "' for " + playerName);
-
-            Location limboLocation = createLimboLocation(targetWorld);
-            boolean teleportSuccess = player.teleport(limboLocation);
-
-            logger.info("Teleportation result for " + playerName + ": " + teleportSuccess);
-
-            // Complete limbo setup regardless of teleport result
-            completeLimboSetup(player, loadingState, uuid);
+            logger.fine("INTEGRATED: Applied safe loading state for " + player.getName());
 
         } catch (Exception e) {
-            logger.log(Level.SEVERE, "Critical error during teleportation for " + player.getName(), e);
-            completeLimboSetup(player, loadingState, player.getUniqueId());
+            logger.log(Level.WARNING, "INTEGRATED: Error applying safe loading state for " + player.getName(), e);
         }
-    }
-
-    private World getLimboWorld() {
-        if (voidLimboWorld != null) {
-            return voidLimboWorld;
-        }
-
-        List<World> availableWorlds = Bukkit.getWorlds();
-        if (availableWorlds.isEmpty()) {
-            throw new RuntimeException("No worlds available for limbo teleportation");
-        }
-
-        return availableWorlds.get(0);
-    }
-
-    private Location createLimboLocation(World targetWorld) {
-        Location limboLocation = limboManager.createLimboLocation(targetWorld);
-        if (limboLocation == null) {
-            limboLocation = new Location(targetWorld, 0.5, -64.0, 0.5);
-        }
-        return limboLocation;
-    }
-
-    private void completeLimboSetup(Player player, PlayerLoadingState loadingState, UUID uuid) {
-        setPlayerState(uuid, PlayerState.IN_LIMBO, "successful_teleportation");
-        limboManager.addPlayerToLimbo(uuid);
-        limboManager.applyLimboState(player);
-
-        loadingState.setPhase(LoadingPhase.IN_LIMBO);
-        loadingState.setLimboStartTime(System.currentTimeMillis());
-
-        limboManager.startPlayerVisualEffects(player, LimboManager.LoadingPhase.IN_LIMBO);
-        limboManager.sendLimboWelcome(player);
-
-        startDataLoadingInLimbo(player, loadingState);
-        startLoadingMonitor(player, loadingState);
-    }
-
-    // ===============================================
-    // LOADING PROCESS - DATA LOADING
-    // ===============================================
-
-    /**
-     * Start data loading process in limbo
-     */
-    private void startDataLoadingInLimbo(Player player, PlayerLoadingState loadingState) {
-        UUID uuid = player.getUniqueId();
-        setPlayerState(uuid, PlayerState.LOADING, "starting_data_load");
-        loadingState.setPhase(LoadingPhase.LOADING_DATA);
-
-        limboManager.startPlayerVisualEffects(player, LimboManager.LoadingPhase.LOADING_DATA);
-
-        CompletableFuture.supplyAsync(() -> loadPlayerData(player), ioExecutor)
-                .whenComplete((yakPlayer, error) -> {
-                    Bukkit.getScheduler().runTask(plugin, () -> {
-                        if (error != null) {
-                            handleLoadingFailure(player, loadingState, error);
-                        } else if (yakPlayer != null) {
-                            continueLoadingInLimbo(player, loadingState, yakPlayer);
-                        } else {
-                            handleLoadingFailure(player, loadingState, new RuntimeException("Null player data"));
-                        }
-                    });
-                });
     }
 
     /**
-     * Load player data with timeout and error handling
+     * INTEGRATED: Load player data with death/combat coordination
      */
-    private YakPlayer loadPlayerData(Player player) {
+    private YakPlayer loadPlayerDataWithCoordination(Player player) {
         try {
-            if (!operationSemaphore.tryAcquire(10, TimeUnit.SECONDS)) {
+            if (!operationSemaphore.tryAcquire(5, TimeUnit.SECONDS)) {
                 throw new RuntimeException("Operation semaphore timeout");
             }
 
             try {
-                logger.info("Loading player data for: " + player.getName());
+                logger.info("INTEGRATED: Loading player data with coordination: " + player.getName());
+
+                // INTEGRATED: Check for any ongoing death/combat processing before loading
+                UUID uuid = player.getUniqueId();
+                if (isPlayerInDeathProcessing(uuid)) {
+                    logger.info("INTEGRATED: Player has ongoing death processing, coordinating: " + player.getName());
+                    waitForDeathProcessingCompletion(uuid);
+                }
+
+                if (isPlayerInCombatLogoutProcessing(uuid)) {
+                    logger.info("INTEGRATED: Player has ongoing combat logout processing, coordinating: " + player.getName());
+                    waitForCombatLogoutProcessingCompletion(uuid);
+                }
 
                 CompletableFuture<Optional<YakPlayer>> repositoryFuture = repository.findById(player.getUniqueId());
                 Optional<YakPlayer> existingPlayer = repositoryFuture.get(DATA_LOAD_TIMEOUT_MS, TimeUnit.MILLISECONDS);
@@ -1326,10 +527,10 @@ public class YakPlayerManager implements Listener, CommandExecutor {
                 if (existingPlayer.isPresent()) {
                     yakPlayer = existingPlayer.get();
                     yakPlayer.connect(player);
-                    logger.info("Loaded existing player data: " + player.getName());
+                    logger.info("INTEGRATED: Loaded existing player with coordination: " + player.getName());
                 } else {
                     yakPlayer = new YakPlayer(player);
-                    logger.info("Created new player data: " + player.getName());
+                    logger.info("INTEGRATED: Created new player: " + player.getName());
                     repository.saveSync(yakPlayer);
                 }
 
@@ -1342,237 +543,467 @@ public class YakPlayerManager implements Listener, CommandExecutor {
 
         } catch (Exception e) {
             failedLoads.incrementAndGet();
-            logger.log(Level.SEVERE, "Failed to load player data: " + player.getName(), e);
-            throw new RuntimeException("Player data load failed", e);
+            logger.log(Level.SEVERE, "INTEGRATED: Failed to load player data with coordination: " + player.getName(), e);
+            throw new RuntimeException("Player data load failed with coordination", e);
         }
     }
 
     /**
-     * CRITICAL UPDATE: Continue loading process after data is loaded - with enhanced settings protection
+     * INTEGRATED: Wait for death processing to complete
      */
-    private void continueLoadingInLimbo(Player player, PlayerLoadingState loadingState, YakPlayer yakPlayer) {
-        if (!player.isOnline()) {
-            cleanupLoadingState(player.getUniqueId());
-            return;
-        }
-
-        UUID uuid = player.getUniqueId();
-
-        // CRITICAL UPDATE: Apply pending settings changes BEFORE putting in onlinePlayers
-        applyPendingSettingsChanges(uuid, yakPlayer);
-
-        onlinePlayers.put(uuid, yakPlayer);
-        loadingState.setYakPlayer(yakPlayer);
-
-        // Clear any residual combat logout state for normal loading
-        if (yakPlayer.getCombatLogoutState() != YakPlayer.CombatLogoutState.NONE) {
-            yakPlayer.setCombatLogoutState(YakPlayer.CombatLogoutState.NONE);
-        }
-
-        applyDataWhileInLimbo(player, yakPlayer, loadingState);
-    }
-
-    // ===============================================
-    // LOADING PROCESS - DATA APPLICATION
-    // ===============================================
-
-    private void applyDataWhileInLimbo(Player player, YakPlayer yakPlayer, PlayerLoadingState loadingState) {
-        UUID uuid = player.getUniqueId();
-
-        // Set default energy if not present
-        if (!yakPlayer.hasTemporaryData("energy")) {
-            yakPlayer.setTemporaryData("energy", 100);
-        }
-
-        Bukkit.getScheduler().runTaskLater(plugin, () -> {
-            if (!player.isOnline() || getPlayerState(uuid) == PlayerState.FAILED) return;
-
-            loadingState.setPhase(LoadingPhase.APPLYING_INVENTORY);
-            limboManager.startPlayerVisualEffects(player, LimboManager.LoadingPhase.APPLYING_INVENTORY);
-            applyInventoryInLimbo(player, yakPlayer, loadingState);
-        }, LIMBO_SETUP_DELAY);
-    }
-
-    private void applyInventoryInLimbo(Player player, YakPlayer yakPlayer, PlayerLoadingState loadingState) {
-        UUID uuid = player.getUniqueId();
-
+    private void waitForDeathProcessingCompletion(UUID uuid) {
         try {
-            logger.info("Applying inventory in limbo: " + player.getName());
-            yakPlayer.applyInventory(player);
-
-            player.sendTitle(
-                    ChatColor.AQUA + "" + ChatColor.BOLD + "✦ Recovering Inventory.. ✦",
-                    ChatColor.GRAY + "Items reconstructed from quantum data",
-                    10, 30, 15
-            );
-
-            player.playSound(player.getLocation(), Sound.ITEM_ARMOR_EQUIP_GENERIC, 0.8f, 1.2f);
-
-            Bukkit.getScheduler().runTaskLater(plugin, () -> {
-                if (!player.isOnline() || getPlayerState(uuid) == PlayerState.FAILED) return;
-
-                loadingState.setPhase(LoadingPhase.APPLYING_STATS);
-                limboManager.startPlayerVisualEffects(player, LimboManager.LoadingPhase.APPLYING_STATS);
-                applyStatsInLimbo(player, yakPlayer, loadingState);
-            }, INVENTORY_APPLICATION_DELAY);
-
-        } catch (Exception e) {
-            logger.log(Level.SEVERE, "Error applying inventory in limbo: " + player.getName(), e);
-            handleLoadingFailure(player, loadingState, e);
-        }
-    }
-
-    private void applyStatsInLimbo(Player player, YakPlayer yakPlayer, PlayerLoadingState loadingState) {
-        UUID uuid = player.getUniqueId();
-
-        try {
-            logger.info("Applying stats in limbo: " + player.getName());
-
-            yakPlayer.applyStats(player, true);
-            setLimboPlayerMode(player);
-
-            player.sendTitle(
-                    ChatColor.GOLD + "" + ChatColor.BOLD + "⚡ Applying Stats.. ⚡",
-                    ChatColor.YELLOW + "Your abilities have been restored",
-                    10, 30, 15
-            );
-
-            player.playSound(player.getLocation(), Sound.AMBIENT_SOUL_SAND_VALLEY_MOOD, 0.8f, 1.5f);
-
-            Bukkit.getScheduler().runTaskLater(plugin, () -> {
-                if (!player.isOnline() || getPlayerState(uuid) == PlayerState.FAILED) return;
-
-                loadingState.setPhase(LoadingPhase.FINALIZING);
-                limboManager.startPlayerVisualEffects(player, LimboManager.LoadingPhase.FINALIZING);
-                finalizeInLimbo(player, yakPlayer, loadingState);
-            }, STATS_APPLICATION_DELAY);
-
-        } catch (Exception e) {
-            logger.log(Level.SEVERE, "Error applying stats in limbo: " + player.getName(), e);
-            handleLoadingFailure(player, loadingState, e);
-        }
-    }
-
-    private void setLimboPlayerMode(Player player) {
-        if (player.getGameMode() != GameMode.SPECTATOR) {
-            player.setGameMode(GameMode.SPECTATOR);
-            player.setFlying(true);
-            player.setAllowFlight(true);
-            player.setInvulnerable(true);
-        }
-
-        player.setExp(1.0f);
-        player.setLevel(100);
-    }
-
-    private void finalizeInLimbo(Player player, YakPlayer yakPlayer, PlayerLoadingState loadingState) {
-        UUID uuid = player.getUniqueId();
-
-        try {
-            logger.info("Finalizing in limbo: " + player.getName());
-
-            initializeRankSystem(player, yakPlayer);
-            initializeChatTagSystem(player, yakPlayer);
-
-            player.sendTitle(
-                    ChatColor.LIGHT_PURPLE + "" + ChatColor.BOLD + "◆ Synchronizing.. ◆",
-                    ChatColor.GRAY + "Systems calibrated and ready",
-                    10, 30, 15
-            );
-
-            player.playSound(player.getLocation(), Sound.BLOCK_BEACON_ACTIVATE, 0.6f, 1.0f);
-
-            Bukkit.getScheduler().runTaskLater(plugin, () -> {
-                if (!player.isOnline() || getPlayerState(uuid) == PlayerState.FAILED) return;
-
-                loadingState.setPhase(LoadingPhase.TELEPORTING);
-                limboManager.startPlayerVisualEffects(player, LimboManager.LoadingPhase.TELEPORTING);
-                teleportToFinalLocation(player, yakPlayer, loadingState);
-            }, FINALIZATION_DELAY);
-
-        } catch (Exception e) {
-            logger.log(Level.SEVERE, "Error finalizing in limbo: " + player.getName(), e);
-            handleLoadingFailure(player, loadingState, e);
-        }
-    }
-
-    // ===============================================
-    // LOADING PROCESS - FINAL TELEPORTATION
-    // ===============================================
-
-    private void teleportToFinalLocation(Player player, YakPlayer yakPlayer, PlayerLoadingState loadingState) {
-        UUID uuid = player.getUniqueId();
-
-        try {
-            logger.info("Teleporting to final location: " + player.getName());
-
-            Location teleportLocation = determineFinalLocation(yakPlayer);
-
-            player.sendTitle(
-                    ChatColor.DARK_PURPLE + "" + ChatColor.BOLD + "⟨ Crossing the Veil ⟩",
-                    ChatColor.GRAY + "Entering YakRealms...",
-                    10, 40, 20
-            );
-
-            player.playSound(player.getLocation(), Sound.ENTITY_ENDERMAN_TELEPORT, 1.0f, 0.8f);
-
-            restorePlayerState(player, yakPlayer);
-
-            boolean teleportSuccess = player.teleport(teleportLocation);
-            if (!teleportSuccess) {
-                teleportLocation = handleTeleportFailure(player, yakPlayer);
+            int attempts = 0;
+            while (isPlayerInDeathProcessing(uuid) && attempts < 30) {
+                Thread.sleep(500); // Wait 500ms
+                attempts++;
             }
 
-            finalizeTeleportation(player, loadingState, uuid);
+            if (attempts >= 30) {
+                logger.warning("INTEGRATED: Timeout waiting for death processing completion: " + uuid);
+                coordinationTimeouts.incrementAndGet();
+                // Force clear the death processing state
+                playersInDeathProcessing.remove(uuid);
+                deathProcessingStartTimes.remove(uuid);
+            } else {
+                logger.info("INTEGRATED: Death processing completed, proceeding with load: " + uuid);
+                deathCoordinations.incrementAndGet();
+            }
+
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            logger.warning("INTEGRATED: Interrupted while waiting for death processing completion: " + uuid);
+        }
+    }
+
+    /**
+     * INTEGRATED: Wait for combat logout processing to complete
+     */
+    private void waitForCombatLogoutProcessingCompletion(UUID uuid) {
+        try {
+            int attempts = 0;
+            while (isPlayerInCombatLogoutProcessing(uuid) && attempts < 30) {
+                Thread.sleep(500); // Wait 500ms
+                attempts++;
+            }
+
+            if (attempts >= 30) {
+                logger.warning("INTEGRATED: Timeout waiting for combat logout processing completion: " + uuid);
+                coordinationTimeouts.incrementAndGet();
+                // Force clear the combat logout processing state
+                playersInCombatLogoutProcessing.remove(uuid);
+                combatLogoutProcessingStartTimes.remove(uuid);
+            } else {
+                logger.info("INTEGRATED: Combat logout processing completed, proceeding with load: " + uuid);
+                combatLogoutCoordinations.incrementAndGet();
+            }
+
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            logger.warning("INTEGRATED: Interrupted while waiting for combat logout processing completion: " + uuid);
+        }
+    }
+
+    /**
+     * INTEGRATED: Complete player loading with death/combat coordination
+     */
+    private void completePlayerLoadingWithCoordination(Player player, PlayerLoadingState loadingState, YakPlayer yakPlayer) {
+        UUID uuid = player.getUniqueId();
+
+        try {
+            logger.info("INTEGRATED: Completing coordinated loading for " + player.getName());
+
+            if (!player.isOnline()) {
+                cleanupLoadingState(uuid);
+                return;
+            }
+
+            loadingState.setPhase(LoadingPhase.APPLYING_DATA);
+
+            // INTEGRATED: Check for death/combat coordination before applying data
+            if (checkForCoordinationNeeds(player, yakPlayer, loadingState)) {
+                return; // Coordination in progress, will be completed later
+            }
+
+            applyPendingSettingsChanges(uuid, yakPlayer);
+
+            onlinePlayers.put(uuid, yakPlayer);
+            loadingState.setYakPlayer(yakPlayer);
+
+            if (yakPlayer.getCombatLogoutState() != YakPlayer.CombatLogoutState.NONE) {
+                yakPlayer.setCombatLogoutState(YakPlayer.CombatLogoutState.NONE);
+                logger.info("INTEGRATED: Reset combat logout state for " + player.getName());
+            }
+
+            Bukkit.getScheduler().runTask(plugin, () -> {
+                try {
+                    applyPlayerDataSafely(player, yakPlayer);
+                    finalizePlayerLoadingWithCoordination(player, loadingState, yakPlayer);
+                } catch (Exception e) {
+                    logger.log(Level.SEVERE, "INTEGRATED: Error applying player data for " + player.getName(), e);
+                    handleLoadingFailure(player, loadingState, e);
+                }
+            });
 
         } catch (Exception e) {
-            logger.log(Level.SEVERE, "Error in final teleportation: " + player.getName(), e);
+            logger.log(Level.SEVERE, "INTEGRATED: Error completing coordinated player loading for " + player.getName(), e);
+            handleLoadingFailure(player, loadingState, e);
+        }
+    }
+
+    /**
+     * INTEGRATED: Check for death/combat coordination needs during loading
+     */
+    private boolean checkForCoordinationNeeds(Player player, YakPlayer yakPlayer, PlayerLoadingState loadingState) {
+        UUID uuid = player.getUniqueId();
+
+        try {
+            // Check if death coordination is needed
+            if (yakPlayer.hasRespawnItems() && deathMechanics != null) {
+                logger.info("INTEGRATED: Death coordination needed for " + player.getName());
+                loadingState.setPhase(LoadingPhase.DEATH_COORDINATION);
+
+                CompletableFuture.runAsync(() -> {
+                    coordinateWithDeathSystem(player, yakPlayer, loadingState);
+                }, coordinationExecutor);
+
+                return true; // Coordination in progress
+            }
+
+            // Check if combat logout coordination is needed
+            YakPlayer.CombatLogoutState logoutState = yakPlayer.getCombatLogoutState();
+            if (logoutState == YakPlayer.CombatLogoutState.PROCESSED && combatLogoutMechanics != null) {
+                logger.info("INTEGRATED: Combat logout coordination needed for " + player.getName());
+                loadingState.setPhase(LoadingPhase.COMBAT_COORDINATION);
+
+                CompletableFuture.runAsync(() -> {
+                    coordinateWithCombatLogoutSystem(player, yakPlayer, loadingState);
+                }, coordinationExecutor);
+
+                return true; // Coordination in progress
+            }
+
+            return false; // No coordination needed
+
+        } catch (Exception e) {
+            logger.log(Level.WARNING, "INTEGRATED: Error checking coordination needs for " + player.getName(), e);
+            return false;
+        }
+    }
+
+    /**
+     * INTEGRATED: Coordinate with death system during loading
+     */
+    private void coordinateWithDeathSystem(Player player, YakPlayer yakPlayer, PlayerLoadingState loadingState) {
+        try {
+            UUID uuid = player.getUniqueId();
+            logger.info("INTEGRATED: Coordinating with death system for " + player.getName());
+
+            // Mark as in death coordination
+            markPlayerInDeathProcessing(uuid);
+
+            // Let death system know about the coordination
+            // Death system will handle respawn item restoration when appropriate
+
+            Bukkit.getScheduler().runTask(plugin, () -> {
+                try {
+                    // Complete the loading process
+                    applyPlayerDataSafely(player, yakPlayer);
+                    finalizePlayerLoadingWithCoordination(player, loadingState, yakPlayer);
+                } catch (Exception e) {
+                    logger.log(Level.SEVERE, "INTEGRATED: Error in death coordination completion for " + player.getName(), e);
+                    handleLoadingFailure(player, loadingState, e);
+                } finally {
+                    unmarkPlayerInDeathProcessing(uuid);
+                }
+            });
+
+        } catch (Exception e) {
+            logger.log(Level.SEVERE, "INTEGRATED: Error in death system coordination for " + player.getName(), e);
+            handleLoadingFailure(player, loadingState, e);
+        }
+    }
+
+    /**
+     * INTEGRATED: Coordinate with combat logout system during loading
+     */
+    private void coordinateWithCombatLogoutSystem(Player player, YakPlayer yakPlayer, PlayerLoadingState loadingState) {
+        try {
+            UUID uuid = player.getUniqueId();
+            logger.info("INTEGRATED: Coordinating with combat logout system for " + player.getName());
+
+            // Mark as in combat logout coordination
+            markPlayerInCombatLogoutProcessing(uuid);
+
+            // Let combat logout system handle the rejoin completion
+            if (combatLogoutMechanics != null) {
+                combatLogoutMechanics.handleCombatLogoutRejoin(uuid);
+            }
+
+            Bukkit.getScheduler().runTask(plugin, () -> {
+                try {
+                    // Complete the loading process
+                    applyPlayerDataSafely(player, yakPlayer);
+                    finalizePlayerLoadingWithCoordination(player, loadingState, yakPlayer);
+                } catch (Exception e) {
+                    logger.log(Level.SEVERE, "INTEGRATED: Error in combat logout coordination completion for " + player.getName(), e);
+                    handleLoadingFailure(player, loadingState, e);
+                } finally {
+                    unmarkPlayerInCombatLogoutProcessing(uuid);
+                }
+            });
+
+        } catch (Exception e) {
+            logger.log(Level.SEVERE, "INTEGRATED: Error in combat logout system coordination for " + player.getName(), e);
+            handleLoadingFailure(player, loadingState, e);
+        }
+    }
+
+    private void applyPlayerDataSafely(Player player, YakPlayer yakPlayer) {
+        try {
+            logger.info("INTEGRATED: Applying player data with coordination for " + player.getName());
+
+            if (!yakPlayer.hasTemporaryData("energy")) {
+                yakPlayer.setTemporaryData("energy", 100);
+            }
+
+            try {
+                yakPlayer.applyInventory(player);
+                logger.fine("INTEGRATED: Applied inventory for " + player.getName());
+            } catch (Exception e) {
+                logger.log(Level.WARNING, "INTEGRATED: Error applying inventory for " + player.getName() + ", using defaults", e);
+                applyDefaultInventory(player);
+            }
+
+            try {
+                applyPlayerStatsSafely(player, yakPlayer);
+                logger.fine("INTEGRATED: Applied stats for " + player.getName());
+            } catch (Exception e) {
+                logger.log(Level.WARNING, "INTEGRATED: Error applying stats for " + player.getName() + ", using defaults", e);
+                applyDefaultStats(player);
+            }
+
+            initializePlayerSystems(player, yakPlayer);
+
+        } catch (Exception e) {
+            logger.log(Level.SEVERE, "INTEGRATED: Critical error applying player data for " + player.getName(), e);
+            throw e;
+        }
+    }
+
+    private void applyPlayerStatsSafely(Player player, YakPlayer yakPlayer) {
+        try {
+            double savedHealth = yakPlayer.getHealth();
+            double savedMaxHealth = yakPlayer.getMaxHealth();
+
+            if (savedMaxHealth <= 0 || savedMaxHealth > 2048) {
+                savedMaxHealth = 20.0;
+                yakPlayer.setMaxHealth(savedMaxHealth);
+            }
+
+            if (savedHealth <= 0 || savedHealth > savedMaxHealth) {
+                savedHealth = savedMaxHealth;
+                yakPlayer.setHealth(savedHealth);
+            }
+
+            player.setMaxHealth(savedMaxHealth);
+
+            double finalSavedHealth = savedHealth;
+            Bukkit.getScheduler().runTaskLater(plugin, () -> {
+                if (player.isOnline()) {
+                    double finalHealth = Math.min(finalSavedHealth, player.getMaxHealth());
+                    player.setHealth(finalHealth);
+                    logger.fine("INTEGRATED: Set health for " + player.getName() + ": " + finalHealth + "/" + player.getMaxHealth());
+                }
+            }, 1L);
+
+            player.setFoodLevel(Math.max(0, Math.min(20, yakPlayer.getFoodLevel())));
+            player.setSaturation(Math.max(0, Math.min(20, yakPlayer.getSaturation())));
+            player.setLevel(Math.max(0, Math.min(21863, yakPlayer.getXpLevel())));
+            player.setExp(Math.max(0, Math.min(1, yakPlayer.getXpProgress())));
+            player.setTotalExperience(Math.max(0, yakPlayer.getTotalExperience()));
+
+            try {
+                GameMode mode = GameMode.valueOf(yakPlayer.getGameMode());
+                player.setGameMode(mode);
+            } catch (Exception e) {
+                logger.warning("INTEGRATED: Invalid game mode for " + player.getName() + ": " + yakPlayer.getGameMode());
+                player.setGameMode(GameMode.SURVIVAL);
+                yakPlayer.setGameMode("SURVIVAL");
+            }
+
+            if (yakPlayer.getBedSpawnLocation() != null) {
+                try {
+                    Location bedLoc = parseBedSpawnLocation(yakPlayer.getBedSpawnLocation());
+                    if (bedLoc != null) {
+                        player.setBedSpawnLocation(bedLoc, true);
+                    }
+                } catch (Exception e) {
+                    logger.fine("INTEGRATED: Failed to apply bed spawn location: " + e.getMessage());
+                }
+            }
+
+        } catch (Exception e) {
+            logger.log(Level.WARNING, "INTEGRATED: Error in stat application for " + player.getName(), e);
+            throw e;
+        }
+    }
+
+    private Location parseBedSpawnLocation(String locationStr) {
+        if (locationStr == null || locationStr.isEmpty()) return null;
+
+        try {
+            String[] parts = locationStr.split(":");
+            if (parts.length >= 4) {
+                World world = Bukkit.getWorld(parts[0]);
+                if (world != null) {
+                    return new Location(world,
+                            Double.parseDouble(parts[1]),
+                            Double.parseDouble(parts[2]),
+                            Double.parseDouble(parts[3]));
+                }
+            }
+        } catch (Exception e) {
+            logger.fine("INTEGRATED: Error parsing bed spawn location: " + locationStr);
+        }
+        return null;
+    }
+
+    private void applyDefaultInventory(Player player) {
+        try {
+            player.getInventory().clear();
+            player.getInventory().setArmorContents(new org.bukkit.inventory.ItemStack[4]);
+            player.getEnderChest().clear();
+            player.updateInventory();
+            logger.info("INTEGRATED: Applied default inventory for " + player.getName());
+        } catch (Exception e) {
+            logger.log(Level.WARNING, "INTEGRATED: Error applying default inventory", e);
+        }
+    }
+
+    private void applyDefaultStats(Player player) {
+        try {
+            player.setMaxHealth(20.0);
+            player.setHealth(20.0);
+            player.setFoodLevel(20);
+            player.setSaturation(5.0f);
+            player.setLevel(0);
+            player.setExp(0.0f);
+            player.setTotalExperience(0);
+            player.setGameMode(GameMode.SURVIVAL);
+            logger.info("INTEGRATED: Applied default stats for " + player.getName());
+        } catch (Exception e) {
+            logger.log(Level.WARNING, "INTEGRATED: Error applying default stats", e);
+        }
+    }
+
+    private void initializePlayerSystems(Player player, YakPlayer yakPlayer) {
+        try {
+            String rankString = yakPlayer.getRank();
+            if (rankString == null || rankString.trim().isEmpty()) {
+                rankString = "DEFAULT";
+                yakPlayer.setRank("DEFAULT");
+            }
+
+            try {
+                Rank rank = Rank.fromString(rankString);
+                ModerationMechanics.rankMap.put(player.getUniqueId(), rank);
+            } catch (Exception e) {
+                logger.warning("INTEGRATED: Invalid rank for " + player.getName() + ": " + rankString);
+                ModerationMechanics.rankMap.put(player.getUniqueId(), Rank.DEFAULT);
+                yakPlayer.setRank("DEFAULT");
+            }
+
+            String chatTagString = yakPlayer.getChatTag();
+            if (chatTagString == null || chatTagString.trim().isEmpty()) {
+                chatTagString = "DEFAULT";
+                yakPlayer.setChatTag("DEFAULT");
+            }
+
+            try {
+                ChatTag tag = ChatTag.valueOf(chatTagString);
+                ChatMechanics.getPlayerTags().put(player.getUniqueId(), tag);
+            } catch (Exception e) {
+                logger.warning("INTEGRATED: Invalid chat tag for " + player.getName() + ": " + chatTagString);
+                ChatMechanics.getPlayerTags().put(player.getUniqueId(), ChatTag.DEFAULT);
+                yakPlayer.setChatTag("DEFAULT");
+            }
+
+        } catch (Exception e) {
+            logger.log(Level.WARNING, "INTEGRATED: Error initializing player systems for " + player.getName(), e);
+        }
+    }
+
+    /**
+     * INTEGRATED: Finalize player loading with coordination
+     */
+    private void finalizePlayerLoadingWithCoordination(Player player, PlayerLoadingState loadingState, YakPlayer yakPlayer) {
+        UUID uuid = player.getUniqueId();
+
+        try {
+            loadingState.setPhase(LoadingPhase.COMPLETED);
+
+            player.setInvulnerable(false);
+
+            GameMode mode = player.getGameMode();
+            if (mode == GameMode.CREATIVE || mode == GameMode.SPECTATOR) {
+                player.setAllowFlight(true);
+            } else {
+                player.setAllowFlight(false);
+                player.setFlying(false);
+            }
+
+            Location targetLocation = determineFinalLocation(yakPlayer);
+            if (targetLocation != null) {
+                player.teleport(targetLocation);
+                logger.fine("INTEGRATED: Teleported " + player.getName() + " to final location");
+            }
+
+            setPlayerState(uuid, PlayerState.READY, "coordinated_loading_completed");
+
+            loadingStates.remove(uuid);
+
+            updateJoinMessage(player, yakPlayer);
+
+            Bukkit.getScheduler().runTaskLater(plugin, () -> {
+                if (player.isOnline() && PlayerListenerManager.getInstance() != null &&
+                        PlayerListenerManager.getInstance().getJoinLeaveListener() != null) {
+                    PlayerListenerManager.getInstance().getJoinLeaveListener()
+                            .sendMotd(player, yakPlayer, false);
+                }
+            }, 40L);
+
+            logger.info("INTEGRATED: Successfully loaded player with coordination: " + player.getName());
+
+        } catch (Exception e) {
+            logger.log(Level.SEVERE, "INTEGRATED: Error finalizing coordinated player loading for " + player.getName(), e);
             handleLoadingFailure(player, loadingState, e);
         }
     }
 
     private Location determineFinalLocation(YakPlayer yakPlayer) {
-        Location savedLocation = yakPlayer.getLocation();
-        boolean isNewPlayer = isNewPlayer(yakPlayer);
+        try {
+            Location savedLocation = yakPlayer.getLocation();
+            boolean isNewPlayer = isNewPlayer(yakPlayer);
 
-        if (isNewPlayer || savedLocation == null || savedLocation.getWorld() == null) {
-            World defaultWorld = voidLimboWorld;
-            if (defaultWorld != null) {
-                Location spawnLocation = defaultWorld.getSpawnLocation();
-                yakPlayer.updateLocation(spawnLocation);
-                logger.info("Teleporting " + yakPlayer.getUsername() + " to spawn");
-                return spawnLocation;
+            if (isNewPlayer || savedLocation == null || savedLocation.getWorld() == null) {
+                if (defaultWorld != null) {
+                    Location spawnLocation = defaultWorld.getSpawnLocation();
+                    yakPlayer.updateLocation(spawnLocation);
+                    return spawnLocation;
+                }
             } else {
-                throw new RuntimeException("No world available for spawn teleportation");
+                return savedLocation;
             }
-        } else {
-            logger.info("Teleporting " + yakPlayer.getUsername() + " to saved location");
-            return savedLocation;
+        } catch (Exception e) {
+            logger.log(Level.WARNING, "INTEGRATED: Error determining final location for " + yakPlayer.getUsername(), e);
         }
-    }
 
-    private Location handleTeleportFailure(Player player, YakPlayer yakPlayer) {
-        logger.warning("Failed to teleport " + player.getName() + " to final location");
-        World defaultWorld = voidLimboWorld;
         if (defaultWorld != null) {
-            Location spawnLocation = defaultWorld.getSpawnLocation();
-            player.teleport(spawnLocation);
-            yakPlayer.updateLocation(spawnLocation);
-            return spawnLocation;
+            return defaultWorld.getSpawnLocation();
         }
-        throw new RuntimeException("No fallback world available");
-    }
 
-    private void finalizeTeleportation(Player player, PlayerLoadingState loadingState, UUID uuid) {
-        limboManager.removePlayerFromLimbo(uuid);
-        setPlayerState(uuid, PlayerState.READY, "loading_completed");
-        loadingState.setPhase(LoadingPhase.COMPLETED);
-
-        limboManager.showCompletionCelebration(player);
-
-        Bukkit.getScheduler().runTaskLater(plugin, () -> {
-            completePlayerLoading(player, loadingState);
-        }, TELEPORT_COMPLETION_DELAY);
+        return null;
     }
 
     private boolean isNewPlayer(YakPlayer yakPlayer) {
@@ -1584,321 +1015,727 @@ public class YakPlayerManager implements Listener, CommandExecutor {
         }
     }
 
-    private void restorePlayerState(Player player, YakPlayer yakPlayer) {
-        try {
-            String savedGameMode = yakPlayer.getGameMode();
-            GameMode targetMode = GameMode.SURVIVAL;
-
-            if (savedGameMode != null) {
-                try {
-                    targetMode = GameMode.valueOf(savedGameMode);
-                } catch (IllegalArgumentException e) {
-                    logger.warning("Invalid saved game mode: " + savedGameMode);
-                }
-            }
-
-            player.setInvulnerable(false);
-            player.setGameMode(targetMode);
-
-            if (targetMode == GameMode.CREATIVE || targetMode == GameMode.SPECTATOR) {
-                player.setAllowFlight(true);
-            } else {
-                player.setAllowFlight(false);
-                player.setFlying(false);
-            }
-
-            logger.info("Restored " + player.getName() + " to " + targetMode + " mode");
-
-        } catch (Exception e) {
-            logger.log(Level.WARNING, "Error restoring player state: " + player.getName(), e);
-            player.setGameMode(GameMode.SURVIVAL);
-            player.setAllowFlight(false);
-            player.setFlying(false);
-            player.setInvulnerable(false);
-        }
-    }
-
-    // ===============================================
-    // LOADING PROCESS - COMPLETION
-    // ===============================================
-
-    private void completePlayerLoading(Player player, PlayerLoadingState loadingState) {
-        UUID uuid = player.getUniqueId();
-
-        try {
-            long loadingTime = System.currentTimeMillis() - loadingState.getLimboStartTime();
-            logger.info("Loading completed for " + player.getName() + " in " + loadingTime + "ms");
-
-            updateJoinMessage(player, loadingState.getYakPlayer());
-            cleanupLoadingState(uuid);
-
-            sendMotdIfAvailable(player, uuid);
-
-            logger.info("Player fully loaded and ready: " + player.getName());
-
-        } catch (Exception e) {
-            logger.log(Level.SEVERE, "Error completing player loading: " + player.getName(), e);
-        }
-    }
-
-    private void sendMotdIfAvailable(Player player, UUID uuid) {
-        if (PlayerListenerManager.getInstance() != null &&
-                PlayerListenerManager.getInstance().getJoinLeaveListener() != null) {
-            PlayerListenerManager.getInstance().getJoinLeaveListener()
-                    .sendMotd(player, getPlayer(uuid), false);
-        }
-    }
-
-    // ===============================================
-    // LOADING PROCESS - ERROR HANDLING
-    // ===============================================
-
-    /**
-     * Handle loading failure with emergency recovery
-     */
+    // Error handling
     private void handleLoadingFailure(Player player, PlayerLoadingState loadingState, Throwable error) {
         UUID uuid = player.getUniqueId();
 
         try {
-            setPlayerState(uuid, PlayerState.FAILED, "loading_failure");
+            setPlayerState(uuid, PlayerState.FAILED, "coordinated_loading_failure");
             loadingState.setPhase(LoadingPhase.FAILED);
-            logger.log(Level.SEVERE, "Loading failed for: " + player.getName(), error);
-
-            limboManager.removePlayerFromLimbo(uuid);
+            logger.log(Level.SEVERE, "INTEGRATED: Loading failed for: " + player.getName(), error);
 
             if (player.isOnline()) {
-                performEmergencyRecovery(player);
-                player.sendMessage(ChatColor.GREEN + "Emergency recovery completed - you are now safe.");
+                performEmergencyPlayerRecovery(player);
             }
 
             cleanupLoadingState(uuid);
 
         } catch (Exception e) {
-            logger.log(Level.SEVERE, "Error handling loading failure: " + player.getName(), e);
+            logger.log(Level.SEVERE, "INTEGRATED: Error handling loading failure: " + player.getName(), e);
         }
     }
 
-    private void performEmergencyRecovery(Player player) {
-        player.setGameMode(GameMode.SURVIVAL);
-        player.setInvulnerable(false);
-        player.setFlying(false);
-        player.setAllowFlight(false);
+    private void performEmergencyPlayerRecovery(Player player) {
+        try {
+            logger.warning("INTEGRATED: Performing emergency recovery for " + player.getName());
+            emergencyRecoveries.incrementAndGet();
 
-        World world = Bukkit.getWorlds().get(0);
-        if (world != null) {
-            player.teleport(world.getSpawnLocation());
+            player.setInvulnerable(false);
+            player.setGameMode(GameMode.SURVIVAL);
+            player.setAllowFlight(false);
+            player.setFlying(false);
+
+            player.setMaxHealth(20.0);
+            player.setHealth(20.0);
+            player.setFoodLevel(20);
+            player.setSaturation(5.0f);
+
+            if (defaultWorld != null) {
+                player.teleport(defaultWorld.getSpawnLocation());
+            }
+
+            player.getInventory().clear();
+            player.updateInventory();
+
+            player.sendMessage("");
+            player.sendMessage(ChatColor.GREEN + "Emergency recovery completed!");
+            player.sendMessage(ChatColor.YELLOW + "Your character has been restored to a safe state.");
+            player.sendMessage(ChatColor.GRAY + "If you continue having issues, please contact an admin.");
+            player.sendMessage("");
+
+            UUID uuid = player.getUniqueId();
+            YakPlayer yakPlayer = new YakPlayer(player);
+            onlinePlayers.put(uuid, yakPlayer);
+            setPlayerState(uuid, PlayerState.READY, "emergency_recovery");
+
+            ModerationMechanics.rankMap.put(uuid, Rank.DEFAULT);
+            ChatMechanics.getPlayerTags().put(uuid, ChatTag.DEFAULT);
+
+            repository.saveSync(yakPlayer);
+
+            logger.info("INTEGRATED: Emergency recovery completed for " + player.getName());
+
+        } catch (Exception e) {
+            logger.log(Level.SEVERE, "INTEGRATED: Emergency recovery failed for " + player.getName(), e);
         }
     }
 
-    // ===============================================
-    // LOADING PROCESS - MONITORING
-    // ===============================================
-
-    /**
-     * Start loading monitor task for timeout detection
-     */
-    private void startLoadingMonitor(Player player, PlayerLoadingState loadingState) {
+    // Combat logout rejoin handling
+    private void handleCombatLogoutRejoin(Player player, YakPlayer yakPlayer) {
         UUID uuid = player.getUniqueId();
 
-        BukkitTask monitorTask = new BukkitRunnable() {
-            int ticksElapsed = 0;
-
-            @Override
-            public void run() {
-                if (!player.isOnline() || !loadingStates.containsKey(uuid)) {
-                    this.cancel();
-                    return;
-                }
-
-                ticksElapsed++;
-                LoadingPhase currentPhase = loadingState.getPhase();
-
-                if (currentPhase == LoadingPhase.COMPLETED) {
-                    this.cancel();
-                    return;
-                }
-
-                if (limboManager.isPlayerInLimbo(uuid)) {
-                    limboManager.maintainLimboState(player);
-                }
-
-                if (currentPhase == LoadingPhase.FAILED || ticksElapsed >= MAX_LIMBO_DURATION_TICKS) {
-                    if (ticksElapsed >= MAX_LIMBO_DURATION_TICKS) {
-                        logger.severe("Loading timeout for " + player.getName());
-                    }
-                    handleLoadingFailure(player, loadingState, new RuntimeException("Loading timeout"));
-                    this.cancel();
-                }
-            }
-        }.runTaskTimer(plugin, 0L, LIMBO_CHECK_INTERVAL_TICKS);
-
-        loadingState.setMonitorTask(monitorTask);
-    }
-
-    // ===============================================
-    // SYSTEM INITIALIZATION
-    // ===============================================
-
-    private void initializeRankSystem(Player player, YakPlayer yakPlayer) {
         try {
-            String rankString = yakPlayer.getRank();
-            if (rankString == null || rankString.trim().isEmpty()) {
-                rankString = "default";
-                yakPlayer.setRank("default");
+            logger.info("INTEGRATED: Processing combat logout rejoin for: " + player.getName());
+
+            setPlayerState(uuid, PlayerState.READY, "combat_logout_rejoin");
+            yakPlayer.connect(player);
+            onlinePlayers.put(uuid, yakPlayer);
+
+            applyPendingSettingsChanges(uuid, yakPlayer);
+
+            applyPlayerDataSafely(player, yakPlayer);
+            initializePlayerSystems(player, yakPlayer);
+
+            if (defaultWorld != null) {
+                player.teleport(defaultWorld.getSpawnLocation());
+                yakPlayer.updateLocation(defaultWorld.getSpawnLocation());
             }
 
-            Rank rank = Rank.fromString(rankString);
-            ModerationMechanics.rankMap.put(player.getUniqueId(), rank);
+            clearCombatLogoutData(uuid, yakPlayer);
+
+            sendCombatLogoutRejoinMessages(player, yakPlayer);
+
+            logger.info("INTEGRATED: Combat logout rejoin completed for: " + player.getName());
 
         } catch (Exception e) {
-            logger.log(Level.WARNING, "Error initializing rank: " + player.getName(), e);
-            ModerationMechanics.rankMap.put(player.getUniqueId(), Rank.DEFAULT);
-            yakPlayer.setRank("default");
+            logger.log(Level.SEVERE, "INTEGRATED: Error handling combat logout rejoin for " + player.getName(), e);
+            handleNormalPlayerJoin(player);
+        }
+    }
+
+    private void clearCombatLogoutData(UUID uuid, YakPlayer yakPlayer) {
+        try {
+            if (combatLogoutMechanics != null) {
+                combatLogoutMechanics.handleCombatLogoutRejoin(uuid);
+            }
+
+            yakPlayer.setCombatLogoutState(YakPlayer.CombatLogoutState.NONE);
             repository.saveSync(yakPlayer);
+            logger.info("INTEGRATED: Cleared combat logout data for " + yakPlayer.getUsername());
+        } catch (Exception e) {
+            logger.log(Level.WARNING, "INTEGRATED: Error clearing combat logout data", e);
         }
     }
 
-    private void initializeChatTagSystem(Player player, YakPlayer yakPlayer) {
+    private void sendCombatLogoutRejoinMessages(Player player, YakPlayer yakPlayer) {
         try {
-            String chatTagString = yakPlayer.getChatTag();
-            if (chatTagString == null || chatTagString.trim().isEmpty()) {
-                chatTagString = "DEFAULT";
-                yakPlayer.setChatTag("DEFAULT");
+            Bukkit.broadcastMessage(ChatColor.GRAY + "⟨" + ChatColor.DARK_GRAY + "✧" + ChatColor.GRAY + "⟩ " +
+                    yakPlayer.getFormattedDisplayName() + ChatColor.DARK_GRAY + " returned from combat logout");
+
+            Bukkit.getScheduler().runTaskLater(plugin, () -> {
+                if (player.isOnline()) {
+                    player.sendMessage("");
+                    player.sendMessage(ChatColor.RED + "" + ChatColor.BOLD + "COMBAT LOGOUT CONSEQUENCES COMPLETED");
+                    player.sendMessage(ChatColor.GRAY + "Your items were processed according to your " +
+                            yakPlayer.getAlignment().toLowerCase() + " alignment.");
+                    player.sendMessage(ChatColor.GRAY + "You have respawned at the spawn location.");
+                    player.sendMessage(ChatColor.YELLOW + "You may now continue playing normally.");
+                    player.sendMessage("");
+                    player.playSound(player.getLocation(), Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 1.0f, 1.0f);
+                }
+            }, 20L);
+
+            Bukkit.getScheduler().runTaskLater(plugin, () -> {
+                if (player.isOnline() && PlayerListenerManager.getInstance() != null &&
+                        PlayerListenerManager.getInstance().getJoinLeaveListener() != null) {
+                    PlayerListenerManager.getInstance().getJoinLeaveListener()
+                            .sendMotd(player, yakPlayer, true);
+                }
+            }, 40L);
+        } catch (Exception e) {
+            logger.log(Level.WARNING, "INTEGRATED: Error sending combat logout rejoin messages", e);
+        }
+    }
+
+    // ENHANCED PLAYER QUIT HANDLING WITH DEATH/COMBAT COORDINATION
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onPlayerQuit(PlayerQuitEvent event) {
+        Player player = event.getPlayer();
+        UUID uuid = player.getUniqueId();
+        String playerName = player.getName();
+
+        totalPlayerQuits.incrementAndGet();
+        logger.info("INTEGRATED: Player quitting: " + playerName + " - Starting coordinated save process");
+
+        try {
+            // INTEGRATED: Check for death/combat processing conflicts before quit handling
+            if (handleDeathProcessingQuit(player, uuid, playerName, event)) {
+                return; // Death processing handled the quit
             }
 
-            ChatTag tag = ChatTag.valueOf(chatTagString);
-            ChatMechanics.getPlayerTags().put(player.getUniqueId(), tag);
+            if (handleCombatLogoutProcessingQuit(player, uuid, playerName, event)) {
+                return; // Combat logout processing handled the quit
+            }
+
+            handleNormalPlayerQuitWithCoordination(player, uuid, playerName, event);
 
         } catch (Exception e) {
-            logger.log(Level.WARNING, "Error initializing chat tag: " + player.getName(), e);
-            ChatMechanics.getPlayerTags().put(player.getUniqueId(), ChatTag.DEFAULT);
-            yakPlayer.setChatTag("DEFAULT");
+            logger.log(Level.SEVERE, "INTEGRATED: Error in coordinated player quit for " + playerName, e);
+            performEmergencyQuitSave(uuid, playerName);
         }
     }
 
-    // ===============================================
-    // BACKGROUND TASKS & MAINTENANCE
-    // ===============================================
+    /**
+     * INTEGRATED: Handle quit during death processing
+     */
+    private boolean handleDeathProcessingQuit(Player player, UUID uuid, String playerName, PlayerQuitEvent event) {
+        if (isPlayerInDeathProcessing(uuid)) {
+            logger.info("INTEGRATED: Player quitting during death processing: " + playerName);
+            deathCoordinations.incrementAndGet();
+
+            // Let death mechanics handle the quit
+            setPlayerState(uuid, PlayerState.DEATH_PROCESSING, "death_processing_quit");
+
+            // Don't perform normal quit processing
+            event.setQuitMessage(ChatColor.RED + "⟨" + ChatColor.DARK_RED + "✧" + ChatColor.RED + "⟩ " +
+                    ChatColor.GRAY + playerName + ChatColor.DARK_GRAY + " (processing death)");
+
+            return true;
+        }
+        return false;
+    }
 
     /**
-     * UPDATED: Perform auto-save with enhanced settings protection - always save settings, inventory only when safe
+     * INTEGRATED: Handle quit during combat logout processing
      */
-    private void performAutoSaveUpdated() {
-        List<YakPlayer> playersToSave = new ArrayList<>();
-        int count = 0;
+    private boolean handleCombatLogoutProcessingQuit(Player player, UUID uuid, String playerName, PlayerQuitEvent event) {
+        if (isPlayerInCombatLogoutProcessing(uuid) ||
+                (combatLogoutMechanics != null && combatLogoutMechanics.isCombatLoggingOut(player))) {
 
-        for (YakPlayer player : onlinePlayers.values()) {
-            if (count >= playersPerSaveCycle) break;
+            logger.info("INTEGRATED: Player quitting during combat logout processing: " + playerName);
+            combatLogoutCoordinations.incrementAndGet();
 
-            Player bukkitPlayer = player.getBukkitPlayer();
-            if (bukkitPlayer != null && bukkitPlayer.isOnline()) {
-                UUID uuid = bukkitPlayer.getUniqueId();
+            // Let combat logout mechanics handle the quit
+            setPlayerState(uuid, PlayerState.COMBAT_LOGOUT_PROCESSING, "combat_logout_processing_quit");
 
-                // CRITICAL UPDATE: Always save settings, but only update inventory for ready players
-                if (shouldSavePlayerInventory(uuid)) {
-                    player.updateInventory(bukkitPlayer);
+            // Combat logout mechanics will set its own quit message
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * INTEGRATED: Handle normal quit with coordination
+     */
+    private void handleNormalPlayerQuitWithCoordination(Player player, UUID uuid, String playerName, PlayerQuitEvent event) {
+        try {
+            logger.info("INTEGRATED: Starting coordinated save process for: " + playerName);
+
+            // Get player data BEFORE any cleanup
+            YakPlayer yakPlayer = onlinePlayers.get(uuid);
+            if (yakPlayer == null) {
+                logger.warning("INTEGRATED: No player data found for quitting player: " + playerName);
+                cleanupPlayerState(uuid, "normal_player_quit_no_data");
+                return;
+            }
+
+            // INTEGRATED: Check for any death/combat conflicts before saving
+            if (checkForQuitTimeConflicts(uuid, playerName)) {
+                performEmergencyQuitSave(uuid, playerName);
+                return;
+            }
+
+            // FORCE INVENTORY UPDATE - This bypasses all state checks
+            logger.info("INTEGRATED: FORCE updating inventory for " + playerName + " on quit (coordinated)");
+            try {
+                yakPlayer.forceUpdateInventory(player);
+                forcedInventorySaves.incrementAndGet();
+                logger.info("INTEGRATED: ✓ Forced inventory update completed for " + playerName);
+            } catch (Exception e) {
+                logger.log(Level.SEVERE, "INTEGRATED: CRITICAL: Forced inventory update failed for " + playerName, e);
+                saveFailures.incrementAndGet();
+            }
+
+            // FORCE STATS UPDATE
+            try {
+                yakPlayer.updateStats(player);
+                logger.fine("INTEGRATED: ✓ Stats update completed for " + playerName);
+            } catch (Exception e) {
+                logger.log(Level.WARNING, "INTEGRATED: Stats update failed for " + playerName, e);
+            }
+
+            // Apply pending settings changes BEFORE final save
+            applyPendingSettingsOnQuit(uuid, yakPlayer, playerName);
+
+            // Reset combat logout state
+            if (yakPlayer.getCombatLogoutState() != YakPlayer.CombatLogoutState.NONE) {
+                yakPlayer.setCombatLogoutState(YakPlayer.CombatLogoutState.NONE);
+                logger.info("INTEGRATED: Reset combat logout state on normal quit for " + playerName);
+            }
+
+            // GUARANTEED SYNCHRONOUS SAVE with coordination
+            performCoordinatedGuaranteedSave(yakPlayer, playerName);
+
+            // Disconnect and cleanup
+            yakPlayer.disconnect();
+            onlinePlayers.remove(uuid);
+            cleanupPlayerState(uuid, "normal_player_quit");
+
+            // Set quit message
+            setQuitMessage(event, player, yakPlayer);
+
+            logger.info("INTEGRATED: ✓ Coordinated save process completed successfully for: " + playerName);
+
+        } catch (Exception e) {
+            logger.log(Level.SEVERE, "INTEGRATED: CRITICAL: Coordinated save process failed for " + playerName, e);
+            performEmergencyQuitSave(uuid, playerName);
+        }
+    }
+
+    /**
+     * INTEGRATED: Check for conflicts during quit time
+     */
+    private boolean checkForQuitTimeConflicts(UUID uuid, String playerName) {
+        try {
+            if (isPlayerInDeathProcessing(uuid)) {
+                logger.warning("INTEGRATED: Death processing conflict detected during quit for: " + playerName);
+                systemConflictsDetected.incrementAndGet();
+                return true;
+            }
+
+            if (isPlayerInCombatLogoutProcessing(uuid)) {
+                logger.warning("INTEGRATED: Combat logout processing conflict detected during quit for: " + playerName);
+                systemConflictsDetected.incrementAndGet();
+                return true;
+            }
+
+            return false;
+
+        } catch (Exception e) {
+            logger.log(Level.WARNING, "INTEGRATED: Error checking quit time conflicts for: " + playerName, e);
+            return true; // Assume conflict on error
+        }
+    }
+
+    private void applyPendingSettingsOnQuit(UUID uuid, YakPlayer yakPlayer, String playerName) {
+        try {
+            Map<String, Boolean> pendingSettings = pendingSettingsChanges.remove(uuid);
+            settingsChangeTimestamps.remove(uuid);
+
+            if (pendingSettings != null && !pendingSettings.isEmpty()) {
+                logger.info("INTEGRATED: Applying " + pendingSettings.size() + " pending settings on quit for " + playerName);
+                for (Map.Entry<String, Boolean> entry : pendingSettings.entrySet()) {
+                    String toggleName = entry.getKey();
+                    boolean desiredState = entry.getValue();
+                    boolean currentState = yakPlayer.isToggled(toggleName);
+
+                    if (currentState != desiredState) {
+                        yakPlayer.toggleSetting(toggleName);
+                    }
+                }
+                logger.fine("INTEGRATED: ✓ Pending settings applied for " + playerName);
+            }
+        } catch (Exception e) {
+            logger.log(Level.WARNING, "INTEGRATED: Error applying pending settings for " + playerName, e);
+        }
+    }
+
+    /**
+     * INTEGRATED: Perform guaranteed save with coordination
+     */
+    private void performCoordinatedGuaranteedSave(YakPlayer yakPlayer, String playerName) {
+        int maxAttempts = 3;
+        boolean saved = false;
+
+        for (int attempt = 1; attempt <= maxAttempts && !saved; attempt++) {
+            try {
+                logger.info("INTEGRATED: Coordinated guaranteed save attempt " + attempt + "/" + maxAttempts + " for " + playerName);
+
+                YakPlayer result = repository.saveSync(yakPlayer);
+                if (result != null) {
+                    saved = true;
+                    guaranteedSaves.incrementAndGet();
+                    logger.info("INTEGRATED: ✓ Coordinated guaranteed save successful on attempt " + attempt + " for " + playerName);
+                } else {
+                    logger.warning("INTEGRATED: ✗ Save returned null on attempt " + attempt + " for " + playerName);
                 }
 
-                // Always save the player (preserves settings even if inventory isn't updated)
-                playersToSave.add(player);
-                count++;
-            }
-        }
-
-        for (YakPlayer player : playersToSave) {
-            try {
-                repository.saveSync(player);
             } catch (Exception e) {
-                logger.log(Level.WARNING, "Auto-save failed: " + player.getUsername(), e);
+                logger.log(Level.SEVERE, "INTEGRATED: ✗ Coordinated guaranteed save attempt " + attempt + " failed for " + playerName, e);
+                if (attempt < maxAttempts) {
+                    try {
+                        Thread.sleep(100 * attempt); // Exponential backoff
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        break;
+                    }
+                }
+            }
+        }
+
+        if (!saved) {
+            saveFailures.incrementAndGet();
+            logger.log(Level.SEVERE, "INTEGRATED: CRITICAL: All " + maxAttempts + " coordinated save attempts failed for " + playerName);
+
+            // Last resort - async save attempt
+            CompletableFuture.runAsync(() -> {
+                try {
+                    logger.warning("INTEGRATED: Last resort async save attempt for " + playerName);
+                    repository.saveSync(yakPlayer);
+                    logger.info("INTEGRATED: ✓ Last resort save successful for " + playerName);
+                } catch (Exception e) {
+                    logger.log(Level.SEVERE, "INTEGRATED: ✗ Last resort save failed for " + playerName, e);
+                }
+            }, saveExecutor);
+        }
+    }
+
+    private void performEmergencyQuitSave(UUID uuid, String playerName) {
+        try {
+            logger.warning("INTEGRATED: Performing emergency quit save for " + playerName);
+
+            YakPlayer yakPlayer = onlinePlayers.remove(uuid);
+            if (yakPlayer != null) {
+                // Try emergency save
+                CompletableFuture.runAsync(() -> {
+                    try {
+                        repository.saveSync(yakPlayer);
+                        logger.info("INTEGRATED: Emergency save successful for " + playerName);
+                    } catch (Exception e) {
+                        logger.log(Level.SEVERE, "INTEGRATED: Emergency save failed for " + playerName, e);
+                    }
+                }, saveExecutor);
+            }
+
+            cleanupPlayerState(uuid, "emergency_quit_cleanup");
+            pendingSettingsChanges.remove(uuid);
+            settingsChangeTimestamps.remove(uuid);
+            playersInRecovery.remove(uuid);
+
+            // INTEGRATED: Clean up coordination state
+            unmarkPlayerInDeathProcessing(uuid);
+            unmarkPlayerInCombatLogoutProcessing(uuid);
+
+            logger.info("INTEGRATED: Emergency quit cleanup completed for " + playerName);
+
+        } catch (Exception e) {
+            logger.log(Level.SEVERE, "INTEGRATED: Emergency cleanup failed for " + playerName, e);
+        }
+    }
+
+    // Movement restrictions during loading with coordination awareness
+    @EventHandler(priority = EventPriority.HIGHEST)
+    public void onPlayerMove(PlayerMoveEvent event) {
+        UUID playerId = event.getPlayer().getUniqueId();
+        PlayerState state = getPlayerState(playerId);
+
+        if (state == PlayerState.LOADING ||
+                state == PlayerState.DEATH_PROCESSING ||
+                state == PlayerState.COMBAT_LOGOUT_PROCESSING ||
+                playersInRecovery.contains(playerId)) {
+
+            Location from = event.getFrom();
+            Location to = event.getTo();
+
+            if (to != null && (from.getX() != to.getX() || from.getZ() != to.getZ())) {
+                event.setTo(from);
             }
         }
     }
 
-    /**
-     * UPDATED: Separate method to check if inventory should be saved (more restrictive)
-     */
-    private boolean shouldSavePlayerInventory(UUID uuid) {
-        return !protectedPlayers.contains(uuid) &&
-                !limboManager.isPlayerInLimbo(uuid) &&
-                !playersInCombatLogoutProcessing.contains(uuid) &&
-                getPlayerState(uuid) == PlayerState.READY;
-    }
+    // INTEGRATED AUTO-SAVE WITH COORDINATION
+    private void performIntegratedAutoSave() {
+        try {
+            int savedCount = 0;
+            int inventoryUpdatesCount = 0;
+            int coordinationSkips = 0;
 
-    /**
-     * Clean up stale loading states
-     */
-    private void cleanupStaleLoadingStates() {
-        long now = System.currentTimeMillis();
-        Iterator<Map.Entry<UUID, PlayerLoadingState>> iterator = loadingStates.entrySet().iterator();
+            for (YakPlayer yakPlayer : onlinePlayers.values()) {
+                try {
+                    Player bukkitPlayer = yakPlayer.getBukkitPlayer();
+                    if (bukkitPlayer != null && bukkitPlayer.isOnline()) {
+                        UUID uuid = bukkitPlayer.getUniqueId();
 
-        while (iterator.hasNext()) {
-            Map.Entry<UUID, PlayerLoadingState> entry = iterator.next();
-            UUID uuid = entry.getKey();
-            PlayerLoadingState state = entry.getValue();
+                        // INTEGRATED: Check for coordination conflicts before auto-save
+                        if (isPlayerInDeathProcessing(uuid) || isPlayerInCombatLogoutProcessing(uuid)) {
+                            logger.fine("INTEGRATED: Skipping auto-save for player in death/combat processing: " + yakPlayer.getUsername());
+                            coordinationSkips++;
+                            continue;
+                        }
 
-            Player player = Bukkit.getPlayer(uuid);
-            if (player == null || !player.isOnline()) {
-                iterator.remove();
-                cleanupPlayerState(uuid, "player_offline");
-                cancelMonitorTask(state);
-                continue;
+                        // FORCE inventory update regardless of state for auto-save
+                        try {
+                            yakPlayer.forceUpdateInventory(bukkitPlayer);
+                            inventoryUpdatesCount++;
+                        } catch (Exception e) {
+                            logger.log(Level.WARNING, "INTEGRATED: Auto-save inventory update failed for: " + yakPlayer.getUsername(), e);
+                        }
+
+                        // Update stats
+                        try {
+                            yakPlayer.updateStats(bukkitPlayer);
+                        } catch (Exception e) {
+                            logger.log(Level.WARNING, "INTEGRATED: Auto-save stats update failed for: " + yakPlayer.getUsername(), e);
+                        }
+
+                        // Save to database
+                        try {
+                            repository.saveSync(yakPlayer);
+                            savedCount++;
+                        } catch (Exception e) {
+                            logger.log(Level.WARNING, "INTEGRATED: Auto-save database save failed for: " + yakPlayer.getUsername(), e);
+                        }
+                    }
+                } catch (Exception e) {
+                    logger.log(Level.WARNING, "INTEGRATED: Auto-save failed for player: " + yakPlayer.getUsername(), e);
+                }
             }
 
-            long stateAge = now - state.getLimboStartTime();
-            if (stateAge > STALE_STATE_MAX_AGE_MS) {
-                logger.warning("Cleaning up stale loading state: " + state.getPlayerName());
-                handleLoadingFailure(player, state, new RuntimeException("Stale loading state"));
-                iterator.remove();
+            if (savedCount > 0) {
+                logger.fine("INTEGRATED: Auto-save completed: " + savedCount + " players saved, " +
+                        inventoryUpdatesCount + " inventories updated, " + coordinationSkips + " skipped for coordination");
             }
+        } catch (Exception e) {
+            logger.log(Level.WARNING, "INTEGRATED: Error in coordinated auto-save", e);
         }
     }
 
-    private void cancelMonitorTask(PlayerLoadingState state) {
-        BukkitTask task = state.getMonitorTask();
-        if (task != null && !task.isCancelled()) {
-            task.cancel();
+    // INTEGRATED: Coordinated guaranteed inventory saves background task
+    private void performCoordinatedGuaranteedInventorySaves() {
+        try {
+            for (YakPlayer yakPlayer : onlinePlayers.values()) {
+                try {
+                    Player bukkitPlayer = yakPlayer.getBukkitPlayer();
+                    if (bukkitPlayer != null && bukkitPlayer.isOnline()) {
+                        UUID uuid = bukkitPlayer.getUniqueId();
+
+                        // INTEGRATED: Skip if in death/combat coordination
+                        if (isPlayerInDeathProcessing(uuid) || isPlayerInCombatLogoutProcessing(uuid)) {
+                            continue;
+                        }
+
+                        // Check if inventory was updated recently
+                        long lastSave = yakPlayer.getInventorySaveTimestamp();
+                        long currentTime = System.currentTimeMillis();
+
+                        // Force inventory update every 30 seconds for active players
+                        if (currentTime - lastSave > 30000) {
+                            CompletableFuture.runAsync(() -> {
+                                try {
+                                    // Double-check coordination state before save
+                                    if (!isPlayerInDeathProcessing(uuid) && !isPlayerInCombatLogoutProcessing(uuid)) {
+                                        yakPlayer.forceUpdateInventory(bukkitPlayer);
+                                        repository.saveSync(yakPlayer);
+                                        logger.fine("INTEGRATED: Coordinated background inventory save for " + yakPlayer.getUsername());
+                                    }
+                                } catch (Exception e) {
+                                    logger.log(Level.WARNING, "INTEGRATED: Coordinated background save failed for " + yakPlayer.getUsername(), e);
+                                }
+                            }, saveExecutor);
+                        }
+                    }
+                } catch (Exception e) {
+                    logger.log(Level.WARNING, "INTEGRATED: Error in coordinated guaranteed inventory save for " + yakPlayer.getUsername(), e);
+                }
+            }
+        } catch (Exception e) {
+            logger.log(Level.WARNING, "INTEGRATED: Error in coordinated guaranteed inventory saves task", e);
         }
     }
 
     /**
-     * Save all players during shutdown
+     * INTEGRATED: Monitor loading players with coordination awareness
      */
-    private void saveAllPlayersOnShutdown() {
-        logger.info("Saving " + onlinePlayers.size() + " players on shutdown...");
+    private void monitorLoadingPlayersWithCoordination() {
+        try {
+            long currentTime = System.currentTimeMillis();
+            Iterator<Map.Entry<UUID, PlayerLoadingState>> iterator = loadingStates.entrySet().iterator();
 
-        int savedCount = 0;
-        for (YakPlayer yakPlayer : new ArrayList<>(onlinePlayers.values())) {
-            try {
-                Player player = yakPlayer.getBukkitPlayer();
+            while (iterator.hasNext()) {
+                Map.Entry<UUID, PlayerLoadingState> entry = iterator.next();
+                UUID uuid = entry.getKey();
+                PlayerLoadingState state = entry.getValue();
 
-                if (player != null && player.isOnline()) {
-                    UUID uuid = player.getUniqueId();
-                    if (getPlayerState(uuid) == PlayerState.READY) {
-                        yakPlayer.updateInventory(player);
+                Player player = Bukkit.getPlayer(uuid);
+                if (player == null || !player.isOnline()) {
+                    iterator.remove();
+                    cleanupPlayerState(uuid, "player_offline");
+                    continue;
+                }
+
+                long loadingTime = currentTime - state.getStartTime();
+
+                // INTEGRATED: Extended timeout for coordination phases
+                long timeoutThreshold = 30000; // Base 30 seconds
+                LoadingPhase phase = state.getPhase();
+                if (phase == LoadingPhase.DEATH_COORDINATION || phase == LoadingPhase.COMBAT_COORDINATION) {
+                    timeoutThreshold = 60000; // 60 seconds for coordination
+                }
+
+                if (loadingTime > timeoutThreshold) {
+                    logger.warning("INTEGRATED: Player stuck in loading for " + loadingTime + "ms (phase: " + phase + "): " + state.getPlayerName());
+                    iterator.remove();
+                    handleLoadingFailure(player, state, new RuntimeException("Coordinated loading monitor timeout"));
+                }
+            }
+        } catch (Exception e) {
+            logger.log(Level.WARNING, "INTEGRATED: Error in coordinated loading monitor", e);
+        }
+    }
+
+    /**
+     * INTEGRATED: Monitor death and combat coordination
+     */
+    private void monitorDeathAndCombatCoordination() {
+        try {
+            long currentTime = System.currentTimeMillis();
+
+            // Monitor death processing timeouts
+            Iterator<Map.Entry<UUID, Long>> deathIterator = deathProcessingStartTimes.entrySet().iterator();
+            while (deathIterator.hasNext()) {
+                Map.Entry<UUID, Long> entry = deathIterator.next();
+                UUID uuid = entry.getKey();
+                long startTime = entry.getValue();
+
+                if (currentTime - startTime > 60000) { // 60 second timeout
+                    logger.warning("INTEGRATED: Death processing timeout for player: " + uuid);
+                    unmarkPlayerInDeathProcessing(uuid);
+                    coordinationTimeouts.incrementAndGet();
+                }
+            }
+
+            // Monitor combat logout processing timeouts
+            Iterator<Map.Entry<UUID, Long>> combatIterator = combatLogoutProcessingStartTimes.entrySet().iterator();
+            while (combatIterator.hasNext()) {
+                Map.Entry<UUID, Long> entry = combatIterator.next();
+                UUID uuid = entry.getKey();
+                long startTime = entry.getValue();
+
+                if (currentTime - startTime > 60000) { // 60 second timeout
+                    logger.warning("INTEGRATED: Combat logout processing timeout for player: " + uuid);
+                    unmarkPlayerInCombatLogoutProcessing(uuid);
+                    coordinationTimeouts.incrementAndGet();
+                }
+            }
+
+        } catch (Exception e) {
+            logger.log(Level.WARNING, "INTEGRATED: Error in death/combat coordination monitoring", e);
+        }
+    }
+
+    /**
+     * INTEGRATED: Emergency recovery with coordination awareness
+     */
+    private void performIntegratedEmergencyRecovery() {
+        try {
+            // Check for players stuck in bad states
+            for (Player player : Bukkit.getOnlinePlayers()) {
+                UUID uuid = player.getUniqueId();
+                PlayerState state = getPlayerState(uuid);
+
+                // Skip players in coordination states
+                if (isPlayerInDeathProcessing(uuid) || isPlayerInCombatLogoutProcessing(uuid)) {
+                    continue;
+                }
+
+                // Check for players stuck in spectator mode
+                if (player.getGameMode() == GameMode.SPECTATOR && state == PlayerState.READY) {
+                    YakPlayer yakPlayer = getPlayer(uuid);
+                    if (yakPlayer != null && !playersInRecovery.contains(uuid)) {
+                        logger.warning("INTEGRATED: Found player stuck in spectator mode: " + player.getName());
+                        playersInRecovery.add(uuid);
+
+                        Bukkit.getScheduler().runTaskLater(plugin, () -> {
+                            if (player.isOnline() && player.getGameMode() == GameMode.SPECTATOR) {
+                                logger.info("INTEGRATED: Performing spectator mode recovery for " + player.getName());
+                                performEmergencyPlayerRecovery(player);
+                            }
+                            playersInRecovery.remove(uuid);
+                        }, EMERGENCY_RECOVERY_DELAY);
                     }
                 }
 
-                yakPlayer.disconnect();
-                repository.saveSync(yakPlayer);
-                savedCount++;
+                // Check for players with invalid health
+                if (state == PlayerState.READY && (player.getHealth() <= 0 || player.getMaxHealth() <= 0)) {
+                    logger.warning("INTEGRATED: Found player with invalid health: " + player.getName() +
+                            " (Health: " + player.getHealth() + "/" + player.getMaxHealth() + ")");
 
-            } catch (Exception e) {
-                logger.log(Level.SEVERE, "Failed to save player on shutdown: " + yakPlayer.getUsername(), e);
+                    try {
+                        player.setMaxHealth(20.0);
+                        player.setHealth(20.0);
+                        logger.info("INTEGRATED: Fixed health for " + player.getName());
+                    } catch (Exception e) {
+                        logger.log(Level.WARNING, "INTEGRATED: Failed to fix health for " + player.getName(), e);
+                    }
+                }
             }
+        } catch (Exception e) {
+            logger.log(Level.WARNING, "INTEGRATED: Error in coordinated emergency recovery", e);
         }
-
-        logger.info("Shutdown save completed: " + savedCount + "/" + onlinePlayers.size() + " players saved");
     }
 
-    // ===============================================
-    // STATE MANAGEMENT
-    // ===============================================
-
-    private ReentrantReadWriteLock getPlayerStateLock(UUID playerId) {
-        if (playerId == null) {
-            logger.warning("Attempted to get state lock for null UUID");
-            return new ReentrantReadWriteLock();
+    // INTEGRATED: Death and combat coordination methods
+    public void markPlayerInDeathProcessing(UUID playerId) {
+        if (playerId != null) {
+            playersInDeathProcessing.add(playerId);
+            deathProcessingStartTimes.put(playerId, System.currentTimeMillis());
+            logger.info("INTEGRATED: Marked player as in death processing: " + playerId);
         }
+    }
+
+    public void unmarkPlayerInDeathProcessing(UUID playerId) {
+        if (playerId != null) {
+            playersInDeathProcessing.remove(playerId);
+            deathProcessingStartTimes.remove(playerId);
+            logger.info("INTEGRATED: Unmarked player from death processing: " + playerId);
+        }
+    }
+
+    public boolean isPlayerInDeathProcessing(UUID playerId) {
+        return playerId != null && playersInDeathProcessing.contains(playerId);
+    }
+
+    public void markPlayerInCombatLogoutProcessing(UUID playerId) {
+        if (playerId != null) {
+            playersInCombatLogoutProcessing.add(playerId);
+            combatLogoutProcessingStartTimes.put(playerId, System.currentTimeMillis());
+            logger.info("INTEGRATED: Marked player as in combat logout processing: " + playerId);
+        }
+    }
+
+    public void unmarkPlayerInCombatLogoutProcessing(UUID playerId) {
+        if (playerId != null) {
+            playersInCombatLogoutProcessing.remove(playerId);
+            combatLogoutProcessingStartTimes.remove(playerId);
+            logger.info("INTEGRATED: Unmarked player from combat logout processing: " + playerId);
+        }
+    }
+
+    public boolean isPlayerInCombatLogoutProcessing(UUID playerId) {
+        return playerId != null && playersInCombatLogoutProcessing.contains(playerId);
+    }
+
+    // Combat logout coordination (enhanced)
+    public void markPlayerEnteringCombatLogout(UUID playerId) {
+        if (playerId != null) {
+            markPlayerInCombatLogoutProcessing(playerId);
+            logger.info("INTEGRATED: Marked player as entering combat logout processing: " + playerId);
+        }
+    }
+
+    public void markPlayerFinishedCombatLogout(UUID playerId) {
+        if (playerId != null) {
+            unmarkPlayerInCombatLogoutProcessing(playerId);
+            logger.info("INTEGRATED: Completed combat logout processing for: " + playerId);
+        }
+    }
+
+    public YakPlayer getPlayerForCombatLogout(UUID playerId) {
+        return playerId != null ? onlinePlayers.get(playerId) : null;
+    }
+
+    // State management
+    private ReentrantReadWriteLock getPlayerStateLock(UUID playerId) {
         return playerStateLocks.computeIfAbsent(playerId, k -> new ReentrantReadWriteLock());
     }
 
@@ -1916,7 +1753,6 @@ public class YakPlayerManager implements Listener, CommandExecutor {
 
     public boolean setPlayerState(UUID playerId, PlayerState newState, String reason) {
         if (playerId == null || newState == null) {
-            logger.warning("Cannot set player state with null parameters");
             return false;
         }
 
@@ -1925,91 +1761,33 @@ public class YakPlayerManager implements Listener, CommandExecutor {
         try {
             PlayerState currentState = playerStates.get(playerId);
             playerStates.put(playerId, newState);
-            lastStateChange.put(playerId, System.currentTimeMillis());
-
-            logger.fine("State transition for " + playerId + ": " + currentState + " -> " + newState +
-                    " (" + reason + ")");
+            logger.fine("INTEGRATED: State transition for " + playerId + ": " + currentState + " -> " + newState + " (" + reason + ")");
             return true;
         } finally {
             lock.writeLock().unlock();
         }
     }
 
-    // ===============================================
-    // PLAYER STATE CLEANUP
-    // ===============================================
-
-    /**
-     * UPDATED: Cleanup with enhanced settings protection awareness
-     */
     private void cleanupPlayerState(UUID uuid, String reason) {
         try {
             PlayerLoadingState loadingState = loadingStates.remove(uuid);
-            if (loadingState != null) {
-                cancelMonitorTask(loadingState);
-            }
-
-            protectedPlayers.remove(uuid);
-            limboManager.removePlayerFromLimbo(uuid);
+            playersInRecovery.remove(uuid);
             setPlayerState(uuid, PlayerState.OFFLINE, reason);
 
+            // INTEGRATED: Clean up coordination state
+            unmarkPlayerInDeathProcessing(uuid);
+            unmarkPlayerInCombatLogoutProcessing(uuid);
+
+            // Clean up systems
             ModerationMechanics.rankMap.remove(uuid);
             ChatMechanics.getPlayerTags().remove(uuid);
 
-            // CRITICAL UPDATE: Don't clear pending settings on normal cleanup unless it's an actual quit
-            if (reason.equals("player_offline") || reason.equals("normal_player_quit")) {
-                // Only clear pending settings on actual quit, not on loading failures
-                pendingSettingsChanges.remove(uuid);
-                settingsChangeTimestamps.remove(uuid);
-            }
-
-            logger.fine("Cleaned up player state for " + uuid + " (reason: " + reason + ")");
+            logger.fine("INTEGRATED: Cleaned up player state for " + uuid + " (reason: " + reason + ")");
         } catch (Exception e) {
-            logger.log(Level.WARNING, "Error cleaning up player state for " + uuid, e);
+            logger.log(Level.WARNING, "INTEGRATED: Error cleaning up player state for " + uuid, e);
         }
     }
 
-    private void cleanupLoadingState(UUID uuid) {
-        cleanupPlayerState(uuid, "loading_completed");
-    }
-
-    // ===============================================
-    // PLAYER DATA OPERATIONS
-    // ===============================================
-
-    /**
-     * Save player with coordination and validation
-     */
-    public CompletableFuture<Boolean> savePlayer(YakPlayer yakPlayer) {
-        if (yakPlayer == null) {
-            return CompletableFuture.completedFuture(false);
-        }
-
-        return CompletableFuture.supplyAsync(() -> {
-            try {
-                Player bukkitPlayer = yakPlayer.getBukkitPlayer();
-                if (bukkitPlayer != null && bukkitPlayer.isOnline()) {
-                    UUID uuid = bukkitPlayer.getUniqueId();
-
-                    if (getPlayerState(uuid) == PlayerState.READY &&
-                            !playersInCombatLogoutProcessing.contains(uuid)) {
-                        yakPlayer.updateInventory(bukkitPlayer);
-                    }
-                }
-
-                YakPlayer result = repository.saveSync(yakPlayer);
-                return result != null;
-
-            } catch (Exception e) {
-                logger.log(Level.SEVERE, "Failed to save player: " + yakPlayer.getUsername(), e);
-                return false;
-            }
-        }, ioExecutor);
-    }
-
-    /**
-     * Execute operation on player with optional save
-     */
     public CompletableFuture<Boolean> withPlayer(UUID uuid, Consumer<YakPlayer> operation, boolean saveAfter) {
         if (uuid == null || operation == null) {
             return CompletableFuture.completedFuture(false);
@@ -2017,6 +1795,12 @@ public class YakPlayerManager implements Listener, CommandExecutor {
 
         return CompletableFuture.supplyAsync(() -> {
             try {
+                // INTEGRATED: Check coordination state before operation
+                if (isPlayerInDeathProcessing(uuid) || isPlayerInCombatLogoutProcessing(uuid)) {
+                    logger.warning("INTEGRATED: Skipping withPlayer operation due to coordination state: " + uuid);
+                    return false;
+                }
+
                 YakPlayer yakPlayer = getPlayer(uuid);
                 if (yakPlayer == null) {
                     return false;
@@ -2026,7 +1810,7 @@ public class YakPlayerManager implements Listener, CommandExecutor {
                 return true;
 
             } catch (Exception e) {
-                logger.log(Level.SEVERE, "Error in withPlayer operation for " + uuid, e);
+                logger.log(Level.SEVERE, "INTEGRATED: Error in withPlayer operation for " + uuid, e);
                 return false;
             }
         }, ioExecutor).thenCompose(success -> {
@@ -2044,252 +1828,121 @@ public class YakPlayerManager implements Listener, CommandExecutor {
         return withPlayer(uuid, operation, true);
     }
 
-    // ===============================================
-    // MANUAL COMBAT LOGOUT STATE RESET
-    // ===============================================
+    private void cleanupLoadingState(UUID uuid) {
+        cleanupPlayerState(uuid, "loading_completed");
+    }
 
-    /**
-     * Manual combat logout state reset by UUID
-     */
-    public boolean resetCombatLogoutState(UUID playerId) {
+    // Enhanced settings protection with guaranteed persistence
+    public boolean saveToggleSettingImmediate(UUID playerId, String toggleName, boolean enabled) {
+        if (playerId == null || toggleName == null) {
+            return false;
+        }
+
         try {
+            // INTEGRATED: Check coordination state before settings save
+            if (isPlayerInDeathProcessing(playerId) || isPlayerInCombatLogoutProcessing(playerId)) {
+                logger.info("INTEGRATED: Deferring settings save due to coordination state: " + playerId);
+                // Store as pending change
+                Map<String, Boolean> playerSettings = pendingSettingsChanges.computeIfAbsent(playerId,
+                        k -> new ConcurrentHashMap<>());
+                playerSettings.put(toggleName, enabled);
+                settingsChangeTimestamps.put(playerId, System.currentTimeMillis());
+                return true;
+            }
+
             YakPlayer yakPlayer = getPlayer(playerId);
 
             if (yakPlayer != null) {
-                // Player is online
-                return resetOnlinePlayerCombatLogoutState(yakPlayer);
-            } else {
-                // Player is offline, load from database
-                return resetOfflinePlayerCombatLogoutState(playerId);
-            }
-        } catch (Exception e) {
-            logger.log(Level.SEVERE, "MANUAL RESET: Error resetting combat logout state for " + playerId, e);
-            return false;
-        }
-    }
+                boolean currentState = yakPlayer.isToggled(toggleName);
+                if (currentState != enabled) {
+                    yakPlayer.toggleSetting(toggleName);
 
-    private boolean resetOnlinePlayerCombatLogoutState(YakPlayer yakPlayer) {
-        YakPlayer.CombatLogoutState currentState = yakPlayer.getCombatLogoutState();
-        if (currentState != YakPlayer.CombatLogoutState.NONE) {
-            yakPlayer.setCombatLogoutState(YakPlayer.CombatLogoutState.NONE);
-            savePlayer(yakPlayer);
-            logger.info("MANUAL RESET: Reset online player " + yakPlayer.getUsername() +
-                    " combat logout state from " + currentState + " to NONE");
-            return true;
-        } else {
-            logger.info("MANUAL RESET: Player " + yakPlayer.getUsername() + " already has NONE state");
-            return true;
-        }
-    }
+                    // GUARANTEED save with multiple attempts
+                    CompletableFuture.runAsync(() -> {
+                        int attempts = 0;
+                        boolean saved = false;
+                        while (attempts < 3 && !saved) {
+                            try {
+                                attempts++;
+                                YakPlayer result = repository.saveSync(yakPlayer);
+                                if (result != null) {
+                                    saved = true;
+                                    settingsProtectionSaves.incrementAndGet();
+                                    logger.fine("INTEGRATED: ✓ Settings save successful for " + toggleName + " (attempt " + attempts + ")");
+                                }
+                            } catch (Exception e) {
+                                logger.log(Level.SEVERE, "INTEGRATED: Settings save attempt " + attempts + " failed for " + toggleName, e);
+                                if (attempts < 3) {
+                                    try {
+                                        Thread.sleep(50 * attempts);
+                                    } catch (InterruptedException ie) {
+                                        Thread.currentThread().interrupt();
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        if (!saved) {
+                            logger.log(Level.SEVERE, "INTEGRATED: CRITICAL: All settings save attempts failed for " + toggleName);
+                        }
+                    }, saveExecutor);
 
-    private boolean resetOfflinePlayerCombatLogoutState(UUID playerId) {
-        try {
-            CompletableFuture<Optional<YakPlayer>> playerFuture = repository.findById(playerId);
-            Optional<YakPlayer> playerOpt = playerFuture.get(BAN_CHECK_TIMEOUT_SECONDS, TimeUnit.SECONDS);
-
-            if (playerOpt.isPresent()) {
-                YakPlayer offlinePlayer = playerOpt.get();
-                YakPlayer.CombatLogoutState currentState = offlinePlayer.getCombatLogoutState();
-
-                if (currentState != YakPlayer.CombatLogoutState.NONE) {
-                    offlinePlayer.setCombatLogoutState(YakPlayer.CombatLogoutState.NONE);
-                    repository.saveSync(offlinePlayer);
-                    logger.info("MANUAL RESET: Reset offline player " + offlinePlayer.getUsername() +
-                            " combat logout state from " + currentState + " to NONE");
-                    return true;
-                } else {
-                    logger.info("MANUAL RESET: Offline player " + offlinePlayer.getUsername() + " already has NONE state");
                     return true;
                 }
-            } else {
-                logger.warning("MANUAL RESET: No player data found for " + playerId);
-                return false;
-            }
-        } catch (Exception e) {
-            logger.log(Level.SEVERE, "MANUAL RESET: Error resetting offline player state for " + playerId, e);
-            return false;
-        }
-    }
-
-    /**
-     * Manual combat logout state reset by name
-     */
-    public boolean resetCombatLogoutState(String playerName) {
-        try {
-            YakPlayer yakPlayer = getPlayer(playerName);
-            if (yakPlayer != null) {
-                return resetCombatLogoutState(yakPlayer.getUUID());
+                return true;
             }
 
-            logger.warning("MANUAL RESET: Player " + playerName + " not online, need UUID for offline reset");
+            // Store pending change if player is loading
+            PlayerState state = getPlayerState(playerId);
+            if (state == PlayerState.LOADING) {
+                Map<String, Boolean> playerSettings = pendingSettingsChanges.computeIfAbsent(playerId,
+                        k -> new ConcurrentHashMap<>());
+                playerSettings.put(toggleName, enabled);
+                settingsChangeTimestamps.put(playerId, System.currentTimeMillis());
+                return true;
+            }
+
             return false;
 
         } catch (Exception e) {
-            logger.log(Level.SEVERE, "MANUAL RESET: Error resetting combat logout state for " + playerName, e);
+            logger.log(Level.SEVERE, "INTEGRATED: Error in immediate save for " + playerId, e);
             return false;
         }
     }
 
-    // ===============================================
-    // COMMAND HANDLING
-    // ===============================================
+    private void applyPendingSettingsChanges(UUID playerId, YakPlayer yakPlayer) {
+        Map<String, Boolean> pendingChanges = pendingSettingsChanges.remove(playerId);
+        settingsChangeTimestamps.remove(playerId);
 
-    @Override
-    public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
-        if (!(sender instanceof Player)) {
-            sender.sendMessage("Only players can use this command");
-            return true;
+        if (pendingChanges == null || pendingChanges.isEmpty()) {
+            return;
         }
 
-        Player player = (Player) sender;
+        logger.info("INTEGRATED: Applying " + pendingChanges.size() + " pending settings for " + yakPlayer.getUsername());
 
-        if (command.getName().equalsIgnoreCase("playerstate")) {
-            return handlePlayerStateCommand(player);
-        }
+        boolean hasChanges = false;
+        for (Map.Entry<String, Boolean> entry : pendingChanges.entrySet()) {
+            String toggleName = entry.getKey();
+            boolean desiredState = entry.getValue();
+            boolean currentState = yakPlayer.isToggled(toggleName);
 
-        if (command.getName().equalsIgnoreCase("resetcombatlogout")) {
-            return handleResetCombatLogoutCommand(player, args);
-        }
-
-        if (command.getName().equalsIgnoreCase("settingsprotection")) {
-            return handleSettingsProtectionCommand(player, args);
-        }
-
-        return false;
-    }
-
-    private boolean handlePlayerStateCommand(Player player) {
-        if (!player.hasPermission("yakrealms.admin")) {
-            player.sendMessage(ChatColor.RED + "No permission");
-            return true;
-        }
-
-        UUID uuid = player.getUniqueId();
-        PlayerState state = getPlayerState(uuid);
-        LoadingPhase phase = null;
-
-        PlayerLoadingState loadingState = loadingStates.get(uuid);
-        if (loadingState != null) {
-            phase = loadingState.getPhase();
-        }
-
-        sendPlayerStateDebugInfo(player, uuid, state, phase);
-        return true;
-    }
-
-    private void sendPlayerStateDebugInfo(Player player, UUID uuid, PlayerState state, LoadingPhase phase) {
-        player.sendMessage(ChatColor.YELLOW + "=== UPDATED PLAYER STATE DEBUG ===");
-        player.sendMessage(ChatColor.YELLOW + "State: " + state);
-        player.sendMessage(ChatColor.YELLOW + "Loading Phase: " + phase);
-        player.sendMessage(ChatColor.YELLOW + "In Limbo: " + limboManager.isPlayerInLimbo(uuid));
-        player.sendMessage(ChatColor.YELLOW + "Protected: " + protectedPlayers.contains(uuid));
-        player.sendMessage(ChatColor.YELLOW + "Combat Logout Rejoins: " + combatLogoutRejoins.get());
-        player.sendMessage(ChatColor.YELLOW + "Combat Logout Processing: " + playersInCombatLogoutProcessing.contains(uuid));
-        player.sendMessage(ChatColor.YELLOW + "Combat Logout Coordinations: " + combatLogoutCoordinations.get());
-
-        // UPDATED: Add enhanced settings debug info
-        SettingsProtectionStats stats = getSettingsProtectionStats();
-        player.sendMessage(ChatColor.YELLOW + "Settings Protection Saves: " + stats.protectionSaves);
-        player.sendMessage(ChatColor.YELLOW + "Pending Settings Applied: " + stats.pendingApplied);
-        player.sendMessage(ChatColor.YELLOW + "Emergency Settings Saves: " + stats.emergencySaves);
-        player.sendMessage(ChatColor.YELLOW + "Settings Protection Failures: " + stats.failures);
-        player.sendMessage(ChatColor.YELLOW + "Pending Settings Count: " + stats.pendingCount);
-
-        Map<String, Boolean> pendingSettings = getPendingSettings(uuid);
-        if (!pendingSettings.isEmpty()) {
-            player.sendMessage(ChatColor.YELLOW + "Your Pending Settings: " + pendingSettings.size());
-            for (Map.Entry<String, Boolean> entry : pendingSettings.entrySet()) {
-                player.sendMessage(ChatColor.GRAY + "  - " + entry.getKey() + ": " + entry.getValue());
+            if (currentState != desiredState) {
+                yakPlayer.toggleSetting(toggleName);
+                hasChanges = true;
             }
         }
 
-        YakPlayer yakPlayer = getPlayer(uuid);
-        if (yakPlayer != null) {
-            player.sendMessage(ChatColor.YELLOW + "Combat Logout State: " + yakPlayer.getCombatLogoutState());
+        if (hasChanges) {
+            try {
+                repository.saveSync(yakPlayer);
+                logger.info("INTEGRATED: Saved pending settings changes for " + yakPlayer.getUsername());
+            } catch (Exception e) {
+                logger.log(Level.SEVERE, "INTEGRATED: Failed to save pending changes", e);
+            }
         }
-
-        player.sendMessage(ChatColor.YELLOW + "========================================");
     }
 
-    private boolean handleResetCombatLogoutCommand(Player player, String[] args) {
-        if (!player.hasPermission("yakrealms.admin")) {
-            player.sendMessage(ChatColor.RED + "No permission");
-            return true;
-        }
-
-        if (args.length == 0) {
-            // Reset self
-            boolean success = resetCombatLogoutState(player.getUniqueId());
-            if (success) {
-                player.sendMessage(ChatColor.GREEN + "Reset your combat logout state to NONE");
-            } else {
-                player.sendMessage(ChatColor.RED + "Failed to reset your combat logout state");
-            }
-        } else {
-            // Reset specified player
-            String targetName = args[0];
-            boolean success = resetCombatLogoutState(targetName);
-            if (success) {
-                player.sendMessage(ChatColor.GREEN + "Reset " + targetName + "'s combat logout state to NONE");
-            } else {
-                player.sendMessage(ChatColor.RED + "Failed to reset " + targetName + "'s combat logout state");
-            }
-        }
-
-        return true;
-    }
-
-    /**
-     * UPDATED: Handle settings protection command
-     */
-    private boolean handleSettingsProtectionCommand(Player player, String[] args) {
-        if (!player.hasPermission("yakrealms.admin")) {
-            player.sendMessage(ChatColor.RED + "No permission");
-            return true;
-        }
-
-        if (args.length == 0) {
-            // Show stats
-            SettingsProtectionStats stats = getSettingsProtectionStats();
-            player.sendMessage(ChatColor.YELLOW + "=== SETTINGS PROTECTION STATS ===");
-            player.sendMessage(ChatColor.YELLOW + "Protection Saves: " + stats.protectionSaves);
-            player.sendMessage(ChatColor.YELLOW + "Pending Applied: " + stats.pendingApplied);
-            player.sendMessage(ChatColor.YELLOW + "Emergency Saves: " + stats.emergencySaves);
-            player.sendMessage(ChatColor.YELLOW + "Failures: " + stats.failures);
-            player.sendMessage(ChatColor.YELLOW + "Current Pending: " + stats.pendingCount);
-            player.sendMessage(ChatColor.YELLOW + "Pending Timestamps: " + stats.timestampCount);
-            return true;
-        }
-
-        if (args[0].equalsIgnoreCase("force")) {
-            // Force save settings
-            UUID targetUuid = player.getUniqueId();
-            if (args.length > 1) {
-                Player target = Bukkit.getPlayer(args[1]);
-                if (target != null) {
-                    targetUuid = target.getUniqueId();
-                } else {
-                    player.sendMessage(ChatColor.RED + "Player not found: " + args[1]);
-                    return true;
-                }
-            }
-
-            boolean success = forceSettingsSave(targetUuid);
-            if (success) {
-                player.sendMessage(ChatColor.GREEN + "Force saved settings successfully");
-            } else {
-                player.sendMessage(ChatColor.RED + "Failed to force save settings");
-            }
-            return true;
-        }
-
-        return true;
-    }
-
-    // ===============================================
-    // MESSAGE FORMATTING
-    // ===============================================
-
+    // Message formatting
     private String formatBanMessage(YakPlayer player) {
         if (!player.isBanned()) return null;
 
@@ -2302,7 +1955,6 @@ public class YakPlayerManager implements Listener, CommandExecutor {
             if (remaining > 0) {
                 message.append(ChatColor.GRAY).append("Expires in: ").append(ChatColor.WHITE).append(formatDuration(remaining));
             } else {
-                // Ban expired, clear it
                 player.setBanned(false);
                 player.setBanReason("");
                 player.setBanExpiry(0);
@@ -2330,13 +1982,16 @@ public class YakPlayerManager implements Listener, CommandExecutor {
     }
 
     private void updateJoinMessage(Player player, YakPlayer yakPlayer) {
-        String formattedName = yakPlayer.getFormattedDisplayName();
-        int onlineCount = Bukkit.getOnlinePlayers().size();
+        try {
+            String formattedName = yakPlayer.getFormattedDisplayName();
+            int onlineCount = Bukkit.getOnlinePlayers().size();
 
-        String joinMessage = createJoinMessage(formattedName, onlineCount);
-
-        if (joinMessage != null) {
-            Bukkit.broadcastMessage(joinMessage);
+            String joinMessage = createJoinMessage(formattedName, onlineCount);
+            if (joinMessage != null) {
+                Bukkit.broadcastMessage(joinMessage);
+            }
+        } catch (Exception e) {
+            logger.log(Level.WARNING, "INTEGRATED: Error updating join message", e);
         }
     }
 
@@ -2355,19 +2010,165 @@ public class YakPlayerManager implements Listener, CommandExecutor {
     }
 
     private void setQuitMessage(PlayerQuitEvent event, Player player, YakPlayer yakPlayer) {
-        if (yakPlayer != null) {
-            String formattedName = yakPlayer.getFormattedDisplayName();
-            event.setQuitMessage(ChatColor.RED + "⟨" + ChatColor.DARK_RED + "✧" + ChatColor.RED + "⟩ " + formattedName);
-        } else {
-            event.setQuitMessage(ChatColor.RED + "⟨" + ChatColor.DARK_RED + "✧" + ChatColor.RED + "⟩ " +
-                    ChatColor.GRAY + player.getName());
+        try {
+            if (yakPlayer != null) {
+                String formattedName = yakPlayer.getFormattedDisplayName();
+                event.setQuitMessage(ChatColor.RED + "⟨" + ChatColor.DARK_RED + "✧" + ChatColor.RED + "⟩ " + formattedName);
+            } else {
+                event.setQuitMessage(ChatColor.RED + "⟨" + ChatColor.DARK_RED + "✧" + ChatColor.RED + "⟩ " +
+                        ChatColor.GRAY + player.getName());
+            }
+        } catch (Exception e) {
+            logger.log(Level.WARNING, "INTEGRATED: Error setting quit message", e);
         }
     }
 
-    // ===============================================
-    // PUBLIC API METHODS
-    // ===============================================
+    // INTEGRATED Shutdown with coordination
+    public void onDisable() {
+        if (shutdownInProgress) return;
 
+        shutdownInProgress = true;
+        logger.info("INTEGRATED: Starting YakPlayerManager shutdown with coordinated save process...");
+
+        try {
+            // Cancel background tasks
+            if (autoSaveTask != null) autoSaveTask.cancel();
+            if (loadingMonitorTask != null) loadingMonitorTask.cancel();
+            if (emergencyRecoveryTask != null) emergencyRecoveryTask.cancel();
+            if (guaranteedSaveTask != null) guaranteedSaveTask.cancel();
+            if (coordinationMonitorTask != null) coordinationMonitorTask.cancel();
+
+            // INTEGRATED: Save all players with coordination
+            saveAllPlayersOnShutdownWithCoordination();
+
+            // Shutdown executors
+            ioExecutor.shutdown();
+            saveExecutor.shutdown();
+            coordinationExecutor.shutdown();
+            try {
+                if (!ioExecutor.awaitTermination(10, TimeUnit.SECONDS)) {
+                    ioExecutor.shutdownNow();
+                }
+                if (!saveExecutor.awaitTermination(15, TimeUnit.SECONDS)) {
+                    saveExecutor.shutdownNow();
+                }
+                if (!coordinationExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
+                    coordinationExecutor.shutdownNow();
+                }
+            } catch (InterruptedException e) {
+                ioExecutor.shutdownNow();
+                saveExecutor.shutdownNow();
+                coordinationExecutor.shutdownNow();
+                Thread.currentThread().interrupt();
+            }
+
+            // Shutdown repository
+            if (repository != null) {
+                repository.shutdown();
+            }
+
+            // Clear data structures
+            onlinePlayers.clear();
+            loadingStates.clear();
+            playerStates.clear();
+            playersInRecovery.clear();
+            playersInDeathProcessing.clear();
+            playersInCombatLogoutProcessing.clear();
+            deathProcessingStartTimes.clear();
+            combatLogoutProcessingStartTimes.clear();
+            pendingSettingsChanges.clear();
+            settingsChangeTimestamps.clear();
+            playerStateLocks.clear();
+
+            logger.info("INTEGRATED: YakPlayerManager shutdown completed with coordinated saves");
+
+        } catch (Exception e) {
+            logger.log(Level.SEVERE, "INTEGRATED: Error during shutdown", e);
+        } finally {
+            initialized = false;
+            systemHealthy = false;
+        }
+    }
+
+    /**
+     * INTEGRATED: Save all players on shutdown with coordination
+     */
+    private void saveAllPlayersOnShutdownWithCoordination() {
+        logger.info("INTEGRATED: Starting coordinated save for " + onlinePlayers.size() + " players on shutdown...");
+
+        int savedCount = 0;
+        int forcedInventoryUpdates = 0;
+        int coordinationSkips = 0;
+
+        for (YakPlayer yakPlayer : new ArrayList<>(onlinePlayers.values())) {
+            try {
+                Player player = yakPlayer.getBukkitPlayer();
+                UUID uuid = yakPlayer.getUUID();
+
+                // INTEGRATED: Check coordination state during shutdown
+                if (isPlayerInDeathProcessing(uuid) || isPlayerInCombatLogoutProcessing(uuid)) {
+                    logger.info("INTEGRATED: Skipping shutdown save for player in coordination: " + yakPlayer.getUsername());
+                    coordinationSkips++;
+                    continue;
+                }
+
+                if (player != null && player.isOnline()) {
+                    // FORCE inventory update
+                    try {
+                        yakPlayer.forceUpdateInventory(player);
+                        forcedInventoryUpdates++;
+                        logger.fine("INTEGRATED: ✓ Forced inventory update on shutdown for " + yakPlayer.getUsername());
+                    } catch (Exception e) {
+                        logger.log(Level.SEVERE, "INTEGRATED: Failed to force inventory update on shutdown for " + yakPlayer.getUsername(), e);
+                    }
+
+                    // Force stats update
+                    try {
+                        yakPlayer.updateStats(player);
+                    } catch (Exception e) {
+                        logger.log(Level.WARNING, "INTEGRATED: Failed to update stats on shutdown for " + yakPlayer.getUsername(), e);
+                    }
+                }
+
+                yakPlayer.disconnect();
+
+                // GUARANTEED save with multiple attempts
+                boolean saved = false;
+                for (int attempt = 1; attempt <= 3 && !saved; attempt++) {
+                    try {
+                        YakPlayer result = repository.saveSync(yakPlayer);
+                        if (result != null) {
+                            saved = true;
+                            savedCount++;
+                            logger.fine("INTEGRATED: ✓ Shutdown save successful (attempt " + attempt + ") for " + yakPlayer.getUsername());
+                        }
+                    } catch (Exception e) {
+                        logger.log(Level.SEVERE, "INTEGRATED: ✗ Shutdown save attempt " + attempt + " failed for " + yakPlayer.getUsername(), e);
+                        if (attempt < 3) {
+                            try {
+                                Thread.sleep(100 * attempt);
+                            } catch (InterruptedException ie) {
+                                Thread.currentThread().interrupt();
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                if (!saved) {
+                    logger.log(Level.SEVERE, "INTEGRATED: CRITICAL: All shutdown save attempts failed for " + yakPlayer.getUsername());
+                }
+
+            } catch (Exception e) {
+                logger.log(Level.SEVERE, "INTEGRATED: Failed to save player on shutdown: " + yakPlayer.getUsername(), e);
+            }
+        }
+
+        logger.info("INTEGRATED: Coordinated shutdown save completed: " + savedCount + "/" + onlinePlayers.size() +
+                " players saved, " + forcedInventoryUpdates + " forced inventory updates, " + coordinationSkips + " coordination skips");
+    }
+
+    // Public API methods
     public YakPlayer getPlayer(UUID uuid) {
         return uuid != null ? onlinePlayers.get(uuid) : null;
     }
@@ -2391,16 +2192,16 @@ public class YakPlayerManager implements Listener, CommandExecutor {
     }
 
     public boolean isPlayerProtected(UUID uuid) {
-        return protectedPlayers.contains(uuid) || getPlayerState(uuid) != PlayerState.READY;
+        PlayerState state = getPlayerState(uuid);
+        return state != PlayerState.READY || isPlayerInDeathProcessing(uuid) || isPlayerInCombatLogoutProcessing(uuid);
     }
 
     public boolean isPlayerLoading(UUID uuid) {
-        PlayerState state = getPlayerState(uuid);
-        return state == PlayerState.JOINING || state == PlayerState.LOADING || state == PlayerState.IN_LIMBO;
+        return getPlayerState(uuid) == PlayerState.LOADING;
     }
 
     public boolean isPlayerInVoidLimbo(UUID uuid) {
-        return limboManager.isPlayerInLimbo(uuid);
+        return false; // Simplified - no limbo system
     }
 
     public LoadingPhase getPlayerLoadingPhase(UUID uuid) {
@@ -2416,124 +2217,272 @@ public class YakPlayerManager implements Listener, CommandExecutor {
         return repository != null && repository.isInitialized();
     }
 
-    public boolean isShuttingDown() {
-        return shutdownInProgress;
-    }
-
-    /**
-     * UPDATED: Check if player is ready for subsystem operations with enhanced protection awareness
-     */
     public boolean isPlayerReady(Player player) {
         if (player == null) return false;
-
         UUID uuid = player.getUniqueId();
-        PlayerState state = getPlayerState(uuid);
-
-        // Player must be in READY state and not in any protected modes
-        return state == PlayerState.READY &&
-                !protectedPlayers.contains(uuid) &&
-                !limboManager.isPlayerInLimbo(uuid) &&
-                !playersInCombatLogoutProcessing.contains(uuid);
+        return getPlayerState(uuid) == PlayerState.READY &&
+                !isPlayerInDeathProcessing(uuid) &&
+                !isPlayerInCombatLogoutProcessing(uuid);
     }
 
-    // ===============================================
-    // ENHANCED STATISTICS AND MONITORING
-    // ===============================================
+    public boolean isPlayerFullyLoaded(UUID playerId) {
+        return getPlayerState(playerId) == PlayerState.READY;
+    }
 
-    /**
-     * UPDATED: Get comprehensive system statistics with enhanced settings protection metrics
-     */
-    public SystemStats getSystemStats() {
-        boolean yakPlayerManagerIntegrated = repository != null && repository.isInitialized();
-
-        int loadingPlayers = 0;
-        int protectedPlayers = 0;
-        int limboPlayers = 0;
-        if (yakPlayerManagerIntegrated) {
-            for (Player p : Bukkit.getOnlinePlayers()) {
-                UUID uuid = p.getUniqueId();
-                if (isPlayerLoading(uuid)) loadingPlayers++;
-                if (isPlayerProtected(uuid)) protectedPlayers++;
-                if (isPlayerInVoidLimbo(uuid)) limboPlayers++;
-            }
+    // Data operations
+    public CompletableFuture<Boolean> savePlayer(YakPlayer yakPlayer) {
+        if (yakPlayer == null) {
+            return CompletableFuture.completedFuture(false);
         }
 
-        SettingsProtectionStats settingsStats = getSettingsProtectionStats();
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                Player bukkitPlayer = yakPlayer.getBukkitPlayer();
+                UUID uuid = yakPlayer.getUUID();
 
+                // INTEGRATED: Check coordination state before save
+                if (isPlayerInDeathProcessing(uuid) || isPlayerInCombatLogoutProcessing(uuid)) {
+                    logger.info("INTEGRATED: Deferring save due to coordination state: " + yakPlayer.getUsername());
+                    return false;
+                }
+
+                if (bukkitPlayer != null && bukkitPlayer.isOnline()) {
+                    PlayerState state = getPlayerState(uuid);
+
+                    // FORCE update regardless of state for save operations
+                    try {
+                        yakPlayer.forceUpdateInventory(bukkitPlayer);
+                        yakPlayer.updateStats(bukkitPlayer);
+                    } catch (Exception e) {
+                        logger.log(Level.WARNING, "INTEGRATED: Error updating player data before save for " + yakPlayer.getUsername(), e);
+                    }
+                }
+
+                YakPlayer result = repository.saveSync(yakPlayer);
+                return result != null;
+
+            } catch (Exception e) {
+                logger.log(Level.SEVERE, "INTEGRATED: Failed to save player: " + yakPlayer.getUsername(), e);
+                return false;
+            }
+        }, saveExecutor);
+    }
+
+    // INTEGRATED Command handling with diagnostic tools
+    @Override
+    public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
+        if (!(sender instanceof Player)) {
+            sender.sendMessage("Only players can use this command");
+            return true;
+        }
+
+        Player player = (Player) sender;
+
+        if (command.getName().equalsIgnoreCase("playerstate")) {
+            if (!player.hasPermission("yakrealms.admin")) {
+                player.sendMessage(ChatColor.RED + "No permission");
+                return true;
+            }
+
+            UUID uuid = player.getUniqueId();
+            PlayerState state = getPlayerState(uuid);
+            LoadingPhase phase = null;
+
+            PlayerLoadingState loadingState = loadingStates.get(uuid);
+            if (loadingState != null) {
+                phase = loadingState.getPhase();
+            }
+
+            player.sendMessage(ChatColor.YELLOW + "=== INTEGRATED PLAYER STATE DEBUG ===");
+            player.sendMessage(ChatColor.YELLOW + "State: " + state);
+            player.sendMessage(ChatColor.YELLOW + "Loading Phase: " + phase);
+            player.sendMessage(ChatColor.YELLOW + "In Recovery: " + playersInRecovery.contains(uuid));
+            player.sendMessage(ChatColor.YELLOW + "Death Processing: " + isPlayerInDeathProcessing(uuid));
+            player.sendMessage(ChatColor.YELLOW + "Combat Logout Processing: " + isPlayerInCombatLogoutProcessing(uuid));
+            player.sendMessage(ChatColor.YELLOW + "Settings Protection Saves: " + settingsProtectionSaves.get());
+            player.sendMessage(ChatColor.YELLOW + "Emergency Recoveries: " + emergencyRecoveries.get());
+            player.sendMessage(ChatColor.YELLOW + "Guaranteed Saves: " + guaranteedSaves.get());
+            player.sendMessage(ChatColor.YELLOW + "Forced Inventory Saves: " + forcedInventorySaves.get());
+            player.sendMessage(ChatColor.YELLOW + "Save Failures: " + saveFailures.get());
+            player.sendMessage(ChatColor.YELLOW + "Death Coordinations: " + deathCoordinations.get());
+            player.sendMessage(ChatColor.YELLOW + "Combat Logout Coordinations: " + combatLogoutCoordinations.get());
+            player.sendMessage(ChatColor.YELLOW + "System Conflicts Detected: " + systemConflictsDetected.get());
+            player.sendMessage(ChatColor.YELLOW + "Coordination Timeouts: " + coordinationTimeouts.get());
+
+            YakPlayer yakPlayer = getPlayer(uuid);
+            if (yakPlayer != null) {
+                player.sendMessage(ChatColor.YELLOW + "Combat Logout State: " + yakPlayer.getCombatLogoutState());
+                player.sendMessage(ChatColor.YELLOW + "Health: " + player.getHealth() + "/" + player.getMaxHealth());
+                player.sendMessage(ChatColor.YELLOW + "Game Mode: " + player.getGameMode());
+                player.sendMessage(ChatColor.YELLOW + "Inventory Save Timestamp: " + yakPlayer.getInventorySaveTimestamp());
+                player.sendMessage(ChatColor.YELLOW + "Has Serialized Inventory: " + (yakPlayer.getSerializedInventory() != null && !yakPlayer.getSerializedInventory().isEmpty()));
+                player.sendMessage(ChatColor.YELLOW + "Has Respawn Items: " + yakPlayer.hasRespawnItems());
+            }
+
+            return true;
+        }
+
+        if (command.getName().equalsIgnoreCase("inventorydiag")) {
+            if (!player.hasPermission("yakrealms.admin")) {
+                player.sendMessage(ChatColor.RED + "No permission");
+                return true;
+            }
+
+            UUID uuid = player.getUniqueId();
+            YakPlayer yakPlayer = getPlayer(uuid);
+            PlayerState state = getPlayerState(uuid);
+
+            player.sendMessage(ChatColor.YELLOW + "=== INTEGRATED INVENTORY DIAGNOSTIC ===");
+            player.sendMessage(ChatColor.YELLOW + "Player State: " + state);
+            player.sendMessage(ChatColor.YELLOW + "Death Processing: " + isPlayerInDeathProcessing(uuid));
+            player.sendMessage(ChatColor.YELLOW + "Combat Logout Processing: " + isPlayerInCombatLogoutProcessing(uuid));
+            player.sendMessage(ChatColor.YELLOW + "YakPlayer Found: " + (yakPlayer != null));
+
+            if (yakPlayer != null) {
+                player.sendMessage(ChatColor.YELLOW + "Combat Logout State: " + yakPlayer.getCombatLogoutState());
+                player.sendMessage(ChatColor.YELLOW + "Has Serialized Inventory: " + (yakPlayer.getSerializedInventory() != null && !yakPlayer.getSerializedInventory().isEmpty()));
+                player.sendMessage(ChatColor.YELLOW + "Inventory Being Applied: " + yakPlayer.isInventoryBeingApplied());
+                player.sendMessage(ChatColor.YELLOW + "Inventory Save Timestamp: " + yakPlayer.getInventorySaveTimestamp());
+                player.sendMessage(ChatColor.YELLOW + "Has Respawn Items: " + yakPlayer.hasRespawnItems());
+
+                // Test FORCE save with coordination check
+                if (!isPlayerInDeathProcessing(uuid) && !isPlayerInCombatLogoutProcessing(uuid)) {
+                    try {
+                        player.sendMessage(ChatColor.GREEN + "Performing coordinated FORCE inventory update...");
+                        yakPlayer.forceUpdateInventory(player);
+                        repository.saveSync(yakPlayer);
+                        player.sendMessage(ChatColor.GREEN + "✓ Coordinated FORCE save completed successfully");
+                    } catch (Exception e) {
+                        player.sendMessage(ChatColor.RED + "✗ Coordinated FORCE save failed: " + e.getMessage());
+                        logger.log(Level.SEVERE, "INTEGRATED: Test force save failed for " + player.getName(), e);
+                    }
+                } else {
+                    player.sendMessage(ChatColor.YELLOW + "Skipping FORCE save test - player in coordination state");
+                }
+            }
+
+            return true;
+        }
+
+        if (command.getName().equalsIgnoreCase("coordinationdiag")) {
+            if (!player.hasPermission("yakrealms.admin")) {
+                player.sendMessage(ChatColor.RED + "No permission");
+                return true;
+            }
+
+            player.sendMessage(ChatColor.YELLOW + "=== COORDINATION DIAGNOSTIC ===");
+            player.sendMessage(ChatColor.YELLOW + "Death Mechanics Available: " + (deathMechanics != null));
+            player.sendMessage(ChatColor.YELLOW + "Combat Logout Mechanics Available: " + (combatLogoutMechanics != null));
+            player.sendMessage(ChatColor.YELLOW + "Players in Death Processing: " + playersInDeathProcessing.size());
+            player.sendMessage(ChatColor.YELLOW + "Players in Combat Logout Processing: " + playersInCombatLogoutProcessing.size());
+            player.sendMessage(ChatColor.YELLOW + "Total Death Coordinations: " + deathCoordinations.get());
+            player.sendMessage(ChatColor.YELLOW + "Total Combat Logout Coordinations: " + combatLogoutCoordinations.get());
+            player.sendMessage(ChatColor.YELLOW + "System Conflicts Detected: " + systemConflictsDetected.get());
+            player.sendMessage(ChatColor.YELLOW + "System Conflicts Resolved: " + systemConflictsResolved.get());
+            player.sendMessage(ChatColor.YELLOW + "Coordination Timeouts: " + coordinationTimeouts.get());
+
+            if (deathMechanics != null) {
+                try {
+                    String deathStats = deathMechanics.getPerformanceStats();
+                    player.sendMessage(ChatColor.YELLOW + "Death System: " + deathStats);
+                } catch (Exception e) {
+                    player.sendMessage(ChatColor.RED + "Error getting death system stats: " + e.getMessage());
+                }
+            }
+
+            if (combatLogoutMechanics != null) {
+                try {
+                    String combatStats = combatLogoutMechanics.getPerformanceStats();
+                    player.sendMessage(ChatColor.YELLOW + "Combat System: " + combatStats);
+                } catch (Exception e) {
+                    player.sendMessage(ChatColor.RED + "Error getting combat system stats: " + e.getMessage());
+                }
+            }
+
+            return true;
+        }
+
+        return false;
+    }
+
+    // INTEGRATED System statistics
+    public SystemStats getSystemStats() {
         return new SystemStats(
                 totalPlayerJoins.get(),
                 totalPlayerQuits.get(),
                 Bukkit.getOnlinePlayers().size(),
                 isSystemHealthy(),
                 systemHealthy,
-                yakPlayerManagerIntegrated,
-                loadingPlayers,
-                protectedPlayers,
-                limboPlayers,
+                isRepositoryReady(),
+                loadingStates.size(),
+                0, // No protected players in simplified system
+                0, // No limbo players in simplified system
                 successfulLoads.get(),
                 failedLoads.get(),
-                combatLogoutRejoins.get(),
+                0, // Combat logout rejoins handled separately
                 combatLogoutCoordinations.get(),
-                settingsStats
+                new SettingsProtectionStats(
+                        settingsProtectionSaves.get(),
+                        0,
+                        emergencyRecoveries.get(),
+                        saveFailures.get(),
+                        pendingSettingsChanges.size(),
+                        settingsChangeTimestamps.size()
+                ),
+                new CoordinationStats(
+                        deathCoordinations.get(),
+                        combatLogoutCoordinations.get(),
+                        systemConflictsDetected.get(),
+                        systemConflictsResolved.get(),
+                        coordinationTimeouts.get(),
+                        playersInDeathProcessing.size(),
+                        playersInCombatLogoutProcessing.size()
+                )
         );
     }
 
-    /**
-     * UPDATED: Get comprehensive performance report
-     */
-    public String getPerformanceReport() {
-        SystemStats stats = getSystemStats();
-        Runtime runtime = Runtime.getRuntime();
-        long totalMemory = runtime.totalMemory();
-        long freeMemory = runtime.freeMemory();
-        long usedMemory = totalMemory - freeMemory;
+    // Utility classes
+    public static class SystemStats {
+        public final int totalJoins;
+        public final int totalQuits;
+        public final int currentOnline;
+        public final boolean systemHealthy;
+        public final boolean systemsReady;
+        public final boolean yakPlayerManagerIntegrated;
+        public final int loadingPlayers;
+        public final int protectedPlayers;
+        public final int limboPlayers;
+        public final int successfulLoads;
+        public final int failedLoads;
+        public final int combatLogoutRejoins;
+        public final int combatLogoutCoordinations;
+        public final SettingsProtectionStats settingsStats;
+        public final CoordinationStats coordinationStats;
 
-        StringBuilder report = new StringBuilder();
-        report.append("=== UPDATED YakPlayerManager Performance Report ===\n");
-        report.append("System Status: ").append(stats.systemHealthy ? "HEALTHY" : "DEGRADED").append("\n");
-        report.append("Repository: ").append(stats.yakPlayerManagerIntegrated ? "READY" : "NOT READY").append("\n");
-        report.append("\n");
-        report.append("Player Statistics:\n");
-        report.append("  Online Players: ").append(stats.currentOnline).append("\n");
-        report.append("  Total Joins: ").append(stats.totalJoins).append("\n");
-        report.append("  Total Quits: ").append(stats.totalQuits).append("\n");
-        report.append("  Loading Players: ").append(stats.loadingPlayers).append("\n");
-        report.append("  Protected Players: ").append(stats.protectedPlayers).append("\n");
-        report.append("  Limbo Players: ").append(stats.limboPlayers).append("\n");
-        report.append("\n");
-        report.append("Loading Statistics:\n");
-        report.append("  Successful Loads: ").append(stats.successfulLoads).append("\n");
-        report.append("  Failed Loads: ").append(stats.failedLoads).append("\n");
-        report.append("  Success Rate: ").append(String.format("%.1f%%",
-                stats.totalJoins > 0 ? (double) stats.successfulLoads / stats.totalJoins * 100 : 0)).append("\n");
-        report.append("\n");
-        report.append("Combat Logout Coordination:\n");
-        report.append("  Rejoin Events: ").append(stats.combatLogoutRejoins).append("\n");
-        report.append("  Coordination Events: ").append(stats.combatLogoutCoordinations).append("\n");
-        report.append("\n");
-        report.append("ENHANCED Settings Protection:\n");
-        report.append("  Protection Saves: ").append(stats.settingsStats.protectionSaves).append("\n");
-        report.append("  Pending Applied: ").append(stats.settingsStats.pendingApplied).append("\n");
-        report.append("  Emergency Saves: ").append(stats.settingsStats.emergencySaves).append("\n");
-        report.append("  Failures: ").append(stats.settingsStats.failures).append("\n");
-        report.append("  Current Pending: ").append(stats.settingsStats.pendingCount).append("\n");
-        report.append("\n");
-        report.append("Memory Usage:\n");
-        report.append("  Used: ").append(usedMemory / 1024 / 1024).append(" MB\n");
-        report.append("  Total: ").append(totalMemory / 1024 / 1024).append(" MB\n");
-        report.append("  Usage: ").append(String.format("%.1f%%", (double) usedMemory / totalMemory * 100)).append("\n");
-        report.append("===============================================");
-
-        return report.toString();
+        SystemStats(int totalJoins, int totalQuits, int currentOnline, boolean systemHealthy,
+                    boolean systemsReady, boolean yakPlayerManagerIntegrated,
+                    int loadingPlayers, int protectedPlayers, int limboPlayers,
+                    int successfulLoads, int failedLoads, int combatLogoutRejoins,
+                    int combatLogoutCoordinations, SettingsProtectionStats settingsStats,
+                    CoordinationStats coordinationStats) {
+            this.totalJoins = totalJoins;
+            this.totalQuits = totalQuits;
+            this.currentOnline = currentOnline;
+            this.systemHealthy = systemHealthy;
+            this.systemsReady = systemsReady;
+            this.yakPlayerManagerIntegrated = yakPlayerManagerIntegrated;
+            this.loadingPlayers = loadingPlayers;
+            this.protectedPlayers = protectedPlayers;
+            this.limboPlayers = limboPlayers;
+            this.successfulLoads = successfulLoads;
+            this.failedLoads = failedLoads;
+            this.combatLogoutRejoins = combatLogoutRejoins;
+            this.combatLogoutCoordinations = combatLogoutCoordinations;
+            this.settingsStats = settingsStats;
+            this.coordinationStats = coordinationStats;
+        }
     }
 
-    // ===============================================
-    // UTILITY CLASSES
-    // ===============================================
-
-    /**
-     * UPDATED: Settings protection statistics class
-     */
     public static class SettingsProtectionStats {
         public final int protectionSaves;
         public final int pendingApplied;
@@ -2551,102 +2500,50 @@ public class YakPlayerManager implements Listener, CommandExecutor {
             this.pendingCount = pendingCount;
             this.timestampCount = timestampCount;
         }
-
-        @Override
-        public String toString() {
-            return String.format("SettingsProtectionStats{saves=%d, applied=%d, emergency=%d, failures=%d, pending=%d, timestamps=%d}",
-                    protectionSaves, pendingApplied, emergencySaves, failures, pendingCount, timestampCount);
-        }
     }
 
-    /**
-     * UPDATED: Enhanced system statistics class with settings protection metrics
-     */
-    public static class SystemStats {
-        public final int totalJoins;
-        public final int totalQuits;
-        public final int currentOnline;
-        public final boolean systemHealthy;
-        public final boolean systemsReady;
-        public final boolean yakPlayerManagerIntegrated;
-        public final int loadingPlayers;
-        public final int protectedPlayers;
-        public final int limboPlayers;
-        public final int successfulLoads;
-        public final int failedLoads;
-        public final int combatLogoutRejoins;
+    public static class CoordinationStats {
+        public final int deathCoordinations;
         public final int combatLogoutCoordinations;
-        public final SettingsProtectionStats settingsStats;
+        public final int systemConflictsDetected;
+        public final int systemConflictsResolved;
+        public final int coordinationTimeouts;
+        public final int currentDeathProcessing;
+        public final int currentCombatLogoutProcessing;
 
-        SystemStats(int totalJoins, int totalQuits, int currentOnline, boolean systemHealthy,
-                    boolean systemsReady, boolean yakPlayerManagerIntegrated,
-                    int loadingPlayers, int protectedPlayers, int limboPlayers,
-                    int successfulLoads, int failedLoads, int combatLogoutRejoins,
-                    int combatLogoutCoordinations, SettingsProtectionStats settingsStats) {
-            this.totalJoins = totalJoins;
-            this.totalQuits = totalQuits;
-            this.currentOnline = currentOnline;
-            this.systemHealthy = systemHealthy;
-            this.systemsReady = systemsReady;
-            this.yakPlayerManagerIntegrated = yakPlayerManagerIntegrated;
-            this.loadingPlayers = loadingPlayers;
-            this.protectedPlayers = protectedPlayers;
-            this.limboPlayers = limboPlayers;
-            this.successfulLoads = successfulLoads;
-            this.failedLoads = failedLoads;
-            this.combatLogoutRejoins = combatLogoutRejoins;
+        public CoordinationStats(int deathCoordinations, int combatLogoutCoordinations,
+                                 int systemConflictsDetected, int systemConflictsResolved,
+                                 int coordinationTimeouts, int currentDeathProcessing,
+                                 int currentCombatLogoutProcessing) {
+            this.deathCoordinations = deathCoordinations;
             this.combatLogoutCoordinations = combatLogoutCoordinations;
-            this.settingsStats = settingsStats;
-        }
-
-        @Override
-        public String toString() {
-            return String.format("SystemStats{joins=%d, quits=%d, online=%d, healthy=%s, ready=%s, " +
-                            "integrated=%s, loading=%d, protected=%d, limbo=%d, loads=%d/%d, combat=%d/%d, settings=%s}",
-                    totalJoins, totalQuits, currentOnline, systemHealthy, systemsReady,
-                    yakPlayerManagerIntegrated, loadingPlayers, protectedPlayers, limboPlayers,
-                    successfulLoads, failedLoads, combatLogoutRejoins, combatLogoutCoordinations, settingsStats);
+            this.systemConflictsDetected = systemConflictsDetected;
+            this.systemConflictsResolved = systemConflictsResolved;
+            this.coordinationTimeouts = coordinationTimeouts;
+            this.currentDeathProcessing = currentDeathProcessing;
+            this.currentCombatLogoutProcessing = currentCombatLogoutProcessing;
         }
     }
 
-    /**
-     * Player loading state tracker
-     */
     private static class PlayerLoadingState {
         private final UUID playerId;
         private final String playerName;
-        private long limboStartTime;
-        private volatile LoadingPhase phase = LoadingPhase.JOINING;
+        private final long startTime;
+        private volatile LoadingPhase phase = LoadingPhase.STARTING;
         private volatile YakPlayer yakPlayer;
-        private volatile BukkitTask monitorTask;
-
-        // Original state storage
-        private Location originalLocation;
-        private GameMode originalGameMode;
 
         public PlayerLoadingState(UUID playerId, String playerName) {
             this.playerId = playerId;
             this.playerName = playerName;
-            this.limboStartTime = System.currentTimeMillis();
+            this.startTime = System.currentTimeMillis();
         }
 
-        public void storeOriginalState(Player player) {
-            this.originalLocation = player.getLocation().clone();
-            this.originalGameMode = player.getGameMode();
-        }
-
-        // Getters and setters
         public UUID getPlayerId() { return playerId; }
         public String getPlayerName() { return playerName; }
-        public long getLimboStartTime() { return limboStartTime; }
+        public long getStartTime() { return startTime; }
         public LoadingPhase getPhase() { return phase; }
-        public void setLimboStartTime(long limboStartTime) { this.limboStartTime = limboStartTime; }
         public void setPhase(LoadingPhase phase) { this.phase = phase; }
         public YakPlayer getYakPlayer() { return yakPlayer; }
         public void setYakPlayer(YakPlayer yakPlayer) { this.yakPlayer = yakPlayer; }
-        public BukkitTask getMonitorTask() { return monitorTask; }
-        public void setMonitorTask(BukkitTask monitorTask) { this.monitorTask = monitorTask; }
-        public Location getOriginalLocation() { return originalLocation; }
-        public GameMode getOriginalGameMode() { return originalGameMode; }
     }
 }

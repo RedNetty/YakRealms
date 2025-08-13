@@ -3,6 +3,7 @@ package com.rednetty.server.mechanics.world.mobs.core;
 import com.rednetty.server.YakRealms;
 import org.bukkit.ChatColor;
 import org.bukkit.Location;
+import org.bukkit.Particle;
 import org.bukkit.Sound;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
@@ -145,7 +146,7 @@ public class WorldBoss extends EliteMob {
         if (!isValid()) return;
         lastPhaseChangeTime = System.currentTimeMillis();
         entity.getWorld().playSound(entity.getLocation(), Sound.ENTITY_ENDER_DRAGON_GROWL, 1.5f, 0.7f);
-        entity.getWorld().spawnParticle(org.bukkit.Particle.EXPLOSION_HUGE, entity.getLocation(), 5, 1, 1, 1, 0.1);
+        entity.getWorld().spawnParticle(org.bukkit.Particle.EXPLOSION, entity.getLocation(), 5, 1, 1, 1, 0.1);
         entity.addPotionEffect(new PotionEffect(PotionEffectType.GLOWING, 100, 0)); // Glow for 5 seconds
         broadcastMessage(ChatColor.YELLOW + "The " + getDisplayBossName() + " enters phase " + newPhase + "!", 50);
         applyPhaseEffects(newPhase);
@@ -172,7 +173,7 @@ public class WorldBoss extends EliteMob {
     public void activateBerserkMode() {
         if (berserkMode || !isValid()) return;
         berserkMode = true;
-        entity.addPotionEffect(new PotionEffect(PotionEffectType.INCREASE_DAMAGE, Integer.MAX_VALUE, 2, true));
+        entity.addPotionEffect(new PotionEffect(PotionEffectType.STRENGTH, Integer.MAX_VALUE, 2, true));
         entity.getWorld().playSound(entity.getLocation(), Sound.ENTITY_WITHER_SPAWN, 1.0f, 0.5f);
         broadcastMessage(ChatColor.RED + "The " + getDisplayBossName() + " has entered a berserk state!", 50);
     }
@@ -214,8 +215,8 @@ public class WorldBoss extends EliteMob {
         broadcastMessage(ChatColor.RED + getDisplayBossName() + " roars with rage!", 50);
         entity.getWorld().playSound(entity.getLocation(), Sound.ENTITY_ENDER_DRAGON_GROWL, 2.0f, 0.8f);
         getNearbyPlayers(15.0).forEach(p -> {
-            p.addPotionEffect(new PotionEffect(PotionEffectType.SLOW, 100, 2));
-            p.addPotionEffect(new PotionEffect(PotionEffectType.CONFUSION, 80, 1));
+            p.addPotionEffect(new PotionEffect(PotionEffectType.SLOWNESS, 100, 2));
+            p.addPotionEffect(new PotionEffect(PotionEffectType.NAUSEA, 80, 1));
         });
         return true;
     }
@@ -223,7 +224,7 @@ public class WorldBoss extends EliteMob {
     protected boolean executeStompAbility() {
         broadcastMessage(ChatColor.RED + "The ground shakes as " + getDisplayBossName() + " stomps!", 50);
         entity.getWorld().playSound(entity.getLocation(), Sound.ENTITY_GENERIC_EXPLODE, 1.5f, 0.5f);
-        entity.getWorld().spawnParticle(org.bukkit.Particle.EXPLOSION_LARGE, entity.getLocation(), 10, 3, 0.5, 3, 0.1);
+        entity.getWorld().spawnParticle(org.bukkit.Particle.EXPLOSION, entity.getLocation(), 10, 3, 0.5, 3, 0.1);
         getNearbyPlayers(8.0).forEach(p -> {
             double distance = p.getLocation().distance(entity.getLocation());
             double damage = Math.max(5, 20 - (distance * 2));
@@ -253,7 +254,7 @@ public class WorldBoss extends EliteMob {
         entity.getWorld().spawnParticle(org.bukkit.Particle.SNOWFLAKE, entity.getLocation(), 50, 5, 2, 5, 0.1);
 
         getNearbyPlayers(12.0).forEach(p -> {
-            p.addPotionEffect(new PotionEffect(PotionEffectType.SLOW, 200, 3));
+            p.addPotionEffect(new PotionEffect(PotionEffectType.SLOWNESS, 200, 3));
             p.damage(15 + (currentPhase * 5), entity);
         });
         return true;
@@ -264,7 +265,7 @@ public class WorldBoss extends EliteMob {
 
         broadcastMessage(ChatColor.GOLD + getDisplayBossName() + " shrouds the area in darkness!", 50);
         entity.getWorld().playSound(entity.getLocation(), Sound.ENTITY_WARDEN_SONIC_BOOM, 1.5f, 0.6f);
-        entity.getWorld().spawnParticle(org.bukkit.Particle.SMOKE_LARGE, entity.getLocation(), 80, 8, 3, 8, 0.2);
+        entity.getWorld().spawnParticle(org.bukkit.Particle.LARGE_SMOKE, entity.getLocation(), 80, 8, 3, 8, 0.2);
 
         getNearbyPlayers(15.0).forEach(p -> {
             p.addPotionEffect(new PotionEffect(PotionEffectType.BLINDNESS, 150, 0));
@@ -332,11 +333,11 @@ public class WorldBoss extends EliteMob {
                             loc.clone().add(0, 1, 0), 2, 0.3, 0.3, 0.3, 0.02);
                 }
                 case 2 -> {
-                    entity.getWorld().spawnParticle(org.bukkit.Particle.ENCHANTMENT_TABLE,
+                    entity.getWorld().spawnParticle(org.bukkit.Particle.ENCHANT,
                             loc.clone().add(0, 1, 0), 3, 0.5, 0.5, 0.5, 0.05);
                 }
                 case 3 -> {
-                    entity.getWorld().spawnParticle(org.bukkit.Particle.SPELL_WITCH,
+                    entity.getWorld().spawnParticle(org.bukkit.Particle.WITCH,
                             loc.clone().add(0, 1, 0), 4, 0.6, 0.6, 0.6, 0.1);
                 }
                 case 4 -> {
@@ -354,7 +355,7 @@ public class WorldBoss extends EliteMob {
                 entity.getWorld().spawnParticle(org.bukkit.Particle.SNOWFLAKE,
                         loc.clone().add(0, 1, 0), 1, 0.3, 0.3, 0.3, 0.02);
             } else if (isWardenType()) {
-                entity.getWorld().spawnParticle(org.bukkit.Particle.SMOKE_NORMAL,
+                entity.getWorld().spawnParticle(Particle.SMOKE,
                         loc.clone().add(0, 1, 0), 2, 0.2, 0.2, 0.2, 0.01);
             }
 
@@ -525,12 +526,12 @@ public class WorldBoss extends EliteMob {
                         Math.random() * 2,
                         (Math.random() - 0.5) * 4
                 );
-                entity.getWorld().spawnParticle(org.bukkit.Particle.EXPLOSION_HUGE,
+                entity.getWorld().spawnParticle(org.bukkit.Particle.EXPLOSION,
                         explosionLoc, 3, 0.5, 0.5, 0.5, 0.1);
             }
 
             // Celebration effects
-            entity.getWorld().spawnParticle(org.bukkit.Particle.FIREWORKS_SPARK,
+            entity.getWorld().spawnParticle(org.bukkit.Particle.FIREWORK,
                     loc.clone().add(0, 2, 0), 50, 3, 3, 3, 0.3);
 
             // Type-specific death effects
@@ -538,7 +539,7 @@ public class WorldBoss extends EliteMob {
                 entity.getWorld().spawnParticle(org.bukkit.Particle.SNOWFLAKE,
                         loc, 100, 5.0, 5.0, 5.0, 0.2);
             } else if (isWardenType()) {
-                entity.getWorld().spawnParticle(org.bukkit.Particle.SMOKE_LARGE,
+                entity.getWorld().spawnParticle(org.bukkit.Particle.LARGE_SMOKE,
                         loc, 50, 3.0, 3.0, 3.0, 0.2);
             }
 

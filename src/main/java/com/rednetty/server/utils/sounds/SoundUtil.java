@@ -395,7 +395,6 @@ public class SoundUtil {
                 return Sound.ENTITY_WOLF_HURT;
 
             case COW:
-            case MUSHROOM_COW:
                 return Sound.ENTITY_COW_HURT;
 
             case PIG:

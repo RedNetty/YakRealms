@@ -26,7 +26,7 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
- * FIXED: Complete moderation functionality including:
+ * Complete moderation functionality including:
  * - Comprehensive player ranks management with proper permission hierarchies
  * - Advanced banning and muting system with duration tracking
  * - Robust chat tag management with validation
@@ -95,7 +95,7 @@ public class ModerationMechanics implements Listener {
     }
 
     /**
-     * Enhanced initialization with performance monitoring
+     * initialization with performance monitoring
      */
     public void onEnable() {
         long startTime = System.currentTimeMillis();
@@ -139,7 +139,7 @@ public class ModerationMechanics implements Listener {
     }
 
     /**
-     * Enhanced cleanup with comprehensive data saving
+     * cleanup with comprehensive data saving
      */
     public void onDisable() {
         long startTime = System.currentTimeMillis();
@@ -200,7 +200,7 @@ public class ModerationMechanics implements Listener {
     }
 
     /**
-     * FIXED: Enhanced getPlayerRank method that ensures rank is loaded and prevents race conditions
+     * getPlayerRank method that ensures rank is loaded and prevents race conditions
      */
     public Rank getPlayerRank(UUID uuid) {
         // First check if rank is already loaded
@@ -258,7 +258,7 @@ public class ModerationMechanics implements Listener {
     }
 
     /**
-     * Enhanced rank saving with comprehensive error handling and retry logic
+     * rank saving with comprehensive error handling and retry logic
      */
     private void saveAllRanks() {
         YakPlayerRepository repository = YakPlayerManager.getInstance().getRepository();
@@ -319,7 +319,7 @@ public class ModerationMechanics implements Listener {
     }
 
     /**
-     * Enhanced player join handler with comprehensive initialization
+     * player join handler with comprehensive initialization
      */
     @EventHandler(priority = EventPriority.MONITOR)
     public void onPlayerJoin(PlayerJoinEvent event) {
@@ -375,7 +375,7 @@ public class ModerationMechanics implements Listener {
     }
 
     /**
-     * Enhanced player quit handler with comprehensive cleanup and data synchronization
+     * player quit handler with comprehensive cleanup and data synchronization
      */
     @EventHandler
     public void onPlayerQuit(PlayerQuitEvent event) {
@@ -585,7 +585,7 @@ public class ModerationMechanics implements Listener {
     }
 
     /**
-     * Enhanced:  permission setup with comprehensive rank-based permissions
+     *:  permission setup with comprehensive rank-based permissions
      */
     private void setupPermissions(Player player) {
         UUID uuid = player.getUniqueId();
@@ -814,7 +814,7 @@ public class ModerationMechanics implements Listener {
     }
 
     /**
-     * Enhanced rank checking methods with null safety
+     * rank checking methods with null safety
      */
     private boolean isPremiumDonator(Rank rank) {
         if (rank == null) return false;
@@ -869,7 +869,7 @@ public class ModerationMechanics implements Listener {
     }
 
     /**
-     * Enhanced utility methods for better functionality
+     * utility methods for better functionality
      */
 
     /**
@@ -884,7 +884,7 @@ public class ModerationMechanics implements Listener {
     }
 
     /**
-     * Enhanced getRank method with comprehensive error handling and caching
+     * getRank method with comprehensive error handling and caching
      */
     public static Rank getRank(Player player) {
         if (player == null) return Rank.DEFAULT;
@@ -957,7 +957,7 @@ public class ModerationMechanics implements Listener {
     }
 
     /**
-     * Enhanced setRank method with immediate permission updates and validation
+     * setRank method with immediate permission updates and validation
      */
     public void setRank(Player player, Rank rank) {
         if (player == null || rank == null) {
@@ -1009,7 +1009,7 @@ public class ModerationMechanics implements Listener {
     }
 
     /**
-     * Enhanced updateAndSaveRank with better error handling and retry logic
+     * updateAndSaveRank with better error handling and retry logic
      */
     public void updateAndSaveRank(UUID uuid, Rank rank, Runnable callback) {
         // Update the memory cache immediately
@@ -1127,7 +1127,7 @@ public class ModerationMechanics implements Listener {
     }
 
     /**
-     * Enhanced utility methods for staff management
+     * utility methods for staff management
      */
 
     /**
@@ -1153,7 +1153,7 @@ public class ModerationMechanics implements Listener {
     }
 
     /**
-     * Enhanced staff checking methods
+     * staff checking methods
      */
     public static boolean isStaff(Player player) {
         if (player == null) return false;
@@ -1200,7 +1200,7 @@ public class ModerationMechanics implements Listener {
     }
 
     /**
-     * Enhanced moderation methods with better error handling
+     * moderation methods with better error handling
      */
 
     public void banPlayer(UUID targetUuid, String reason, long durationSeconds, String banner) {
@@ -1282,7 +1282,7 @@ public class ModerationMechanics implements Listener {
     }
 
     /**
-     * Enhanced helper methods
+     * helper methods
      */
 
     private void unlockAllChatTags(Player player) {
@@ -1322,11 +1322,11 @@ public class ModerationMechanics implements Listener {
     }
 
     /**
-     * Enhanced   cleanup and utility methods with proper validation
+     *   cleanup and utility methods with proper validation
      */
 
     /**
-     * Enhanced Safe permission attachment cleanup with comprehensive validation
+     * Safe permission attachment cleanup with comprehensive validation
      */
     private void cleanupPermissionAttachment(UUID uuid, Player player) {
         try {
@@ -1340,7 +1340,7 @@ public class ModerationMechanics implements Listener {
     }
 
     /**
-     * Enhanced Safely remove permission attachment with proper validation
+     * Safely remove permission attachment with proper validation
      */
     private void cleanupPermissionAttachmentSafely(UUID uuid, Player player, PermissionAttachment attachment) {
         try {

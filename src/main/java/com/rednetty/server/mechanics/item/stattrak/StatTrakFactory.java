@@ -47,7 +47,7 @@ public class StatTrakFactory {
             meta.setLore(lore);
 
             // Add enchantment glow
-            meta.addEnchant(Enchantment.DURABILITY, 1, true);
+            meta.addEnchant(Enchantment.UNBREAKING, 1, true);
             meta.addItemFlags(ItemFlag.HIDE_ENCHANTS);
 
             tracker.setItemMeta(meta);
@@ -90,7 +90,7 @@ public class StatTrakFactory {
             meta.setLore(lore);
 
             // Add enchantment glow
-            meta.addEnchant(Enchantment.DURABILITY, 1, true);
+            meta.addEnchant(Enchantment.UNBREAKING, 1, true);
             meta.addItemFlags(ItemFlag.HIDE_ENCHANTS);
 
             tracker.setItemMeta(meta);

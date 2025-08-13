@@ -373,7 +373,7 @@ public class DashMechanics implements Listener {
         } else if (weaponType.contains("AXE")) {
             player.getWorld().spawnParticle(Particle.LAVA, loc, 2, 0.2, 0.2, 0.2, 0);
         } else if (weaponType.contains("HOE")) {
-            player.getWorld().spawnParticle(Particle.ENCHANTMENT_TABLE, loc, 10, 0.5, 0.5, 0.5, 1);
+            player.getWorld().spawnParticle(Particle.ENCHANT, loc, 10, 0.5, 0.5, 0.5, 1);
         }
     }
 
@@ -406,7 +406,7 @@ public class DashMechanics implements Listener {
         player.getWorld().playSound(player.getLocation(), Sound.ENTITY_ENDERMAN_TELEPORT, 1.0f, 1.5f);
         player.getWorld().playSound(player.getLocation(), Sound.ENTITY_FIREWORK_ROCKET_BLAST, 0.7f, 2.0f);
 
-        player.getWorld().spawnParticle(Particle.EXPLOSION_NORMAL, player.getLocation().add(0, 1, 0), 10, 0.5, 0.5, 0.5, 0.1);
+        player.getWorld().spawnParticle(Particle.EXPLOSION, player.getLocation().add(0, 1, 0), 10, 0.5, 0.5, 0.5, 0.1);
     }
 
     private void playDashCompleteEffects(Player player) {
@@ -415,7 +415,7 @@ public class DashMechanics implements Listener {
 
     private void playDashFailedEffects(Player player) {
         player.getWorld().playSound(player.getLocation(), Sound.ENTITY_PLAYER_HURT, 0.5f, 0.8f);
-        player.getWorld().spawnParticle(Particle.SMOKE_NORMAL, player.getLocation().add(0, 1, 0), 5, 0.3, 0.3, 0.3, 0.05);
+        player.getWorld().spawnParticle(Particle.SMOKE, player.getLocation().add(0, 1, 0), 5, 0.3, 0.3, 0.3, 0.05);
     }
 
     /**

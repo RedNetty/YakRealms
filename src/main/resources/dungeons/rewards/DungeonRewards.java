@@ -20,7 +20,7 @@ import java.util.logging.Logger;
 import java.util.stream.Collectors;
 
 /**
- * : Complete Dungeon Reward Distribution System
+ * Complete Dungeon Reward Distribution System
  *
  * Manages all aspects of reward distribution for dungeon completion,
  * including mob spawning rewards, item drops, experience, and currency.

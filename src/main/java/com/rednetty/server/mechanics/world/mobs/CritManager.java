@@ -282,7 +282,7 @@ public class CritManager {
 
             // Occasional glow effect
             if (entity.getTicksLived() % 60 == 0) { // Every 3 seconds
-                entity.getWorld().spawnParticle(Particle.SPELL_WITCH,
+                entity.getWorld().spawnParticle(Particle.WITCH,
                         entity.getLocation().add(0, 1.5, 0), 5, 0.5, 0.5, 0.5, 0.1);
             }
         } catch (Exception e) {
@@ -382,12 +382,12 @@ public class CritManager {
                 // Elite: Creeper priming sound at 4.0f pitch for countdown start
                 entity.getWorld().playSound(entity.getLocation(), Sound.ENTITY_CREEPER_PRIMED, 1.0f, 4.0f);
                 // Large explosion particles for countdown warning
-                entity.getWorld().spawnParticle(Particle.EXPLOSION_LARGE,
+                entity.getWorld().spawnParticle(Particle.EXPLOSION,
                         entity.getLocation().add(0, 1, 0), 40, 0.3, 0.3, 0.3, 0.3f);
             } else {
                 // Normal: Different sound and effects for instant charge
                 entity.getWorld().playSound(entity.getLocation(), Sound.BLOCK_NOTE_BLOCK_BELL, 1.0f, 1.0f);
-                entity.getWorld().spawnParticle(Particle.SPELL_WITCH,
+                entity.getWorld().spawnParticle(Particle.WITCH,
                         entity.getLocation().add(0, 1.5, 0), 30, 0.5, 0.5, 0.5, 0.1);
                 entity.getWorld().spawnParticle(Particle.CRIT,
                         entity.getLocation().add(0, 1, 0), 15, 0.5, 0.5, 0.5, 0.1);
@@ -410,8 +410,8 @@ public class CritManager {
                 double maxHealth = entity.getMaxHealth();
 
                 // Remove own slow effect first
-                if (entity.hasPotionEffect(PotionEffectType.SLOW)) {
-                    entity.removePotionEffect(PotionEffectType.SLOW);
+                if (entity.hasPotionEffect(PotionEffectType.SLOWNESS)) {
+                    entity.removePotionEffect(PotionEffectType.SLOWNESS);
                 }
 
                 // Check health threshold for speed effect
@@ -423,18 +423,18 @@ public class CritManager {
                     entity.addPotionEffect(new PotionEffect(PotionEffectType.SPEED, 25, 0), true);
                 } else {
                     // Above threshold: stays slow
-                    entity.addPotionEffect(new PotionEffect(PotionEffectType.SLOW, 25, 0), true);
+                    entity.addPotionEffect(new PotionEffect(PotionEffectType.SLOWNESS, 25, 0), true);
                 }
 
                 // Slow nearby players (legacy: within 8 blocks, level 1 slow)
                 List<Player> nearbyPlayers = getNearbyPlayers(entity, 8.0);
                 for (Player player : nearbyPlayers) {
-                    player.addPotionEffect(new PotionEffect(PotionEffectType.SLOW, 25, 1), true);
+                    player.addPotionEffect(new PotionEffect(PotionEffectType.SLOWNESS, 25, 1), true);
                 }
             } else {
                 // Regular elites: Complete immobilization (legacy exact)
-                entity.addPotionEffect(new PotionEffect(PotionEffectType.SLOW, Integer.MAX_VALUE, 10, true, false));
-                entity.addPotionEffect(new PotionEffect(PotionEffectType.JUMP, Integer.MAX_VALUE, 127, true, false));
+                entity.addPotionEffect(new PotionEffect(PotionEffectType.SLOWNESS, Integer.MAX_VALUE, 10, true, false));
+                entity.addPotionEffect(new PotionEffect(PotionEffectType.JUMP_BOOST, Integer.MAX_VALUE, 127, true, false));
             }
         } catch (Exception e) {
             logger.warning("[CritManager] Failed to apply elite immobilization: " + e.getMessage());
@@ -447,7 +447,7 @@ public class CritManager {
     private void showCountdownWarningEffects(LivingEntity entity, CritState state) {
         try {
             // Elite effects: Large explosions (legacy style)
-            entity.getWorld().spawnParticle(Particle.EXPLOSION_LARGE,
+            entity.getWorld().spawnParticle(Particle.EXPLOSION,
                     entity.getLocation().add(0, 1, 0), 10, 0.3, 0.3, 0.3, 0.1f);
         } catch (Exception e) {
             // Silent fail for effects
@@ -462,7 +462,7 @@ public class CritManager {
             // Elite: Creeper priming sound at 4.0f pitch (legacy exact)
             entity.getWorld().playSound(entity.getLocation(), Sound.ENTITY_CREEPER_PRIMED, 1.0f, 4.0f);
             // Large explosion particles (40 count, 0.3f spread - legacy exact)
-            entity.getWorld().spawnParticle(Particle.EXPLOSION_LARGE,
+            entity.getWorld().spawnParticle(Particle.EXPLOSION,
                     entity.getLocation().add(0, 1, 0), 40, 0.3, 0.3, 0.3, 0.3f);
         } catch (Exception e) {
             // Silent fail
@@ -532,18 +532,18 @@ public class CritManager {
             LivingEntity entity = mob.getEntity();
 
             // Remove all immobilization effects
-            if (entity.hasPotionEffect(PotionEffectType.SLOW)) {
-                entity.removePotionEffect(PotionEffectType.SLOW);
+            if (entity.hasPotionEffect(PotionEffectType.SLOWNESS)) {
+                entity.removePotionEffect(PotionEffectType.SLOWNESS);
 
                 // Reapply normal slow for staff users (legacy behavior)
                 if (entity.getEquipment() != null &&
                         entity.getEquipment().getItemInMainHand() != null &&
                         entity.getEquipment().getItemInMainHand().getType().name().contains("_HOE")) {
-                    entity.addPotionEffect(new PotionEffect(PotionEffectType.SLOW, Integer.MAX_VALUE, 3), true);
+                    entity.addPotionEffect(new PotionEffect(PotionEffectType.SLOWNESS, Integer.MAX_VALUE, 3), true);
                 }
             }
-            if (entity.hasPotionEffect(PotionEffectType.JUMP)) {
-                entity.removePotionEffect(PotionEffectType.JUMP);
+            if (entity.hasPotionEffect(PotionEffectType.JUMP_BOOST)) {
+                entity.removePotionEffect(PotionEffectType.JUMP_BOOST);
             }
             if (entity.hasPotionEffect(PotionEffectType.GLOWING)) {
                 entity.removePotionEffect(PotionEffectType.GLOWING);
@@ -719,7 +719,7 @@ public class CritManager {
             entity.getWorld().playSound(loc, Sound.ENTITY_GENERIC_EXPLODE, 1.0f, 0.5f);
 
             // Huge explosion particles (40 count, 1.0f spread - legacy exact)
-            entity.getWorld().spawnParticle(Particle.EXPLOSION_HUGE,
+            entity.getWorld().spawnParticle(Particle.EXPLOSION,
                     loc.clone().add(0, 1, 0), 40, 1.0, 1.0, 1.0, 1.0f);
 
             // Additional visual effects
@@ -760,7 +760,7 @@ public class CritManager {
         } else {
             // Updated: Normal mob boom sound (as requested)
             victim.getWorld().playSound(victim.getLocation(), Sound.ENTITY_GENERIC_EXPLODE, 1.0f, 1.0f);
-            victim.getWorld().spawnParticle(Particle.EXPLOSION_LARGE,
+            victim.getWorld().spawnParticle(Particle.EXPLOSION,
                     victim.getLocation().add(0, 1, 0), 10, 0.5, 0.5, 0.5, 0.1);
         }
 
@@ -848,11 +848,11 @@ public class CritManager {
 
                 // Clean up effects for elites only (normal mobs don't get immobilized)
                 if (state.isElite()) {
-                    if (livingEntity.hasPotionEffect(PotionEffectType.SLOW)) {
-                        livingEntity.removePotionEffect(PotionEffectType.SLOW);
+                    if (livingEntity.hasPotionEffect(PotionEffectType.SLOWNESS)) {
+                        livingEntity.removePotionEffect(PotionEffectType.SLOWNESS);
                     }
-                    if (livingEntity.hasPotionEffect(PotionEffectType.JUMP)) {
-                        livingEntity.removePotionEffect(PotionEffectType.JUMP);
+                    if (livingEntity.hasPotionEffect(PotionEffectType.JUMP_BOOST)) {
+                        livingEntity.removePotionEffect(PotionEffectType.JUMP_BOOST);
                     }
                 }
 

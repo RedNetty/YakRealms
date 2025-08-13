@@ -648,9 +648,9 @@ public class GamblerMenu implements Listener {
                 Location particleLoc = loc.clone().add(x, 0.2, z);
 
                 if (i % 30 == 0) {
-                    world.spawnParticle(Particle.SPELL_WITCH, particleLoc, 5, 0.1, 0.1, 0.1, 0.01);
+                    world.spawnParticle(Particle.WITCH, particleLoc, 5, 0.1, 0.1, 0.1, 0.01);
                 } else {
-                    world.spawnParticle(Particle.SPELL_MOB, particleLoc, 1, 0, 0, 0, 0);
+                    world.spawnParticle(Particle.ENTITY_EFFECT, particleLoc, 1, 0, 0, 0, 0);
                 }
             }
         }
@@ -682,7 +682,7 @@ public class GamblerMenu implements Listener {
                         dustOptions = new Particle.DustOptions(Color.AQUA, 1.0f);
                     }
 
-                    player.getWorld().spawnParticle(Particle.REDSTONE, effectLoc, 1, 0, 0, 0, 0, dustOptions);
+                    player.getWorld().spawnParticle(Particle.DUST, effectLoc, 1, 0, 0, 0, 0, dustOptions);
 
                     // Add ambient sound for dice shaking
                     if (Math.random() < 0.3) {
@@ -710,7 +710,7 @@ public class GamblerMenu implements Listener {
                 double z = (i & 4) == 0 ? -0.3 : 0.3;
 
                 Location cornerLoc = loc.clone().add(x, y, z);
-                player.getWorld().spawnParticle(Particle.REDSTONE, cornerLoc, 10, 0.1, 0.1, 0.1, 0, dustOptions);
+                player.getWorld().spawnParticle(Particle.DUST, cornerLoc, 10, 0.1, 0.1, 0.1, 0, dustOptions);
             }
 
             // Sound of dice rolling
@@ -749,11 +749,11 @@ public class GamblerMenu implements Listener {
 
                         // Gold/yellow particles for win
                         Particle.DustOptions dustOptions = new Particle.DustOptions(Color.YELLOW, 1.5f);
-                        player.getWorld().spawnParticle(Particle.REDSTONE, particleLoc, 1, 0, 0, 0, 0, dustOptions);
+                        player.getWorld().spawnParticle(Particle.DUST, particleLoc, 1, 0, 0, 0, 0, dustOptions);
 
                         // Add some sparkle
                         if (count % 3 == 0) {
-                            player.getWorld().spawnParticle(Particle.SPELL_INSTANT, particleLoc, 3, 0.1, 0.1, 0.1, 0.02);
+                            player.getWorld().spawnParticle(Particle.INSTANT_EFFECT, particleLoc, 3, 0.1, 0.1, 0.1, 0.02);
                         }
                     }
 
@@ -801,7 +801,7 @@ public class GamblerMenu implements Listener {
 
                         // Golden beam
                         Particle.DustOptions dustOptions = new Particle.DustOptions(Color.fromRGB(255, 215, 0), 1.0f);
-                        player.getWorld().spawnParticle(Particle.REDSTONE, beamLoc, 1, 0, 0, 0, 0, dustOptions);
+                        player.getWorld().spawnParticle(Particle.DUST, beamLoc, 1, 0, 0, 0, 0, dustOptions);
                     }
 
                     count++;
@@ -878,11 +878,11 @@ public class GamblerMenu implements Listener {
                         Location particleLoc = loc.clone().add(x, 0.5 + Math.random(), z);
                         Particle.DustOptions redDust = new Particle.DustOptions(Color.RED, 1.0f);
 
-                        player.getWorld().spawnParticle(Particle.REDSTONE, particleLoc, 1, 0, 0, 0, 0, redDust);
+                        player.getWorld().spawnParticle(Particle.DUST, particleLoc, 1, 0, 0, 0, 0, redDust);
 
                         // Add some smoke for dramatic effect
                         if (finalI % 4 == 0) {
-                            player.getWorld().spawnParticle(Particle.SMOKE_NORMAL, particleLoc, 1, 0.1, 0.1, 0.1, 0.01);
+                            player.getWorld().spawnParticle(Particle.SMOKE, particleLoc, 1, 0.1, 0.1, 0.1, 0.01);
                         }
                     }
                 }.runTaskLater(plugin, i / 2L);

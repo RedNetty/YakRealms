@@ -157,11 +157,11 @@ public class InventoryUtils {
                 YakRealms.log("Collected from offhand: " + getItemDisplayName(offhand));
             }
 
-            YakRealms.log("FIXED: Total items collected: " + allItems.size());
+            YakRealms.log(": Total items collected: " + allItems.size());
             return allItems;
 
         } catch (Exception e) {
-            YakRealms.error("FIXED: Error collecting player items", e);
+            YakRealms.error(": Error collecting player items", e);
             return allItems; // Return what we managed to collect
         }
     }
@@ -274,7 +274,7 @@ public class InventoryUtils {
     }
 
     /**
-     * : Create safe item copy to prevent reference issues
+     * Create safe item copy to prevent reference issues
      */
     public static ItemStack createSafeCopy(ItemStack original) {
         if (!isValidItem(original)) {
@@ -312,7 +312,7 @@ public class InventoryUtils {
     // ==================== ITEM TYPE DETECTION ====================
 
     /**
-     * : armor item detection for Spigot 1.20.4
+     * armor item detection for Spigot 1.20.4
      */
     public static boolean isArmorItem(ItemStack item) {
         if (!isValidItem(item)) {
@@ -322,7 +322,7 @@ public class InventoryUtils {
     }
 
     /**
-     * : weapon item detection for Spigot 1.20.4
+     * weapon item detection for Spigot 1.20.4
      */
     public static boolean isWeaponItem(ItemStack item) {
         if (!isValidItem(item)) {
@@ -587,7 +587,7 @@ public class InventoryUtils {
     // ==================== ITEM COMPARISON ====================
 
     /**
-     * : item comparison for first hotbar item detection
+     * item comparison for first hotbar item detection
      */
     public static boolean isSameItem(ItemStack item1, ItemStack item2) {
         if (item1 == null || item2 == null) {
@@ -621,7 +621,7 @@ public class InventoryUtils {
     // ==================== DISPLAY AND FORMATTING ====================
 
     /**
-     * : item display name extraction
+     * item display name extraction
      */
     public static String getItemDisplayName(ItemStack item) {
         if (!isValidItem(item)) {
@@ -696,7 +696,7 @@ public class InventoryUtils {
     // ==================== ALIGNMENT-BASED ITEM RETENTION ====================
 
     /**
-     * : Determine if item should be kept based on alignment with comprehensive logic
+     * Determine if item should be kept based on alignment with comprehensive logic
      */
     public static boolean determineIfItemShouldBeKept(ItemStack item, String alignment, Player player,
                                                       ItemStack firstHotbarItem, boolean neutralShouldDropArmor,

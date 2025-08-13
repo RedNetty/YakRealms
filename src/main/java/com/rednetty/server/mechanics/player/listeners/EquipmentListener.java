@@ -25,7 +25,7 @@ import java.util.List;
 import java.util.Random;
 
 /**
- * FIXED EquipmentListener - Properly coordinates with DeathMechanics respawn system
+ *  EquipmentListener - Properly coordinates with DeathMechanics respawn system
  *
  * CRITICAL FIXES:
  * - Changed timing to run AFTER DeathMechanics completely finishes
@@ -44,11 +44,11 @@ public class EquipmentListener extends BaseListener {
 
     @Override
     public void initialize() {
-        logger.info("FIXED Equipment listener initialized with improved death mechanics coordination");
+        logger.info(" Equipment listener initialized with improved death mechanics coordination");
     }
 
     /**
-     * FIXED: Only provide starter kit when appropriate - not during respawn with kept items
+     * Only provide starter kit when appropriate - not during respawn with kept items
      */
     public static void provideStarterKit(Player player) {
         // Check if kit is disabled
@@ -59,7 +59,7 @@ public class EquipmentListener extends BaseListener {
         YakPlayer yakPlayer = YakPlayerManager.getInstance().getPlayer(player);
         if (yakPlayer == null) return;
 
-        YakRealms.log("FIXED: Providing starter kit to " + player.getName());
+        YakRealms.log(": Providing starter kit to " + player.getName());
 
         PlayerInventory inventory = player.getInventory();
 
@@ -140,7 +140,7 @@ public class EquipmentListener extends BaseListener {
                             System.currentTimeMillis() - deathTimestamp : Long.MAX_VALUE;
                     boolean wasRecentDeath = timeSinceDeath < 60000; // Within last minute
 
-                    logger.info("FIXED DEBUG: EquipmentListener check for " + player.getName() +
+                    logger.info(" DEBUG: EquipmentListener check for " + player.getName() +
                             " - hasAnyItems: " + hasAnyItems +
                             ", hasSignificantItems: " + hasSignificantItems +
                             ", hasRespawnItems: " + hasRespawnItems +
@@ -155,18 +155,18 @@ public class EquipmentListener extends BaseListener {
                     for (ItemStack item : inv.getContents()) {
                         if (item != null && item.getType() != Material.AIR) {
                             itemCount++;
-                            logger.info("FIXED DEBUG: Inventory item: " + item.getType() + " x" + item.getAmount());
+                            logger.info(" DEBUG: Inventory item: " + item.getType() + " x" + item.getAmount());
                         }
                     }
 
                     for (ItemStack armor : inv.getArmorContents()) {
                         if (armor != null && armor.getType() != Material.AIR) {
                             armorCount++;
-                            logger.info("FIXED DEBUG: Armor item: " + armor.getType());
+                            logger.info(" DEBUG: Armor item: " + armor.getType());
                         }
                     }
 
-                    logger.info("FIXED DEBUG: Current inventory state - " + itemCount + " items, " + armorCount + " armor pieces");
+                    logger.info(" DEBUG: Current inventory state - " + itemCount + " items, " + armorCount + " armor pieces");
 
                     // CRITICAL FIX: Only provide starter kit if player has NO items at all
                     // and this wasn't a recent death (which would have kept items)
@@ -174,27 +174,27 @@ public class EquipmentListener extends BaseListener {
                         if (wasRecentDeath) {
                             // Recent death but no items - this might be chaotic alignment
                             String alignment = yakPlayer.getAlignment();
-                            logger.info("FIXED DEBUG: Recent death with no items for " + player.getName() +
+                            logger.info(" DEBUG: Recent death with no items for " + player.getName() +
                                     " (alignment: " + alignment + ") - providing starter kit");
                         } else {
                             // No recent death and no items - probably new player or long ago death
-                            logger.info("FIXED DEBUG: No items and no recent death for " + player.getName() +
+                            logger.info(" DEBUG: No items and no recent death for " + player.getName() +
                                     " - providing starter kit");
                         }
                         provideStarterKit(player);
                     } else if (!hasSignificantItems && !wasRecentDeath) {
                         // Has some items but not significant ones, and no recent death
-                        logger.info("FIXED DEBUG: Has minor items but no significant gear for " + player.getName() +
+                        logger.info(" DEBUG: Has minor items but no significant gear for " + player.getName() +
                                 " - providing starter kit");
                         provideStarterKit(player);
                     } else {
                         // Has items, don't give starter kit
-                        logger.info("FIXED DEBUG: Not providing starter kit to " + player.getName() +
+                        logger.info(" DEBUG: Not providing starter kit to " + player.getName() +
                                 " - player has items" + (wasRecentDeath ? " (recent death)" : ""));
                     }
 
                 } catch (Exception e) {
-                    logger.warning("FIXED DEBUG: Error in respawn processing for " + player.getName() + ": " + e.getMessage());
+                    logger.warning(" DEBUG: Error in respawn processing for " + player.getName() + ": " + e.getMessage());
                     e.printStackTrace();
                     // Fallback: provide starter kit on error
                     provideStarterKit(player);
@@ -204,7 +204,7 @@ public class EquipmentListener extends BaseListener {
     }
 
     /**
-     * FIXED: Check if player has any items in inventory or armor slots
+     * Check if player has any items in inventory or armor slots
      */
     private boolean hasAnyItems(Player player) {
         PlayerInventory inv = player.getInventory();
@@ -233,7 +233,7 @@ public class EquipmentListener extends BaseListener {
     }
 
     /**
-     * FIXED: Check if player has significant items (weapons, armor, valuable items)
+     * Check if player has significant items (weapons, armor, valuable items)
      */
     private boolean hasSignificantItems(Player player) {
         PlayerInventory inv = player.getInventory();

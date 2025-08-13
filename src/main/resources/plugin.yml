@@ -13,10 +13,17 @@ softdepend:
   - WorldEdit
   - Essentials
   - ProtocolLib
+  - GlowingEntities
 load: STARTUP
 prefix: YakRealms
 
 commands:
+  vault:
+  chest:
+    description: Loot chest animation system - create, manage, and animate loot chests
+    usage: /chest [radius|debug|help|test|testarea] [args...]
+    aliases: [ lootchest, chestanimation, animate ]
+    permission: yakrealms.player.lootchest.info
   combattest:
     description: Test command for combat tagging system
     usage: /combattest <subcommand> [args]

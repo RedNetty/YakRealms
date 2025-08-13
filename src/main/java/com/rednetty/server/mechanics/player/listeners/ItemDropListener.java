@@ -80,7 +80,7 @@ public class ItemDropListener extends BaseListener {
      */
     @EventHandler
     public void onItemCombust(EntityCombustEvent event) {
-        if (event.getEntityType() == EntityType.DROPPED_ITEM) {
+        if (event.getEntityType() == EntityType.ITEM) {
             event.setCancelled(true);
         }
     }
@@ -90,7 +90,7 @@ public class ItemDropListener extends BaseListener {
      */
     @EventHandler
     public void onItemDamage(EntityDamageEvent event) {
-        if (event.getEntityType() == EntityType.DROPPED_ITEM) {
+        if (event.getEntityType() == EntityType.ITEM) {
             event.setCancelled(true);
         }
     }

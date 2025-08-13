@@ -35,7 +35,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Logger;
 
 /**
- * FIXED AlignmentMechanics - properly integrates with combat logout system and ForceFieldManager
+ *  AlignmentMechanics - properly integrates with combat logout system and ForceFieldManager
  *
  * WORKING INTEGRATION:
  * - Properly tags players for combat when they attack each other
@@ -104,7 +104,7 @@ public class AlignmentMechanics implements Listener {
         // Start alignment and health management task
         startAlignmentTask();
 
-        logger.info("FIXED AlignmentMechanics enabled with proper combat logout and ForceFieldManager integration");
+        logger.info(" AlignmentMechanics enabled with proper combat logout and ForceFieldManager integration");
     }
 
     /**
@@ -129,7 +129,7 @@ public class AlignmentMechanics implements Listener {
         // Disable subsystems
         ForceFieldManager.getInstance().onDisable();
 
-        logger.info("FIXED AlignmentMechanics disabled");
+        logger.info(" AlignmentMechanics disabled");
     }
 
     /**
@@ -171,7 +171,7 @@ public class AlignmentMechanics implements Listener {
     }
 
     /**
-     * FIXED: Handle player PvP and alignment changes with proper combat tagging and force field updates
+     * Handle player PvP and alignment changes with proper combat tagging and force field updates
      */
     @EventHandler(priority = EventPriority.NORMAL)
     public void onPlayerDamage(EntityDamageByEntityEvent event) {
@@ -204,7 +204,7 @@ public class AlignmentMechanics implements Listener {
     }
 
     /**
-     * FIXED: Process a PvP attack between players with proper combat tagging and force field updates
+     * Process a PvP attack between players with proper combat tagging and force field updates
      */
     private void handlePvPAttack(Player attacker, Player victim) {
         YakPlayer yakAttacker = playerManager.getPlayer(attacker);
@@ -327,7 +327,7 @@ public class AlignmentMechanics implements Listener {
     }
 
     /**
-     * FIXED: Update health bar with combat information and force field status
+     * Update health bar with combat information and force field status
      */
     private void updateHealthBar(Player player) {
         if (player == null || !player.isOnline() || player.isDead()) {
@@ -448,7 +448,7 @@ public class AlignmentMechanics implements Listener {
     }
 
     /**
-     * FIXED: Update alignment timers and force field status based on GDD specifications
+     * Update alignment timers and force field status based on GDD specifications
      */
     private void updateAlignmentTimers(Player player, YakPlayer yakPlayer) {
         String oldAlignment = yakPlayer.getAlignment();
@@ -522,7 +522,7 @@ public class AlignmentMechanics implements Listener {
     }
 
     /**
-     * FIXED: Handle zone notifications when moving and update force fields
+     * Handle zone notifications when moving and update force fields
      */
     @EventHandler(priority = EventPriority.HIGH)
     public void onZoneChange(PlayerMoveEvent event) {
@@ -566,7 +566,7 @@ public class AlignmentMechanics implements Listener {
     }
 
     /**
-     * FIXED: Check if force field should be updated when player moves
+     * Check if force field should be updated when player moves
      */
     private boolean shouldUpdateForceFieldOnMove(Player player) {
         YakPlayer yakPlayer = playerManager.getPlayer(player);
@@ -640,7 +640,7 @@ public class AlignmentMechanics implements Listener {
     }
 
     /**
-     * FIXED: Handle player join/login with proper scoreboard and force field setup
+     * Handle player join/login with proper scoreboard and force field setup
      */
     @EventHandler
     public void onPlayerJoin(PlayerJoinEvent event) {
@@ -921,7 +921,7 @@ public class AlignmentMechanics implements Listener {
     }
 
     /**
-     * FIXED: Force update force field for a player (public API)
+     * Force update force field for a player (public API)
      *
      * @param player The player to update
      */

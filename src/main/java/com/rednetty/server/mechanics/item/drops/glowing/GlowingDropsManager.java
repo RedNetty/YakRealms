@@ -2,7 +2,7 @@ package com.rednetty.server.mechanics.item.drops.glowing;
 
 import com.rednetty.server.YakRealms;
 import com.rednetty.server.mechanics.player.settings.Toggles;
-import fr.skytasul.glowingentities.GlowingEntities;
+import fr.skytasul.glowingentities.GlowingAPI;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.Material;
@@ -18,8 +18,8 @@ import java.util.logging.Logger;
 import java.util.regex.Pattern;
 
 /**
- * GlowingEntities-based manager for the glowing drops system
- * Uses shaded GlowingEntities library with correct API methods and colors
+ * GlowingEntities plugin-based manager for the glowing drops system
+ * Uses the GlowingAPI static wrapper for proper integration
  */
 public class GlowingDropsManager {
     // Rarity detection patterns
@@ -28,6 +28,7 @@ public class GlowingDropsManager {
     private static final Pattern RARE_PATTERN = Pattern.compile("(?i)\\b(rare|superior)\\b");
     private static final Pattern UNIQUE_PATTERN = Pattern.compile("(?i)\\b(unique|epic|artifact)\\b");
     private static final Pattern LEGENDARY_PATTERN = Pattern.compile("(?i)\\b(legendary|mythic|divine)\\b");
+
     // Material-based rarity fallbacks
     private static final Set<Material> UNCOMMON_MATERIALS = Set.of(
             Material.IRON_SWORD, Material.IRON_AXE, Material.IRON_PICKAXE, Material.IRON_SHOVEL, Material.IRON_HOE,
@@ -44,6 +45,7 @@ public class GlowingDropsManager {
             Material.NETHERITE_HELMET, Material.NETHERITE_CHESTPLATE, Material.NETHERITE_LEGGINGS, Material.NETHERITE_BOOTS,
             Material.ELYTRA, Material.TRIDENT, Material.TOTEM_OF_UNDYING
     );
+
     // Rarity colors for GlowingEntities
     private static final Map<String, ChatColor> RARITY_COLORS = Map.of(
             "common", ChatColor.WHITE,
@@ -52,18 +54,23 @@ public class GlowingDropsManager {
             "unique", ChatColor.YELLOW,
             "legendary", ChatColor.GOLD
     );
+
     // Toggle name
     private static final String TOGGLE_NAME = "Glowing Drops";
+
     private static GlowingDropsManager instance;
     private final Logger logger;
+
     // Tracked glowing items
     private final Map<UUID, GlowingItemData> glowingItems = new ConcurrentHashMap<>();
     private final Map<UUID, Set<UUID>> playerVisibleItems = new ConcurrentHashMap<>();
-    private GlowingEntities glowingEntities;
+
     private boolean enabled = false;
+
     // Tasks
     private BukkitTask updateTask;
     private BukkitTask cleanupTask;
+
     // Configuration
     private int glowRadius = 32;
     private final long cleanupInterval = 600L; // 30 seconds
@@ -88,11 +95,11 @@ public class GlowingDropsManager {
             return;
         }
 
-        logger.info("Initializing GlowingEntities-based Glowing Drops system...");
+        logger.info("Initializing GlowingEntities plugin-based Glowing Drops system...");
 
-        // Initialize GlowingEntities (shaded library - no plugin dependency check needed)
-        if (!initializeGlowingEntities()) {
-            logger.severe("Failed to initialize GlowingEntities API - system disabled");
+        // Check if GlowingEntities plugin is available
+        if (!checkGlowingEntitiesPlugin()) {
+            logger.severe("GlowingEntities plugin not available - system disabled");
             return;
         }
 
@@ -110,7 +117,7 @@ public class GlowingDropsManager {
         }
 
         enabled = true;
-        logger.info("GlowingEntities-based Glowing Drops system initialized successfully");
+        logger.info("GlowingEntities plugin-based Glowing Drops system initialized successfully");
 
         // Auto-enable toggle for all online players if configured
         if (autoEnableToggle) {
@@ -127,27 +134,29 @@ public class GlowingDropsManager {
         }
     }
 
-    private boolean initializeGlowingEntities() {
+    private boolean checkGlowingEntitiesPlugin() {
         try {
-            // Initialize the shaded GlowingEntities library
-            glowingEntities = new GlowingEntities(YakRealms.getInstance());
-            logger.info("GlowingEntities API (shaded library) initialized successfully");
+            // Check if the GlowingEntities plugin is loaded and available
+            if (!GlowingAPI.isGlowingEntitiesAvailable()) {
+                logger.severe("GlowingEntities plugin is not loaded or not available!");
+
+                // Try a delayed check in case the plugin loads after us
+                Bukkit.getScheduler().runTaskLater(YakRealms.getInstance(), () -> {
+                    if (GlowingAPI.isGlowingEntitiesAvailable()) {
+                        logger.info("GlowingEntities plugin became available (delayed check)");
+                    } else {
+                        logger.severe("GlowingEntities plugin still not available after delayed check");
+                    }
+                }, 40L); // 2 seconds delay
+
+                return false;
+            }
+
+            logger.info("GlowingEntities plugin detected and available");
             return true;
         } catch (Exception e) {
-            logger.severe("Failed to initialize GlowingEntities API: " + e.getMessage());
+            logger.severe("Failed to check GlowingEntities plugin availability: " + e.getMessage());
             e.printStackTrace();
-
-            // Try a delayed initialization
-            Bukkit.getScheduler().runTaskLater(YakRealms.getInstance(), () -> {
-                try {
-                    glowingEntities = new GlowingEntities(YakRealms.getInstance());
-                    logger.info("GlowingEntities API initialized successfully (delayed)");
-                } catch (Exception ex) {
-                    logger.severe("Failed to initialize GlowingEntities API (delayed): " + ex.getMessage());
-                    ex.printStackTrace();
-                }
-            }, 20L);
-
             return false;
         }
     }
@@ -171,20 +180,15 @@ public class GlowingDropsManager {
         }
 
         // Remove all glowing effects
-        if (glowingEntities != null) {
-            try {
-                for (UUID itemId : glowingItems.keySet()) {
-                    Item item = getItemByUUID(itemId);
-                    if (item != null) {
-                        removeGlowingItem(item);
-                    }
+        try {
+            for (UUID itemId : glowingItems.keySet()) {
+                Item item = getItemByUUID(itemId);
+                if (item != null) {
+                    removeGlowingItem(item);
                 }
-
-                // Disable the glowing entities API
-                glowingEntities.disable();
-            } catch (Exception e) {
-                logger.warning("Error during GlowingEntities cleanup: " + e.getMessage());
             }
+        } catch (Exception e) {
+            logger.warning("Error during glowing effects cleanup: " + e.getMessage());
         }
 
         // Clear maps
@@ -224,7 +228,13 @@ public class GlowingDropsManager {
     }
 
     public void addGlowingItem(Item item) {
-        if (item == null || item.isDead() || glowingEntities == null || !enabled) {
+        if (item == null || item.isDead() || !enabled) {
+            return;
+        }
+
+        // Double-check API availability
+        if (!GlowingAPI.isGlowingEntitiesAvailable()) {
+            logger.fine("GlowingEntities API not available when trying to add glowing item");
             return;
         }
 
@@ -245,7 +255,7 @@ public class GlowingDropsManager {
     }
 
     public void removeGlowingItem(Item item) {
-        if (item == null || glowingEntities == null) {
+        if (item == null) {
             return;
         }
 
@@ -257,11 +267,12 @@ public class GlowingDropsManager {
             visibleSet.remove(itemId);
         }
 
-        // Remove glowing for all players using the correct API method
+        // Remove glowing for all players using the GlowingAPI
         for (Player player : Bukkit.getOnlinePlayers()) {
             try {
-                // Use entity ID instead of Entity object
-                glowingEntities.unsetGlowing(item.getEntityId(), player);
+                if (GlowingAPI.isGlowingEntitiesAvailable()) {
+                    GlowingAPI.unsetGlowing(item, player);
+                }
             } catch (Exception e) {
                 logger.fine("Error removing glow for player " + player.getName() + ": " + e.getMessage());
             }
@@ -271,7 +282,7 @@ public class GlowingDropsManager {
     }
 
     private void updateGlowingVisibility() {
-        if (glowingEntities == null || !enabled) {
+        if (!enabled || !GlowingAPI.isGlowingEntitiesAvailable()) {
             return;
         }
 
@@ -294,7 +305,7 @@ public class GlowingDropsManager {
                         Item item = getItemByUUID(itemId);
                         if (item != null) {
                             try {
-                                glowingEntities.unsetGlowing(item.getEntityId(), player);
+                                GlowingAPI.unsetGlowing(item, player);
                             } catch (Exception e) {
                                 logger.fine("Error removing glow: " + e.getMessage());
                             }
@@ -349,27 +360,18 @@ public class GlowingDropsManager {
                     try {
                         ChatColor color = RARITY_COLORS.get(data.getRarity());
                         if (color != null) {
-                            // Try multiple API approaches to ensure colors work
-
-                            // First try: Use the simple method if available
-                            try {
-                                // This might be available as a convenience method
-                                glowingEntities.setGlowing(item, player, color);
-                                logger.fine("Set glow (simple method) for item " + itemId + " (" + data.getRarity() + " = " + color + ") for player " + player.getName());
-                            } catch (Exception e1) {
-                                // Fallback: Use the complex method
-                                try {
-                                    String teamName = "yakrealms_" + data.getRarity();
-                                    glowingEntities.setGlowing(item.getEntityId(), teamName, player, color);
-                                    logger.fine("Set glow (complex method) for item " + itemId + " (" + data.getRarity() + " = " + color + ") for player " + player.getName());
-                                } catch (Exception e2) {
-                                    // Final fallback: Try with different parameters
-                                    logger.warning("Failed to set glow color for item " + itemId + " after trying all methods: " + e2.getMessage());
-                                }
-                            }
+                            // Use the GlowingAPI to set glowing with color
+                            GlowingAPI.setGlowing(item, player, color);
+                            logger.fine("Set glow for item " + itemId + " (" + data.getRarity() + " = " + color + ") for player " + player.getName());
                         } else {
-                            logger.warning("No color found for rarity: " + data.getRarity());
+                            // Fallback to default glow if no color mapping
+                            GlowingAPI.setGlowing(item, player);
+                            logger.fine("Set default glow for item " + itemId + " for player " + player.getName());
                         }
+                    } catch (ReflectiveOperationException e) {
+                        logger.warning("ReflectiveOperationException setting glow for item " + itemId + ": " + e.getMessage());
+                    } catch (IllegalStateException e) {
+                        logger.warning("IllegalStateException setting glow for item " + itemId + ": " + e.getMessage());
                     } catch (Exception e) {
                         logger.warning("Error setting glow for item " + itemId + ": " + e.getMessage());
                         if (YakRealms.getInstance().isDebugMode()) {
@@ -385,8 +387,12 @@ public class GlowingDropsManager {
             Item item = getItemByUUID(itemId);
             if (item != null) {
                 try {
-                    glowingEntities.unsetGlowing(item.getEntityId(), player);
+                    GlowingAPI.unsetGlowing(item, player);
                     logger.fine("Removed glow for item " + itemId + " for player " + player.getName());
+                } catch (ReflectiveOperationException e) {
+                    logger.fine("ReflectiveOperationException removing glow for item " + itemId + ": " + e.getMessage());
+                } catch (IllegalStateException e) {
+                    logger.fine("IllegalStateException removing glow for item " + itemId + ": " + e.getMessage());
                 } catch (Exception e) {
                     logger.fine("Error removing glow for item " + itemId + ": " + e.getMessage());
                 }
@@ -547,10 +553,6 @@ public class GlowingDropsManager {
         return TOGGLE_NAME;
     }
 
-    public GlowingEntities getGlowingEntities() {
-        return glowingEntities;
-    }
-
     public boolean isAutoEnableToggle() {
         return autoEnableToggle;
     }
@@ -574,7 +576,7 @@ public class GlowingDropsManager {
         stats.put("trackedItems", glowingItems.size());
         stats.put("playersWithVisibleItems", playerVisibleItems.size());
         stats.put("toggleName", TOGGLE_NAME);
-        stats.put("glowingEntitiesInitialized", glowingEntities != null);
+        stats.put("glowingEntitiesAvailable", GlowingAPI.isGlowingEntitiesAvailable());
         stats.put("autoEnableToggle", autoEnableToggle);
         stats.put("showCommonItems", showCommonItems);
 

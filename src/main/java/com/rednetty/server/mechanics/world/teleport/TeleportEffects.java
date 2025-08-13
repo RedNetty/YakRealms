@@ -19,13 +19,13 @@ public class TeleportEffects {
     public static void applyCastingStartEffects(Player player, TeleportEffectType effectType) {
         switch (effectType) {
             case SCROLL:
-                player.addPotionEffect(new PotionEffect(PotionEffectType.CONFUSION, 160, 1));
+                player.addPotionEffect(new PotionEffect(PotionEffectType.NAUSEA, 160, 1));
                 player.playSound(player.getLocation(), Sound.AMBIENT_CAVE, 1.0f, 1.0f);
                 break;
 
             case HEARTHSTONE:
                 player.playSound(player.getLocation(), Sound.BLOCK_PORTAL_TRIGGER, 0.4f, 1.0f);
-                player.getWorld().spawnParticle(Particle.SPELL, player.getLocation().add(0, 1, 0), 30, 0.5, 0.5, 0.5, 0.1);
+                player.getWorld().spawnParticle(Particle.ENTITY_EFFECT, player.getLocation().add(0, 1, 0), 30, 0.5, 0.5, 0.5, 0.1);
                 break;
 
             case PORTAL:
@@ -51,7 +51,7 @@ public class TeleportEffects {
                 break;
 
             case HEARTHSTONE:
-                player.getWorld().spawnParticle(Particle.SPELL, player.getLocation().add(0, 0.15, 0), 80, 0.5, 0, 0.5, 0.05);
+                player.getWorld().spawnParticle(Particle.ENTITY_EFFECT, player.getLocation().add(0, 0.15, 0), 80, 0.5, 0, 0.5, 0.05);
                 break;
 
             case PORTAL:
@@ -74,9 +74,9 @@ public class TeleportEffects {
      * @param effectType The effect type
      */
     public static void applyCastingCancelEffects(Player player, TeleportEffectType effectType) {
-        player.removePotionEffect(PotionEffectType.CONFUSION);
+        player.removePotionEffect(PotionEffectType.NAUSEA);
         player.playSound(player.getLocation(), Sound.ENTITY_ENDERMAN_TELEPORT, 1.0f, 0.5f);
-        player.getWorld().spawnParticle(Particle.SMOKE_NORMAL, player.getLocation().add(0, 1, 0), 50, 0.5, 0.5, 0.5, 0.05);
+        player.getWorld().spawnParticle(Particle.SMOKE, player.getLocation().add(0, 1, 0), 50, 0.5, 0.5, 0.5, 0.05);
     }
 
     /**
@@ -88,13 +88,13 @@ public class TeleportEffects {
     public static void applyDepartureEffects(Player player, TeleportEffectType effectType) {
         switch (effectType) {
             case SCROLL:
-                player.getWorld().spawnParticle(Particle.SPELL_WITCH, player.getLocation().add(0, 1, 0), 200, 0, 0, 0, 0.2);
+                player.getWorld().spawnParticle(Particle.WITCH, player.getLocation().add(0, 1, 0), 200, 0, 0, 0, 0.2);
                 player.playSound(player.getLocation(), Sound.ENTITY_ENDERMAN_TELEPORT, 1.0f, 1.0f);
                 break;
 
             case HEARTHSTONE:
                 player.playSound(player.getLocation(), Sound.ENTITY_WITHER_DEATH, 1.0f, 1.0f);
-                player.getWorld().spawnParticle(Particle.ENCHANTMENT_TABLE, player.getLocation().add(0, 1, 0), 200, 0.5, 1, 0.5, 1);
+                player.getWorld().spawnParticle(Particle.ENCHANT, player.getLocation().add(0, 1, 0), 200, 0.5, 1, 0.5, 1);
                 break;
 
             case PORTAL:
@@ -119,7 +119,7 @@ public class TeleportEffects {
 
             case HEARTHSTONE:
                 player.playSound(player.getLocation(), Sound.ENTITY_PLAYER_LEVELUP, 1.0f, 1.0f);
-                player.getWorld().spawnParticle(Particle.SPELL_INSTANT, player.getLocation().add(0, 1, 0), 100, 0.5, 1, 0.5, 0.05);
+                player.getWorld().spawnParticle(Particle.INSTANT_EFFECT, player.getLocation().add(0, 1, 0), 100, 0.5, 1, 0.5, 0.05);
                 break;
 
             case PORTAL:

@@ -537,7 +537,7 @@ public class Energy implements Listener {
         Bukkit.getScheduler().runTask(YakRealms.getInstance(), () -> {
             try {
                 player.addPotionEffect(new PotionEffect(
-                        PotionEffectType.SLOW_DIGGING,
+                        PotionEffectType.MINING_FATIGUE,
                         FATIGUE_DURATION,
                         FATIGUE_AMPLIFIER
                 ), true);
@@ -628,7 +628,7 @@ public class Energy implements Listener {
         }
 
         // Cancel damage if player has fatigue
-        if (player.hasPotionEffect(PotionEffectType.SLOW_DIGGING)) {
+        if (player.hasPotionEffect(PotionEffectType.MINING_FATIGUE)) {
             event.setDamage(0.0);
             event.setCancelled(true);
             return;
@@ -640,8 +640,8 @@ public class Energy implements Listener {
         // Calculate and remove energy for hit
         if (getEnergyValue(player) > 0) {
             // Remove slow digging if player has energy
-            if (player.hasPotionEffect(PotionEffectType.SLOW_DIGGING)) {
-                player.removePotionEffect(PotionEffectType.SLOW_DIGGING);
+            if (player.hasPotionEffect(PotionEffectType.MINING_FATIGUE)) {
+                player.removePotionEffect(PotionEffectType.MINING_FATIGUE);
             }
 
             int energyCost = calculateWeaponEnergyCost(itemInHand, true);

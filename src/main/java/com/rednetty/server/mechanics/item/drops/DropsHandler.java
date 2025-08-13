@@ -33,7 +33,7 @@ import java.util.logging.Logger;
 import java.util.stream.Collectors;
 
 /**
- * FIXED: Event handler for item drops from mobs with proper named elite handling and T6 world boss detection
+ * Event handler for item drops from mobs with proper named elite handling and T6 world boss detection
  *
  * CRITICAL FIXES:
  * - Named elites now ONLY drop their configured items from elite_drops.yml
@@ -114,16 +114,16 @@ public class DropsHandler implements Listener {
 
     // Visual effects
     private static final Map<Integer, Particle> TIER_PARTICLES = Map.of(
-            1, Particle.VILLAGER_HAPPY,
-            2, Particle.ENCHANTMENT_TABLE,
-            3, Particle.DRIP_WATER,
+            1, Particle.HAPPY_VILLAGER,
+            2, Particle.ENCHANT,
+            3, Particle.DRIPPING_WATER,
             4, Particle.PORTAL,
             5, Particle.FLAME,
-            6, Particle.SNOWBALL
+            6, Particle.POOF
     );
 
     /**
-     * Enhanced damage tracking data structure with interaction tracking
+     * damage tracking data structure with interaction tracking
      */
     private static class MobDamageData {
         private final Map<UUID, Double> damageMap = new ConcurrentHashMap<>();
@@ -451,7 +451,7 @@ public class DropsHandler implements Listener {
     }
 
     /**
-     * Enhanced world boss drop handling with T6 support
+     * world boss drop handling with T6 support
      */
     private void handleWorldBossDrops(LivingEntity entity, MobAnalysis analysis) {
         int dropCount = ThreadLocalRandom.current().nextInt(
@@ -659,7 +659,7 @@ public class DropsHandler implements Listener {
 
                     // Enhanced visual effects for teleport books
                     Location dropLocation = entity.getLocation().add(0, 1, 0);
-                    entity.getWorld().spawnParticle(Particle.ENCHANTMENT_TABLE, dropLocation, 15, 0.5, 0.5, 0.5, 0.1);
+                    entity.getWorld().spawnParticle(Particle.ENCHANT, dropLocation, 15, 0.5, 0.5, 0.5, 0.1);
                     entity.getWorld().playSound(dropLocation, Sound.ENTITY_PLAYER_LEVELUP, 0.5f, 1.5f);
 
                     // Enhanced notification for teleport books
@@ -687,7 +687,7 @@ public class DropsHandler implements Listener {
     // ===== ALL OTHER METHODS REMAIN THE SAME BUT WITH ENHANCED ERROR HANDLING =====
 
     /**
-     * Enhanced cleanup task with better performance monitoring and thread safety
+     * cleanup task with better performance monitoring and thread safety
      */
     private void startCleanupTask() {
         new BukkitRunnable() {
@@ -1343,7 +1343,7 @@ public class DropsHandler implements Listener {
 
     private void playWorldBossDefeatEffects(Location location) {
         location.getWorld().playSound(location, Sound.ENTITY_WITHER_DEATH, 2.0f, 0.5f);
-        location.getWorld().spawnParticle(Particle.EXPLOSION_LARGE, location, 5, 2, 2, 2, 0);
+        location.getWorld().spawnParticle(Particle.EXPLOSION, location, 5, 2, 2, 2, 0);
     }
 
     private Player getTopDamageDealer(LivingEntity entity) {
@@ -1411,7 +1411,7 @@ public class DropsHandler implements Listener {
     }
 
     private void playDropEffects(Location location, int tier, boolean isElite) {
-        Particle particle = TIER_PARTICLES.getOrDefault(tier, Particle.VILLAGER_HAPPY);
+        Particle particle = TIER_PARTICLES.getOrDefault(tier, Particle.HAPPY_VILLAGER);
         location.getWorld().spawnParticle(particle, location.add(0, 1, 0),
                 isElite ? 20 : 10, 0.5, 0.5, 0.5, 0.1);
 
@@ -1515,7 +1515,7 @@ public class DropsHandler implements Listener {
                         randomDestination.getDisplayName() + " (Tier " + tier + ")");
 
                 Location playerLocation = player.getLocation().add(0, 1, 0);
-                player.getWorld().spawnParticle(Particle.ENCHANTMENT_TABLE, playerLocation, 15, 0.5, 0.5, 0.5, 0.1);
+                player.getWorld().spawnParticle(Particle.ENCHANT, playerLocation, 15, 0.5, 0.5, 0.5, 0.1);
                 player.getWorld().playSound(playerLocation, Sound.ENTITY_PLAYER_LEVELUP, 0.5f, 1.5f);
             } else {
                 player.sendMessage(ChatColor.RED + "Failed to create teleport book!");
@@ -1595,7 +1595,7 @@ public class DropsHandler implements Listener {
     }
 
     /**
-     * FIXED: Enhanced mob detection result with better named elite detection
+     * mob detection result with better named elite detection
      */
     private static class MobAnalysis {
         private final int tier;

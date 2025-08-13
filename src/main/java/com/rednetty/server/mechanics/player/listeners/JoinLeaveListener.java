@@ -1027,7 +1027,7 @@ public class JoinLeaveListener extends BaseListener {
 
     private void showJoinEffects(Player player) {
         try {
-            player.spawnParticle(Particle.VILLAGER_HAPPY, player.getLocation().add(0, 1, 0), 10, 1, 1, 1, 0.1);
+            player.spawnParticle(Particle.HAPPY_VILLAGER, player.getLocation().add(0, 1, 0), 10, 1, 1, 1, 0.1);
         } catch (Exception e) {
             // Ignore particle errors
         }

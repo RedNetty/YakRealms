@@ -34,7 +34,7 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
- * Enhanced Bank Manager with multi-page storage, upgrades, and collection bins
+ * Bank Manager with multi-page storage, upgrades, and collection bins
  * Backwards compatible with existing YakRealms bank system
  */
 public class BankManager implements Listener {
@@ -67,15 +67,15 @@ public class BankManager implements Listener {
     // Bank upgrade tiers and costs
     public enum BankUpgradeTier {
         TIER_1(1, 0),       // Base tier
-        TIER_2(2, 50),      // 2 pages for 50 gems
-        TIER_3(3, 125),     // 3 pages for 125 gems
-        TIER_4(4, 500),     // 4 pages for 500 gems
-        TIER_5(5, 1500),    // 5 pages for 1500 gems
-        TIER_6(6, 3500),    // 6 pages for 3500 gems
-        TIER_7(7, 7500),    // 7 pages for 7500 gems
-        TIER_8(8, 15000),   // 8 pages for 15000 gems
-        TIER_9(9, 30000),   // 9 pages for 30000 gems
-        TIER_10(10, 50000); // 10 pages for 50000 gems
+        TIER_2(2, 7500),      // 2 pages for 50 gems
+        TIER_3(3, 10000),     // 3 pages for 125 gems
+        TIER_4(4, 15000),     // 4 pages for 500 gems
+        TIER_5(5, 20000),    // 5 pages for 1500 gems
+        TIER_6(6, 25000),    // 6 pages for 3500 gems
+        TIER_7(7, 30000),    // 7 pages for 7500 gems
+        TIER_8(8, 35000),   // 8 pages for 15000 gems
+        TIER_9(9, 45000),   // 9 pages for 30000 gems
+        TIER_10(10, 75000); // 10 pages for 50000 gems
 
         private final int pages;
         private final int cost;
@@ -137,7 +137,7 @@ public class BankManager implements Listener {
                 20L * 60 * 5  // 5 minutes interval
         );
 
-        logger.info("Enhanced Bank system has been enabled with multi-page support");
+        logger.info(" Bank system has been enabled with multi-page support");
     }
 
     /**
@@ -145,7 +145,7 @@ public class BankManager implements Listener {
      */
     public void onDisable() {
         saveBanks();
-        logger.info("Enhanced Bank system has been disabled");
+        logger.info(" Bank system has been disabled");
     }
 
     /**
@@ -1098,7 +1098,7 @@ public class BankManager implements Listener {
         if (!isBankNote(item)) return 0;
         try {
             NBTAccessor nbt = new NBTAccessor(item);
-            if (nbt.hasTag("gem_value")) {
+            if (nbt.hasKey("gem_value")) {
                 return nbt.getInt("gem_value");
             }
             // Fallback to parsing from lore

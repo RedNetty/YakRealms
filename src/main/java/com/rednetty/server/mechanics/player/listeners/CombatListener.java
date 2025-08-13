@@ -305,8 +305,8 @@ public class CombatListener extends BaseListener {
 
         try {
             // Set attack speed attribute to prevent vanilla cooldown
-            if (player.getAttribute(Attribute.GENERIC_ATTACK_SPEED) != null) {
-                player.getAttribute(Attribute.GENERIC_ATTACK_SPEED).setBaseValue(1024.0D);
+            if (player.getAttribute(Attribute.ATTACK_SPEED) != null) {
+                player.getAttribute(Attribute.ATTACK_SPEED).setBaseValue(1024.0D);
             }
 
             // Setup health display
@@ -420,7 +420,7 @@ public class CombatListener extends BaseListener {
         }
 
         LivingEntity entity = (LivingEntity) event.getEntity();
-        double maxHealth = entity.getAttribute(Attribute.GENERIC_MAX_HEALTH).getValue();
+        double maxHealth = entity.getAttribute(Attribute.MAX_HEALTH).getValue();
         double damage = event.getDamage();
         DamageCause cause = event.getCause();
 
@@ -605,7 +605,7 @@ public class CombatListener extends BaseListener {
             attacker.playSound(attacker.getLocation(), Sound.BLOCK_NOTE_BLOCK_PLING, 0.7f, 0.8f);
             victim.playSound(victim.getLocation(), Sound.BLOCK_NOTE_BLOCK_PLING, 0.7f, 0.8f);
 
-            victim.getWorld().spawnParticle(Particle.VILLAGER_ANGRY,
+            victim.getWorld().spawnParticle(Particle.ANGRY_VILLAGER,
                     victim.getLocation().add(0, 2, 0), 3, 0.5, 0.5, 0.5, 0.1);
         } catch (Exception e) {
             // Ignore particle/sound errors

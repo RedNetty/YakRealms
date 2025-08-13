@@ -74,13 +74,6 @@ public class LogoutCommand implements CommandExecutor, TabCompleter, Listener {
             player.sendMessage(ChatColor.GRAY + "Type " + ChatColor.WHITE + "/logout cancel" + ChatColor.GRAY + " to cancel.");
             return true;
         }
-
-        // Check if server is shutting down
-        if (playerManager.isShuttingDown()) {
-            player.sendMessage(ChatColor.YELLOW + "Server is shutting down, you will be disconnected automatically.");
-            return true;
-        }
-
         // Check if player is combat tagged
         if (CombatLogoutMechanics.getInstance().isPlayerTagged(player.getUniqueId())) {
             long combatTime = CombatLogoutMechanics.getInstance().getCombatTimeRemaining(player);

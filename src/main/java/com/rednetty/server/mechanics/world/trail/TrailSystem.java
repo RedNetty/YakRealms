@@ -94,6 +94,6 @@ public class TrailSystem {
     }
 
     public enum ParticleStyle {
-        FLAME, PORTAL, REDSTONE, SPELL_WITCH, END_ROD
+        FLAME, PORTAL, REDSTONE, WITCH, END_ROD
     }
 }

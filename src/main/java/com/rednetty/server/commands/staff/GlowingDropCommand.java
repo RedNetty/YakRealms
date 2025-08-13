@@ -279,7 +279,6 @@ public class GlowingDropCommand implements CommandExecutor, TabCompleter {
 
         player.sendMessage("§7Nearby Items (within " + manager.getGlowRadius() + " blocks): §f" + totalItems);
         player.sendMessage("§7Should be Glowing: §f" + glowingItems);
-        player.sendMessage("§7GlowingEntities API: " + (manager.getGlowingEntities() != null ? "§aAvailable" : "§cUnavailable"));
         player.sendMessage("§7Auto-Enable Toggle: " + (manager.isAutoEnableToggle() ? "§aEnabled" : "§cDisabled"));
 
         // Force update
@@ -322,10 +321,6 @@ public class GlowingDropCommand implements CommandExecutor, TabCompleter {
     private void diagnoseSystem(Player player) {
         player.sendMessage("§6§l✦ System Diagnosis ✦");
 
-        // Check API initialization
-        boolean apiInitialized = manager.getGlowingEntities() != null;
-        player.sendMessage("§71. GlowingEntities API: " + (apiInitialized ? "§aInitialized" : "§cNot Initialized"));
-        player.sendMessage("   §7Using shaded library (no external plugin needed)");
 
         // Check system enabled
         player.sendMessage("§72. System Enabled: " + (manager.isEnabled() ? "§aYes" : "§cNo"));
@@ -357,9 +352,7 @@ public class GlowingDropCommand implements CommandExecutor, TabCompleter {
         // Recommendations
         player.sendMessage("§6§l✦ Recommendations ✦");
 
-        if (!apiInitialized) {
-            player.sendMessage("§c• Check server logs for GlowingEntities initialization errors");
-        }
+
         if (!manager.isEnabled()) {
             player.sendMessage("§c• Enable the glowing drops system");
         }
@@ -373,16 +366,7 @@ public class GlowingDropCommand implements CommandExecutor, TabCompleter {
     }
 
     private void showApiStatus(CommandSender sender) {
-        sender.sendMessage("§6§l✦ GlowingEntities API Status ✦");
-        sender.sendMessage("§7API Instance: " + (manager.getGlowingEntities() != null ? "§aLoaded" : "§cNot Loaded"));
-        sender.sendMessage("§7Using: §aShaded GlowingEntities Library (no external plugin needed)");
-        sender.sendMessage("§7Manager Enabled: " + (manager.isEnabled() ? "§aYes" : "§cNo"));
 
-        if (manager.getGlowingEntities() != null) {
-            sender.sendMessage("§aGlowingEntities API is working correctly!");
-        } else {
-            sender.sendMessage("§cGlowingEntities API is not available. Check server logs for initialization errors.");
-        }
     }
 
     private void reload(CommandSender sender) {

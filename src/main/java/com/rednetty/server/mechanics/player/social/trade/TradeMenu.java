@@ -307,7 +307,7 @@ public class TradeMenu {
 
                         // Play feedback
                         player.playSound(player.getLocation(), Sound.ENTITY_ITEM_PICKUP, 0.5f, 0.8f);
-                        player.spawnParticle(Particle.SPELL_INSTANT, player.getLocation().add(0, 1, 0),
+                        player.spawnParticle(Particle.INSTANT_EFFECT, player.getLocation().add(0, 1, 0),
                                 15, 0.2, 0.2, 0.2, 0.05);
                     }
                 }.runTask(plugin);
@@ -343,10 +343,10 @@ public class TradeMenu {
         initiator.playSound(initiator.getLocation(), Sound.ENTITY_PLAYER_LEVELUP, 0.7f, 1.0f);
         target.playSound(target.getLocation(), Sound.ENTITY_PLAYER_LEVELUP, 0.7f, 1.0f);
 
-        initiator.spawnParticle(Particle.VILLAGER_HAPPY,
+        initiator.spawnParticle(Particle.HAPPY_VILLAGER,
                 initiator.getLocation().add(0, 2, 0),
                 20, 0.5, 0.5, 0.5, 0);
-        target.spawnParticle(Particle.VILLAGER_HAPPY,
+        target.spawnParticle(Particle.HAPPY_VILLAGER,
                 target.getLocation().add(0, 2, 0),
                 20, 0.5, 0.5, 0.5, 0);
     }

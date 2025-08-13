@@ -91,7 +91,7 @@ public class EliteMob extends CustomMob {
         if (weapon != null && weapon.getType() != Material.AIR) {
             makeItemUnbreakable(weapon);
             if (!weapon.hasItemMeta() || !weapon.getItemMeta().hasEnchants()) {
-                weapon.addUnsafeEnchantment(Enchantment.LOOT_BONUS_MOBS, 1);
+                weapon.addUnsafeEnchantment(Enchantment.LOOTING, 1);
             }
             getEntity().getEquipment().setItemInMainHand(weapon);
         }
@@ -108,7 +108,7 @@ public class EliteMob extends CustomMob {
             if (piece != null && piece.getType() != Material.AIR) {
                 makeItemUnbreakable(piece);
                 if (!piece.hasItemMeta() || !piece.getItemMeta().hasEnchants()) {
-                    piece.addUnsafeEnchantment(Enchantment.PROTECTION_ENVIRONMENTAL, 1);
+                    piece.addUnsafeEnchantment(Enchantment.PROTECTION, 1);
                 }
             }
         }
@@ -263,12 +263,12 @@ public class EliteMob extends CustomMob {
             offsetX = offsetY = offsetZ = 0.3;
             speed = 0.02;
         } else if (isWardenType()) {
-            particle = Particle.SMOKE_LARGE;
+            particle = Particle.LARGE_SMOKE;
             count = 2;
             offsetX = offsetY = offsetZ = 0.2;
             speed = 0.01;
         } else if (tier >= 5) {
-            particle = Particle.ENCHANTMENT_TABLE;
+            particle = Particle.ENCHANT;
             count = 2;
             offsetX = offsetY = offsetZ = 0.3;
             speed = 0.05;
@@ -317,7 +317,7 @@ public class EliteMob extends CustomMob {
 
     public boolean isInSpecialState() {
         return isInCriticalState() ||
-                getEntity().hasPotionEffect(PotionEffectType.SLOW) ||
+                getEntity().hasPotionEffect(PotionEffectType.SLOWNESS) ||
                 getEntity().hasPotionEffect(PotionEffectType.GLOWING);
     }
 
@@ -379,13 +379,13 @@ public class EliteMob extends CustomMob {
     private void applyEliteDeathEffects() {
         Location loc = getEntity().getLocation();
         getEntity().getWorld().playSound(loc, Sound.ENTITY_GENERIC_EXPLODE, 1.0f, 0.8f);
-        getEntity().getWorld().spawnParticle(Particle.EXPLOSION_LARGE, loc.add(0, 1, 0), 8, 1.0, 1.0, 1.0, 0.1);
+        getEntity().getWorld().spawnParticle(Particle.EXPLOSION, loc.add(0, 1, 0), 8, 1.0, 1.0, 1.0, 0.1);
 
         if (isFrozenType()) {
             getEntity().getWorld().spawnParticle(Particle.SNOWFLAKE, loc, 30, 2.0, 2.0, 2.0, 0.1);
             getEntity().getWorld().playSound(loc, Sound.BLOCK_GLASS_BREAK, 1.0f, 0.5f);
         } else if (isWardenType()) {
-            getEntity().getWorld().spawnParticle(Particle.SMOKE_LARGE, loc, 20, 1.5, 1.5, 1.5, 0.1);
+            getEntity().getWorld().spawnParticle(Particle.LARGE_SMOKE, loc, 20, 1.5, 1.5, 1.5, 0.1);
             getEntity().getWorld().playSound(loc, Sound.ENTITY_WARDEN_DEATH, 0.8f, 1.0f);
         }
     }

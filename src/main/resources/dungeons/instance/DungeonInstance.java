@@ -20,7 +20,7 @@ import java.util.logging.Logger;
 import java.util.stream.Collectors;
 
 /**
- * : Complete Dungeon Instance Management
+ * Complete Dungeon Instance Management
  *
  * Represents an active dungeon with players, managing the entire lifecycle
  * from initialization to completion. Handles player management, room progression,

@@ -144,7 +144,7 @@ public class ParticleSystem {
         Location particleLoc = location.clone();
         Color color = style.colors[((index + tick) / 4) % style.colors.length];
         Particle.DustOptions dustOptions = new Particle.DustOptions(color, 1.0f);
-        player.spawnParticle(Particle.REDSTONE, particleLoc, 1, 0, 0, 0, 0, dustOptions);
+        player.spawnParticle(Particle.DUST, particleLoc, 1, 0, 0, 0, 0, dustOptions);
         if (index % 15 == 0) {
             spawnDirectionIndicator(player, location, color);
         }
@@ -153,7 +153,7 @@ public class ParticleSystem {
     private void spawnDirectionIndicator(Player player, Location location, Color color) {
         Location arrowLoc = location.clone().add(0, 0.5, 0);
         Particle.DustOptions arrowOptions = new Particle.DustOptions(color, 0.8f);
-        player.spawnParticle(Particle.REDSTONE, arrowLoc, 1, 0, 0, 0, 0, arrowOptions);
+        player.spawnParticle(Particle.DUST, arrowLoc, 1, 0, 0, 0, 0, arrowOptions);
     }
 
     /**
@@ -188,7 +188,7 @@ public class ParticleSystem {
                     if (playerLoc.distance(nodeLoc) <= MAX_RENDER_DISTANCE) {
                         Color color = getColorForCost(node.cost);
                         Particle.DustOptions dustOptions = new Particle.DustOptions(color, 1.0f);
-                        player.spawnParticle(Particle.REDSTONE, nodeLoc, 1, 0, 0, 0, 0, dustOptions);
+                        player.spawnParticle(Particle.DUST, nodeLoc, 1, 0, 0, 0, 0, dustOptions);
                     }
                 }
             }

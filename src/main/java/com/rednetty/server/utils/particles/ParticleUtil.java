@@ -23,11 +23,11 @@ public class ParticleUtil {
 
         // Green particles for success
         DustOptions dustOptions = new DustOptions(Color.GREEN, 2.0f);
-        world.spawnParticle(Particle.REDSTONE, location.clone().add(0, 1, 0),
+        world.spawnParticle(Particle.DUST, location.clone().add(0, 1, 0),
                 30, 0.5, 0.5, 0.5, 0.1, dustOptions);
 
         // Add some sparkles
-        world.spawnParticle(Particle.VILLAGER_HAPPY, location.clone().add(0, 1, 0),
+        world.spawnParticle(Particle.HAPPY_VILLAGER, location.clone().add(0, 1, 0),
                 15, 0.5, 0.5, 0.5, 0.1);
     }
 
@@ -42,7 +42,7 @@ public class ParticleUtil {
         World world = location.getWorld();
 
         // Add some smoke/lava particles
-        world.spawnParticle(Particle.SMOKE_NORMAL, location.clone().add(0, 1, 0),
+        world.spawnParticle(Particle.SMOKE, location.clone().add(0, 1, 0),
                 20, 0.5, 0.5, 0.5, 0.1);
 
         world.spawnParticle(Particle.LAVA, location.clone().add(0, 1, 0),
@@ -117,7 +117,7 @@ public class ParticleUtil {
         World world = location.getWorld();
         DustOptions dustOptions = new DustOptions(color, size);
 
-        world.spawnParticle(Particle.REDSTONE, location, count, radius, radius, radius, 0, dustOptions);
+        world.spawnParticle(Particle.DUST, location, count, radius, radius, radius, 0, dustOptions);
     }
 
     /**
@@ -167,12 +167,12 @@ public class ParticleUtil {
         int particleCount = Math.round(size * 10);
 
         // Explosion particles
-        world.spawnParticle(Particle.EXPLOSION_LARGE, location, 1, 0, 0, 0, 0);
-        world.spawnParticle(Particle.EXPLOSION_NORMAL, location, particleCount,
+        world.spawnParticle(Particle.EXPLOSION, location, 1, 0, 0, 0, 0);
+        world.spawnParticle(Particle.EXPLOSION, location, particleCount,
                 size / 2, size / 2, size / 2, 0.1);
 
         // Smoke trail
-        world.spawnParticle(Particle.SMOKE_LARGE, location, particleCount,
+        world.spawnParticle(Particle.LARGE_SMOKE, location, particleCount,
                 size / 2, size / 2, size / 2, 0.05);
     }
 }

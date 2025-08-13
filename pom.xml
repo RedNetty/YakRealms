@@ -86,7 +86,7 @@
         <dependency>
             <groupId>org.spigotmc</groupId>
             <artifactId>spigot-api</artifactId>
-            <version>1.20.4-R0.1-SNAPSHOT</version>
+            <version>1.21.7-R0.1-SNAPSHOT</version>
             <scope>provided</scope>
         </dependency>
 
@@ -94,10 +94,10 @@
         <dependency>
             <groupId>fr.skytasul</groupId>
             <artifactId>glowingentities</artifactId>
-            <version>1.4.5</version>
-            <scope>compile</scope>
+            <version>1.4.6</version>
+            <systemPath>${project.basedir}/server/plugins/GlowingEntities.jar</systemPath>
+            <scope>system</scope>
         </dependency>
-
 
         <!-- Optional: Bukkit API -->
         <dependency>
@@ -163,6 +163,7 @@
             <artifactId>mongodb-driver-core</artifactId>
             <version>${mongodb.version}</version>
         </dependency>
+
 
         <!-- Gson for JSON serialization -->
         <dependency>
@@ -254,19 +255,8 @@
                                     </excludes>
                                 </filter>
                                 <!-- Don't minimize GlowingEntities -->
-                                <filter>
-                                    <artifact>io.github.skytasul:glowingentities</artifact>
-                                    <includes>
-                                        <include>**</include>
-                                    </includes>
-                                </filter>
                             </filters>
                             <relocations>
-                                <!-- Relocate GlowingEntities to avoid conflicts -->
-                                <relocation>
-                                    <pattern>fr.skytasul.glowingentities</pattern>
-                                    <shadedPattern>com.rednetty.server.libs.glowingentities</shadedPattern>
-                                </relocation>
                                 <!-- Relocate MongoDB to avoid conflicts -->
                                 <relocation>
                                     <pattern>com.mongodb</pattern>

@@ -21,7 +21,7 @@ import java.util.logging.Logger;
 import java.util.stream.Collectors;
 
 /**
- * : Complete Dungeon Boss System
+ * Complete Dungeon Boss System
  *
  * Advanced boss encounter system featuring multi-phase combat, special abilities,
  * dynamic mechanics, and complex AI behaviors. Provides a framework for creating
@@ -1388,7 +1388,7 @@ public abstract class DungeonBoss {
                 }
 
                 // Visual effects
-                center.getWorld().spawnParticle(Particle.SPELL_MOB, center.add(0, 1, 0),
+                center.getWorld().spawnParticle(Particle.ENTITY_EFFECT, center.add(0, 1, 0),
                         10);
             }
         }.runTaskTimer(YakRealms.getInstance(), 0L, 5L);
@@ -1401,14 +1401,14 @@ public abstract class DungeonBoss {
 
         for (Player target : targets) {
             target.addPotionEffect(new org.bukkit.potion.PotionEffect(
-                    org.bukkit.potion.PotionEffectType.SLOW,
+                    org.bukkit.potion.PotionEffectType.SLOWNESS,
                     (int)(slowDuration / 50),
                     slowAmplifier,
                     false,
                     true));
 
             // Visual web effect
-            target.getWorld().spawnParticle(Particle.ITEM_CRACK,
+            target.getWorld().spawnParticle(Particle.ITEM,
                     target.getLocation().add(0, 1, 0), 50, 1, 1, 1, 0.1,
                     new org.bukkit.inventory.ItemStack(Material.COBWEB));
         }
@@ -1444,9 +1444,9 @@ public abstract class DungeonBoss {
     private void applyStunEffect(Player target, long duration) {
         // Simulate stun with slowness and mining fatigue
         target.addPotionEffect(new org.bukkit.potion.PotionEffect(
-                org.bukkit.potion.PotionEffectType.SLOW, (int)(duration / 50), 10, false, true));
+                org.bukkit.potion.PotionEffectType.SLOWNESS, (int)(duration / 50), 10, false, true));
         target.addPotionEffect(new org.bukkit.potion.PotionEffect(
-                org.bukkit.potion.PotionEffectType.SLOW_DIGGING, (int)(duration / 50), 10, false, true));
+                org.bukkit.potion.PotionEffectType.MINING_FATIGUE, (int)(duration / 50), 10, false, true));
     }
 
     // ================ GETTERS AND UTILITY ================

@@ -1407,7 +1407,7 @@ public class PartyMechanics implements Listener {
         if (player == null || !player.isOnline() || !enablePartyEffects) return;
 
         try {
-            player.getWorld().spawnParticle(Particle.VILLAGER_HAPPY, player.getLocation().add(0, 2, 0), 10, 1, 1, 1, 0.1);
+            player.getWorld().spawnParticle(Particle.HAPPY_VILLAGER, player.getLocation().add(0, 2, 0), 10, 1, 1, 1, 0.1);
         } catch (Exception e) {
             // Ignore particle errors
         }
@@ -1673,7 +1673,7 @@ public class PartyMechanics implements Listener {
     // ========================================
 
     /**
-     * Enhanced Party class with comprehensive functionality
+     * Party class with comprehensive functionality
      */
     public static class Party {
         private final UUID id;

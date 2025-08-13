@@ -19,7 +19,7 @@ import java.util.regex.Pattern;
 /**
  * MAJOR FIX: Complete rewrite of OrbManager to prevent duplicate stats
  * Core Logic: When applying orbs, completely rebuild item lore instead of adding to existing stats
- * : Orbs now preserve base damage/HP/regen for normal orbs, and enhance them for legendary orbs when upgrading plus levels
+ * Orbs now preserve base damage/HP/regen for normal orbs, and enhance them for legendary orbs when upgrading plus levels
  */
 public class OrbManager {
     private static OrbManager instance;
@@ -173,7 +173,7 @@ public class OrbManager {
     /**
      * CORE FIX: Apply an orb to an item with complete stat replacement
      * This method completely rebuilds the item's lore to prevent duplicate stats
-     * : Now preserves base damage/HP/regen for normal orbs, and enhances them for legendary orbs when upgrading plus levels
+     * Now preserves base damage/HP/regen for normal orbs, and enhances them for legendary orbs when upgrading plus levels
      *
      * @param item        The item to apply the orb to
      * @param isLegendary Whether to use a legendary orb
@@ -245,7 +245,7 @@ public class OrbManager {
 
     /**
      * CORE METHOD: Completely rebuilds an item with new stats, preventing all duplicates
-     * : Now preserves base damage/HP/regen for normal orbs, and applies enhancement bonuses for legendary orbs when upgrading plus levels
+     * Now preserves base damage/HP/regen for normal orbs, and applies enhancement bonuses for legendary orbs when upgrading plus levels
      */
     private ItemStack completelyRebuildItem(ItemStack item, int tier, int itemType, OrbGenerator.StatResult stats,
                                             int newPlusLevel, int currentPlusLevel, List<String> specialLore, boolean isLegendary) {
@@ -295,7 +295,7 @@ public class OrbManager {
 
     /**
      * Build weapon lore with  base damage (for plus upgrades) and new secondary stats
-     * : Applies enhancement bonuses when plus level increases, preserves base otherwise
+     * Applies enhancement bonuses when plus level increases, preserves base otherwise
      */
     private void buildWeaponLore(List<String> lore, ItemStack item, int tier, int itemType, OrbGenerator.StatResult stats, int newPlusLevel, int currentPlusLevel) {
         try {
@@ -389,7 +389,7 @@ public class OrbManager {
 
     /**
      * Build armor lore with  base HP/regen (for plus upgrades) and new secondary stats
-     * : Applies enhancement bonuses when plus level increases, preserves base otherwise
+     * Applies enhancement bonuses when plus level increases, preserves base otherwise
      */
     private void buildArmorLore(List<String> lore, ItemStack item, int tier, int itemType, OrbGenerator.StatResult stats, int newPlusLevel, int currentPlusLevel) {
         try {
@@ -654,7 +654,7 @@ public class OrbManager {
 
     /**
      * Calculate the enhancement multiplier for a given plus level
-     * : Now matches your actual enhancement system (5% compounding per level)
+     * Now matches your actual enhancement system (5% compounding per level)
      */
     private double calculateEnhancementMultiplier(int plusLevel) {
         if (plusLevel <= 0) {
@@ -668,7 +668,7 @@ public class OrbManager {
 
     /**
      * Get original base damage without any enhancement bonuses
-     * : More conservative approach - only reverse-engineer when actually upgrading plus levels
+     * More conservative approach - only reverse-engineer when actually upgrading plus levels
      */
     private int[] getOriginalBaseDamage(ItemStack item, int tier, int newPlusLevel, int currentPlusLevel) {
         int[] currentDamage = OrbAPI.getDamageRange(item);
@@ -706,7 +706,7 @@ public class OrbManager {
 
     /**
      * Get original base HP without any enhancement bonuses
-     * : More conservative approach - only reverse-engineer when actually upgrading plus levels
+     * More conservative approach - only reverse-engineer when actually upgrading plus levels
      */
     private int getOriginalBaseHP(ItemStack item, int tier, int itemType, int newPlusLevel, int currentPlusLevel) {
         int currentHP = OrbAPI.getHP(item);
@@ -741,7 +741,7 @@ public class OrbManager {
 
     /**
      * Get original base HP regen without any enhancement bonuses
-     * : More conservative approach - only reverse-engineer when actually upgrading plus levels
+     * More conservative approach - only reverse-engineer when actually upgrading plus levels
      */
     private int getOriginalHPRegen(ItemStack item, int tier, int newPlusLevel, int currentPlusLevel) {
         int currentHPRegen = OrbAPI.getHPRegen(item);
@@ -771,7 +771,7 @@ public class OrbManager {
 
     /**
      * Get original base energy regen without any enhancement bonuses
-     * : More conservative approach - only reverse-engineer when actually upgrading plus levels
+     * More conservative approach - only reverse-engineer when actually upgrading plus levels
      */
     private int getOriginalEnergyRegen(ItemStack item, int tier, int newPlusLevel, int currentPlusLevel) {
         int currentEnergyRegen = OrbAPI.getEnergyRegen(item);

@@ -373,7 +373,7 @@ public class LichKingBoss extends DungeonBoss {
         bossEntity.setHealth(Math.min(bossEntity.getMaxHealth(), bossEntity.getHealth() + healAmount));
 
         // Visual effects
-        target.getWorld().spawnParticle(Particle.SPELL_WITCH, target.getLocation().add(0, 1, 0),
+        target.getWorld().spawnParticle(Particle.WITCH, target.getLocation().add(0, 1, 0),
                 20, 0.5, 0.5, 0.5, 0.1);
         target.getWorld().playSound(target.getLocation(), Sound.ENTITY_PLAYER_HURT_SWEET_BERRY_BUSH, 1.0f, 0.8f);
 
@@ -489,7 +489,7 @@ public class LichKingBoss extends DungeonBoss {
                 // Apply effects to nearby players
                 for (Player player : getNearbyPlayers(ability.getRange())) {
                     // Slow effect
-                    player.addPotionEffect(new PotionEffect(PotionEffectType.SLOW, 60, slowAmplifier, false, true));
+                    player.addPotionEffect(new PotionEffect(PotionEffectType.SLOWNESS, 60, slowAmplifier, false, true));
 
                     // Periodic damage
                     if (ticks % 3 == 0) { // Every 3 seconds
@@ -542,7 +542,7 @@ public class LichKingBoss extends DungeonBoss {
         boneSpikeLocations.add(location);
 
         // Visual spike effect
-        location.getWorld().spawnParticle(Particle.BLOCK_CRACK, location.add(0, 1, 0),
+        location.getWorld().spawnParticle(Particle.BLOCK, location.add(0, 1, 0),
                 50, 1, 2, 1, 0.1, Material.BONE_BLOCK.createBlockData());
         location.getWorld().playSound(location, Sound.BLOCK_BONE_BLOCK_BREAK, 1.0f, 0.5f);
 
@@ -569,7 +569,7 @@ public class LichKingBoss extends DungeonBoss {
         broadcastToArena(BOSS_NAME + " §2begins channeling dark regeneration!");
 
         // Make boss stationary and vulnerable during channel
-        bossEntity.addPotionEffect(new PotionEffect(PotionEffectType.SLOW, (int)(channelTime / 50), 10));
+        bossEntity.addPotionEffect(new PotionEffect(PotionEffectType.SLOWNESS, (int)(channelTime / 50), 10));
 
         new BukkitRunnable() {
             int ticks = 0;
@@ -593,7 +593,7 @@ public class LichKingBoss extends DungeonBoss {
                 }
 
                 // Channel effects
-                bossEntity.getWorld().spawnParticle(Particle.SPELL_WITCH,
+                bossEntity.getWorld().spawnParticle(Particle.WITCH,
                         bossEntity.getLocation().add(0, 1, 0), 10, 1, 1, 1, 0.1);
             }
         }.runTaskTimer(YakRealms.getInstance(), 0L, 1L);
@@ -647,13 +647,13 @@ public class LichKingBoss extends DungeonBoss {
         for (Player player : getNearbyPlayers(ability.getRange())) {
             // Apply weakness effect
             player.addPotionEffect(new PotionEffect(PotionEffectType.WEAKNESS, (int)(weaknessDuration / 50), 2));
-            player.addPotionEffect(new PotionEffect(PotionEffectType.SLOW_DIGGING, (int)(weaknessDuration / 50), 1));
+            player.addPotionEffect(new PotionEffect(PotionEffectType.MINING_FATIGUE, (int)(weaknessDuration / 50), 1));
 
             // Store curse timer for damage reduction
             playerCurseTimers.put(player.getUniqueId(), System.currentTimeMillis() + weaknessDuration);
 
             // Visual effects
-            player.getWorld().spawnParticle(Particle.SPELL_MOB, player.getLocation().add(0, 1, 0),
+            player.getWorld().spawnParticle(Particle.ENTITY_EFFECT, player.getLocation().add(0, 1, 0),
                     20, 0.5, 1, 0.5, 0.1);
 
             player.sendMessage("§4§lYou are cursed with weakness!");
@@ -702,7 +702,7 @@ public class LichKingBoss extends DungeonBoss {
         Location center = bossEntity.getLocation();
 
         // Massive explosion effects
-        center.getWorld().spawnParticle(Particle.EXPLOSION_HUGE, center.add(0, 1, 0), 20, 3, 3, 3, 0.2);
+        center.getWorld().spawnParticle(Particle.EXPLOSION, center.add(0, 1, 0), 20, 3, 3, 3, 0.2);
         center.getWorld().playSound(center, Sound.ENTITY_GENERIC_EXPLODE, 3.0f, 0.5f);
         center.getWorld().playSound(center, Sound.ENTITY_LIGHTNING_BOLT_THUNDER, 2.0f, 0.8f);
 
@@ -814,7 +814,7 @@ public class LichKingBoss extends DungeonBoss {
         broadcastToArena("§4§l§nTHE END OF ALL THINGS IS UPON YOU!");
 
         // Lock boss in place during channel
-        bossEntity.addPotionEffect(new PotionEffect(PotionEffectType.SLOW, (int)(channelTime / 50), 10));
+        bossEntity.addPotionEffect(new PotionEffect(PotionEffectType.SLOWNESS, (int)(channelTime / 50), 10));
 
         new BukkitRunnable() {
             int ticks = 0;
@@ -853,7 +853,7 @@ public class LichKingBoss extends DungeonBoss {
         Location center = bossEntity.getLocation();
 
         // MASSIVE EXPLOSION
-        center.getWorld().spawnParticle(Particle.EXPLOSION_HUGE, center, 50, 10, 10, 10, 0.5);
+        center.getWorld().spawnParticle(Particle.EXPLOSION, center, 50, 10, 10, 10, 0.5);
         center.getWorld().playSound(center, Sound.ENTITY_LIGHTNING_BOLT_THUNDER, 3.0f, 0.3f);
         center.getWorld().playSound(center, Sound.ENTITY_GENERIC_EXPLODE, 3.0f, 0.3f);
 
@@ -1026,7 +1026,7 @@ public class LichKingBoss extends DungeonBoss {
         // Create destruction effects around the arena
         for (int i = 0; i < 20; i++) {
             Location destructionLoc = getRandomLocationInArena();
-            destructionLoc.getWorld().spawnParticle(Particle.EXPLOSION_LARGE,
+            destructionLoc.getWorld().spawnParticle(Particle.EXPLOSION,
                     destructionLoc.add(0, 1, 0), 5, 2, 2, 2, 0.1);
         }
     }

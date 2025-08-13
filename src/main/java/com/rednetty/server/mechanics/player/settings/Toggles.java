@@ -964,7 +964,7 @@ public class Toggles implements Listener {
             victim.playSound(victim.getLocation(), Sound.BLOCK_NOTE_BLOCK_PLING, 0.7f, 0.8f);
 
             // Particle effects
-            victim.getWorld().spawnParticle(Particle.VILLAGER_ANGRY,
+            victim.getWorld().spawnParticle(Particle.ANGRY_VILLAGER,
                     victim.getLocation().add(0, 2, 0),
                     3, 0.5, 0.5, 0.5, 0.1);
         } catch (Exception e) {

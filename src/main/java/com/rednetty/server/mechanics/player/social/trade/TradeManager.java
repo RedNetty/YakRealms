@@ -311,7 +311,7 @@ public class TradeManager {
         initiateTrade(sender, recipient);
 
         // Play sounds and spawn particles for both players
-        playSoundAndParticles(sender, recipient, Sound.BLOCK_ENCHANTMENT_TABLE_USE, Particle.SPELL_INSTANT, 1.0f, 1.0f);
+        playSoundAndParticles(sender, recipient, Sound.BLOCK_ENCHANTMENT_TABLE_USE, Particle.INSTANT_EFFECT, 1.0f, 1.0f);
     }
 
     /**

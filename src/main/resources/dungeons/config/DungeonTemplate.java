@@ -5,7 +5,7 @@ import org.bukkit.Location;
 import java.util.*;
 
 /**
- * : Complete Dungeon Template Configuration System
+ * Complete Dungeon Template Configuration System
  *
  * Defines the blueprint for creating dungeon instances. This class uses the Builder pattern
  * for easy configuration and supports complex dungeon structures with rooms, bosses,

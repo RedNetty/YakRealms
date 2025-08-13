@@ -25,7 +25,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Logger;
 
 /**
- * FIXED: Manages loot buff effects that increase drop rates with proper initialization and thread safety
+ * Manages loot buff effects that increase drop rates with proper initialization and thread safety
  * Key improvements:
  * - Thread-safe buff management
  * - Proper task scheduling and cleanup
@@ -80,7 +80,7 @@ public class LootBuffManager implements Listener {
     }
 
     /**
-     * FIXED: Initializes the loot buff manager with proper error handling
+     * Initializes the loot buff manager with proper error handling
      */
     public void initialize() {
         try {
@@ -121,7 +121,7 @@ public class LootBuffManager implements Listener {
     }
 
     /**
-     * FIXED: Thread-safe buff updating
+     * Thread-safe buff updating
      */
     private void updateActiveBuff() {
         LootBuff currentBuff = activeBuff;
@@ -188,7 +188,7 @@ public class LootBuffManager implements Listener {
     }
 
     /**
-     * FIXED: Thread-safe update of improved drops counter
+     * Thread-safe update of improved drops counter
      */
     public void updateImprovedDrops() {
         if (isBuffActive()) {
@@ -316,7 +316,7 @@ public class LootBuffManager implements Listener {
     }
 
     /**
-     * FIXED: Extract buff data from an item with comprehensive error handling
+     * Extract buff data from an item with comprehensive error handling
      */
     private LootBuff extractBuffData(ItemStack item) {
         if (!isBuffItem(item)) {
@@ -406,7 +406,7 @@ public class LootBuffManager implements Listener {
     }
 
     /**
-     * FIXED: Handle player using a buff item with comprehensive validation
+     * Handle player using a buff item with comprehensive validation
      */
     @EventHandler(priority = EventPriority.NORMAL)
     public void onPlayerInteract(PlayerInteractEvent event) {

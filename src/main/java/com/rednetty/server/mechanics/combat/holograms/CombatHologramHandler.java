@@ -492,7 +492,7 @@ public class CombatHologramHandler {
                     world.spawnParticle(Particle.CLOUD, location, 3, 0.2, 0.1, 0.2, 0.01);
                     break;
                 default:
-                    world.spawnParticle(Particle.SMOKE_NORMAL, location, 1, 0.1, 0.1, 0.1, 0.01);
+                    world.spawnParticle(Particle.SMOKE, location, 1, 0.1, 0.1, 0.1, 0.01);
                     break;
             }
         } catch (Exception e) {

@@ -741,7 +741,7 @@ public class LootNotifier {
      */
     private void spawnParticleEffects(Player player) {
         player.getWorld().spawnParticle(
-                Particle.VILLAGER_HAPPY,
+                Particle.HAPPY_VILLAGER,
                 player.getLocation().add(0, PARTICLE_Y_OFFSET, 0),
                 SPECIAL_EFFECT_PARTICLES,
                 PARTICLE_SPREAD,

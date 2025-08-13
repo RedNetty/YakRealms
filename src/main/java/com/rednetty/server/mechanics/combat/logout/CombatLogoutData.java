@@ -9,7 +9,7 @@ import org.bukkit.inventory.ItemStack;
 import java.util.*;
 
 /**
- * FIXED Combat logout data tracking for FIXED combat logout system
+ *  Combat logout data tracking for FIXED combat logout system
  *
  * SIMPLIFIED APPROACH:
  * - Tracks combat logout processing state

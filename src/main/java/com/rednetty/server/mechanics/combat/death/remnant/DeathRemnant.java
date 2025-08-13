@@ -368,7 +368,7 @@ public class DeathRemnant {
 
         try {
             // Main spawn effects
-            world.spawnParticle(Particle.SMOKE_NORMAL, location, 30, 0.5, 0.2, 0.5, 0.05);
+            world.spawnParticle(Particle.SMOKE, location, 30, 0.5, 0.2, 0.5, 0.05);
             world.playSound(location, Sound.ENTITY_SKELETON_DEATH, 0.5f, 0.8f);
 
             // Individual bone effects
@@ -431,7 +431,7 @@ public class DeathRemnant {
         if (world == null) return;
 
         try {
-            world.spawnParticle(Particle.SMOKE_LARGE, location, 20, 0.5, 0.2, 0.5, 0.05);
+            world.spawnParticle(Particle.LARGE_SMOKE, location, 20, 0.5, 0.2, 0.5, 0.05);
             world.playSound(location, Sound.ENTITY_ITEM_BREAK, 0.7f, 0.9f);
         } catch (Exception e) {
             logError("Error playing removal effects: %s", e.getMessage());

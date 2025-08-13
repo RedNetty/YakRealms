@@ -10,51 +10,47 @@ import org.bukkit.util.Vector;
 import java.util.List;
 
 /**
- * Modernized particle utility class for Minecraft 1.20.2+
+ * Modernized particle utility class for Minecraft 1.21.7
  * Based on the original ParticleEffect library by DarkBlade12
  */
 public enum Particles {
-    // Map old particle names to new Bukkit Particle enum
-    EXPLOSION_NORMAL(Particle.EXPLOSION_NORMAL),
-    EXPLOSION_LARGE(Particle.EXPLOSION_LARGE),
-    EXPLOSION_HUGE(Particle.EXPLOSION_HUGE),
-    FIREWORKS_SPARK(Particle.FIREWORKS_SPARK),
-    WATER_BUBBLE(Particle.WATER_BUBBLE),
-    WATER_SPLASH(Particle.WATER_SPLASH),
-    WATER_WAKE(Particle.WATER_WAKE),
-    SUSPENDED(Particle.SUSPENDED),
-    SUSPENDED_DEPTH(Particle.SUSPENDED_DEPTH),
+    // Map old particle names to new Bukkit Particle enum (updated for 1.21.7)
+    EXPLOSION_NORMAL(Particle.EXPLOSION),
+    EXPLOSION_LARGE(Particle.EXPLOSION_EMITTER),
+    EXPLOSION_HUGE(Particle.EXPLOSION_EMITTER),
+    FIREWORKS_SPARK(Particle.FIREWORK),
+    WATER_BUBBLE(Particle.BUBBLE),
+    WATER_SPLASH(Particle.SPLASH),
+    WATER_WAKE(Particle.FISHING),
     CRIT(Particle.CRIT),
-    CRIT_MAGIC(Particle.CRIT_MAGIC),
-    SMOKE_NORMAL(Particle.SMOKE_NORMAL),
-    SMOKE_LARGE(Particle.SMOKE_LARGE),
-    SPELL(Particle.SPELL),
-    SPELL_INSTANT(Particle.SPELL_INSTANT),
-    SPELL_MOB(Particle.SPELL_MOB),
-    SPELL_MOB_AMBIENT(Particle.SPELL_MOB_AMBIENT),
-    SPELL_WITCH(Particle.SPELL_WITCH),
-    DRIP_WATER(Particle.DRIP_WATER),
-    DRIP_LAVA(Particle.DRIP_LAVA),
-    VILLAGER_ANGRY(Particle.VILLAGER_ANGRY),
-    VILLAGER_HAPPY(Particle.VILLAGER_HAPPY),
-    TOWN_AURA(Particle.TOWN_AURA),
+    CRIT_MAGIC(Particle.ENCHANTED_HIT),
+    SMOKE_NORMAL(Particle.SMOKE),
+    SMOKE_LARGE(Particle.LARGE_SMOKE),
+    SPELL(Particle.EFFECT),
+    SPELL_INSTANT(Particle.INSTANT_EFFECT),
+    SPELL_MOB(Particle.ENTITY_EFFECT),
+    SPELL_WITCH(Particle.WITCH),
+    DRIP_WATER(Particle.DRIPPING_WATER),
+    DRIP_LAVA(Particle.DRIPPING_LAVA),
+    VILLAGER_ANGRY(Particle.ANGRY_VILLAGER),
+    VILLAGER_HAPPY(Particle.HAPPY_VILLAGER),
+    TOWN_AURA(Particle.MYCELIUM),
     NOTE(Particle.NOTE),
     PORTAL(Particle.PORTAL),
-    ENCHANTMENT_TABLE(Particle.ENCHANTMENT_TABLE),
+    ENCHANTMENT_TABLE(Particle.ENCHANT),
     FLAME(Particle.FLAME),
     LAVA(Particle.LAVA),
-    FOOTSTEP(Particle.FALLING_DUST), // FOOTSTEP is removed, using similar particle
+    FOOTSTEP(Particle.BLOCK), // FOOTSTEP is removed, using BLOCK as alternative
     CLOUD(Particle.CLOUD),
-    REDSTONE(Particle.REDSTONE),
-    SNOWBALL(Particle.SNOWBALL),
-    SNOW_SHOVEL(Particle.SNOW_SHOVEL),
-    SLIME(Particle.SLIME),
+    REDSTONE(Particle.DUST),
+    SNOWBALL(Particle.POOF),
+    SNOW_SHOVEL(Particle.POOF),
+    SLIME(Particle.ITEM_SLIME),
     HEART(Particle.HEART),
-    ITEM_CRACK(Particle.ITEM_CRACK),
-    BLOCK_CRACK(Particle.BLOCK_CRACK),
-    BLOCK_DUST(Particle.BLOCK_DUST),
-    WATER_DROP(Particle.WATER_DROP),
-    MOB_APPEARANCE(Particle.MOB_APPEARANCE);
+    ITEM_CRACK(Particle.ITEM),
+    BLOCK_CRACK(Particle.BLOCK),
+    WATER_DROP(Particle.FALLING_WATER),
+    MOB_APPEARANCE(Particle.ELDER_GUARDIAN);
 
     private final Particle bukkitParticle;
 
@@ -162,7 +158,7 @@ public enum Particles {
     }
 
     /**
-     * Display a colored particle (only works with REDSTONE, SPELL_MOB, SPELL_MOB_AMBIENT, NOTE)
+     * Display a colored particle (only works with DUST, ENTITY_EFFECT, AMBIENT_ENTITY_EFFECT, NOTE)
      *
      * @param color  The color to display
      * @param center Center location of the effect
@@ -172,10 +168,10 @@ public enum Particles {
         World world = center.getWorld();
         if (world == null) return;
 
-        if (bukkitParticle == Particle.REDSTONE) {
+        if (bukkitParticle == Particle.DUST) {
             Particle.DustOptions dustOptions = new Particle.DustOptions(color, 1.0f);
             world.spawnParticle(bukkitParticle, center, 1, 0, 0, 0, 0, dustOptions);
-        } else if (bukkitParticle == Particle.SPELL_MOB || bukkitParticle == Particle.SPELL_MOB_AMBIENT) {
+        } else if (bukkitParticle == Particle.ENTITY_EFFECT || bukkitParticle == Particle.ENTITY_EFFECT) {
             // Color format for colored mob spell particles: RGB values are packed into the offset parameters
             double red = color.getRed() / 255.0;
             double green = color.getGreen() / 255.0;
@@ -195,12 +191,12 @@ public enum Particles {
      * @param players List of players who should see the particle
      */
     public void display(Color color, Location center, List<Player> players) {
-        if (bukkitParticle == Particle.REDSTONE) {
+        if (bukkitParticle == Particle.DUST) {
             Particle.DustOptions dustOptions = new Particle.DustOptions(color, 1.0f);
             for (Player player : players) {
                 player.spawnParticle(bukkitParticle, center, 1, 0, 0, 0, 0, dustOptions);
             }
-        } else if (bukkitParticle == Particle.SPELL_MOB || bukkitParticle == Particle.SPELL_MOB_AMBIENT) {
+        } else if (bukkitParticle == Particle.ENTITY_EFFECT || bukkitParticle == Particle.BLOCK) {
             double red = color.getRed() / 255.0;
             double green = color.getGreen() / 255.0;
             double blue = color.getBlue() / 255.0;
@@ -230,9 +226,9 @@ public enum Particles {
         World world = center.getWorld();
         if (world == null) return;
 
-        if (bukkitParticle == Particle.ITEM_CRACK) {
+        if (bukkitParticle == Particle.ITEM) {
             world.spawnParticle(bukkitParticle, center, amount, offsetX, offsetY, offsetZ, speed, new org.bukkit.inventory.ItemStack(data));
-        } else if (bukkitParticle == Particle.BLOCK_CRACK || bukkitParticle == Particle.BLOCK_DUST || bukkitParticle == Particle.FALLING_DUST) {
+        } else if (bukkitParticle == Particle.BLOCK || bukkitParticle == Particle.BLOCK_CRUMBLE || bukkitParticle == Particle.FALLING_DUST) {
             world.spawnParticle(bukkitParticle, center, amount, offsetX, offsetY, offsetZ, speed, data.createBlockData());
         }
     }
@@ -250,11 +246,11 @@ public enum Particles {
      * @param players List of players who should see the particles
      */
     public void display(org.bukkit.Material data, float offsetX, float offsetY, float offsetZ, float speed, int amount, Location center, List<Player> players) {
-        if (bukkitParticle == Particle.ITEM_CRACK) {
+        if (bukkitParticle == Particle.ITEM) {
             for (Player player : players) {
                 player.spawnParticle(bukkitParticle, center, amount, offsetX, offsetY, offsetZ, speed, new org.bukkit.inventory.ItemStack(data));
             }
-        } else if (bukkitParticle == Particle.BLOCK_CRACK || bukkitParticle == Particle.BLOCK_DUST || bukkitParticle == Particle.FALLING_DUST) {
+        } else if (bukkitParticle == Particle.BLOCK || bukkitParticle == Particle.BLOCK || bukkitParticle == Particle.FALLING_DUST) {
             for (Player player : players) {
                 player.spawnParticle(bukkitParticle, center, amount, offsetX, offsetY, offsetZ, speed, data.createBlockData());
             }

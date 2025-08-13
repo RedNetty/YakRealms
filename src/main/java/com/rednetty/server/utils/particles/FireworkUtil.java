@@ -45,7 +45,7 @@ public class FireworkUtil {
         power = Math.max(0, Math.min(3, power));
 
         // Create the firework and get its meta
-        Firework firework = (Firework) location.getWorld().spawnEntity(location, EntityType.FIREWORK);
+        Firework firework = (Firework) location.getWorld().spawnEntity(location, EntityType.FIREWORK_ROCKET);
         FireworkMeta meta = firework.getFireworkMeta();
 
         // Create the effect
@@ -73,7 +73,7 @@ public class FireworkUtil {
      */
     public static void spawnInstantFirework(Location location, FireworkEffect.Type type, Color color) {
         // Create the firework and get its meta
-        Firework firework = (Firework) location.getWorld().spawnEntity(location, EntityType.FIREWORK);
+        Firework firework = (Firework) location.getWorld().spawnEntity(location, EntityType.FIREWORK_ROCKET);
         FireworkMeta meta = firework.getFireworkMeta();
 
         // Create the effect

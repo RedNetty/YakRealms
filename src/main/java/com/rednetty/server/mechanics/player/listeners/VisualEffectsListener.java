@@ -86,9 +86,9 @@ public class VisualEffectsListener extends BaseListener {
             }
 
             // Display particles
-            player.getWorld().spawnParticle(Particle.SPELL_MOB, location, 30, 0, 0, 0, 0,
+            player.getWorld().spawnParticle(Particle.ENTITY_EFFECT, location, 30, 0, 0, 0, 0,
                     new Particle.DustOptions(Color.WHITE, 1));
-            player.getWorld().spawnParticle(Particle.REDSTONE, location, 30, 0, 0, 0, 0,
+            player.getWorld().spawnParticle(Particle.DUST, location, 30, 0, 0, 0, 0,
                     new Particle.DustOptions(Color.YELLOW, 1));
         }
     }
@@ -109,7 +109,7 @@ public class VisualEffectsListener extends BaseListener {
         switch (rank) {
             case SUB:
                 // Happy villager particles
-                player.getWorld().spawnParticle(Particle.VILLAGER_HAPPY,
+                player.getWorld().spawnParticle(Particle.HAPPY_VILLAGER,
                         playerLocation.clone().add(offsetX, offsetY, offsetZ),
                         10, 0.125f, 0.125f, 0.125f, 0.02f);
                 break;
@@ -129,7 +129,7 @@ public class VisualEffectsListener extends BaseListener {
 
             case SUB2:
                 // Witch spell particles
-                player.getWorld().spawnParticle(Particle.SPELL_WITCH,
+                player.getWorld().spawnParticle(Particle.WITCH,
                         playerLocation.clone().add(offsetX, offsetY, offsetZ),
                         10, 0, 0, 0, 1.0f);
                 break;
@@ -155,7 +155,7 @@ public class VisualEffectsListener extends BaseListener {
                 double z = 0.4 * (2 * Math.PI - t) * 0.5 * Math.sin(t + phi + i * Math.PI);
 
                 location.add(x, y, z);
-                player.getWorld().spawnParticle(Particle.REDSTONE, location, 1, 0, 0, 0, 0,
+                player.getWorld().spawnParticle(Particle.DUST, location, 1, 0, 0, 0, 0,
                         new Particle.DustOptions(Color.RED, 1));
                 location.subtract(x, y, z);
             }

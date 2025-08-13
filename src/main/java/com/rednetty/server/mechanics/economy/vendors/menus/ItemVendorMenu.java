@@ -188,7 +188,7 @@ public class ItemVendorMenu extends Menu {
                 lore.add("");
                 if (currentCategory == category) {
                     lore.add(ChatColor.GREEN + "✅ Currently Selected");
-                    meta.addEnchant(org.bukkit.enchantments.Enchantment.DURABILITY, 1, true);
+                    meta.addEnchant(org.bukkit.enchantments.Enchantment.UNBREAKING, 1, true);
                     meta.addItemFlags(org.bukkit.inventory.ItemFlag.HIDE_ENCHANTS);
                 } else {
                     lore.add(ChatColor.YELLOW + "👆 Click to view items!");

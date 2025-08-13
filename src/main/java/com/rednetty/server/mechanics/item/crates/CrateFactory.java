@@ -260,7 +260,7 @@ public class CrateFactory {
         meta.setLore(lore);
 
         // Add special enchantment glow
-        meta.addEnchant(Enchantment.DURABILITY, 1, true);
+        meta.addEnchant(Enchantment.UNBREAKING, 1, true);
         meta.addItemFlags(ItemFlag.HIDE_ENCHANTS);
 
         // Store special edition data
@@ -477,14 +477,11 @@ public class CrateFactory {
 
         // Header section
         lore.add("");
-        lore.add(ChatColor.GRAY + "═══ " + ChatColor.WHITE + ChatColor.BOLD +
-                "MYSTICAL CONTAINER" + ChatColor.GRAY + " ═══");
-        lore.add("");
 
         // Quality and tier information
         lore.add(ChatColor.WHITE + "Quality: " + color + ChatColor.BOLD + quality);
-        lore.add(ChatColor.WHITE + "Tier: " + color + crateType.getTier() +
-                ChatColor.GRAY + "/6");
+        lore.add(ChatColor.WHITE + "Tier: " + ChatColor.GRAY + "[" + color + crateType.getTier() +
+                ChatColor.GRAY + "/6]");
 
         if (isHalloween) {
             lore.add(ChatColor.GOLD + "Season: " + ChatColor.GOLD + ChatColor.BOLD +
@@ -494,7 +491,7 @@ public class CrateFactory {
         lore.add("");
 
         // Contents preview
-        lore.add(ChatColor.YELLOW + "" + ChatColor.BOLD + "" + ChatColor.UNDERLINE + "Mystical Contents:");
+        lore.add(ChatColor.YELLOW + ""  + ChatColor.UNDERLINE + "Mystical Contents:");
         addTierSpecificLore(lore, crateType, color);
 
         if (isHalloween) {
@@ -505,7 +502,7 @@ public class CrateFactory {
         lore.add("");
 
         // Usage instructions
-        lore.add(ChatColor.GREEN + "▶ " + ChatColor.BOLD + "Usage Instructions:");
+        lore.add(ChatColor.GREEN + "▶ " + "Usage Instructions:");
         lore.add(ChatColor.WHITE + "• " + ChatColor.GRAY + "Left-click in inventory to open");
         lore.add(ChatColor.WHITE + "• " + ChatColor.GRAY + "Right-click in hand for scrap value");
 
@@ -527,9 +524,6 @@ public class CrateFactory {
         List<String> lore = new ArrayList<>();
         ChatColor color = getKeyColor(keyType);
 
-        lore.add("");
-        lore.add(ChatColor.GRAY + "═══ " + ChatColor.AQUA + ChatColor.BOLD +
-                "MYSTICAL KEY" + ChatColor.GRAY + " ═══");
         lore.add("");
 
         lore.add(ChatColor.WHITE + "Type: " + color + ChatColor.BOLD + keyType.getDisplayName());
@@ -565,7 +559,7 @@ public class CrateFactory {
     private void enhanceCrateVisuals(ItemMeta meta, CrateType crateType, boolean isHalloween) {
         // Add enchantment glow for higher tier crates or Halloween variants
         if (crateType.getTier() >= 3 || isHalloween) {
-            meta.addEnchant(Enchantment.DURABILITY, 1, true);
+            meta.addEnchant(Enchantment.UNBREAKING, 1, true);
             meta.addItemFlags(ItemFlag.HIDE_ENCHANTS);
         }
 
@@ -573,7 +567,7 @@ public class CrateFactory {
         meta.addItemFlags(ItemFlag.HIDE_ATTRIBUTES);
         meta.addItemFlags(ItemFlag.HIDE_DESTROYS);
         meta.addItemFlags(ItemFlag.HIDE_PLACED_ON);
-        meta.addItemFlags(ItemFlag.HIDE_POTION_EFFECTS);
+        meta.addItemFlags(ItemFlag.HIDE_POTION_CONTENTS);
         meta.addItemFlags(ItemFlag.HIDE_UNBREAKABLE);
 
         // Make unbreakable for durability
@@ -582,7 +576,7 @@ public class CrateFactory {
 
     private void enhanceKeyVisuals(ItemMeta meta, CrateKey keyType) {
         // Add subtle enchantment glow for all keys
-        meta.addEnchant(Enchantment.DURABILITY, 1, true);
+        meta.addEnchant(Enchantment.UNBREAKING, 1, true);
         meta.addItemFlags(ItemFlag.HIDE_ENCHANTS);
 
         // Hide attributes

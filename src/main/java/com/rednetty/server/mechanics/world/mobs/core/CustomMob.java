@@ -28,7 +28,7 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
- * FIXED: CustomMob class with enhanced named elite support and T6 world boss detection
+ * CustomMob class with enhanced named elite support and T6 world boss detection
  *
  * CRITICAL FIXES:
  * - Enhanced named elite detection and metadata storage
@@ -86,7 +86,7 @@ public class CustomMob {
     @Getter public int lightningMultiplier = 0;
 
     /**
-     * ENHANCED: Creates a new CustomMob instance with named elite support
+     *: Creates a new CustomMob instance with named elite support
      */
     public CustomMob(MobType type, int tier, boolean elite) {
         this(type, tier, elite, null);
@@ -139,7 +139,7 @@ public class CustomMob {
     }
 
     /**
-     * ENHANCED: Spawns the mob at the specified location with proper metadata
+     *: Spawns the mob at the specified location with proper metadata
      */
     public boolean spawn(Location location) {
         if (!Bukkit.isPrimaryThread()) {
@@ -256,7 +256,7 @@ public class CustomMob {
     }
 
     /**
-     * ENHANCED: Updates the mob's display name based on current state with world boss support
+     *: Updates the mob's display name based on current state with world boss support
      */
     private void updateMobName() {
         if (entity == null) return;
@@ -279,7 +279,7 @@ public class CustomMob {
     }
 
     /**
-     * ENHANCED: Generates the base display name for the mob with named elite support
+     *: Generates the base display name for the mob with named elite support
      */
     private String generateBaseDisplayName() {
         if (isNamedElite && eliteConfigName != null) {
@@ -335,7 +335,7 @@ public class CustomMob {
     }
 
     /**
-     * ENHANCED: Determines if this mob should be treated as a world boss
+     *: Determines if this mob should be treated as a world boss
      */
     public boolean isWorldBoss() {
         // T6 mobs are always world bosses
@@ -432,7 +432,7 @@ public class CustomMob {
     }
 
     /**
-     * ENHANCED: Updates the hologram display with world boss support
+     *: Updates the hologram display with world boss support
      */
     private void updateHologram() {
         if (entity == null || !hologramActive.get()) return;
@@ -468,7 +468,7 @@ public class CustomMob {
     }
 
     /**
-     * ENHANCED: Creates hologram display lines with world boss support
+     *: Creates hologram display lines with world boss support
      */
     private List<String> createHologramLines() {
         List<String> lines = new ArrayList<>();
@@ -575,7 +575,7 @@ public class CustomMob {
     }
 
     /**
-     * ENHANCED: Initializes the mob with properties and equipment, including named elite metadata
+     *: Initializes the mob with properties and equipment, including named elite metadata
      */
     private boolean initializeMob() {
         if (entity == null) return false;
@@ -599,7 +599,7 @@ public class CustomMob {
     }
 
     /**
-     * ENHANCED: Applies metadata to the entity with named elite support
+     *: Applies metadata to the entity with named elite support
      */
     private void applyMetadata() {
         YakRealms plugin = YakRealms.getInstance();
@@ -700,7 +700,7 @@ public class CustomMob {
     }
 
     /**
-     * ENHANCED: Applies health and stats to the entity with world boss scaling
+     *: Applies health and stats to the entity with world boss scaling
      */
     private void applyHealthAndStats() {
         int health = calculateHealth();
@@ -766,7 +766,7 @@ public class CustomMob {
 
                 if (weapon != null) {
                     if (elite) {
-                        weapon.addUnsafeEnchantment(Enchantment.LOOT_BONUS_MOBS, 1);
+                        weapon.addUnsafeEnchantment(Enchantment.LOOTING, 1);
                     }
                     return weapon;
                 }
@@ -793,7 +793,7 @@ public class CustomMob {
 
         ItemStack weapon = new ItemStack(material);
         if (elite) {
-            weapon.addUnsafeEnchantment(Enchantment.LOOT_BONUS_MOBS, 1);
+            weapon.addUnsafeEnchantment(Enchantment.LOOTING, 1);
         }
         return weapon;
     }
@@ -816,7 +816,7 @@ public class CustomMob {
 
                         if (piece != null) {
                             if (elite) {
-                                piece.addUnsafeEnchantment(Enchantment.LOOT_BONUS_MOBS, 1);
+                                piece.addUnsafeEnchantment(Enchantment.LOOTING, 1);
                             }
                             armor[slot] = piece;
                             usedSlots.add(slot);
@@ -884,7 +884,7 @@ public class CustomMob {
             entity.setMetadata("LightningMultiplier", new FixedMetadataValue(plugin, multiplier));
             entity.setMetadata("LightningMob", new FixedMetadataValue(plugin, baseDisplayName));
 
-            logInfo("Enhanced %s as lightning mob (x%d)", uniqueMobId, multiplier);
+            logInfo(" %s as lightning mob (x%d)", uniqueMobId, multiplier);
 
         } catch (Exception e) {
             logError("Lightning enhancement failed", e);

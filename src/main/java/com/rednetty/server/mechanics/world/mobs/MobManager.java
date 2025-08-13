@@ -11,6 +11,8 @@ import com.rednetty.server.mechanics.world.mobs.spawners.MobSpawner;
 import com.rednetty.server.mechanics.world.mobs.spawners.SpawnerMetrics;
 import com.rednetty.server.mechanics.world.mobs.utils.MobUtils;
 import org.bukkit.*;
+import org.bukkit.attribute.Attribute;
+import org.bukkit.enchantments.Enchantment;
 import org.bukkit.entity.*;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
@@ -38,7 +40,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.logging.Logger;
 
 /**
- * : MobManager with simplified hologram integration and  cleanup
+ * MobManager with simplified hologram integration and  cleanup
  * Key Fixes:
  * - Simplified hologram coordination with CustomMob's new name system
  * - Removed complex hologram state management conflicts
@@ -138,7 +140,7 @@ public class MobManager implements Listener {
     }
 
     /**
-     * :  initialization with startup cleanup
+     *  initialization with startup cleanup
      */
     public void initialize() {
         try {
@@ -285,7 +287,7 @@ public class MobManager implements Listener {
     // ================ STARTUP CLEANUP SYSTEM ================
 
     /**
-     * : Simplified startup cleanup
+     * Simplified startup cleanup
      */
     private void performStartupCleanup() {
         try {
@@ -428,7 +430,7 @@ public class MobManager implements Listener {
     }
 
     /**
-     * : Safely remove an entity with simplified cleanup
+     * Safely remove an entity with simplified cleanup
      */
     private boolean removeEntitySafely(LivingEntity entity, String reason) {
         if (entity == null) return false;
@@ -536,7 +538,7 @@ public class MobManager implements Listener {
     // ================ SHUTDOWN SYSTEM ================
 
     /**
-     * :  shutdown with comprehensive cleanup
+     *  shutdown with comprehensive cleanup
      */
     public void shutdown() {
         try {
@@ -655,7 +657,7 @@ public class MobManager implements Listener {
     // ================ TASKS ================
 
     /**
-     * : Start essential tasks
+     * Start essential tasks
      */
     private void startTasks() {
         logger.info("§6[MobManager] §7Starting essential tasks...");
@@ -717,7 +719,7 @@ public class MobManager implements Listener {
     // ================ ACTIVE MOBS MANAGEMENT ================
 
     /**
-     * : Update active mobs with simplified system
+     * Update active mobs with simplified system
      */
     // In MobManager.java
     private void updateActiveMobs() {
@@ -755,7 +757,7 @@ public class MobManager implements Listener {
     // ================ MOB REGISTRATION ================
 
     /**
-     * : Register mob with  tracking
+     * Register mob with  tracking
      */
     public void registerMob(CustomMob mob) {
         if (mob == null || mob.getEntity() == null) return;
@@ -786,7 +788,7 @@ public class MobManager implements Listener {
     }
 
     /**
-     * : Unregister mob with simplified cleanup
+     * Unregister mob with simplified cleanup
      */
     public void unregisterMob(CustomMob mob) {
         if (mob == null || mob.getEntity() == null) return;
@@ -824,7 +826,7 @@ public class MobManager implements Listener {
     // ================ DAMAGE PROCESSING ================
 
     /**
-     * : Handle mob hit by player with simplified display updates
+     * Handle mob hit by player with simplified display updates
      */
     public void handleMobHitByPlayer(LivingEntity entity, Player player, double damage) {
         if (entity == null || player == null) return;
@@ -2234,15 +2236,15 @@ public class MobManager implements Listener {
             double healthMultiplier = 1.0 + (tier * 0.5);
             if (elite) healthMultiplier *= 1.5;
 
-            double maxHealth = entity.getAttribute(org.bukkit.attribute.Attribute.GENERIC_MAX_HEALTH).getBaseValue() * healthMultiplier;
-            entity.getAttribute(org.bukkit.attribute.Attribute.GENERIC_MAX_HEALTH).setBaseValue(maxHealth);
+            double maxHealth = entity.getAttribute(org.bukkit.attribute.Attribute.MAX_HEALTH).getBaseValue() * healthMultiplier;
+            entity.getAttribute(org.bukkit.attribute.Attribute.MAX_HEALTH).setBaseValue(maxHealth);
             entity.setHealth(maxHealth);
 
-            if (entity.getAttribute(org.bukkit.attribute.Attribute.GENERIC_ATTACK_DAMAGE) != null) {
+            if (entity.getAttribute(Attribute.ATTACK_DAMAGE) != null) {
                 double damageMultiplier = 1.0 + (tier * 0.3);
                 if (elite) damageMultiplier *= 1.4;
-                entity.getAttribute(org.bukkit.attribute.Attribute.GENERIC_ATTACK_DAMAGE).setBaseValue(
-                        entity.getAttribute(org.bukkit.attribute.Attribute.GENERIC_ATTACK_DAMAGE).getBaseValue() * damageMultiplier);
+                entity.getAttribute(org.bukkit.attribute.Attribute.ATTACK_DAMAGE).setBaseValue(
+                        entity.getAttribute(org.bukkit.attribute.Attribute.ATTACK_DAMAGE).getBaseValue() * damageMultiplier);
             }
 
         } catch (Exception e) {
@@ -2429,7 +2431,7 @@ public class MobManager implements Listener {
                 meta.setUnbreakable(true);
 
                 if (elite && !meta.hasEnchants()) {
-                    weapon.addUnsafeEnchantment(org.bukkit.enchantments.Enchantment.DURABILITY, 1);
+                    weapon.addUnsafeEnchantment(Enchantment.UNBREAKING, 1);
                 }
 
                 String weaponName = generateMobT6WeaponName(weapon.getType(), elite);

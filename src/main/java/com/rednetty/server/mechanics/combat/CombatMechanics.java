@@ -857,7 +857,7 @@ public class CombatMechanics implements Listener {
 
         target.getWorld().playEffect(target.getLocation().add(0, 1.3, 0), Effect.POTION_BREAK, ICE_EFFECT_ID);
         int duration = 40 + (tier * 5);
-        target.addPotionEffect(new PotionEffect(PotionEffectType.SLOW, duration, 0));
+        target.addPotionEffect(new PotionEffect(PotionEffectType.SLOWNESS, duration, 0));
 
         hologramHandler.showCombatHologram(attacker, target, CombatHologramHandler.HologramType.ELEMENTAL_ICE, iceDamageBonus);
         return iceDamageBonus;
@@ -960,7 +960,7 @@ public class CombatMechanics implements Listener {
         if (thornsChance > 1 && ThreadLocalRandom.current().nextBoolean()) {
             int thornsDamage = (int) (finalDamage * ((thornsChance * 0.5) / 100)) + 1;
 
-            defender.getWorld().spawnParticle(Particle.BLOCK_CRACK, defender.getLocation().add(0, 1, 0),
+            defender.getWorld().spawnParticle(Particle.BLOCK, defender.getLocation().add(0, 1, 0),
                     10, 0.5, 0.5, 0.5, 0.01, new MaterialData(Material.OAK_LEAVES));
             attacker.setHealth(Math.max(0, attacker.getHealth() - thornsDamage));
 
@@ -1410,8 +1410,8 @@ public class CombatMechanics implements Listener {
         int finalDamage = (int) Math.round(damageResult.damage);
 
         if (damageResult.isCritical) {
-            attacker.playSound(attacker.getLocation(), Sound.BLOCK_WOODEN_BUTTON_CLICK_ON, 1.5f, 0.5f);
-            target.getWorld().spawnParticle(Particle.CRIT_MAGIC, target.getLocation(), 50, 0.5, 0.5, 0.5, 0.1);
+            attacker.playSound(attacker.getLocation(), Sound.BLOCK_WOODEN_BUTTON_CLICK_ON, 1f, 1.2f);
+            target.getWorld().spawnParticle(Particle.CRIT, target.getLocation(), 50, 0.5, 0.5, 0.5, 0.1);
             hologramHandler.showCombatHologram(attacker, target, CombatHologramHandler.HologramType.CRITICAL_DAMAGE, finalDamage);
         } else {
             hologramHandler.showCombatHologram(attacker, target, CombatHologramHandler.HologramType.DAMAGE, finalDamage);

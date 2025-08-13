@@ -161,9 +161,9 @@ public class HealthListener extends BaseListener {
             }
 
             // Display particles
-            player.getWorld().spawnParticle(Particle.SPELL_MOB, location, 30, 0, 0, 0, 0,
+            player.getWorld().spawnParticle(Particle.ENTITY_EFFECT, location, 30, 0, 0, 0, 0,
                     new Particle.DustOptions(Color.WHITE, 1));
-            player.getWorld().spawnParticle(Particle.REDSTONE, location, 30, 0, 0, 0, 0,
+            player.getWorld().spawnParticle(Particle.DUST, location, 30, 0, 0, 0, 0,
                     new Particle.DustOptions(Color.YELLOW, 1));
         }
     }

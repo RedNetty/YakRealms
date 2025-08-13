@@ -16,8 +16,8 @@ import org.bukkit.util.Vector;
 import java.util.*;
 
 /**
- * Enhanced handler for elytra mounts with robust cleanup mechanisms and improved state tracking
- * Fixed issues with stuck elytra items and inconsistent cleanup
+ * handler for elytra mounts with robust cleanup mechanisms and improved state tracking
+ *  issues with stuck elytra items and inconsistent cleanup
  */
 public class ElytraMount implements Mount {
     private final MountManager manager;
@@ -268,7 +268,7 @@ public class ElytraMount implements Mount {
     }
 
     /**
-     * ENHANCED: Complete cleanup of all player data
+     *: Complete cleanup of all player data
      */
     private void cleanupPlayerData(UUID playerUUID) {
         // Remove from summoning
@@ -280,7 +280,7 @@ public class ElytraMount implements Mount {
     }
 
     /**
-     * ENHANCED: Force cleanup of all tracking data
+     *: Force cleanup of all tracking data
      */
     private void forceCleanupAllData(UUID playerUUID) {
         // Cancel all active tasks
@@ -306,7 +306,7 @@ public class ElytraMount implements Mount {
     }
 
     /**
-     * ENHANCED: Force restore chestplate with fallback mechanisms
+     *: Force restore chestplate with fallback mechanisms
      */
     private void forceRestoreChestplate(Player player) {
         UUID playerUUID = player.getUniqueId();
@@ -333,7 +333,7 @@ public class ElytraMount implements Mount {
     }
 
     /**
-     * ENHANCED: Check if item is any type of elytra mount (including corrupted ones)
+     *: Check if item is any type of elytra mount (including corrupted ones)
      */
     private boolean isAnyElytraMount(ItemStack item) {
         if (item == null || item.getType() != Material.ELYTRA) {
@@ -488,7 +488,7 @@ public class ElytraMount implements Mount {
     }
 
     /**
-     * Enhanced landing detection with better grace period handling
+     * landing detection with better grace period handling
      *
      * @param player The player
      * @return True if the player has landed
@@ -682,7 +682,7 @@ public class ElytraMount implements Mount {
     }
 
     /**
-     * Enhanced chestplate handling - stores complete state and transfers properties to elytra
+     * chestplate handling - stores complete state and transfers properties to elytra
      *
      * @param player The player
      */
@@ -740,9 +740,9 @@ public class ElytraMount implements Mount {
             // Set display name to indicate it's enhanced
             String originalName = chestplateState.getDisplayName();
             if (originalName != null) {
-                elytraMeta.setDisplayName(ChatColor.AQUA + "Enhanced Elytra " + ChatColor.GRAY + "(" + originalName + ")");
+                elytraMeta.setDisplayName(ChatColor.AQUA + " Elytra " + ChatColor.GRAY + "(" + originalName + ")");
             } else {
-                elytraMeta.setDisplayName(ChatColor.AQUA + "Enhanced Elytra Mount");
+                elytraMeta.setDisplayName(ChatColor.AQUA + " Elytra Mount");
             }
 
             // Create enhanced lore
@@ -904,7 +904,7 @@ public class ElytraMount implements Mount {
     }
 
     /**
-     * ENHANCED: Forces cleanup for stuck elytra on player
+     *: Forces cleanup for stuck elytra on player
      */
     public boolean forceCleanupStuckElytra(Player player) {
         UUID playerUUID = player.getUniqueId();
@@ -927,7 +927,7 @@ public class ElytraMount implements Mount {
     }
 
     /**
-     * ENHANCED: Gets all players with potentially stuck elytra
+     *: Gets all players with potentially stuck elytra
      */
     public List<Player> getPlayersWithStuckElytra() {
         List<Player> stuckPlayers = new ArrayList<>();
@@ -950,7 +950,7 @@ public class ElytraMount implements Mount {
     }
 
     /**
-     * Enhanced cleanup method to be called when player leaves or plugin disables
+     * cleanup method to be called when player leaves or plugin disables
      *
      * @param player The player
      */
@@ -970,7 +970,7 @@ public class ElytraMount implements Mount {
     }
 
     /**
-     * ENHANCED: Cleanup all stuck elytra mounts server-wide
+     *: Cleanup all stuck elytra mounts server-wide
      */
     public void cleanupAllStuckElytra() {
         List<Player> stuckPlayers = getPlayersWithStuckElytra();

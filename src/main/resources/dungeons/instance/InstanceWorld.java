@@ -6,7 +6,7 @@ import java.io.File;
 import java.util.UUID;
 
 /**
- * : Instance World Representation
+ * Instance World Representation
  *
  * Represents a single instanced world for a dungeon, containing all
  * necessary information for management and cleanup.

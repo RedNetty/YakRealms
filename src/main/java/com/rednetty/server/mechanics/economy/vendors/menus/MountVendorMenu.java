@@ -247,7 +247,7 @@ public class MountVendorMenu implements Listener {
 
             // Add enchantment glow for available/owned tiers
             if (tier <= currentTier || tier == currentTier + 1) {
-                meta.addEnchant(org.bukkit.enchantments.Enchantment.DURABILITY, 1, true);
+                meta.addEnchant(org.bukkit.enchantments.Enchantment.UNBREAKING, 1, true);
                 meta.addItemFlags(org.bukkit.inventory.ItemFlag.HIDE_ENCHANTS);
             }
 
@@ -516,7 +516,7 @@ public class MountVendorMenu implements Listener {
         player.playSound(player.getLocation(), Sound.ENTITY_PLAYER_LEVELUP, 1.0f, 1.2f);
 
         // Particle effects
-        player.getWorld().spawnParticle(org.bukkit.Particle.VILLAGER_HAPPY,
+        player.getWorld().spawnParticle(org.bukkit.Particle.HAPPY_VILLAGER,
                 player.getLocation().add(0, 1, 0), 15, 0.5, 0.5, 0.5, 0);
     }
 

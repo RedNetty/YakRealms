@@ -697,9 +697,9 @@ public class CrateHandler implements Listener {
         player.playSound(player.getLocation(), Sound.BLOCK_CHEST_OPEN, 1.0f, 1.2f);
         player.playSound(player.getLocation(), Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 1.0f, 1.5f);
 
-        player.getWorld().spawnParticle(Particle.VILLAGER_HAPPY,
+        player.getWorld().spawnParticle(Particle.HAPPY_VILLAGER,
                 player.getLocation().add(0, 2, 0), 15, 1, 1, 1, 0.1);
-        player.getWorld().spawnParticle(Particle.ENCHANTMENT_TABLE,
+        player.getWorld().spawnParticle(Particle.ENCHANT,
                 player.getLocation().add(0, 2, 0), 10, 0.5, 0.5, 0.5, 0.05);
     }
 
@@ -709,8 +709,8 @@ public class CrateHandler implements Listener {
 
         Particle scrapParticle = switch (crateType.getTier()) {
             case 1, 2 -> Particle.CRIT;
-            case 3, 4 -> Particle.ENCHANTMENT_TABLE;
-            case 5, 6 -> Particle.VILLAGER_HAPPY;
+            case 3, 4 -> Particle.ENCHANT;
+            case 5, 6 -> Particle.HAPPY_VILLAGER;
             default -> Particle.CRIT;
         };
 

@@ -3,7 +3,7 @@ package com.rednetty.server.mechanics.item.drops.buff;
 import java.util.UUID;
 
 /**
- * ENHANCED: Represents an active loot buff that increases drop rates with improved validation and thread safety
+ *: Represents an active loot buff that increases drop rates with improved validation and thread safety
  *
  * Key improvements:
  * - Thread-safe state management
@@ -333,7 +333,7 @@ public class LootBuff {
     }
 
     /**
-     * Enhanced toString for debugging
+     * toString for debugging
      */
     @Override
     public String toString() {
@@ -342,7 +342,7 @@ public class LootBuff {
     }
 
     /**
-     * Enhanced equals for proper comparison
+     * equals for proper comparison
      */
     @Override
     public boolean equals(Object obj) {
@@ -358,7 +358,7 @@ public class LootBuff {
     }
 
     /**
-     * Enhanced hashCode for proper hashing
+     * hashCode for proper hashing
      */
     @Override
     public int hashCode() {

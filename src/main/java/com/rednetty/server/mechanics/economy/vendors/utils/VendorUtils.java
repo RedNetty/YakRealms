@@ -284,7 +284,7 @@ public class VendorUtils {
     }
 
     /**
-     * : Format numbers with proper comma separation and size handling
+     * Format numbers with proper comma separation and size handling
      */
     public static String formatNumber(long number) {
         if (number >= 1000000) {
@@ -297,7 +297,7 @@ public class VendorUtils {
     }
 
     /**
-     * : Format currency with proper styling
+     * Format currency with proper styling
      */
     public static String formatCurrency(long amount) {
         return formatNumber(amount) + "g";

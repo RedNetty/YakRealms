@@ -292,8 +292,8 @@ public class Trail {
         return switch (style) {
             case FLAME -> Particle.FLAME;
             case PORTAL -> Particle.DRAGON_BREATH;
-            case REDSTONE -> Particle.REDSTONE;
-            case SPELL_WITCH -> Particle.SPELL_WITCH;
+            case REDSTONE -> Particle.DUST;
+            case WITCH -> Particle.WITCH;
             case END_ROD -> Particle.END_ROD;
             default -> Particle.FLAME;
         };

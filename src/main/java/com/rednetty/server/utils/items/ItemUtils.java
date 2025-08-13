@@ -148,7 +148,7 @@ public class ItemUtils {
      * @param item The ItemStack to modify.
      */
     public void addGlow(ItemStack item) {
-        addEnchantments(item, Collections.singletonMap(Enchantment.ARROW_INFINITE, 1), true);
+        addEnchantments(item, Collections.singletonMap(Enchantment.INFINITY, 1), true);
         addItemFlags(item, ItemFlag.HIDE_ENCHANTS);
     }
 
@@ -158,7 +158,7 @@ public class ItemUtils {
      * @param item The ItemStack to modify.
      */
     public void removeGlow(ItemStack item) {
-        removeEnchantments(item, Enchantment.ARROW_INFINITE);
+        removeEnchantments(item, Enchantment.INFINITY);
         removeItemFlags(item, ItemFlag.HIDE_ENCHANTS);
     }
 
@@ -252,25 +252,6 @@ public class ItemUtils {
             return damageable.getDamage();
         }
         return -1;
-    }
-
-    /**
-     * Creates a custom potion with specified effects.
-     *
-     * @param potionType The type of potion.
-     * @param duration   The duration of the effect in ticks.
-     * @param amplifier  The level of the effect.
-     * @return An ItemStack representing the custom potion.
-     */
-    public ItemStack createCustomPotion(PotionType potionType, int duration, int amplifier) {
-        ItemStack potion = new ItemStack(Material.POTION);
-        PotionMeta meta = (PotionMeta) potion.getItemMeta();
-        if (meta != null) {
-            meta.setBasePotionData(new PotionData(potionType));
-            meta.addCustomEffect(new PotionEffect(potionType.getEffectType(), duration, amplifier), true);
-            potion.setItemMeta(meta);
-        }
-        return potion;
     }
 
     /**

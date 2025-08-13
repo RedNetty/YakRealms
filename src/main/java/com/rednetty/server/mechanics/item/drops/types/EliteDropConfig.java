@@ -6,7 +6,7 @@ import java.util.Map;
 /**
  * Configuration class for elite mob drops loaded from elite_drops.yml
  * CRITICAL: Stores all the elite mob drop data from the YAML file
- * : Better handling of stat ranges and damage variation
+ * Better handling of stat ranges and damage variation
  */
 public class EliteDropConfig {
 

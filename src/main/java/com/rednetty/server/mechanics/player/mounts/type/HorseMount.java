@@ -228,10 +228,10 @@ public class HorseMount implements Mount {
         setHorseAppearance(horse, tier);
 
         // Set  attributes based on tier
-        horse.getAttribute(Attribute.GENERIC_MOVEMENT_SPEED).setBaseValue(stats.getSpeed());
-        horse.getAttribute(Attribute.HORSE_JUMP_STRENGTH).setBaseValue(stats.getJump());
-        horse.getAttribute(Attribute.GENERIC_MAX_HEALTH).setBaseValue(20.0 + (tier * 2)); // More health per tier
-        horse.setHealth(horse.getAttribute(Attribute.GENERIC_MAX_HEALTH).getValue());
+        horse.getAttribute(Attribute.MOVEMENT_SPEED).setBaseValue(stats.getSpeed());
+        horse.getAttribute(Attribute.JUMP_STRENGTH).setBaseValue(stats.getJump());
+        horse.getAttribute(Attribute.MAX_HEALTH).setBaseValue(20.0 + (tier * 2)); // More health per tier
+        horse.setHealth(horse.getAttribute(Attribute.MAX_HEALTH).getValue());
 
         // Set inventory with saddle
         horse.getInventory().setSaddle(new ItemStack(Material.SADDLE));
@@ -386,13 +386,13 @@ public class HorseMount implements Mount {
                     case 1 -> {
                         // Basic sparkle trail
                         if (tickCount % 5 == 0) {
-                            spawnParticleTrail(horseLoc, Particle.FIREWORKS_SPARK, 3);
+                            spawnParticleTrail(horseLoc, Particle.FIREWORK, 3);
                         }
                     }
                     case 2 -> {
                         // Healing aura with green particles
                         if (tickCount % 3 == 0) {
-                            spawnParticleTrail(horseLoc, Particle.VILLAGER_HAPPY, 5);
+                            spawnParticleTrail(horseLoc, Particle.HAPPY_VILLAGER, 5);
                         }
                     }
                     case 3 -> {
@@ -408,7 +408,7 @@ public class HorseMount implements Mount {
                     case 4 -> {
                         // Magic aura with enchantment particles
                         if (tickCount % 2 == 0) {
-                            spawnParticleAura(horseLoc, Particle.ENCHANTMENT_TABLE, 10);
+                            spawnParticleAura(horseLoc, Particle.ENCHANT, 10);
                             spawnParticleTrail(horseLoc, Particle.PORTAL, 6);
                         }
                         if (tickCount % 60 == 0) {
@@ -422,7 +422,7 @@ public class HorseMount implements Mount {
                             spawnParticleAura(horseLoc, Particle.LAVA, 4);
                         }
                         if (tickCount % 3 == 0) {
-                            spawnParticleCircle(horseLoc, Particle.DRIP_LAVA, 12, 2.0);
+                            spawnParticleCircle(horseLoc, Particle.DRIPPING_LAVA, 12, 2.0);
                         }
                         if (tickCount % 80 == 0) {
                             horse.getWorld().playSound(horseLoc, Sound.ENTITY_BLAZE_AMBIENT, 0.3f, 0.8f);
@@ -436,15 +436,15 @@ public class HorseMount implements Mount {
                         }
                         if (tickCount % 2 == 0) {
                             spawnParticleCircle(horseLoc, Particle.FLAME, 16, 3.0);
-                            spawnParticleCircle(horseLoc, Particle.ENCHANTMENT_TABLE, 20, 2.5);
+                            spawnParticleCircle(horseLoc, Particle.ENCHANT, 20, 2.5);
                         }
                         if (tickCount % 3 == 0) {
-                            spawnParticleSpiral(horseLoc, Particle.FIREWORKS_SPARK, 15);
+                            spawnParticleSpiral(horseLoc, Particle.FIREWORK, 15);
                         }
                         if (tickCount % 100 == 0) {
                             horse.getWorld().playSound(horseLoc, Sound.ENTITY_ENDER_DRAGON_AMBIENT, 0.2f, 1.5f);
                             // Epic burst effect
-                            spawnParticleBurst(horseLoc, Particle.TOTEM, 30);
+                            spawnParticleBurst(horseLoc, Particle.TOTEM_OF_UNDYING, 30);
                         }
                     }
                 }
@@ -454,7 +454,7 @@ public class HorseMount implements Mount {
                     switch (tier) {
                         case 1, 2 -> spawnParticleBurst(horseLoc, Particle.CLOUD, 8);
                         case 3 -> spawnParticleBurst(horseLoc, Particle.SNOWFLAKE, 15);
-                        case 4 -> spawnParticleBurst(horseLoc, Particle.ENCHANTMENT_TABLE, 20);
+                        case 4 -> spawnParticleBurst(horseLoc, Particle.ENCHANT, 20);
                         case 5 -> spawnParticleBurst(horseLoc, Particle.FLAME, 25);
                         case 6 -> {
                             spawnParticleBurst(horseLoc, Particle.END_ROD, 30);
@@ -539,29 +539,29 @@ public class HorseMount implements Mount {
 
         // Summoning particle effects
         switch (tier) {
-            case 1 -> spawnParticleBurst(loc, Particle.FIREWORKS_SPARK, 20);
+            case 1 -> spawnParticleBurst(loc, Particle.FIREWORK, 20);
             case 2 -> {
                 spawnParticleBurst(loc, Particle.HEART, 15);
-                spawnParticleBurst(loc, Particle.VILLAGER_HAPPY, 25);
+                spawnParticleBurst(loc, Particle.HAPPY_VILLAGER, 25);
             }
             case 3 -> {
                 spawnParticleBurst(loc, Particle.SNOWFLAKE, 30);
                 spawnParticleCircle(loc, Particle.DOLPHIN, 16, 2.0);
             }
             case 4 -> {
-                spawnParticleBurst(loc, Particle.ENCHANTMENT_TABLE, 40);
+                spawnParticleBurst(loc, Particle.ENCHANT, 40);
                 spawnParticleSpiral(loc, Particle.PORTAL, 20);
             }
             case 5 -> {
                 spawnParticleBurst(loc, Particle.FLAME, 50);
                 spawnParticleCircle(loc, Particle.LAVA, 20, 3.0);
-                spawnParticleBurst(loc, Particle.DRIP_LAVA, 30);
+                spawnParticleBurst(loc, Particle.DRIPPING_LAVA, 30);
             }
             case 6 -> {
                 spawnParticleBurst(loc, Particle.END_ROD, 60);
                 spawnParticleBurst(loc, Particle.DRAGON_BREATH, 40);
                 spawnParticleCircle(loc, Particle.FLAME, 24, 4.0);
-                spawnParticleSpiral(loc, Particle.TOTEM, 30);
+                spawnParticleSpiral(loc, Particle.TOTEM_OF_UNDYING, 30);
 
                 // Extra epic effect
                 new BukkitRunnable() {
@@ -573,7 +573,7 @@ public class HorseMount implements Mount {
                             cancel();
                             return;
                         }
-                        spawnParticleBurst(loc, Particle.FIREWORKS_SPARK, 20);
+                        spawnParticleBurst(loc, Particle.FIREWORK, 20);
                         count++;
                     }
                 }.runTaskTimer(manager.getPlugin(), 0L, 3L);
@@ -626,10 +626,10 @@ public class HorseMount implements Mount {
 
         // Dismount particle effects (smaller than summon effects)
         switch (tier) {
-            case 1 -> spawnParticleBurst(loc, Particle.SMOKE_NORMAL, 10);
-            case 2 -> spawnParticleBurst(loc, Particle.VILLAGER_HAPPY, 15);
+            case 1 -> spawnParticleBurst(loc, Particle.SMOKE, 10);
+            case 2 -> spawnParticleBurst(loc, Particle.HAPPY_VILLAGER, 15);
             case 3 -> spawnParticleBurst(loc, Particle.SNOWFLAKE, 20);
-            case 4 -> spawnParticleBurst(loc, Particle.ENCHANTMENT_TABLE, 25);
+            case 4 -> spawnParticleBurst(loc, Particle.ENCHANT, 25);
             case 5 -> spawnParticleBurst(loc, Particle.FLAME, 30);
             case 6 -> {
                 spawnParticleBurst(loc, Particle.END_ROD, 35);

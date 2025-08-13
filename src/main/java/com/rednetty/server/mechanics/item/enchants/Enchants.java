@@ -78,7 +78,7 @@ public class Enchants {
             }
 
             // Add the dummy enchantment for glow effect
-            item.addUnsafeEnchantment(Enchantment.WATER_WORKER, 1);
+            item.addUnsafeEnchantment(Enchantment.RESPIRATION, 1);
 
             // Get the meta again after enchantment is added
             meta = item.getItemMeta();
@@ -157,7 +157,7 @@ public class Enchants {
      */
     public static boolean hasGlow(ItemStack item) {
         return item != null &&
-                item.containsEnchantment(Enchantment.WATER_WORKER) &&
+                item.containsEnchantment(Enchantment.AQUA_AFFINITY) &&
                 item.getItemMeta() != null &&
                 item.getItemMeta().hasItemFlag(ItemFlag.HIDE_ENCHANTS);
     }
@@ -179,7 +179,7 @@ public class Enchants {
             ItemStack glowedItem = item.clone();
 
             // Add enchantment first
-            glowedItem.addUnsafeEnchantment(Enchantment.WATER_WORKER, 1);
+            glowedItem.addUnsafeEnchantment(Enchantment.AQUA_AFFINITY, 1);
 
             // Get fresh meta and only modify the enchant visibility
             ItemMeta freshMeta = glowedItem.getItemMeta();

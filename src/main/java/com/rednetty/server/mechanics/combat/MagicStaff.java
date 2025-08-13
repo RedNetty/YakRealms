@@ -35,27 +35,16 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Handles magical staff weapons and their projectile mechanics with LIMITED RANGE
- * <p>
- * This class manages:
- * - Staff projectile casting and travel with proper range limits
- * - Hit detection against entities and blocks
- * - Damage calculation and application
- * - Visual and sound effects
- * - UPDATED: Projectiles now have limited range and won't travel infinitely
+ * magical staff weapons system with improved visuals and 1.21.7 compatibility
+ * Maintains backwards compatibility while providing modern particle effects and sounds
  */
 public class MagicStaff implements Listener {
     // Constants
     private static final String STAFF_COOLDOWN_META = "staffCooldown";
-    private static final long STAFF_COOLDOWN_DURATION = 350L; // Cooldown between staff shots in milliseconds
-
-    // BALANCED: Reduced projectile lifetime from 70 ticks to 35 ticks for reasonable range
-    private static final int MAX_PROJECTILE_TICKS = 35; // Maximum lifetime of a projectile in ticks
-
-    // BALANCED: Maximum distance a projectile can travel before disappearing
-    private static final double MAX_PROJECTILE_DISTANCE = 25.0; // Maximum distance in blocks
-
-    private static final double PROJECTILE_COLLISION_RADIUS = 0.8; // Radius for entity collision detection
+    private static final long STAFF_COOLDOWN_DURATION = 350L;
+    private static final int MAX_PROJECTILE_TICKS = 35;
+    private static final double MAX_PROJECTILE_DISTANCE = 25.0;
+    private static final double PROJECTILE_COLLISION_RADIUS = 0.8;
     private static final float IMPACT_SOUND_VOLUME = 0.5f;
     private static final float IMPACT_SOUND_PITCH = 1.2f;
 
@@ -77,8 +66,6 @@ public class MagicStaff implements Listener {
 
     /**
      * Get the singleton instance
-     *
-     * @return The MagicStaff instance
      */
     public static MagicStaff getInstance() {
         if (instance == null) {
@@ -88,10 +75,7 @@ public class MagicStaff implements Listener {
     }
 
     /**
-     * Creates and launches a magical projectile from a staff with LIMITED RANGE
-     *
-     * @param shooter The living entity shooting the projectile
-     * @param type    The type of staff being used
+     * Creates and launches an enhanced magical projectile with tier-specific effects
      */
     public static void shootMagicProjectile(LivingEntity shooter, StaffType type) {
         if (shooter == null || type == null) {
@@ -104,10 +88,11 @@ public class MagicStaff implements Listener {
             return;
         }
 
-        // Play shoot sound
-        shooter.getWorld().playSound(shooter.getLocation(), Sound.ENTITY_BLAZE_SHOOT, 1.0f, 1.5f);
+        // Enhanced shoot sound and effect
+        playShootSound(shooter.getLocation(), type);
+        createLaunchEffect(shooter.getEyeLocation(), type);
 
-        // Create ray trace for projectile path with LIMITED RANGE
+        // Create enhanced ray trace for projectile
         new BukkitRunnable() {
             Location eyeLocation = shooter.getEyeLocation();
             final Location startLocation = eyeLocation != null ? eyeLocation.clone() : shooter.getLocation().clone();
@@ -127,8 +112,8 @@ public class MagicStaff implements Listener {
                             eyeLocation.add(0, -0.25, 0).toVector(),
                             eyeLocation.getDirection()
                     );
-                    // BALANCED: Reduced distance speed from 150 to 100 for players to limit range
-                    distanceSpeed = shooter instanceof Player ? 100 : 60;
+                    // Balanced speed with slight tier bonus
+                    distanceSpeed = shooter instanceof Player ? 100 + (type.getTier() * 5) : 60;
                     precision = shooter instanceof Player ? 0.8 : 0.3;
                     trail = magic.traverse(distanceSpeed, precision).iterator();
                 } else {
@@ -147,7 +132,6 @@ public class MagicStaff implements Listener {
                     if (magic == null || trail == null || !trail.hasNext() ||
                             ticks > MAX_PROJECTILE_TICKS || hasHit || totalDistance > MAX_PROJECTILE_DISTANCE) {
 
-                        // Show dissipation effect when projectile reaches max range
                         if (totalDistance > MAX_PROJECTILE_DISTANCE && !hasHit && lastKnownLocation != null) {
                             createDissipationEffect(lastKnownLocation, type);
                         }
@@ -234,17 +218,336 @@ public class MagicStaff implements Listener {
                             YakRealms.getInstance().getLogger().warning("Error checking entity collision: " + e.getMessage());
                         }
 
-                        // Create projectile trail effect
-                        createTrailEffect(currentLocation, type);
+                        // Create enhanced projectile trail effect
+                        createTrailEffect(currentLocation, type, ticks);
                     }
                     ticks++;
                 } catch (Exception e) {
-                    // Log and cancel on error
                     YakRealms.error("Error in magic projectile task", e);
                     this.cancel();
                 }
             }
         }.runTaskTimer(YakRealms.getInstance(), 0L, 1L);
+    }
+
+    /**
+     * launch effect with tier-specific visuals
+     */
+    private static void createLaunchEffect(Location location, StaffType type) {
+        if (location == null || location.getWorld() == null || type == null) return;
+
+        try {
+            World world = location.getWorld();
+
+            // Base colored dust particle
+            DustOptions dustOptions = new DustOptions(type.getColor(), 1.5f);
+            spawnParticle(world, Particle.DUST, location, 8, 0.3, 0.3, 0.3, 0, dustOptions);
+
+            // Tier-specific launch effects
+            switch (type) {
+                case WOOD:
+                    spawnParticle(world, getParticle("CRIT"), location, 5, 0.2, 0.2, 0.2, 0.1);
+                    break;
+                case STONE:
+                    spawnParticle(world, getParticle("CRIT"), location, 6, 0.2, 0.2, 0.2, 0.1);
+                    spawnParticle(world, getParticle("ENCHANT"), location, 3, 0.3, 0.3, 0.3, 0.5);
+                    break;
+                case IRON:
+                    spawnParticle(world, getParticle("CRIT_MAGIC"), location, 5, 0.2, 0.2, 0.2, 0.1);
+                    spawnParticle(world, getParticle("ENCHANT"), location, 5, 0.3, 0.3, 0.3, 0.8);
+                    break;
+                case DIAMOND:
+                    spawnParticle(world, getParticle("CRIT_MAGIC"), location, 8, 0.3, 0.3, 0.3, 0.1);
+                    spawnParticle(world, getParticle("ENCHANT"), location, 10, 0.4, 0.4, 0.4, 1.0);
+                    break;
+                case GOLD:
+                    spawnParticle(world, getParticle("CRIT_MAGIC"), location, 6, 0.3, 0.3, 0.3, 0.1);
+                    spawnParticle(world, getParticle("FIREWORK"), location, 5, 0.2, 0.2, 0.2, 0.1);
+                    break;
+                case NETHERITE:
+                    spawnParticle(world, getParticle("CRIT_MAGIC"), location, 12, 0.4, 0.4, 0.4, 0.15);
+                    spawnParticle(world, getParticle("ENCHANT"), location, 15, 0.5, 0.5, 0.5, 1.5);
+                    spawnParticle(world, getParticle("FLAME"), location, 8, 0.2, 0.2, 0.2, 0.05);
+                    break;
+            }
+        } catch (Exception e) {
+            YakRealms.getInstance().getLogger().info("Error creating launch effect: " + e.getMessage());
+        }
+    }
+
+    /**
+     * trail effects with tier-specific animations
+     */
+    private static void createTrailEffect(Location location, StaffType type, int ticks) {
+        if (location == null || location.getWorld() == null || type == null) return;
+
+        try {
+            World world = location.getWorld();
+
+            // Base trail - colored dust and magic
+            DustOptions dustOptions = new DustOptions(type.getColor(), 1.0f);
+            spawnParticle(world, Particle.DUST, location, 1, 0.05, 0.05, 0.05, 0, dustOptions);
+            spawnParticle(world, getParticle("SPELL_MOB"), location, 0, type.getRed(), type.getGreen(), type.getBlue(), 1);
+
+            // Tier-specific trail enhancements
+            switch (type) {
+                case WOOD:
+                    // Simple sparks
+                    if (ticks % 4 == 0) {
+                        spawnParticle(world, getParticle("CRIT"), location, 1, 0.1, 0.1, 0.1, 0.0);
+                    }
+                    break;
+                case STONE:
+                    // Occasional sparkle
+                    if (ticks % 3 == 0) {
+                        spawnParticle(world, getParticle("ENCHANT"), location, 1, 0.1, 0.1, 0.1, 0.2);
+                    }
+                    break;
+                case IRON:
+                    // Magic crits
+                    if (ticks % 3 == 0) {
+                        spawnParticle(world, getParticle("CRIT_MAGIC"), location, 1, 0.1, 0.1, 0.1, 0.0);
+                    }
+                    break;
+                case DIAMOND:
+                    // Consistent enchant glow
+                    spawnParticle(world, getParticle("ENCHANT"), location, 2, 0.15, 0.15, 0.15, 0.3);
+                    break;
+                case GOLD:
+                    // Firework sparks
+                    if (ticks % 2 == 0) {
+                        spawnParticle(world, getParticle("FIREWORK"), location, 1, 0.1, 0.1, 0.1, 0.0);
+                    }
+                    break;
+                case NETHERITE:
+                    // Full magical trail
+                    spawnParticle(world, getParticle("ENCHANT"), location, 3, 0.12, 0.12, 0.12, 0.5);
+                    if (ticks % 2 == 0) {
+                        spawnParticle(world, getParticle("CRIT_MAGIC"), location, 1, 0.08, 0.08, 0.08, 0.0);
+                    }
+                    if (ticks % 4 == 0) {
+                        spawnParticle(world, getParticle("FLAME"), location, 1, 0.05, 0.05, 0.05, 0.0);
+                    }
+                    break;
+            }
+        } catch (Exception e) {
+            YakRealms.getInstance().getLogger().info("Error creating trail effect: " + e.getMessage());
+        }
+    }
+
+    /**
+     * impact effects with tier-specific explosions
+     */
+    private static void createImpactEffect(Location location, StaffType type) {
+        if (location == null || location.getWorld() == null || type == null) return;
+
+        try {
+            World world = location.getWorld();
+
+            // Base impact - colored explosion
+            DustOptions dustOptions = new DustOptions(type.getColor(), 1.3f);
+            spawnParticle(world, Particle.DUST, location, 10 + type.getTier() * 2, 0.3, 0.3, 0.3, 0, dustOptions);
+            spawnParticle(world, getParticle("CRIT_MAGIC"), location, 5 + type.getTier(), 0.25, 0.25, 0.25, 0.1);
+
+            // Tier-specific impact effects
+            switch (type) {
+                case WOOD:
+                    spawnParticle(world, getParticle("CRIT"), location, 8, 0.3, 0.3, 0.3, 0.1);
+                    break;
+                case STONE:
+                    spawnParticle(world, getParticle("CRIT"), location, 10, 0.3, 0.3, 0.3, 0.1);
+                    spawnParticle(world, getParticle("SPELL_WITCH"), location, 5, 0.2, 0.2, 0.2, 0.05);
+                    break;
+                case IRON:
+                    spawnParticle(world, getParticle("SPELL_WITCH"), location, 8, 0.3, 0.3, 0.3, 0.05);
+                    spawnParticle(world, getParticle("ENCHANT"), location, 5, 0.3, 0.3, 0.3, 0.5);
+                    break;
+                case DIAMOND:
+                    spawnParticle(world, getParticle("SPELL_WITCH"), location, 12, 0.4, 0.4, 0.4, 0.08);
+                    spawnParticle(world, getParticle("ENCHANT"), location, 15, 0.5, 0.5, 0.5, 1.0);
+                    break;
+                case GOLD:
+                    spawnParticle(world, getParticle("SPELL_WITCH"), location, 10, 0.4, 0.4, 0.4, 0.06);
+                    spawnParticle(world, getParticle("FIREWORK"), location, 8, 0.3, 0.3, 0.3, 0.1);
+                    break;
+                case NETHERITE:
+                    spawnParticle(world, getParticle("SPELL_WITCH"), location, 18, 0.5, 0.5, 0.5, 0.1);
+                    spawnParticle(world, getParticle("ENCHANT"), location, 25, 0.6, 0.6, 0.6, 1.5);
+                    spawnParticle(world, getParticle("FIREWORK"), location, 12, 0.4, 0.4, 0.4, 0.15);
+                    spawnParticle(world, getParticle("FLAME"), location, 8, 0.3, 0.3, 0.3, 0.05);
+                    break;
+            }
+
+            playImpactSound(location, type);
+
+        } catch (Exception e) {
+            YakRealms.getInstance().getLogger().info("Error creating impact effect: " + e.getMessage());
+        }
+    }
+
+    /**
+     * dissipation effect when projectile reaches max range
+     */
+    private static void createDissipationEffect(Location location, StaffType type) {
+        if (location == null || location.getWorld() == null || type == null) return;
+
+        try {
+            World world = location.getWorld();
+
+            // Gentle dissipation particles
+            DustOptions dustOptions = new DustOptions(type.getColor(), 0.8f);
+            spawnParticle(world, Particle.DUST, location, 5 + type.getTier(), 0.5, 0.5, 0.5, 0, dustOptions);
+            spawnParticle(world, getParticle("SPELL_WITCH"), location, 5 + type.getTier(), 0.4, 0.4, 0.4, 0.02);
+
+            // Higher tier gets enchant sparkles
+            if (type.getTier() >= 3) {
+                spawnParticle(world, getParticle("ENCHANT"), location, type.getTier(), 0.3, 0.3, 0.3, 0.2);
+            }
+
+            // Soft dissipation sound
+            playDissipationSound(location, type);
+
+        } catch (Exception e) {
+            YakRealms.getInstance().getLogger().info("Error creating dissipation effect: " + e.getMessage());
+        }
+    }
+
+    /**
+     * sound system with backwards compatibility
+     */
+    private static void playShootSound(Location location, StaffType type) {
+        if (location == null || location.getWorld() == null) return;
+
+        try {
+            World world = location.getWorld();
+            Sound shootSound = getSound("ENTITY_BLAZE_SHOOT", "BLAZE_BREATH");
+
+            float pitch = 1.3f + (type.getTier() * 0.15f);
+            float volume = 0.8f + (type.getTier() * 0.1f);
+
+            world.playSound(location, shootSound, volume, pitch);
+
+            // Higher tier additional sounds
+            if (type.getTier() >= 4) {
+                Sound enchantSound = getSound("BLOCK_ENCHANTMENT_TABLE_USE", "ENCHANT_TABLE");
+                world.playSound(location, enchantSound, 0.3f, 2.0f);
+            }
+        } catch (Exception e) {
+            YakRealms.getInstance().getLogger().info("Error playing shoot sound: " + e.getMessage());
+        }
+    }
+
+    private static void playImpactSound(Location location, StaffType type) {
+        if (location == null || location.getWorld() == null) return;
+
+        try {
+            World world = location.getWorld();
+            Sound impactSound = getSound("ENTITY_GENERIC_EXPLODE", "EXPLODE");
+
+            float pitch = IMPACT_SOUND_PITCH + (type.getTier() * 0.1f);
+            float volume = IMPACT_SOUND_VOLUME + (type.getTier() * 0.05f);
+
+            world.playSound(location, impactSound, volume, pitch);
+        } catch (Exception e) {
+            YakRealms.getInstance().getLogger().info("Error playing impact sound: " + e.getMessage());
+        }
+    }
+
+    private static void playDissipationSound(Location location, StaffType type) {
+        if (location == null || location.getWorld() == null) return;
+
+        try {
+            World world = location.getWorld();
+            Sound dissipationSound = getSound("BLOCK_FIRE_EXTINGUISH", "FIRE_IGNITE");
+
+            float pitch = 1.6f + (type.getTier() * 0.1f);
+            float volume = 0.25f + (type.getTier() * 0.03f);
+
+            world.playSound(location, dissipationSound, volume, pitch);
+        } catch (Exception e) {
+            YakRealms.getInstance().getLogger().info("Error playing dissipation sound: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Backwards compatible particle getter with modern names
+     */
+    private static Particle getParticle(String name) {
+        try {
+            switch (name) {
+                case "SPELL_MOB":
+                    // Try modern name first, fallback to old
+                    try {
+                        return Particle.valueOf("ENTITY_EFFECT");
+                    } catch (IllegalArgumentException e) {
+                        return Particle.valueOf("SPELL_MOB");
+                    }
+                case "SPELL_WITCH":
+                    try {
+                        return Particle.valueOf("WITCH");
+                    } catch (IllegalArgumentException e) {
+                        return Particle.valueOf("SPELL_WITCH");
+                    }
+                case "CRIT_MAGIC":
+                    try {
+                        return Particle.valueOf("ENCHANTED_HIT");
+                    } catch (IllegalArgumentException e) {
+                        return Particle.valueOf("CRIT_MAGIC");
+                    }
+                case "ENCHANT":
+                    try {
+                        return Particle.valueOf("ENCHANT");
+                    } catch (IllegalArgumentException e) {
+                        return Particle.valueOf("ENCHANTMENT_TABLE");
+                    }
+                case "FIREWORK":
+                    return Particle.valueOf("FIREWORKS_SPARK");
+                default:
+                    return Particle.valueOf(name);
+            }
+        } catch (IllegalArgumentException e) {
+            return Particle.DUST; // Ultimate fallback
+        }
+    }
+
+    /**
+     * Backwards compatible sound getter
+     */
+    private static Sound getSound(String modernName, String fallbackName) {
+        try {
+            return Sound.valueOf(modernName);
+        } catch (IllegalArgumentException e) {
+            try {
+                return Sound.valueOf(fallbackName);
+            } catch (IllegalArgumentException e2) {
+                return Sound.valueOf("CLICK"); // Ultimate fallback
+            }
+        }
+    }
+
+    /**
+     * Safe particle spawning with backwards compatibility
+     */
+    private static void spawnParticle(World world, Particle particle, Location location,
+                                      int count, double offsetX, double offsetY, double offsetZ, double extra, Object data) {
+        try {
+            if (data != null) {
+                world.spawnParticle(particle, location, count, offsetX, offsetY, offsetZ, extra, data);
+            } else {
+                world.spawnParticle(particle, location, count, offsetX, offsetY, offsetZ, extra);
+            }
+        } catch (Exception e) {
+            try {
+                world.spawnParticle(particle, location, count, offsetX, offsetY, offsetZ, extra);
+            } catch (Exception e2) {
+                // Silent fail - don't spam logs for particle issues
+            }
+        }
+    }
+
+    private static void spawnParticle(World world, Particle particle, Location location,
+                                      int count, double offsetX, double offsetY, double offsetZ, double extra) {
+        spawnParticle(world, particle, location, count, offsetX, offsetY, offsetZ, extra, null);
     }
 
     /**
@@ -285,7 +588,7 @@ public class MagicStaff implements Listener {
 
         // Safety check for safe zones
         if (isSafeZone(player.getLocation())) {
-            player.playSound(player.getLocation(), Sound.BLOCK_LAVA_EXTINGUISH, 1.0f, 1.25f);
+            player.playSound(player.getLocation(), getSound("BLOCK_LAVA_EXTINGUISH", "LAVA"), 1.0f, 1.25f);
             spawnMagicParticles(player.getLocation().add(0, 1, 0));
             return;
         }
@@ -334,12 +637,8 @@ public class MagicStaff implements Listener {
 
     /**
      * Checks if the interaction event is a valid staff action
-     *
-     * @param event The interaction event to check
-     * @return true if this is a valid staff action
      */
     private boolean isValidStaffAction(PlayerInteractEvent event) {
-        // Check if this is a right-click action
         if (event.getAction() != Action.RIGHT_CLICK_AIR && event.getAction() != Action.RIGHT_CLICK_BLOCK) {
             return false;
         }
@@ -350,26 +649,19 @@ public class MagicStaff implements Listener {
         }
 
         ItemStack item = player.getInventory().getItemInMainHand();
-
-        // Check if holding a valid item
         if (item == null || item.getType() == Material.AIR) {
             return false;
         }
 
-        // Check if the item is a hoe (staff)
         if (!item.getType().name().contains("_HOE")) {
             return false;
         }
 
-        // Check if the item has metadata and lore
         return item.hasItemMeta() && item.getItemMeta() != null && item.getItemMeta().hasLore();
     }
 
     /**
      * Checks if a player is on staff cooldown
-     *
-     * @param player The player to check
-     * @return true if player is on cooldown
      */
     private boolean isOnCooldown(Player player) {
         if (player == null) {
@@ -381,8 +673,6 @@ public class MagicStaff implements Listener {
 
     /**
      * Sets the staff cooldown for a player
-     *
-     * @param player The player to set cooldown for
      */
     private void setStaffCooldown(Player player) {
         if (player == null) {
@@ -394,41 +684,29 @@ public class MagicStaff implements Listener {
 
     /**
      * Handles when a player is out of energy
-     *
-     * @param player    The player
-     * @param yakPlayer The YakPlayer object
      */
     private void handleOutOfEnergy(Player player, YakPlayer yakPlayer) {
         if (player == null || yakPlayer == null) {
             return;
         }
-        // Player is out of energy
         Energy.getInstance().setEnergy(yakPlayer, 0);
-        player.addPotionEffect(new PotionEffect(PotionEffectType.SLOW_DIGGING, 40, 5, false, true));
-        player.playSound(player.getLocation(), Sound.ENTITY_WOLF_PANT, 0.5f, 1.5f);
+        player.addPotionEffect(new PotionEffect(PotionEffectType.SLOWNESS, 40, 5, false, true));
+        player.playSound(player.getLocation(), getSound("ENTITY_WOLF_PANT", "WOLF_PANT"), 0.5f, 1.5f);
     }
 
     /**
      * Handles when a player has insufficient energy for a staff
-     *
-     * @param player        The player
-     * @param yakPlayer     The YakPlayer object
-     * @param currentEnergy Current energy level
      */
     private void handleInsufficientEnergy(Player player, YakPlayer yakPlayer, int currentEnergy) {
         if (player == null) {
             return;
         }
-        // Player doesn't have enough energy for this staff
-        player.playSound(player.getLocation(), Sound.ENTITY_WOLF_PANT, 0.5f, 1.5f);
+        player.playSound(player.getLocation(), getSound("ENTITY_WOLF_PANT", "WOLF_PANT"), 0.5f, 1.5f);
         player.sendMessage(ChatColor.RED + "You need more energy to use this staff!");
     }
 
     /**
      * Get the last staff used by a player
-     *
-     * @param player The player to check
-     * @return The ItemStack of the last used staff, or null if none
      */
     public static ItemStack getLastUsedStaff(Player player) {
         if (player == null) {
@@ -439,9 +717,6 @@ public class MagicStaff implements Listener {
 
     /**
      * Check if a player has recently used a staff
-     *
-     * @param player The player to check
-     * @return true if player has used a staff in the last 5 seconds
      */
     public static boolean isRecentStaffShot(Player player) {
         if (player == null) {
@@ -453,8 +728,6 @@ public class MagicStaff implements Listener {
 
     /**
      * Clear staff shot data for a player
-     *
-     * @param player The player to clear data for
      */
     public static void clearStaffShot(Player player) {
         if (player == null) {
@@ -465,127 +738,19 @@ public class MagicStaff implements Listener {
     }
 
     /**
-     * Creates dissipation effect when projectile reaches maximum range
-     *
-     * @param location The dissipation location
-     * @param type     The staff type for effect color
-     */
-    private static void createDissipationEffect(Location location, StaffType type) {
-        if (location == null || location.getWorld() == null || type == null) {
-            return;
-        }
-
-        try {
-            // Create dust options for colored particles
-            Color dustColor = Color.fromRGB(
-                    (int) (type.getRed() * 255),
-                    (int) (type.getGreen() * 255),
-                    (int) (type.getBlue() * 255)
-            );
-            DustOptions dustOptions = new DustOptions(dustColor, 0.5f);
-
-            // Spawn smaller, more dispersed particles for dissipation
-            location.getWorld().spawnParticle(Particle.SPELL_WITCH, location, 8, 0.4, 0.4, 0.4, 0.02);
-            location.getWorld().spawnParticle(Particle.REDSTONE, location, 5, 0.5, 0.5, 0.5, 0, dustOptions);
-
-            // Play a softer dissipation sound
-            location.getWorld().playSound(location, Sound.BLOCK_FIRE_EXTINGUISH, 0.3f, 1.5f);
-        } catch (Exception e) {
-            // Log error but continue
-            YakRealms.getInstance().getLogger().info("Error creating dissipation effect: " + e.getMessage());
-        }
-    }
-
-    /**
-     * Creates visual trail effects for the projectile
-     *
-     * @param location The location to display the effect
-     * @param type     The staff type for effect color
-     */
-    private static void createTrailEffect(Location location, StaffType type) {
-        if (location == null || location.getWorld() == null || type == null) {
-            return;
-        }
-
-        try {
-            // Use a dust options object for the REDSTONE particle
-            Color dustColor = Color.fromRGB(
-                    (int) (type.getRed() * 255),
-                    (int) (type.getGreen() * 255),
-                    (int) (type.getBlue() * 255)
-            );
-            DustOptions dustOptions = new DustOptions(dustColor, 1.0f);
-
-            // Spawn the colored particles
-            location.getWorld().spawnParticle(Particle.SPELL_MOB, location, 0, type.getRed(), type.getGreen(), type.getBlue(), 1);
-            location.getWorld().spawnParticle(Particle.REDSTONE, location, 1, 0, 0, 0, 0, dustOptions);
-        } catch (Exception e) {
-            // Log error but don't crash the projectile
-            YakRealms.getInstance().getLogger().info("Error creating trail effect: " + e.getMessage());
-        }
-    }
-
-    /**
-     * Creates impact effect when projectile hits a target
-     *
-     * @param location The impact location
-     * @param type     The staff type for effect color
-     */
-    private static void createImpactEffect(Location location, StaffType type) {
-        if (location == null || location.getWorld() == null || type == null) {
-            return;
-        }
-
-        try {
-            // Create dust options for colored particles
-            Color dustColor = Color.fromRGB(
-                    (int) (type.getRed() * 255),
-                    (int) (type.getGreen() * 255),
-                    (int) (type.getBlue() * 255)
-            );
-            DustOptions dustOptions = new DustOptions(dustColor, 1.0f);
-
-            // Spawn particles
-            location.getWorld().spawnParticle(Particle.CRIT_MAGIC, location, 5, 0.2, 0.2, 0.2, 0.1);
-            location.getWorld().spawnParticle(Particle.REDSTONE, location, 10, 0.3, 0.3, 0.3, 0, dustOptions);
-
-            // Play sound
-            location.getWorld().playSound(location, Sound.ENTITY_GENERIC_EXPLODE, IMPACT_SOUND_VOLUME, IMPACT_SOUND_PITCH);
-        } catch (Exception e) {
-            // Log error but continue
-            YakRealms.getInstance().getLogger().info("Error creating impact effect: " + e.getMessage());
-        }
-    }
-
-    /**
-     * Registers this listener and initializes the system
-     */
-    public void onEnable() {
-        Bukkit.getServer().getPluginManager().registerEvents(this, YakRealms.getInstance());
-        YakRealms.log("Magic Staff system has been enabled with limited projectile range");
-    }
-
-    /**
      * Creates magic particles at a location
-     *
-     * @param location The location to display particles
      */
     private static void spawnMagicParticles(Location location) {
         if (location == null || location.getWorld() == null) {
             return;
         }
-        location.getWorld().spawnParticle(Particle.CRIT_MAGIC, location, 20, 0.5, 0.5, 0.5, 0.1);
+        spawnParticle(location.getWorld(), getParticle("CRIT_MAGIC"), location, 20, 0.5, 0.5, 0.5, 0.1);
     }
 
     /**
      * Check if damage should be ignored (PvP toggle, buddy, guild member)
-     *
-     * @param shooter The entity shooting the projectile
-     * @param target  The target entity
-     * @return true if damage should be ignored
      */
     private static boolean shouldIgnoreDamage(LivingEntity shooter, LivingEntity target) {
-        // Only perform checks for player shooter and target
         if (!(shooter instanceof Player) || !(target instanceof Player)) {
             return false;
         }
@@ -593,22 +758,18 @@ public class MagicStaff implements Listener {
         Player playerShooter = (Player) shooter;
         Player playerTarget = (Player) target;
 
-        // Check for duel
         if (isDueling(playerTarget)) {
             return true;
         }
 
-        // Check for same guild
         if (isInSameGuild(playerShooter, playerTarget)) {
             return true;
         }
 
-        // Check for party members
         if (isInSameParty(playerShooter, playerTarget)) {
             return true;
         }
 
-        // Check PvP and friendly fire settings
         if (shouldIgnorePvP(playerShooter, playerTarget)) {
             return true;
         }
@@ -618,28 +779,19 @@ public class MagicStaff implements Listener {
 
     /**
      * Check if a player is dueling
-     *
-     * @param player The player to check
-     * @return true if the player is in a duel
      */
     private static boolean isDueling(Player player) {
-        // This would integrate with your dueling system
         return false;
     }
 
     /**
      * Check if two players are in the same guild
-     *
-     * @param player1 First player
-     * @param player2 Second player
-     * @return true if they're in the same guild
      */
     private static boolean isInSameGuild(Player player1, Player player2) {
         if (player1 == null || player2 == null) {
             return false;
         }
 
-        // This would integrate with your guild system
         YakPlayer yakPlayer1 = YakPlayerManager.getInstance().getPlayer(player1);
         YakPlayer yakPlayer2 = YakPlayerManager.getInstance().getPlayer(player2);
 
@@ -653,22 +805,13 @@ public class MagicStaff implements Listener {
 
     /**
      * Check if two players are in the same party
-     *
-     * @param player1 First player
-     * @param player2 Second player
-     * @return true if they're in the same party
      */
     private static boolean isInSameParty(Player player1, Player player2) {
-        // This would integrate with your party system
         return false;
     }
 
     /**
      * Check if PvP should be ignored based on preferences and settings
-     *
-     * @param shooter The attacking player
-     * @param target  The target player
-     * @return true if PvP should be ignored
      */
     private static boolean shouldIgnorePvP(Player shooter, Player target) {
         if (shooter == null || target == null) {
@@ -676,18 +819,15 @@ public class MagicStaff implements Listener {
         }
 
         try {
-            // Check if target is a buddy and friendly fire is disabled
             if (Buddies.getInstance().isBuddy(shooter, target.getName()) &&
                     !Toggles.getInstance().isToggled(shooter, "Friendly Fire")) {
                 return true;
             }
 
-            // Check if player has Anti PvP enabled
             if (Toggles.getInstance().isToggled(shooter, "Anti PVP")) {
                 return true;
             }
 
-            // Check if chaotic protection is enabled
             if (isLawfulPlayer(target) && Toggles.getInstance().isToggled(shooter, "Chaotic")) {
                 return true;
             }
@@ -700,9 +840,6 @@ public class MagicStaff implements Listener {
 
     /**
      * Check if a player has lawful alignment
-     *
-     * @param player The player to check
-     * @return true if player is lawful
      */
     private static boolean isLawfulPlayer(Player player) {
         if (player == null) {
@@ -714,30 +851,22 @@ public class MagicStaff implements Listener {
 
     /**
      * Check if a location is in a safe zone
-     *
-     * @param location The location to check
-     * @return true if location is in a safe zone
      */
     private static boolean isSafeZone(Location location) {
         if (location == null) {
             return true;
         }
-        // Integrate with Alignments class
         return AlignmentMechanics.isSafeZone(location);
     }
 
     /**
      * Handles damage to a horse with a passenger
-     *
-     * @param shooter The entity that shot the projectile
-     * @param horse   The horse entity
      */
     private static void handleHorsePassengerDamage(LivingEntity shooter, LivingEntity horse) {
         if (shooter == null || horse == null) {
             return;
         }
 
-        // Don't damage if protection rules apply
         if (shooter instanceof Player && horse.getPassenger() instanceof Player) {
             Player player = (Player) shooter;
             Player passenger = (Player) horse.getPassenger();
@@ -760,16 +889,12 @@ public class MagicStaff implements Listener {
             }
         }
 
-        // Damage and remove the horse
         horse.damage(1);
         horse.remove();
     }
 
     /**
      * Handle staff damage from a player
-     *
-     * @param shooter The player shooter
-     * @param target  The target entity
      */
     private static void handlePlayerStaffDamage(LivingEntity shooter, LivingEntity target) {
         if (!(shooter instanceof Player) || target == null) {
@@ -778,31 +903,24 @@ public class MagicStaff implements Listener {
 
         Player player = (Player) shooter;
         try {
-            // Store the staff for damage calculation
             ItemStack mainHand = player.getInventory().getItemInMainHand();
             if (mainHand != null && mainHand.getType() != Material.AIR) {
                 lastUsedStaff.put(player.getUniqueId(), mainHand.clone());
             }
 
-            // Apply damage
             target.damage(1, shooter);
 
-            // Register hit for combat system
             HitRegisterEvent hitEvent = new HitRegisterEvent(player, target, 1);
             Bukkit.getPluginManager().callEvent(hitEvent);
         } catch (Exception e) {
             YakRealms.error("Error handling player staff damage", e);
         } finally {
-            // Clear the stored staff
             lastUsedStaff.remove(player.getUniqueId());
         }
     }
 
     /**
      * Handle default damage for non-player shooters
-     *
-     * @param shooter The entity shooter
-     * @param target  The target entity
      */
     private static void handleDefaultDamage(LivingEntity shooter, LivingEntity target) {
         if (shooter == null || target == null) {
@@ -812,80 +930,47 @@ public class MagicStaff implements Listener {
     }
 
     /**
-     * Represents different types of magical staves with balanced energy costs
+     * Registers this listener and initializes the system
+     */
+    public void onEnable() {
+        Bukkit.getServer().getPluginManager().registerEvents(this, YakRealms.getInstance());
+        YakRealms.log(" Magic Staff system enabled with improved visuals and 1.21.7 compatibility");
+    }
+
+    /**
+     * StaffType enum with improved visual distinction and tier system
      */
     public enum StaffType {
-        WOOD(Material.WOODEN_HOE, 7, 1.0f, 1.0f, 1.0f),    // White
-        STONE(Material.STONE_HOE, 8, 0.0f, 1.0f, 0.0f),    // Green
-        IRON(Material.IRON_HOE, 9, 0.0f, 1.0f, 1.0f),      // Aqua
-        DIAMOND(Material.DIAMOND_HOE, 10, 0.0f, 0.0f, 0.5f), // Navy
-        GOLD(Material.GOLDEN_HOE, 11, 1.0f, 1.0f, 0.0f),   // Yellow
-        NETHERITE(Material.NETHERITE_HOE, 15, .855f, .647f, 0.125f);   // Orange
+        WOOD(Material.WOODEN_HOE, 7, 0.9f, 0.7f, 0.4f, 1),        // Brown/Wood color
+        STONE(Material.STONE_HOE, 8, 0.5f, 0.5f, 0.5f, 2),        // Gray/Stone color  
+        IRON(Material.IRON_HOE, 9, 0.8f, 0.8f, 0.9f, 3),          // Silver/Iron color
+        DIAMOND(Material.DIAMOND_HOE, 10, 0.4f, 0.8f, 1.0f, 4),   // Cyan/Diamond color
+        GOLD(Material.GOLDEN_HOE, 11, 1.0f, 0.8f, 0.0f, 5),       // Gold color
+        NETHERITE(Material.NETHERITE_HOE, 15, 0.4f, 0.2f, 0.2f, 6); // Dark red/Netherite color
 
         private final Material material;
         private final int energyCost;
         private final float red;
         private final float green;
         private final float blue;
+        private final int tier;
 
-        StaffType(Material material, int energyCost, float red, float green, float blue) {
+        StaffType(Material material, int energyCost, float red, float green, float blue, int tier) {
             this.material = material;
             this.energyCost = energyCost;
             this.red = red;
             this.green = green;
             this.blue = blue;
+            this.tier = tier;
         }
 
-        /**
-         * Get the material type of this staff
-         *
-         * @return The material type
-         */
-        public Material getMaterial() {
-            return material;
-        }
+        public Material getMaterial() { return material; }
+        public int getEnergyCost() { return energyCost; }
+        public float getRed() { return red; }
+        public float getGreen() { return green; }
+        public float getBlue() { return blue; }
+        public int getTier() { return tier; }
 
-        /**
-         * Get the energy cost to use this staff
-         *
-         * @return The energy cost
-         */
-        public int getEnergyCost() {
-            return energyCost;
-        }
-
-        /**
-         * Get the red color component for particles
-         *
-         * @return Red value (0-1)
-         */
-        public float getRed() {
-            return red;
-        }
-
-        /**
-         * Get the green color component for particles
-         *
-         * @return Green value (0-1)
-         */
-        public float getGreen() {
-            return green;
-        }
-
-        /**
-         * Get the blue color component for particles
-         *
-         * @return Blue value (0-1)
-         */
-        public float getBlue() {
-            return blue;
-        }
-
-        /**
-         * Get the Color object representing this staff's particle color
-         *
-         * @return Color object
-         */
         public Color getColor() {
             return Color.fromRGB(
                     (int) (red * 255),
@@ -894,16 +979,8 @@ public class MagicStaff implements Listener {
             );
         }
 
-        /**
-         * Find a staff type by material
-         *
-         * @param material The material to search for
-         * @return The matching staff type or null if not found
-         */
         public static StaffType getByMaterial(Material material) {
-            if (material == null) {
-                return null;
-            }
+            if (material == null) return null;
             for (StaffType type : values()) {
                 if (type.getMaterial() == material) {
                     return type;

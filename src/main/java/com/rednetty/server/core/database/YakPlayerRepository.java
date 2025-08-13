@@ -20,8 +20,9 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
- *  YakPlayerRepository with NO CACHING for cross-server compatibility
- * Always loads fresh from database to ensure data consistency between servers
+ * YakPlayerRepository with improved error handling and backwards compatibility
+ * NO CACHING for cross-server compatibility - Always loads fresh from database
+ *  VERSION: Better data validation, corruption recovery, and null safety
  */
 public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
     private static final String COLLECTION_NAME = "players";
@@ -33,7 +34,7 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
     private final Logger logger;
     private final YakRealms plugin;
     private final File backupDir;
-    private final DocumentConverter documentConverter;
+    private final EnhancedDocumentConverter documentConverter;
 
     // Database collections
     private volatile MongoCollection<Document> collection;
@@ -45,7 +46,7 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
     public YakPlayerRepository() {
         this.plugin = YakRealms.getInstance();
         this.logger = plugin.getLogger();
-        this.documentConverter = new DocumentConverter();
+        this.documentConverter = new EnhancedDocumentConverter();
 
         // Create backup directory
         this.backupDir = new File(plugin.getDataFolder(), "backups/players");
@@ -58,11 +59,11 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
     }
 
     /**
-     * Simple synchronous repository initialization
+     * repository initialization with better error handling
      */
     private void initializeRepository() {
         try {
-            logger.info("Initializing YakPlayerRepository (NO CACHING)...");
+            logger.info("Initializing YakPlayerRepository...");
 
             // Get MongoDB manager
             MongoDBManager mongoDBManager = MongoDBManager.getInstance();
@@ -82,7 +83,7 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
             testConnection();
 
             repositoryInitialized.set(true);
-            logger.info("YakPlayerRepository initialized successfully (NO CACHING for cross-server sync)");
+            logger.info(" YakPlayerRepository initialized successfully (NO CACHING for cross-server sync)");
 
         } catch (Exception e) {
             logger.log(Level.SEVERE, "Failed to initialize YakPlayerRepository", e);
@@ -92,12 +93,27 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
     }
 
     /**
-     * Test repository connection
+     * connection test
      */
     private void testConnection() {
         try {
             long count = collection.countDocuments();
             logger.info("Repository connection test successful. Document count: " + count);
+
+            // Test document conversion with a sample
+            Document testDoc = new Document("uuid", "test-uuid")
+                    .append("username", "test-user")
+                    .append("first_join", System.currentTimeMillis() / 1000)
+                    .append("last_login", System.currentTimeMillis() / 1000);
+
+            // Test that our converter can handle basic documents
+            YakPlayer testPlayer = documentConverter.documentToPlayer(testDoc);
+            if (testPlayer != null) {
+                logger.info("Document converter test successful");
+            } else {
+                logger.warning("Document converter test failed with sample data");
+            }
+
         } catch (Exception e) {
             throw new RuntimeException("Repository connection test failed", e);
         }
@@ -122,7 +138,7 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
     }
 
     /**
-     * Perform database find operation with retries - ALWAYS fresh from database
+     * database find operation with better error recovery
      */
     private Optional<YakPlayer> performDatabaseFind(UUID id) {
         for (int attempt = 1; attempt <= MAX_RETRY_ATTEMPTS; attempt++) {
@@ -135,6 +151,18 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
 
                 if (doc != null) {
                     logger.info("Found FRESH player document in database: " + id);
+
+                    // Enhanced document validation before conversion
+                    if (!documentConverter.validateDocument(doc)) {
+                        logger.warning("Document validation failed for player: " + id);
+                        // Try to repair the document
+                        doc = documentConverter.repairDocument(doc);
+                        if (doc == null) {
+                            logger.severe("Document repair failed for player: " + id);
+                            return Optional.empty();
+                        }
+                    }
+
                     YakPlayer player = documentConverter.documentToPlayer(doc);
 
                     if (player != null) {
@@ -142,6 +170,8 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
                         return Optional.of(player);
                     } else {
                         logger.warning("Failed to convert document to player: " + id);
+                        // Create emergency backup of corrupted document
+                        createCorruptedDataBackup(doc, id);
                     }
                 } else {
                     logger.fine("No document found for player: " + id);
@@ -191,7 +221,7 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
     }
 
     /**
-     * Save player to database with retry logic
+     * save operation with better validation
      */
     private YakPlayer savePlayerToDatabase(YakPlayer player) {
         if (player == null || !validatePlayerData(player)) {
@@ -205,6 +235,13 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
                 Document doc = documentConverter.playerToDocument(player);
                 if (doc == null) {
                     logger.severe("Failed to convert player to document: " + player.getUsername());
+                    createLocalBackup(player);
+                    return player;
+                }
+
+                // Enhanced validation before saving
+                if (!documentConverter.validateDocument(doc)) {
+                    logger.warning("Generated document failed validation for " + player.getUsername());
                     createLocalBackup(player);
                     return player;
                 }
@@ -246,7 +283,7 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
     }
 
     /**
-     * Synchronous save for shutdown scenarios and cross-server sync
+     * synchronous save for critical scenarios
      */
     public YakPlayer saveSync(YakPlayer player) {
         if (player == null || !validatePlayerData(player)) {
@@ -266,6 +303,13 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
             Document doc = documentConverter.playerToDocument(player);
             if (doc == null) {
                 logger.severe("Failed to convert player to document during sync save: " + player.getUsername());
+                createLocalBackup(player);
+                return player;
+            }
+
+            // Enhanced validation
+            if (!documentConverter.validateDocument(doc)) {
+                logger.warning("Generated document failed validation during sync save for " + player.getUsername());
                 createLocalBackup(player);
                 return player;
             }
@@ -308,9 +352,22 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
                 if (docs != null) {
                     int loadedCount = 0;
                     int errorCount = 0;
+                    int repairedCount = 0;
 
                     for (Document doc : docs) {
                         try {
+                            // Enhanced document validation and repair
+                            if (!documentConverter.validateDocument(doc)) {
+                                logger.fine("Attempting to repair document during findAll");
+                                doc = documentConverter.repairDocument(doc);
+                                if (doc != null) {
+                                    repairedCount++;
+                                } else {
+                                    errorCount++;
+                                    continue;
+                                }
+                            }
+
                             YakPlayer player = documentConverter.documentToPlayer(doc);
                             if (player != null) {
                                 players.add(player);
@@ -324,7 +381,8 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
                         }
                     }
 
-                    logger.info("Loaded " + loadedCount + " players FRESH from database, " + errorCount + " errors");
+                    logger.info("Loaded " + loadedCount + " players FRESH from database, " +
+                            errorCount + " errors, " + repairedCount + " repaired");
                 }
             } catch (Exception e) {
                 logger.log(Level.SEVERE, "Error finding all players", e);
@@ -400,7 +458,7 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
     }
 
     /**
-     * Validate player data
+     * player data validation
      */
     private boolean validatePlayerData(YakPlayer player) {
         if (player == null) {
@@ -417,27 +475,48 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
             return false;
         }
 
-        // Fix common data issues
+        // Enhanced data validation and auto-correction
+        boolean needsCorrection = false;
+
         if (player.getBankGems() < 0) {
             logger.warning("Player validation: negative bank gems for " + player.getUsername() + ", resetting to 0");
             player.setBankGems(0);
+            needsCorrection = true;
         }
 
-        if (player.getLevel() < 1) {
+        if (player.getLevel() < 1 || player.getLevel() > 200) {
             logger.warning("Player validation: invalid level for " + player.getUsername() + ", resetting to 1");
             player.setLevel(1);
+            needsCorrection = true;
         }
 
-        if (player.getHealth() <= 0) {
+        if (player.getHealth() <= 0 || player.getHealth() > 2048) {
             logger.warning("Player validation: invalid health for " + player.getUsername() + ", resetting to 20");
             player.setHealth(20.0);
+            needsCorrection = true;
+        }
+
+        if (player.getMaxHealth() <= 0 || player.getMaxHealth() > 2048) {
+            logger.warning("Player validation: invalid max health for " + player.getUsername() + ", resetting to 20");
+            player.setMaxHealth(20.0);
+            needsCorrection = true;
+        }
+
+        if (player.getFoodLevel() < 0 || player.getFoodLevel() > 20) {
+            logger.warning("Player validation: invalid food level for " + player.getUsername() + ", resetting to 20");
+            player.setFoodLevel(20);
+            needsCorrection = true;
+        }
+
+        if (needsCorrection) {
+            logger.info("Applied data corrections to player: " + player.getUsername());
         }
 
         return true;
     }
 
     /**
-     * Create local backup
+     * local backup creation
      */
     private void createLocalBackup(YakPlayer player) {
         if (player == null) {
@@ -471,7 +550,7 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
     }
 
     /**
-     * Create database backup
+     * database backup creation
      */
     private void createDatabaseBackup(YakPlayer player, Document doc) {
         if (backupCollection == null || player == null || doc == null) {
@@ -482,6 +561,7 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
             Document backupDoc = new Document(doc);
             backupDoc.append("timestamp", System.currentTimeMillis() / 1000);
             backupDoc.append("backup_reason", "auto_save");
+            backupDoc.append("backup_version", "_v2");
 
             MongoDBManager.getInstance().performSafeOperation(() -> {
                 backupCollection.insertOne(backupDoc);
@@ -494,6 +574,27 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
     }
 
     /**
+     * Create backup of corrupted data for debugging
+     */
+    private void createCorruptedDataBackup(Document doc, UUID playerId) {
+        try {
+            File corruptedDir = new File(backupDir, "corrupted");
+            if (!corruptedDir.exists() && !corruptedDir.mkdirs()) {
+                logger.warning("Failed to create corrupted data backup directory");
+                return;
+            }
+
+            String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss"));
+            File corruptedFile = new File(corruptedDir, playerId + "_" + timestamp + "_corrupted.json");
+            Files.write(corruptedFile.toPath(), doc.toJson().getBytes());
+            logger.warning("Created corrupted data backup: " + corruptedFile.getName());
+
+        } catch (Exception e) {
+            logger.log(Level.SEVERE, "Failed to create corrupted data backup", e);
+        }
+    }
+
+    /**
      * Public API methods
      */
     public boolean isInitialized() {
@@ -501,15 +602,115 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
     }
 
     public void shutdown() {
-        logger.info("Shutting down YakPlayerRepository (NO CACHING)...");
+        logger.info("Shutting down YakPlayerRepository ...");
         logger.info("Repository shutdown completed - no cache to clear");
     }
 
     /**
-     * COMPLETE Document conversion helper class - includes ALL YakPlayer fields
+     * Document conversion helper class with improved error handling and backwards compatibility
      */
-    private class DocumentConverter {
+    private class EnhancedDocumentConverter {
 
+        /**
+         * document validation
+         */
+        public boolean validateDocument(Document doc) {
+            if (doc == null) {
+                return false;
+            }
+
+            // Check required fields
+            if (!doc.containsKey("uuid") || doc.getString("uuid") == null) {
+                logger.warning("Document missing required UUID field");
+                return false;
+            }
+
+            try {
+                UUID.fromString(doc.getString("uuid"));
+            } catch (Exception e) {
+                logger.warning("Document contains invalid UUID: " + doc.getString("uuid"));
+                return false;
+            }
+
+            // Check for reasonable username
+            String username = doc.getString("username");
+            if (username == null || username.trim().isEmpty() || username.length() > 16) {
+                logger.warning("Document has invalid username: " + username);
+                return false;
+            }
+
+            return true;
+        }
+
+        /**
+         * document repair
+         */
+        public Document repairDocument(Document doc) {
+            if (doc == null) {
+                return null;
+            }
+
+            try {
+                Document repaired = new Document(doc);
+                boolean wasRepaired = false;
+
+                // Fix missing UUID
+                if (!repaired.containsKey("uuid") || repaired.getString("uuid") == null) {
+                    logger.warning("Cannot repair document without UUID");
+                    return null;
+                }
+
+                // Fix missing username
+                if (!repaired.containsKey("username") || repaired.getString("username") == null) {
+                    repaired.append("username", "Unknown_" + System.currentTimeMillis());
+                    wasRepaired = true;
+                    logger.info("Repaired missing username");
+                }
+
+                // Fix missing timestamps
+                long currentTime = System.currentTimeMillis() / 1000;
+                if (!repaired.containsKey("first_join") || repaired.getLong("first_join") == null) {
+                    repaired.append("first_join", currentTime);
+                    wasRepaired = true;
+                }
+
+                if (!repaired.containsKey("last_login") || repaired.getLong("last_login") == null) {
+                    repaired.append("last_login", currentTime);
+                    wasRepaired = true;
+                }
+
+                // Fix invalid numeric values
+                if (repaired.getInteger("level", 0) < 1) {
+                    repaired.append("level", 1);
+                    wasRepaired = true;
+                }
+
+                if (repaired.getInteger("bank_gems", 0) < 0) {
+                    repaired.append("bank_gems", 0);
+                    wasRepaired = true;
+                }
+
+                Double health = repaired.getDouble("health");
+                if (health == null || health <= 0 || health > 2048) {
+                    repaired.append("health", 20.0);
+                    wasRepaired = true;
+                }
+
+                if (wasRepaired) {
+                    logger.info("Successfully repaired document for UUID: " + repaired.getString("uuid"));
+                    return repaired;
+                }
+
+                return repaired;
+            } catch (Exception e) {
+                logger.log(Level.WARNING, "Failed to repair document", e);
+                return null;
+            }
+        }
+
+        /**
+         * document to player conversion with comprehensive error handling
+         */
         public YakPlayer documentToPlayer(Document doc) {
             if (doc == null) {
                 logger.warning("Cannot convert null document to player");
@@ -523,226 +724,221 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
                     return null;
                 }
 
-                UUID uuid = UUID.fromString(uuidStr);
+                UUID uuid;
+                try {
+                    uuid = UUID.fromString(uuidStr);
+                } catch (IllegalArgumentException e) {
+                    logger.severe("Invalid UUID format: " + uuidStr);
+                    return null;
+                }
+
                 YakPlayer player = new YakPlayer(uuid);
 
-                // Load basic information
-                player.setUsername(doc.getString("username") != null ? doc.getString("username") : "Unknown");
-                player.setLastLogin(doc.getLong("last_login") != null ? doc.getLong("last_login") : System.currentTimeMillis() / 1000);
-                player.setLastLogout(doc.getLong("last_logout") != null ? doc.getLong("last_logout") : 0);
-                player.setFirstJoin(doc.getLong("first_join") != null ? doc.getLong("first_join") : System.currentTimeMillis() / 1000);
-                player.setTotalPlaytime(doc.getLong("total_playtime") != null ? doc.getLong("total_playtime") : 0L);
+                // Load basic information with safe defaults
+                player.setUsername(safeGetString(doc, "username", "Unknown_" + System.currentTimeMillis()));
+                player.setLastLogin(safeGetLong(doc, "last_login", System.currentTimeMillis() / 1000));
+                player.setLastLogout(safeGetLong(doc, "last_logout", 0L));
+                player.setFirstJoin(safeGetLong(doc, "first_join", System.currentTimeMillis() / 1000));
+                player.setTotalPlaytime(safeGetLong(doc, "total_playtime", 0L));
 
-                String ipAddress = doc.getString("ip_address");
+                String ipAddress = safeGetString(doc, "ip_address", null);
                 if (ipAddress != null) {
                     player.setIpAddress(ipAddress);
                 }
 
-                // Load progression
-                player.setLevel(doc.getInteger("level", 1));
-                player.setExp(doc.getInteger("exp", 0));
-                player.setMonsterKills(doc.getInteger("monster_kills", 0));
-                player.setPlayerKills(doc.getInteger("player_kills", 0));
-                player.setDeaths(doc.getInteger("deaths", 0));
-                player.setOreMined(doc.getInteger("ore_mined", 0));
-                player.setFishCaught(doc.getInteger("fish_caught", 0));
-                player.setBlocksBroken(doc.getInteger("blocks_broken", 0));
-                player.setDistanceTraveled(doc.getDouble("distance_traveled") != null ? doc.getDouble("distance_traveled") : 0.0);
+                // Load progression with validation
+                player.setLevel(Math.max(1, Math.min(200, safeGetInteger(doc, "level", 1))));
+                player.setExp(Math.max(0, safeGetInteger(doc, "exp", 0)));
+                player.setMonsterKills(Math.max(0, safeGetInteger(doc, "monster_kills", 0)));
+                player.setPlayerKills(Math.max(0, safeGetInteger(doc, "player_kills", 0)));
+                player.setDeaths(Math.max(0, safeGetInteger(doc, "deaths", 0)));
+                player.setOreMined(Math.max(0, safeGetInteger(doc, "ore_mined", 0)));
+                player.setFishCaught(Math.max(0, safeGetInteger(doc, "fish_caught", 0)));
+                player.setBlocksBroken(Math.max(0, safeGetInteger(doc, "blocks_broken", 0)));
+                player.setDistanceTraveled(Math.max(0.0, safeGetDouble(doc, "distance_traveled", 0.0)));
 
-                // Load economic data - ONLY bank gems, no virtual player balance
-                player.setBankGems(doc.getInteger("bank_gems", 0));
-                player.setEliteShards(doc.getInteger("elite_shards", 0));
+                // Load economic data with validation
+                player.setBankGems(Math.max(0, safeGetInteger(doc, "bank_gems", 0)));
+                player.setEliteShards(Math.max(0, safeGetInteger(doc, "elite_shards", 0)));
 
                 // Load bank data
-                player.setBankPages(doc.getInteger("bank_pages", 1));
+                player.setBankPages(Math.max(1, Math.min(10, safeGetInteger(doc, "bank_pages", 1))));
 
-                List<String> bankLog = doc.getList("bank_access_log", String.class);
-                if (bankLog != null) {
+                // Load bank access log safely
+                List<String> bankLog = safeGetStringList(doc, "bank_access_log");
+                if (bankLog != null && !bankLog.isEmpty()) {
                     player.getBankAccessLog().addAll(bankLog);
                 }
 
-                // Load bank inventory
-                Document bankItems = doc.get("bank_inventory", Document.class);
+                // Load bank inventory with enhanced safety
+                Document bankItems = safeGetDocument(doc, "bank_inventory");
                 if (bankItems != null) {
                     for (String key : bankItems.keySet()) {
                         try {
                             int page = Integer.parseInt(key);
                             String serializedData = bankItems.getString(key);
-                            if (serializedData != null) {
+                            if (serializedData != null && !serializedData.trim().isEmpty()) {
                                 player.setSerializedBankItems(page, serializedData);
                             }
                         } catch (NumberFormatException e) {
                             logger.warning("Invalid bank page number: " + key);
+                        } catch (Exception e) {
+                            logger.warning("Error loading bank inventory page " + key + ": " + e.getMessage());
                         }
                     }
                 }
 
                 // Load alignment data
-                player.setAlignment(doc.getString("alignment") != null ? doc.getString("alignment") : "LAWFUL");
-                player.setChaoticTime(doc.getLong("chaotic_time") != null ? doc.getLong("chaotic_time") : 0);
-                player.setNeutralTime(doc.getLong("neutral_time") != null ? doc.getLong("neutral_time") : 0);
-                player.setAlignmentChanges(doc.getInteger("alignment_changes", 0));
+                player.setAlignment(safeGetString(doc, "alignment", "LAWFUL"));
+                player.setChaoticTime(safeGetLong(doc, "chaotic_time", 0L));
+                player.setNeutralTime(safeGetLong(doc, "neutral_time", 0L));
+                player.setAlignmentChanges(safeGetInteger(doc, "alignment_changes", 0));
 
                 // Load moderation data
-                player.setRank(doc.getString("rank") != null ? doc.getString("rank") : "DEFAULT");
-                player.setBanned(doc.getBoolean("banned", false));
-                player.setBanReason(doc.getString("ban_reason") != null ? doc.getString("ban_reason") : "");
-                player.setBanExpiry(doc.getLong("ban_expiry") != null ? doc.getLong("ban_expiry") : 0);
-                player.setMuteTime(doc.getInteger("muted", 0));
-                player.setWarnings(doc.getInteger("warnings", 0));
-                player.setLastWarning(doc.getLong("last_warning") != null ? doc.getLong("last_warning") : 0);
+                player.setRank(safeGetString(doc, "rank", "DEFAULT"));
+                player.setBanned(safeGetBoolean(doc, "banned", false));
+                player.setBanReason(safeGetString(doc, "ban_reason", ""));
+                player.setBanExpiry(safeGetLong(doc, "ban_expiry", 0L));
+                player.setMuteTime(safeGetInteger(doc, "muted", 0));
+                player.setWarnings(safeGetInteger(doc, "warnings", 0));
+                player.setLastWarning(safeGetLong(doc, "last_warning", 0L));
 
                 // Load chat data
-                player.setChatTag(doc.getString("chat_tag") != null ? doc.getString("chat_tag") : "DEFAULT");
-                player.setUnlockedChatTags(doc.getList("unlocked_chat_tags", String.class, new ArrayList<>()));
-                player.setChatColor(doc.getString("chat_color") != null ? doc.getString("chat_color") : "WHITE");
+                player.setChatTag(safeGetString(doc, "chat_tag", "DEFAULT"));
+                List<String> unlockedTags = safeGetStringList(doc, "unlocked_chat_tags");
+                if (unlockedTags != null) {
+                    player.setUnlockedChatTags(unlockedTags);
+                }
+                player.setChatColor(safeGetString(doc, "chat_color", "WHITE"));
 
                 // Load mount and guild data
-                player.setHorseTier(doc.getInteger("horse_tier", 0));
-                player.setHorseName(doc.getString("horse_name") != null ? doc.getString("horse_name") : "");
-                player.setGuildName(doc.getString("guild_name") != null ? doc.getString("guild_name") : "");
-                player.setGuildRank(doc.getString("guild_rank") != null ? doc.getString("guild_rank") : "");
-                player.setGuildContribution(doc.getInteger("guild_contribution", 0));
+                player.setHorseTier(safeGetInteger(doc, "horse_tier", 0));
+                player.setHorseName(safeGetString(doc, "horse_name", ""));
+                player.setGuildName(safeGetString(doc, "guild_name", ""));
+                player.setGuildRank(safeGetString(doc, "guild_rank", ""));
+                player.setGuildContribution(safeGetInteger(doc, "guild_contribution", 0));
 
                 // Load player preferences
-                player.setToggleSettings(new HashSet<>(doc.getList("toggle_settings", String.class, new ArrayList<>())));
+                List<String> toggleList = safeGetStringList(doc, "toggle_settings");
+                if (toggleList != null) {
+                    player.setToggleSettings(new HashSet<>(toggleList));
+                }
 
-                // Load notification settings
-                Document notificationSettings = doc.get("notification_settings", Document.class);
+                // Load notification settings safely
+                Document notificationSettings = safeGetDocument(doc, "notification_settings");
                 if (notificationSettings != null) {
                     for (String key : notificationSettings.keySet()) {
-                        Boolean value = notificationSettings.getBoolean(key);
-                        if (value != null) {
-                            player.setNotificationSetting(key, value);
+                        try {
+                            Boolean value = notificationSettings.getBoolean(key);
+                            if (value != null) {
+                                player.setNotificationSetting(key, value);
+                            }
+                        } catch (Exception e) {
+                            logger.fine("Error loading notification setting " + key + ": " + e.getMessage());
                         }
                     }
                 }
 
                 // Load quest system data
-                player.setCurrentQuest(doc.getString("current_quest") != null ? doc.getString("current_quest") : "");
-                player.setQuestProgress(doc.getInteger("quest_progress", 0));
-                player.setQuestPoints(doc.getInteger("quest_points", 0));
-                player.setDailyQuestsCompleted(doc.getInteger("daily_quests_completed", 0));
-                player.setLastDailyQuestReset(doc.getLong("last_daily_quest_reset") != null ? doc.getLong("last_daily_quest_reset") : 0);
+                player.setCurrentQuest(safeGetString(doc, "current_quest", ""));
+                player.setQuestProgress(safeGetInteger(doc, "quest_progress", 0));
+                player.setQuestPoints(safeGetInteger(doc, "quest_points", 0));
+                player.setDailyQuestsCompleted(safeGetInteger(doc, "daily_quests_completed", 0));
+                player.setLastDailyQuestReset(safeGetLong(doc, "last_daily_quest_reset", 0L));
 
                 // Load profession data
-                player.setPickaxeLevel(doc.getInteger("pickaxe_level", 0));
-                player.setFishingLevel(doc.getInteger("fishing_level", 0));
-                player.setMiningXp(doc.getInteger("mining_xp", 0));
-                player.setFishingXp(doc.getInteger("fishing_xp", 0));
-                player.setFarmingLevel(doc.getInteger("farming_level", 0));
-                player.setFarmingXp(doc.getInteger("farming_xp", 0));
-                player.setWoodcuttingLevel(doc.getInteger("woodcutting_level", 0));
-                player.setWoodcuttingXp(doc.getInteger("woodcutting_xp", 0));
+                player.setPickaxeLevel(safeGetInteger(doc, "pickaxe_level", 0));
+                player.setFishingLevel(safeGetInteger(doc, "fishing_level", 0));
+                player.setMiningXp(safeGetInteger(doc, "mining_xp", 0));
+                player.setFishingXp(safeGetInteger(doc, "fishing_xp", 0));
+                player.setFarmingLevel(safeGetInteger(doc, "farming_level", 0));
+                player.setFarmingXp(safeGetInteger(doc, "farming_xp", 0));
+                player.setWoodcuttingLevel(safeGetInteger(doc, "woodcutting_level", 0));
+                player.setWoodcuttingXp(safeGetInteger(doc, "woodcutting_xp", 0));
 
                 // Load PvP stats
-                player.setT1Kills(doc.getInteger("t1_kills", 0));
-                player.setT2Kills(doc.getInteger("t2_kills", 0));
-                player.setT3Kills(doc.getInteger("t3_kills", 0));
-                player.setT4Kills(doc.getInteger("t4_kills", 0));
-                player.setT5Kills(doc.getInteger("t5_kills", 0));
-                player.setT6Kills(doc.getInteger("t6_kills", 0));
-                player.setKillStreak(doc.getInteger("kill_streak", 0));
-                player.setBestKillStreak(doc.getInteger("best_kill_streak", 0));
-                player.setPvpRating(doc.getInteger("pvp_rating", 1000));
+                player.setT1Kills(safeGetInteger(doc, "t1_kills", 0));
+                player.setT2Kills(safeGetInteger(doc, "t2_kills", 0));
+                player.setT3Kills(safeGetInteger(doc, "t3_kills", 0));
+                player.setT4Kills(safeGetInteger(doc, "t4_kills", 0));
+                player.setT5Kills(safeGetInteger(doc, "t5_kills", 0));
+                player.setT6Kills(safeGetInteger(doc, "t6_kills", 0));
+                player.setKillStreak(safeGetInteger(doc, "kill_streak", 0));
+                player.setBestKillStreak(safeGetInteger(doc, "best_kill_streak", 0));
+                player.setPvpRating(Math.max(0, safeGetInteger(doc, "pvp_rating", 1000)));
 
-                // Load world boss tracking
-                Document worldBossDamage = doc.get("world_boss_damage", Document.class);
-                if (worldBossDamage != null) {
-                    Map<String, Integer> damageMap = new HashMap<>();
-                    for (String key : worldBossDamage.keySet()) {
-                        Integer value = worldBossDamage.getInteger(key);
-                        if (value != null) {
-                            damageMap.put(key, value);
-                        }
-                    }
-                    //player.setWorldBossDamage(damageMap);
-                }
-
-                Document worldBossKills = doc.get("world_boss_kills", Document.class);
-                if (worldBossKills != null) {
-                    Map<String, Integer> killsMap = new HashMap<>();
-                    for (String key : worldBossKills.keySet()) {
-                        Integer value = worldBossKills.getInteger(key);
-                        if (value != null) {
-                            killsMap.put(key, value);
-                        }
-                    }
-                    player.getWorldBossKills().putAll(killsMap);
-                }
+                // Load world boss tracking safely
+                loadWorldBossData(doc, player);
 
                 // Load social settings
-                player.setTradeDisabled(doc.getBoolean("trade_disabled", false));
-                player.setBuddies(doc.getList("buddies", String.class, new ArrayList<>()));
-                player.getBlockedPlayers().addAll(doc.getList("blocked_players", String.class, new ArrayList<>()));
-                player.setEnergyDisabled(doc.getBoolean("energy_disabled", false));
+                player.setTradeDisabled(safeGetBoolean(doc, "trade_disabled", false));
+                List<String> buddiesList = safeGetStringList(doc, "buddies");
+                if (buddiesList != null) {
+                    player.setBuddies(buddiesList);
+                }
+                List<String> blockedList = safeGetStringList(doc, "blocked_players");
+                if (blockedList != null) {
+                    player.getBlockedPlayers().addAll(blockedList);
+                }
+                player.setEnergyDisabled(safeGetBoolean(doc, "energy_disabled", false));
 
                 // Load location and state data
-                player.setWorld(doc.getString("world"));
-                player.setLocationX(doc.getDouble("location_x") != null ? doc.getDouble("location_x") : 0.0);
-                player.setLocationY(doc.getDouble("location_y") != null ? doc.getDouble("location_y") : 0.0);
-                player.setLocationZ(doc.getDouble("location_z") != null ? doc.getDouble("location_z") : 0.0);
-                player.setLocationYaw(doc.get("location_yaw") instanceof Number ? ((Number) doc.get("location_yaw")).floatValue() : 0.0f);
-                player.setLocationPitch(doc.get("location_pitch") instanceof Number ? ((Number) doc.get("location_pitch")).floatValue() : 0.0f);
-                player.setPreviousLocation(doc.getString("previous_location"));
+                player.setWorld(safeGetString(doc, "world", null));
+                player.setLocationX(safeGetDouble(doc, "location_x", 0.0));
+                player.setLocationY(safeGetDouble(doc, "location_y", 64.0)); // Safe default Y
+                player.setLocationZ(safeGetDouble(doc, "location_z", 0.0));
+                player.setLocationYaw(safeGetFloat(doc, "location_yaw", 0.0f));
+                player.setLocationPitch(safeGetFloat(doc, "location_pitch", 0.0f));
+                player.setPreviousLocation(safeGetString(doc, "previous_location", null));
 
                 // Load serialized inventory data
-                player.setSerializedInventory(doc.getString("inventory_contents"));
-                player.setSerializedArmor(doc.getString("armor_contents"));
-                player.setSerializedEnderChest(doc.getString("ender_chest_contents"));
-                player.setSerializedOffhand(doc.getString("offhand_item"));
+                player.setSerializedInventory(safeGetString(doc, "inventory_contents", null));
+                player.setSerializedArmor(safeGetString(doc, "armor_contents", null));
+                player.setSerializedEnderChest(safeGetString(doc, "ender_chest_contents", null));
+                player.setSerializedOffhand(safeGetString(doc, "offhand_item", null));
 
-                // Load PERMANENT respawn items storage
-                player.setSerializedRespawnItems(doc.getString("respawn_items"));
-                player.setDeathTimestamp(doc.getLong("death_timestamp") != null ? doc.getLong("death_timestamp") : 0);
+                // Load respawn items storage
+                player.setSerializedRespawnItems(safeGetString(doc, "respawn_items", null));
+                player.setRespawnItemCount(safeGetInteger(doc, "respawn_item_count", 0));
+                player.setDeathTimestamp(safeGetLong(doc, "death_timestamp", 0L));
 
-                // Load player stats
-                player.setHealth(doc.getDouble("health") != null ? doc.getDouble("health") : 20.0);
-                player.setMaxHealth(doc.getDouble("max_health") != null ? doc.getDouble("max_health") : 20.0);
-                player.setFoodLevel(doc.getInteger("food_level", 20));
-                player.setSaturation(doc.get("saturation") instanceof Number ? ((Number) doc.get("saturation")).floatValue() : 5.0f);
-                player.setXpLevel(doc.getInteger("xp_level", 0));
-                player.setXpProgress(doc.get("xp_progress") instanceof Number ? ((Number) doc.get("xp_progress")).floatValue() : 0.0f);
-                player.setTotalExperience(doc.getInteger("total_experience", 0));
-                player.setBedSpawnLocation(doc.getString("bed_spawn_location"));
-                player.setGameMode(doc.getString("gamemode") != null ? doc.getString("gamemode") : "SURVIVAL");
+                // Load player stats with validation
+                double health = Math.max(0.1, Math.min(2048, safeGetDouble(doc, "health", 20.0)));
+                double maxHealth = Math.max(1, Math.min(2048, safeGetDouble(doc, "max_health", 20.0)));
+                player.setHealth(Math.min(health, maxHealth)); // Ensure health doesn't exceed max
+                player.setMaxHealth(maxHealth);
+                player.setFoodLevel(Math.max(0, Math.min(20, safeGetInteger(doc, "food_level", 20))));
+                player.setSaturation(Math.max(0, Math.min(20, safeGetFloat(doc, "saturation", 5.0f))));
+                player.setXpLevel(Math.max(0, Math.min(21863, safeGetInteger(doc, "xp_level", 0))));
+                player.setXpProgress(Math.max(0, Math.min(1, safeGetFloat(doc, "xp_progress", 0.0f))));
+                player.setTotalExperience(Math.max(0, safeGetInteger(doc, "total_experience", 0)));
+                player.setBedSpawnLocation(safeGetString(doc, "bed_spawn_location", null));
+                player.setGameMode(safeGetString(doc, "gamemode", "SURVIVAL"));
 
                 // Load achievement and reward tracking
-                player.getAchievements().addAll(doc.getList("achievements", String.class, new ArrayList<>()));
-                player.setAchievementPoints(doc.getInteger("achievement_points", 0));
-                player.getDailyRewardsClaimed().addAll(doc.getList("daily_rewards_claimed", String.class, new ArrayList<>()));
-                player.setLastDailyReward(doc.getLong("last_daily_reward") != null ? doc.getLong("last_daily_reward") : 0);
+                List<String> achievementsList = safeGetStringList(doc, "achievements");
+                if (achievementsList != null) {
+                    player.getAchievements().addAll(achievementsList);
+                }
+                player.setAchievementPoints(safeGetInteger(doc, "achievement_points", 0));
+                List<String> dailyRewardsList = safeGetStringList(doc, "daily_rewards_claimed");
+                if (dailyRewardsList != null) {
+                    player.getDailyRewardsClaimed().addAll(dailyRewardsList);
+                }
+                player.setLastDailyReward(safeGetLong(doc, "last_daily_reward", 0L));
 
                 // Load event participation tracking
-                Document eventsParticipated = doc.get("events_participated", Document.class);
-                if (eventsParticipated != null) {
-                    for (String key : eventsParticipated.keySet()) {
-                        Integer value = eventsParticipated.getInteger(key);
-                        if (value != null) {
-                            player.getEventsParticipated().put(key, value);
-                        }
-                    }
-                }
-
-                Document eventWins = doc.get("event_wins", Document.class);
-                if (eventWins != null) {
-                    for (String key : eventWins.keySet()) {
-                        Integer value = eventWins.getInteger(key);
-                        if (value != null) {
-                            player.getEventWins().put(key, value);
-                        }
-                    }
-                }
+                loadEventData(doc, player);
 
                 // Load combat statistics
-                player.setDamageDealt(doc.getLong("damage_dealt") != null ? doc.getLong("damage_dealt") : 0);
-                player.setDamageTaken(doc.getLong("damage_taken") != null ? doc.getLong("damage_taken") : 0);
-                player.setDamageBlocked(doc.getLong("damage_blocked") != null ? doc.getLong("damage_blocked") : 0);
-                player.setDamageDodged(doc.getLong("damage_dodged") != null ? doc.getLong("damage_dodged") : 0);
+                player.setDamageDealt(safeGetLong(doc, "damage_dealt", 0L));
+                player.setDamageTaken(safeGetLong(doc, "damage_taken", 0L));
+                player.setDamageBlocked(safeGetLong(doc, "damage_blocked", 0L));
+                player.setDamageDodged(safeGetLong(doc, "damage_dodged", 0L));
 
-                // Load combat logout state management
-                String combatLogoutStateStr = doc.getString("combat_logout_state");
-                if (combatLogoutStateStr != null) {
+                // Load combat logout state management with enhanced safety
+                String combatLogoutStateStr = safeGetString(doc, "combat_logout_state", null);
+                if (combatLogoutStateStr != null && !combatLogoutStateStr.trim().isEmpty()) {
                     try {
                         YakPlayer.CombatLogoutState state = YakPlayer.CombatLogoutState.valueOf(combatLogoutStateStr);
                         player.setCombatLogoutState(state);
@@ -764,6 +960,9 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
             }
         }
 
+        /**
+         * player to document conversion with comprehensive validation
+         */
         public Document playerToDocument(YakPlayer player) {
             if (player == null || player.getUUID() == null) {
                 logger.warning("Cannot convert null player or player with null UUID to document");
@@ -773,44 +972,44 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
             try {
                 Document doc = new Document();
 
-                // Basic identification
+                // Basic identification - required fields
                 doc.append("uuid", player.getUUID().toString());
-                doc.append("username", player.getUsername());
+                doc.append("username", player.getUsername() != null ? player.getUsername() : "Unknown");
                 doc.append("last_login", player.getLastLogin());
                 doc.append("last_logout", player.getLastLogout());
                 doc.append("first_join", player.getFirstJoin());
                 doc.append("total_playtime", player.getTotalPlaytime());
 
-                if (player.getIpAddress() != null) {
+                if (player.getIpAddress() != null && !player.getIpAddress().trim().isEmpty()) {
                     doc.append("ip_address", player.getIpAddress());
                 }
 
-                // Progression
-                doc.append("level", player.getLevel());
-                doc.append("exp", player.getExp());
-                doc.append("monster_kills", player.getMonsterKills());
-                doc.append("player_kills", player.getPlayerKills());
-                doc.append("deaths", player.getDeaths());
-                doc.append("ore_mined", player.getOreMined());
-                doc.append("fish_caught", player.getFishCaught());
-                doc.append("blocks_broken", player.getBlocksBroken());
-                doc.append("distance_traveled", player.getDistanceTraveled());
+                // Progression with validation
+                doc.append("level", Math.max(1, Math.min(200, player.getLevel())));
+                doc.append("exp", Math.max(0, player.getExp()));
+                doc.append("monster_kills", Math.max(0, player.getMonsterKills()));
+                doc.append("player_kills", Math.max(0, player.getPlayerKills()));
+                doc.append("deaths", Math.max(0, player.getDeaths()));
+                doc.append("ore_mined", Math.max(0, player.getOreMined()));
+                doc.append("fish_caught", Math.max(0, player.getFishCaught()));
+                doc.append("blocks_broken", Math.max(0, player.getBlocksBroken()));
+                doc.append("distance_traveled", Math.max(0.0, player.getDistanceTraveled()));
 
-                // Economic data - ONLY bank gems, no virtual player balance
-                doc.append("bank_gems", player.getBankGems());
-                doc.append("elite_shards", player.getEliteShards());
+                // Economic data with validation
+                doc.append("bank_gems", Math.max(0, player.getBankGems()));
+                doc.append("elite_shards", Math.max(0, player.getEliteShards()));
 
                 // Bank data
-                doc.append("bank_pages", player.getBankPages());
-                doc.append("bank_authorized_users", player.getBankAuthorizedUsers());
-                doc.append("bank_access_log", player.getBankAccessLog());
+                doc.append("bank_pages", Math.max(1, Math.min(10, player.getBankPages())));
+                doc.append("bank_authorized_users", new ArrayList<>(player.getBankAuthorizedUsers()));
+                doc.append("bank_access_log", new ArrayList<>(player.getBankAccessLog()));
 
-                // Bank inventory
+                // Bank inventory with safety
                 Document bankItems = new Document();
                 Map<Integer, String> bankItemsMap = player.getAllSerializedBankItems();
                 if (bankItemsMap != null) {
                     for (Map.Entry<Integer, String> entry : bankItemsMap.entrySet()) {
-                        if (entry.getKey() != null && entry.getValue() != null) {
+                        if (entry.getKey() != null && entry.getValue() != null && !entry.getValue().trim().isEmpty()) {
                             bankItems.append(entry.getKey().toString(), entry.getValue());
                         }
                     }
@@ -818,36 +1017,36 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
                 doc.append("bank_inventory", bankItems);
 
                 // Alignment data
-                doc.append("alignment", player.getAlignment());
+                doc.append("alignment", player.getAlignment() != null ? player.getAlignment() : "LAWFUL");
                 doc.append("chaotic_time", player.getChaoticTime());
                 doc.append("neutral_time", player.getNeutralTime());
                 doc.append("alignment_changes", player.getAlignmentChanges());
 
                 // Moderation data
-                doc.append("rank", player.getRank());
+                doc.append("rank", player.getRank() != null ? player.getRank() : "DEFAULT");
                 doc.append("banned", player.isBanned());
-                doc.append("ban_reason", player.getBanReason());
+                doc.append("ban_reason", player.getBanReason() != null ? player.getBanReason() : "");
                 doc.append("ban_expiry", player.getBanExpiry());
                 doc.append("muted", player.getMuteTime());
                 doc.append("warnings", player.getWarnings());
                 doc.append("last_warning", player.getLastWarning());
 
                 // Chat data
-                doc.append("chat_tag", player.getChatTag());
+                doc.append("chat_tag", player.getChatTag() != null ? player.getChatTag() : "DEFAULT");
                 doc.append("unlocked_chat_tags", new ArrayList<>(player.getUnlockedChatTags()));
-                doc.append("chat_color", player.getChatColor());
+                doc.append("chat_color", player.getChatColor() != null ? player.getChatColor() : "WHITE");
 
                 // Mount and Guild data
                 doc.append("horse_tier", player.getHorseTier());
-                doc.append("horse_name", player.getHorseName());
-                doc.append("guild_name", player.getGuildName());
-                doc.append("guild_rank", player.getGuildRank());
+                doc.append("horse_name", player.getHorseName() != null ? player.getHorseName() : "");
+                doc.append("guild_name", player.getGuildName() != null ? player.getGuildName() : "");
+                doc.append("guild_rank", player.getGuildRank() != null ? player.getGuildRank() : "");
                 doc.append("guild_contribution", player.getGuildContribution());
 
                 // Player preferences
                 doc.append("toggle_settings", new ArrayList<>(player.getToggleSettings()));
 
-                // Notification settings
+                // Notification settings with safety
                 Document notificationSettings = new Document();
                 Map<String, Boolean> notificationMap = player.getNotificationSettings();
                 if (notificationMap != null) {
@@ -860,7 +1059,7 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
                 doc.append("notification_settings", notificationSettings);
 
                 // Quest system
-                doc.append("current_quest", player.getCurrentQuest());
+                doc.append("current_quest", player.getCurrentQuest() != null ? player.getCurrentQuest() : "");
                 doc.append("quest_progress", player.getQuestProgress());
                 doc.append("completed_quests", new ArrayList<>(player.getCompletedQuests()));
                 doc.append("quest_points", player.getQuestPoints());
@@ -886,30 +1085,10 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
                 doc.append("t6_kills", player.getT6Kills());
                 doc.append("kill_streak", player.getKillStreak());
                 doc.append("best_kill_streak", player.getBestKillStreak());
-                doc.append("pvp_rating", player.getPvpRating());
+                doc.append("pvp_rating", Math.max(0, player.getPvpRating()));
 
-                // World Boss tracking
-                Document worldBossDamage = new Document();
-                Map<String, Integer> damageMap = player.getWorldBossDamage();
-                if (damageMap != null) {
-                    for (Map.Entry<String, Integer> entry : damageMap.entrySet()) {
-                        if (entry.getKey() != null && entry.getValue() != null) {
-                            worldBossDamage.append(entry.getKey(), entry.getValue());
-                        }
-                    }
-                }
-                doc.append("world_boss_damage", worldBossDamage);
-
-                Document worldBossKills = new Document();
-                Map<String, Integer> killsMap = player.getWorldBossKills();
-                if (killsMap != null) {
-                    for (Map.Entry<String, Integer> entry : killsMap.entrySet()) {
-                        if (entry.getKey() != null && entry.getValue() != null) {
-                            worldBossKills.append(entry.getKey(), entry.getValue());
-                        }
-                    }
-                }
-                doc.append("world_boss_kills", worldBossKills);
+                // World Boss tracking with safety
+                saveWorldBossData(doc, player);
 
                 // Social settings
                 doc.append("trade_disabled", player.isTradeDisabled());
@@ -931,22 +1110,22 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
                 doc.append("ender_chest_contents", player.getSerializedEnderChest());
                 doc.append("offhand_item", player.getSerializedOffhand());
 
-                // PERMANENT respawn items storage
+                // Respawn items storage
                 doc.append("respawn_items", player.getSerializedRespawnItems());
                 doc.append("respawn_item_count", player.getRespawnItemCount());
                 doc.append("death_timestamp", player.getDeathTimestamp());
 
-                // Player stats
-                doc.append("health", player.getHealth());
-                doc.append("max_health", player.getMaxHealth());
-                doc.append("food_level", player.getFoodLevel());
-                doc.append("saturation", player.getSaturation());
-                doc.append("xp_level", player.getXpLevel());
-                doc.append("xp_progress", player.getXpProgress());
-                doc.append("total_experience", player.getTotalExperience());
+                // Player stats with validation
+                doc.append("health", Math.max(0.1, Math.min(2048, player.getHealth())));
+                doc.append("max_health", Math.max(1, Math.min(2048, player.getMaxHealth())));
+                doc.append("food_level", Math.max(0, Math.min(20, player.getFoodLevel())));
+                doc.append("saturation", Math.max(0, Math.min(20, player.getSaturation())));
+                doc.append("xp_level", Math.max(0, Math.min(21863, player.getXpLevel())));
+                doc.append("xp_progress", Math.max(0, Math.min(1, player.getXpProgress())));
+                doc.append("total_experience", Math.max(0, player.getTotalExperience()));
                 doc.append("bed_spawn_location", player.getBedSpawnLocation());
-                doc.append("gamemode", player.getGameMode());
-                doc.append("active_potion_effects", player.getActivePotionEffects());
+                doc.append("gamemode", player.getGameMode() != null ? player.getGameMode() : "SURVIVAL");
+                doc.append("active_potion_effects", new ArrayList<>(player.getActivePotionEffects()));
 
                 // Achievement and reward tracking
                 doc.append("achievements", new ArrayList<>(player.getAchievements()));
@@ -955,27 +1134,7 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
                 doc.append("last_daily_reward", player.getLastDailyReward());
 
                 // Event participation tracking
-                Document eventsParticipated = new Document();
-                Map<String, Integer> eventsMap = player.getEventsParticipated();
-                if (eventsMap != null) {
-                    for (Map.Entry<String, Integer> entry : eventsMap.entrySet()) {
-                        if (entry.getKey() != null && entry.getValue() != null) {
-                            eventsParticipated.append(entry.getKey(), entry.getValue());
-                        }
-                    }
-                }
-                doc.append("events_participated", eventsParticipated);
-
-                Document eventWins = new Document();
-                Map<String, Integer> winsMap = player.getEventWins();
-                if (winsMap != null) {
-                    for (Map.Entry<String, Integer> entry : winsMap.entrySet()) {
-                        if (entry.getKey() != null && entry.getValue() != null) {
-                            eventWins.append(entry.getKey(), entry.getValue());
-                        }
-                    }
-                }
-                doc.append("event_wins", eventWins);
+                saveEventData(doc, player);
 
                 // Combat statistics
                 doc.append("damage_dealt", player.getDamageDealt());
@@ -992,6 +1151,217 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
             } catch (Exception e) {
                 logger.log(Level.SEVERE, "Error converting player to document: " + player.getUsername(), e);
                 return null;
+            }
+        }
+
+        // Enhanced safe getter methods
+        private String safeGetString(Document doc, String key, String defaultValue) {
+            try {
+                String value = doc.getString(key);
+                return value != null ? value : defaultValue;
+            } catch (Exception e) {
+                logger.fine("Error getting string field " + key + ": " + e.getMessage());
+                return defaultValue;
+            }
+        }
+
+        private Integer safeGetInteger(Document doc, String key, Integer defaultValue) {
+            try {
+                Integer value = doc.getInteger(key);
+                return value != null ? value : defaultValue;
+            } catch (Exception e) {
+                logger.fine("Error getting integer field " + key + ": " + e.getMessage());
+                return defaultValue;
+            }
+        }
+
+        private Long safeGetLong(Document doc, String key, Long defaultValue) {
+            try {
+                Long value = doc.getLong(key);
+                return value != null ? value : defaultValue;
+            } catch (Exception e) {
+                logger.fine("Error getting long field " + key + ": " + e.getMessage());
+                return defaultValue;
+            }
+        }
+
+        private Double safeGetDouble(Document doc, String key, Double defaultValue) {
+            try {
+                Double value = doc.getDouble(key);
+                return value != null ? value : defaultValue;
+            } catch (Exception e) {
+                logger.fine("Error getting double field " + key + ": " + e.getMessage());
+                return defaultValue;
+            }
+        }
+
+        private Float safeGetFloat(Document doc, String key, Float defaultValue) {
+            try {
+                // MongoDB might store as Double, so handle both cases
+                Object value = doc.get(key);
+                if (value instanceof Number) {
+                    return ((Number) value).floatValue();
+                }
+                return defaultValue;
+            } catch (Exception e) {
+                logger.fine("Error getting float field " + key + ": " + e.getMessage());
+                return defaultValue;
+            }
+        }
+
+        private Boolean safeGetBoolean(Document doc, String key, Boolean defaultValue) {
+            try {
+                Boolean value = doc.getBoolean(key);
+                return value != null ? value : defaultValue;
+            } catch (Exception e) {
+                logger.fine("Error getting boolean field " + key + ": " + e.getMessage());
+                return defaultValue;
+            }
+        }
+
+        private List<String> safeGetStringList(Document doc, String key) {
+            try {
+                @SuppressWarnings("unchecked")
+                List<String> value = doc.getList(key, String.class);
+                return value;
+            } catch (Exception e) {
+                logger.fine("Error getting string list field " + key + ": " + e.getMessage());
+                return null;
+            }
+        }
+
+        private Document safeGetDocument(Document doc, String key) {
+            try {
+                return doc.get(key, Document.class);
+            } catch (Exception e) {
+                logger.fine("Error getting document field " + key + ": " + e.getMessage());
+                return null;
+            }
+        }
+
+        // Enhanced data loading methods
+        private void loadWorldBossData(Document doc, YakPlayer player) {
+            try {
+                Document worldBossDamage = safeGetDocument(doc, "world_boss_damage");
+                if (worldBossDamage != null) {
+                    for (String key : worldBossDamage.keySet()) {
+                        try {
+                            Integer value = worldBossDamage.getInteger(key);
+                            if (value != null && value >= 0) {
+                                player.getWorldBossDamage().put(key, value);
+                            }
+                        } catch (Exception e) {
+                            logger.fine("Error loading world boss damage for " + key + ": " + e.getMessage());
+                        }
+                    }
+                }
+
+                Document worldBossKills = safeGetDocument(doc, "world_boss_kills");
+                if (worldBossKills != null) {
+                    for (String key : worldBossKills.keySet()) {
+                        try {
+                            Integer value = worldBossKills.getInteger(key);
+                            if (value != null && value >= 0) {
+                                player.getWorldBossKills().put(key, value);
+                            }
+                        } catch (Exception e) {
+                            logger.fine("Error loading world boss kills for " + key + ": " + e.getMessage());
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                logger.warning("Error loading world boss data: " + e.getMessage());
+            }
+        }
+
+        private void loadEventData(Document doc, YakPlayer player) {
+            try {
+                Document eventsParticipated = safeGetDocument(doc, "events_participated");
+                if (eventsParticipated != null) {
+                    for (String key : eventsParticipated.keySet()) {
+                        try {
+                            Integer value = eventsParticipated.getInteger(key);
+                            if (value != null && value >= 0) {
+                                player.getEventsParticipated().put(key, value);
+                            }
+                        } catch (Exception e) {
+                            logger.fine("Error loading events participated for " + key + ": " + e.getMessage());
+                        }
+                    }
+                }
+
+                Document eventWins = safeGetDocument(doc, "event_wins");
+                if (eventWins != null) {
+                    for (String key : eventWins.keySet()) {
+                        try {
+                            Integer value = eventWins.getInteger(key);
+                            if (value != null && value >= 0) {
+                                player.getEventWins().put(key, value);
+                            }
+                        } catch (Exception e) {
+                            logger.fine("Error loading event wins for " + key + ": " + e.getMessage());
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                logger.warning("Error loading event data: " + e.getMessage());
+            }
+        }
+
+        // Enhanced data saving methods
+        private void saveWorldBossData(Document doc, YakPlayer player) {
+            try {
+                Document worldBossDamage = new Document();
+                Map<String, Integer> damageMap = player.getWorldBossDamage();
+                if (damageMap != null) {
+                    for (Map.Entry<String, Integer> entry : damageMap.entrySet()) {
+                        if (entry.getKey() != null && entry.getValue() != null && entry.getValue() >= 0) {
+                            worldBossDamage.append(entry.getKey(), entry.getValue());
+                        }
+                    }
+                }
+                doc.append("world_boss_damage", worldBossDamage);
+
+                Document worldBossKills = new Document();
+                Map<String, Integer> killsMap = player.getWorldBossKills();
+                if (killsMap != null) {
+                    for (Map.Entry<String, Integer> entry : killsMap.entrySet()) {
+                        if (entry.getKey() != null && entry.getValue() != null && entry.getValue() >= 0) {
+                            worldBossKills.append(entry.getKey(), entry.getValue());
+                        }
+                    }
+                }
+                doc.append("world_boss_kills", worldBossKills);
+            } catch (Exception e) {
+                logger.warning("Error saving world boss data: " + e.getMessage());
+            }
+        }
+
+        private void saveEventData(Document doc, YakPlayer player) {
+            try {
+                Document eventsParticipated = new Document();
+                Map<String, Integer> eventsMap = player.getEventsParticipated();
+                if (eventsMap != null) {
+                    for (Map.Entry<String, Integer> entry : eventsMap.entrySet()) {
+                        if (entry.getKey() != null && entry.getValue() != null && entry.getValue() >= 0) {
+                            eventsParticipated.append(entry.getKey(), entry.getValue());
+                        }
+                    }
+                }
+                doc.append("events_participated", eventsParticipated);
+
+                Document eventWins = new Document();
+                Map<String, Integer> winsMap = player.getEventWins();
+                if (winsMap != null) {
+                    for (Map.Entry<String, Integer> entry : winsMap.entrySet()) {
+                        if (entry.getKey() != null && entry.getValue() != null && entry.getValue() >= 0) {
+                            eventWins.append(entry.getKey(), entry.getValue());
+                        }
+                    }
+                }
+                doc.append("event_wins", eventWins);
+            } catch (Exception e) {
+                logger.warning("Error saving event data: " + e.getMessage());
             }
         }
     }

@@ -411,7 +411,7 @@ public class InventoryListener extends BaseListener {
     private void addGlowEffect(ItemStack item) {
         // TODO: This requires implementing the custom glow enchantment from original code
         // For now, use a placeholder - this will be properly implemented when needed
-        item.addUnsafeEnchantment(org.bukkit.enchantments.Enchantment.DURABILITY, 1);
+        item.addUnsafeEnchantment(org.bukkit.enchantments.Enchantment.UNBREAKING, 1);
         ItemMeta meta = item.getItemMeta();
         meta.addItemFlags(org.bukkit.inventory.ItemFlag.HIDE_ENCHANTS);
         item.setItemMeta(meta);

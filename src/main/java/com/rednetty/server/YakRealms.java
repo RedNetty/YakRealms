@@ -47,7 +47,7 @@ import com.rednetty.server.mechanics.player.social.party.PartyMechanics;
 import com.rednetty.server.mechanics.player.social.trade.TradeManager;
 import com.rednetty.server.mechanics.ui.TabPluginIntegration;
 import com.rednetty.server.mechanics.world.holograms.HologramManager;
-import com.rednetty.server.mechanics.world.lootchests.core.ChestManager;
+import com.rednetty.server.mechanics.world.lootchests.LootChestManager;
 import com.rednetty.server.mechanics.world.mobs.MobManager;
 import com.rednetty.server.mechanics.world.mobs.tasks.SpawnerHologramUpdater;
 import com.rednetty.server.mechanics.world.teleport.HearthstoneSystem;
@@ -83,7 +83,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.logging.Level;
 
 /**
- * ENHANCED YakRealms Main Plugin Class - Complete System Overhaul
+ * YakRealms Main Plugin Class - Complete System Overhaul
  *
  * MAJOR ENHANCEMENTS:
  * - Advanced rotating file logging system with multiple log levels
@@ -99,8 +99,9 @@ import java.util.logging.Level;
  * - System recovery and self-healing capabilities
  * - Real-time performance diagnostics
  * - Enhanced debugging and troubleshooting tools
+ * - Player-based Vault System with JSON persistence
  *
- * @version 2.0.0 - Enhanced Architecture
+ * @version 2.0.0 - Enhanced Architecture with Player Vault System
  * @author YakRealms Development Team
  */
 public class YakRealms extends JavaPlugin {
@@ -210,7 +211,7 @@ public class YakRealms extends JavaPlugin {
     private ParticleSystem particleSystem;
     private PathManager pathManager;
     private CrateManager crateManager;
-    private ChestManager lootChestManager;
+    private LootChestManager lootChestManager;
 
     // ========================================
     // INTEGRATION SYSTEMS (Phase 8 - Final)
@@ -1046,9 +1047,8 @@ public class YakRealms extends JavaPlugin {
                 return true;
             });
 
-            safeInitialize("Loot Chest System", () -> {
-                lootChestManager = ChestManager.getInstance();
-                lootChestManager.initialize();
+            safeInitialize("Loot Chest Manager", () -> {
+                lootChestManager = new LootChestManager(this);
                 return true;
             });
 
@@ -1196,7 +1196,7 @@ public class YakRealms extends JavaPlugin {
     }
 
     /**
-     * Enhanced safe initialization with better logging
+     * safe initialization with better logging
      */
     private void safeInitialize(String systemName, InitializationTask task) {
         try {
@@ -1305,9 +1305,10 @@ public class YakRealms extends JavaPlugin {
                 commandResults.put("crate", registerCommand("crate", crateCommand, crateCommand));
             }
 
+            // Vault command (replaces old loot chest command)
             if (lootChestManager != null) {
-                LootChestCommand lootChestCommand = new LootChestCommand();
-                commandResults.put("lootchest", registerCommand("lootchest", lootChestCommand, lootChestCommand));
+                VaultCommand vaultCommand = new VaultCommand(this);
+                commandResults.put("vault", registerCommand("vault", vaultCommand, vaultCommand));
             }
 
             // Mob commands
@@ -1477,7 +1478,7 @@ public class YakRealms extends JavaPlugin {
     }
 
     /**
-     * Enhanced clean shutdown with proper ordering
+     * clean shutdown with proper ordering
      */
     private void performCleanShutdown() {
         // Integration systems first
@@ -1505,7 +1506,7 @@ public class YakRealms extends JavaPlugin {
         });
 
         // World systems
-        shutdownSafely("Loot Chest System", () -> {
+        shutdownSafely("Loot Chest Manager", () -> {
             if (lootChestManager != null) {
                 lootChestManager.shutdown();
             }
@@ -1804,7 +1805,7 @@ public class YakRealms extends JavaPlugin {
     public ParticleSystem getParticleSystem() { return particleSystem; }
     public PathManager getPathManager() { return pathManager; }
     public CrateManager getCrateManager() { return crateManager; }
-    public ChestManager getLootChestManager() { return lootChestManager; }
+    public LootChestManager getLootChestManager() { return lootChestManager; }
 
     public boolean isDebugMode() {
         return getConfig().getBoolean("debug", false);
@@ -1887,7 +1888,7 @@ public class YakRealms extends JavaPlugin {
             }
 
             currentLogWriter = new PrintWriter(new FileWriter(logFile, true));
-            info("Enhanced logging initialized - " + logFile.getName());
+            info(" logging initialized - " + logFile.getName());
         }
 
         private void cleanupOldLogs() {
@@ -1962,7 +1963,7 @@ public class YakRealms extends JavaPlugin {
         public void close() {
             synchronized (logLock) {
                 if (currentLogWriter != null) {
-                    info("Enhanced logging shutdown");
+                    info(" logging shutdown");
                     currentLogWriter.close();
                     currentLogWriter = null;
                 }

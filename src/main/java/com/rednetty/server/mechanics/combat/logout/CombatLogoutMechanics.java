@@ -23,7 +23,7 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
- * FIXED Combat Logout Mechanics - Coordinates properly with DeathMechanics to prevent duplication
+ *  Combat Logout Mechanics - Coordinates properly with DeathMechanics to prevent duplication
  *
  * KEY FIXES:
  * 1. Proper coordination with DeathMechanics to prevent double processing
@@ -86,14 +86,14 @@ public class CombatLogoutMechanics implements Listener {
     public void onEnable() {
         Bukkit.getServer().getPluginManager().registerEvents(this, YakRealms.getInstance());
         startCombatTagCleanupTask();
-        logger.info("FIXED CombatLogoutMechanics enabled with duplication prevention");
+        logger.info(" CombatLogoutMechanics enabled with duplication prevention");
     }
 
     public void onDisable() {
         stopCleanupTask();
         processRemainingCombatLogouts();
         clearAllState();
-        logger.info("FIXED CombatLogoutMechanics disabled");
+        logger.info(" CombatLogoutMechanics disabled");
     }
 
     private void stopCleanupTask() {
@@ -139,7 +139,7 @@ public class CombatLogoutMechanics implements Listener {
             notifyPlayerCombatStart(player);
         }
 
-        logger.info("FIXED: Player " + player.getName() + " marked as combat tagged");
+        logger.info(": Player " + player.getName() + " marked as combat tagged");
     }
 
     /**
@@ -156,7 +156,7 @@ public class CombatLogoutMechanics implements Listener {
 
         if (wasTagged) {
             forceFieldManager.updatePlayerForceField(player);
-            logger.info("FIXED: Cleared combat tag and updated force field for " + player.getName());
+            logger.info(": Cleared combat tag and updated force field for " + player.getName());
         }
     }
 
@@ -221,14 +221,14 @@ public class CombatLogoutMechanics implements Listener {
         // FIXED: Also check the processing lock to coordinate with DeathMechanics
         boolean hasActive = playerId != null &&
                 (activeCombatLogouts.containsKey(playerId) || combatLogoutProcessingLock.contains(playerId));
-        logger.fine("FIXED: Active combat logout check for " + playerId + ": " + hasActive);
+        logger.fine(": Active combat logout check for " + playerId + ": " + hasActive);
         return hasActive;
     }
 
     // ==================== EVENT HANDLERS ====================
 
     /**
-     * FIXED: Main combat logout handler with atomic processing
+     * Main combat logout handler with atomic processing
      * Uses HIGHEST priority to run before YakPlayerManager and coordinate data access
      */
     @EventHandler(priority = EventPriority.HIGHEST)
@@ -236,7 +236,7 @@ public class CombatLogoutMechanics implements Listener {
         Player player = event.getPlayer();
         UUID playerId = player.getUniqueId();
 
-        logger.info("FIXED: Player quit event for " + player.getName());
+        logger.info(": Player quit event for " + player.getName());
 
         if (!isPlayerTagged(playerId)) {
             logger.info("Player " + player.getName() + " quit but was not in combat");
@@ -279,17 +279,17 @@ public class CombatLogoutMechanics implements Listener {
                 successfulProcesses.incrementAndGet();
                 coordinationSuccesses.incrementAndGet();
                 updateQuitMessage(event, player.getName());
-                logger.info("FIXED: Combat logout processed successfully for " + player.getName());
+                logger.info(": Combat logout processed successfully for " + player.getName());
             } else {
                 failedProcesses.incrementAndGet();
                 coordinationFailures.incrementAndGet();
-                logger.warning("FIXED: Combat logout processing failed for " + player.getName());
+                logger.warning(": Combat logout processing failed for " + player.getName());
             }
 
         } catch (Exception e) {
             failedProcesses.incrementAndGet();
             coordinationFailures.incrementAndGet();
-            logger.severe("FIXED: Error processing combat logout for " + player.getName() + ": " + e.getMessage());
+            logger.severe(": Error processing combat logout for " + player.getName() + ": " + e.getMessage());
             e.printStackTrace();
         } finally {
             finalizeCombatLogoutProcessing(playerId, player.getName());
@@ -320,29 +320,29 @@ public class CombatLogoutMechanics implements Listener {
     // ==================== FIXED COMBAT LOGOUT PROCESSING ====================
 
     /**
-     * FIXED: Process combat logout with better coordination and no respawn item duplication
+     * Process combat logout with better coordination and no respawn item duplication
      */
     private boolean processCombatLogoutFixed(Player player, YakPlayer yakPlayer) {
         UUID playerId = player.getUniqueId();
         Location logoutLocation = player.getLocation().clone();
         String alignment = getPlayerAlignment(yakPlayer);
 
-        logger.info("FIXED: Processing combat logout for " + player.getName() + " (alignment: " + alignment + ")");
+        logger.info(": Processing combat logout for " + player.getName() + " (alignment: " + alignment + ")");
 
         try {
             // Set combat logout state IMMEDIATELY to coordinate with DeathMechanics
             yakPlayer.setCombatLogoutState(YakPlayer.CombatLogoutState.PROCESSING);
             playerManager.savePlayer(yakPlayer);
-            logger.info("FIXED: Set combat logout state to PROCESSING for " + player.getName());
+            logger.info(": Set combat logout state to PROCESSING for " + player.getName());
 
             CombatLogoutData logoutData = createCombatLogoutData(playerId, logoutLocation, alignment);
             List<ItemStack> allItems = InventoryUtils.getAllPlayerItems(player);
             if (allItems == null) allItems = new ArrayList<>();
 
-            logger.info("FIXED: Found " + allItems.size() + " items to process for combat logout");
+            logger.info(": Found " + allItems.size() + " items to process for combat logout");
 
             ProcessResult result = processItemsByAlignment(allItems, alignment, player);
-            logger.info("FIXED: Combat logout processing result - Kept: " + result.keptItems.size() +
+            logger.info(": Combat logout processing result - Kept: " + result.keptItems.size() +
                     ", Dropped: " + result.droppedItems.size());
 
             executeItemProcessingFixed(player, logoutLocation, result, logoutData);
@@ -350,11 +350,11 @@ public class CombatLogoutMechanics implements Listener {
             finalizeCombatLogoutData(playerId, logoutData);
 
             broadcastCombatLogoutDeath(player.getName(), lastAttackers.get(playerId), alignment);
-            logger.info("FIXED: Combat logout fully processed for " + player.getName());
+            logger.info(": Combat logout fully processed for " + player.getName());
             return true;
 
         } catch (Exception e) {
-            logger.log(Level.SEVERE, "FIXED: Error in combat logout processing for " + player.getName(), e);
+            logger.log(Level.SEVERE, ": Error in combat logout processing for " + player.getName(), e);
             // Reset state on error
             yakPlayer.setCombatLogoutState(YakPlayer.CombatLogoutState.NONE);
             playerManager.savePlayer(yakPlayer);
@@ -377,7 +377,7 @@ public class CombatLogoutMechanics implements Listener {
     }
 
     /**
-     * FIXED: Execute item processing with better coordination
+     * Execute item processing with better coordination
      */
     private void executeItemProcessingFixed(Player player, Location logoutLocation, ProcessResult result, CombatLogoutData logoutData) {
         dropItemsAtLocation(logoutLocation, result.droppedItems, player.getName());
@@ -390,37 +390,37 @@ public class CombatLogoutMechanics implements Listener {
 
         if (!result.keptItems.isEmpty()) {
             setKeptItemsAsInventoryFixed(player, result.keptItems);
-            logger.info("FIXED: Set " + result.keptItems.size() + " kept items as new inventory");
+            logger.info(": Set " + result.keptItems.size() + " kept items as new inventory");
         } else {
-            logger.info("FIXED: No items kept, inventory remains empty");
+            logger.info(": No items kept, inventory remains empty");
         }
     }
 
     /**
-     * FIXED: Update player data after combat logout with better state management
+     * Update player data after combat logout with better state management
      */
     private void updatePlayerDataAfterCombatLogoutFixed(Player player, YakPlayer yakPlayer, Location logoutLocation) {
         // CRITICAL FIX: Update inventory data to match processed items (already set above)
         yakPlayer.updateInventory(player);
-        logger.info("FIXED: Updated YakPlayer inventory data with processed items");
+        logger.info(": Updated YakPlayer inventory data with processed items");
 
         // Move player to spawn location
         World world = logoutLocation.getWorld();
         if (world != null) {
             Location spawnLocation = world.getSpawnLocation();
             yakPlayer.updateLocation(spawnLocation);
-            logger.info("FIXED: Updated player location to spawn for combat logout");
+            logger.info(": Updated player location to spawn for combat logout");
         }
 
         // Increment death count and set final logout state
         yakPlayer.setDeaths(yakPlayer.getDeaths() + 1);
         yakPlayer.setCombatLogoutState(YakPlayer.CombatLogoutState.PROCESSED);
-        logger.info("FIXED: Set combat logout state to PROCESSED");
+        logger.info(": Set combat logout state to PROCESSED");
 
         // CRITICAL FIX: Do NOT store respawn items for combat logout
         // Combat logout processed inventory IS the final inventory
         yakPlayer.clearRespawnItems();
-        logger.info("FIXED: Cleared any existing respawn items (combat logout handles inventory directly)");
+        logger.info(": Cleared any existing respawn items (combat logout handles inventory directly)");
 
         // Save all changes
         playerManager.savePlayer(yakPlayer);
@@ -439,7 +439,7 @@ public class CombatLogoutMechanics implements Listener {
         ProcessResult result = new ProcessResult();
 
         if (allItems.isEmpty()) {
-            logger.info("FIXED: No items to process for alignment: " + alignment);
+            logger.info(": No items to process for alignment: " + alignment);
             return result;
         }
 
@@ -456,12 +456,12 @@ public class CombatLogoutMechanics implements Listener {
                 processChaoticCombatLogoutItems(allItems, result);
                 break;
             default:
-                logger.warning("FIXED: Unknown alignment: " + alignment + " - defaulting to lawful");
+                logger.warning(": Unknown alignment: " + alignment + " - defaulting to lawful");
                 processLawfulCombatLogoutItems(allItems, firstHotbarItem, player, result);
                 break;
         }
 
-        logger.info("FIXED: Processed " + allItems.size() + " items by " + alignment + " alignment: " +
+        logger.info(": Processed " + allItems.size() + " items by " + alignment + " alignment: " +
                 result.keptItems.size() + " kept, " + result.droppedItems.size() + " dropped");
 
         return result;
@@ -478,10 +478,10 @@ public class CombatLogoutMechanics implements Listener {
 
             if (shouldKeepLawfulItem(item, equippedArmor, firstHotbarItem, safeCopy)) {
                 result.keptItems.add(safeCopy);
-                logger.fine("FIXED LAWFUL KEEPING: " + InventoryUtils.getItemDisplayName(safeCopy));
+                logger.fine(" LAWFUL KEEPING: " + InventoryUtils.getItemDisplayName(safeCopy));
             } else {
                 result.droppedItems.add(safeCopy);
-                logger.fine("FIXED LAWFUL DROPPING: " + InventoryUtils.getItemDisplayName(safeCopy));
+                logger.fine(" LAWFUL DROPPING: " + InventoryUtils.getItemDisplayName(safeCopy));
             }
         }
     }
@@ -507,10 +507,10 @@ public class CombatLogoutMechanics implements Listener {
 
             if (shouldKeepNeutralItem(item, firstHotbarItem, safeCopy, shouldDropWeapon, shouldDropArmor)) {
                 result.keptItems.add(safeCopy);
-                logger.fine("FIXED NEUTRAL KEEPING: " + InventoryUtils.getItemDisplayName(safeCopy));
+                logger.fine(" NEUTRAL KEEPING: " + InventoryUtils.getItemDisplayName(safeCopy));
             } else {
                 result.droppedItems.add(safeCopy);
-                logger.fine("FIXED NEUTRAL DROPPING: " + InventoryUtils.getItemDisplayName(safeCopy));
+                logger.fine(" NEUTRAL DROPPING: " + InventoryUtils.getItemDisplayName(safeCopy));
             }
         }
     }
@@ -540,10 +540,10 @@ public class CombatLogoutMechanics implements Listener {
 
             if (InventoryUtils.isPermanentUntradeable(safeCopy) || InventoryUtils.isQuestItem(safeCopy)) {
                 result.keptItems.add(safeCopy);
-                logger.fine("FIXED CHAOTIC KEEPING: " + InventoryUtils.getItemDisplayName(safeCopy));
+                logger.fine(" CHAOTIC KEEPING: " + InventoryUtils.getItemDisplayName(safeCopy));
             } else {
                 result.droppedItems.add(safeCopy);
-                logger.fine("FIXED CHAOTIC DROPPING: " + InventoryUtils.getItemDisplayName(safeCopy));
+                logger.fine(" CHAOTIC DROPPING: " + InventoryUtils.getItemDisplayName(safeCopy));
             }
         }
     }
@@ -558,7 +558,7 @@ public class CombatLogoutMechanics implements Listener {
             }
             return null;
         } catch (Exception e) {
-            logger.log(Level.WARNING, "FIXED: Error getting first hotbar item", e);
+            logger.log(Level.WARNING, ": Error getting first hotbar item", e);
             return null;
         }
     }
@@ -570,28 +570,28 @@ public class CombatLogoutMechanics implements Listener {
      */
     private void dropItemsAtLocation(Location location, List<ItemStack> items, String playerName) {
         if (location == null || location.getWorld() == null || items.isEmpty()) {
-            logger.info("FIXED: No items to drop for " + playerName);
+            logger.info(": No items to drop for " + playerName);
             return;
         }
 
-        logger.info("FIXED: Dropping " + items.size() + " items at combat logout location for " + playerName);
+        logger.info(": Dropping " + items.size() + " items at combat logout location for " + playerName);
 
         for (ItemStack item : items) {
             if (!InventoryUtils.isValidItem(item)) continue;
 
             try {
                 location.getWorld().dropItemNaturally(location, item);
-                logger.fine("FIXED: Dropped: " + InventoryUtils.getItemDisplayName(item));
+                logger.fine(": Dropped: " + InventoryUtils.getItemDisplayName(item));
             } catch (Exception e) {
-                logger.log(Level.WARNING, "FIXED: Failed to drop item: " + InventoryUtils.getItemDisplayName(item), e);
+                logger.log(Level.WARNING, ": Failed to drop item: " + InventoryUtils.getItemDisplayName(item), e);
             }
         }
 
-        logger.info("FIXED: Successfully dropped all items for " + playerName);
+        logger.info(": Successfully dropped all items for " + playerName);
     }
 
     /**
-     * FIXED: Set kept items as the player's inventory for saving (no respawn items)
+     * Set kept items as the player's inventory for saving (no respawn items)
      */
     private void setKeptItemsAsInventoryFixed(Player player, List<ItemStack> keptItems) {
         try {
@@ -605,10 +605,10 @@ public class CombatLogoutMechanics implements Listener {
             applyItemsToInventory(player, armor, regularItems);
 
             player.updateInventory();
-            logger.info("FIXED: Set kept items as inventory for " + player.getName() + " (no respawn items stored)");
+            logger.info(": Set kept items as inventory for " + player.getName() + " (no respawn items stored)");
 
         } catch (Exception e) {
-            logger.log(Level.SEVERE, "FIXED: Error setting kept items as inventory for " + player.getName(), e);
+            logger.log(Level.SEVERE, ": Error setting kept items as inventory for " + player.getName(), e);
         }
     }
 
@@ -648,10 +648,10 @@ public class CombatLogoutMechanics implements Listener {
                     ChatColor.GRAY + " (combat logout)";
 
             Bukkit.broadcastMessage(message);
-            logger.info("FIXED: Broadcast combat logout death: " + playerName + " vs " + attackerName);
+            logger.info(": Broadcast combat logout death: " + playerName + " vs " + attackerName);
 
         } catch (Exception e) {
-            logger.log(Level.WARNING, "FIXED: Error broadcasting combat logout death", e);
+            logger.log(Level.WARNING, ": Error broadcasting combat logout death", e);
         }
     }
 
@@ -696,7 +696,7 @@ public class CombatLogoutMechanics implements Listener {
         if (player != null && player.isOnline()) {
             notifyPlayerCombatEnd(player);
             forceFieldManager.updatePlayerForceField(player);
-            logger.info("FIXED: Player " + player.getName() + " is no longer in combat");
+            logger.info(": Player " + player.getName() + " is no longer in combat");
         }
     }
 
@@ -713,21 +713,21 @@ public class CombatLogoutMechanics implements Listener {
             return;
         }
 
-        logger.info("FIXED: Processing offline combat logout for " + playerId);
+        logger.info(": Processing offline combat logout for " + playerId);
         logoutData.markItemsProcessed();
         activeCombatLogouts.put(playerId, logoutData);
     }
 
     /**
-     * FIXED: Handle player rejoining after combat logout with better state management
+     * Handle player rejoining after combat logout with better state management
      */
     public void handleCombatLogoutRejoin(UUID playerId) {
         CombatLogoutData logoutData = activeCombatLogouts.remove(playerId);
         if (logoutData != null) {
             updatePlayerAfterRejoin(playerId);
-            logger.info("FIXED: Cleared combat logout data for rejoining player: " + playerId);
+            logger.info(": Cleared combat logout data for rejoining player: " + playerId);
         } else {
-            logger.warning("FIXED: No combat logout data found for rejoining player: " + playerId);
+            logger.warning(": No combat logout data found for rejoining player: " + playerId);
         }
     }
 
@@ -737,7 +737,7 @@ public class CombatLogoutMechanics implements Listener {
             yakPlayer.setCombatLogoutState(YakPlayer.CombatLogoutState.COMPLETED);
             yakPlayer.removeTemporaryData("combat_logout_processing");
             playerManager.savePlayer(yakPlayer);
-            logger.info("FIXED: Set combat logout state to COMPLETED for " + playerId);
+            logger.info(": Set combat logout state to COMPLETED for " + playerId);
         }
     }
 
@@ -784,10 +784,10 @@ public class CombatLogoutMechanics implements Listener {
     }
 
     /**
-     * FIXED: Get performance statistics
+     * Get performance statistics
      */
     public String getPerformanceStats() {
-        return String.format("FIXED CombatLogoutMechanics Stats: " +
+        return String.format(" CombatLogoutMechanics Stats: " +
                         "Total=%d, Success=%d, Failed=%d, Active=%d, DuplicationsPrevented=%d",
                 totalCombatLogouts.get(), successfulProcesses.get(), failedProcesses.get(),
                 activeCombatLogouts.size(), duplicationsPrevented.get());

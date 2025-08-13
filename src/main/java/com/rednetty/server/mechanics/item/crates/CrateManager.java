@@ -630,7 +630,7 @@ public class CrateManager {
             Location location = player.getLocation().add(0, 1, 0);
             World world = location.getWorld();
             if (world != null) {
-                world.spawnParticle(Particle.VILLAGER_HAPPY, location, 10, 0.5, 0.5, 0.5, 0.1);
+                world.spawnParticle(Particle.HAPPY_VILLAGER, location, 10, 0.5, 0.5, 0.5, 0.1);
             }
         }
     }
