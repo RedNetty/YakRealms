@@ -7,10 +7,13 @@ import com.rednetty.server.mechanics.player.moderation.ModerationMechanics;
 import com.rednetty.server.mechanics.player.YakPlayer;
 import com.rednetty.server.mechanics.player.YakPlayerManager;
 import com.rednetty.server.utils.text.TextUtil;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.NamedTextColor;
+import net.kyori.adventure.text.format.TextDecoration;
+import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
+import net.kyori.adventure.sound.Sound;
 import org.bukkit.Bukkit;
-import org.bukkit.ChatColor;
 import org.bukkit.Material;
-import org.bukkit.Sound;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.HumanEntity;
 import org.bukkit.entity.Player;
@@ -48,7 +51,10 @@ public class MerchantManager implements Listener {
     private final Map<UUID, MerchantSession> activeSessions = new ConcurrentHashMap<>();
 
     // Constants for GUI design
-    private static final String MERCHANT_TITLE = ChatColor.DARK_GREEN + "✦ " + ChatColor.GREEN + ChatColor.BOLD + "Merchant Trading Post" + ChatColor.DARK_GREEN + " ✦";
+    private static final Component MERCHANT_TITLE_COMPONENT = Component.text("✦ ", NamedTextColor.DARK_GREEN)
+            .append(Component.text("Merchant Trading Post", NamedTextColor.GREEN, TextDecoration.BOLD))
+            .append(Component.text(" ✦", NamedTextColor.DARK_GREEN));
+    private static final String MERCHANT_TITLE = LegacyComponentSerializer.legacySection().serialize(MERCHANT_TITLE_COMPONENT);
     private static final int INVENTORY_SIZE = 54;
     private static final int[] TRADING_SLOTS = {10, 11, 12, 13, 14, 15, 16, 19, 20, 21, 22, 23, 24, 25, 28, 29, 30, 31, 32, 33, 34};
     private static final int VALUE_DISPLAY_SLOT = 4;
@@ -185,7 +191,7 @@ public class MerchantManager implements Listener {
 
         // Check if player already has an active session
         if (activeSessions.containsKey(player.getUniqueId())) {
-            player.sendMessage(ChatColor.RED + "You already have a merchant session open!");
+            player.sendMessage(Component.text("You already have a merchant session open!", NamedTextColor.RED));
             return;
         }
 
@@ -217,14 +223,16 @@ public class MerchantManager implements Listener {
 
             activeSessions.put(player.getUniqueId(), session);
             player.openInventory(merchantInv);
-            player.playSound(player.getLocation(), Sound.BLOCK_CHEST_OPEN, 1.0f, 1.0f);
+            player.playSound(Sound.sound(org.bukkit.Sound.BLOCK_CHEST_OPEN, Sound.Source.PLAYER, 1.0f, 1.0f));
 
             // Send welcome message
-            TextUtil.sendCenteredMessage(player, ChatColor.WHITE + "Merchant: " + ChatColor.GRAY + "Welcome to the Trading Post!");
-            TextUtil.sendCenteredMessage(player, ChatColor.WHITE + "Merchant: " + ChatColor.GRAY + "Place your items in the slots to see their value");
+            TextUtil.sendCenteredMessage(player, Component.text("Merchant: ", NamedTextColor.WHITE)
+                    .append(Component.text("Welcome to the Trading Post!", NamedTextColor.GRAY)));
+            TextUtil.sendCenteredMessage(player, Component.text("Merchant: ", NamedTextColor.WHITE)
+                    .append(Component.text("Place your items in the slots to see their value", NamedTextColor.GRAY)));
 
         } catch (Exception e) {
-            player.sendMessage(ChatColor.RED + "Failed to open merchant interface. Please try again.");
+            player.sendMessage(Component.text("Failed to open merchant interface. Please try again.", NamedTextColor.RED));
             logger.log(Level.SEVERE, "Error opening merchant interface for player " + player.getName(), e);
         }
     }
@@ -233,11 +241,11 @@ public class MerchantManager implements Listener {
      * Create the merchant inventory with proper layout
      */
     private Inventory createMerchantInventory() {
-        Inventory inv = Bukkit.createInventory(null, INVENTORY_SIZE, MERCHANT_TITLE);
+        Inventory inv = Bukkit.createInventory(null, INVENTORY_SIZE, MERCHANT_TITLE_COMPONENT);
 
         // Fill border with decorative glass panes
-        ItemStack borderPane = createDecorativeItem(Material.GRAY_STAINED_GLASS_PANE, " ");
-        ItemStack accentPane = createDecorativeItem(Material.GREEN_STAINED_GLASS_PANE, " ");
+        ItemStack borderPane = createDecorativeItem(Material.GRAY_STAINED_GLASS_PANE, Component.text(" "));
+        ItemStack accentPane = createDecorativeItem(Material.GREEN_STAINED_GLASS_PANE, Component.text(" "));
 
         // Top and bottom borders
         for (int i = 0; i < 9; i++) {
@@ -265,10 +273,10 @@ public class MerchantManager implements Listener {
     /**
      * Create decorative glass pane items
      */
-    private ItemStack createDecorativeItem(Material material, String name) {
+    private ItemStack createDecorativeItem(Material material, Component name) {
         ItemStack item = new ItemStack(material);
         ItemMeta meta = item.getItemMeta();
-        meta.setDisplayName(name);
+        meta.displayName(name);
         meta.addItemFlags(ItemFlag.values());
         item.setItemMeta(meta);
         return item;
@@ -280,12 +288,13 @@ public class MerchantManager implements Listener {
     private ItemStack createValueDisplayItem(int value) {
         ItemStack item = new ItemStack(Material.EMERALD);
         ItemMeta meta = item.getItemMeta();
-        meta.setDisplayName(ChatColor.GREEN + ChatColor.BOLD.toString() + "Total Value");
-        meta.setLore(Arrays.asList(
-                ChatColor.WHITE + "Current Value: " + ChatColor.GREEN + value + " gems",
-                "",
-                ChatColor.GRAY + "Place tradeable items in the",
-                ChatColor.GRAY + "highlighted slots to see their value"
+        meta.displayName(Component.text("Total Value", NamedTextColor.GREEN, TextDecoration.BOLD));
+        meta.lore(Arrays.asList(
+                Component.text("Current Value: ", NamedTextColor.WHITE)
+                        .append(Component.text(value + " gems", NamedTextColor.GREEN)),
+                Component.empty(),
+                Component.text("Place tradeable items in the", NamedTextColor.GRAY),
+                Component.text("highlighted slots to see their value", NamedTextColor.GRAY)
         ));
         meta.addItemFlags(ItemFlag.values());
         item.setItemMeta(meta);
@@ -298,10 +307,10 @@ public class MerchantManager implements Listener {
     private ItemStack createAcceptButton() {
         ItemStack item = new ItemStack(Material.LIME_CONCRETE);
         ItemMeta meta = item.getItemMeta();
-        meta.setDisplayName(ChatColor.GREEN + ChatColor.BOLD.toString() + "✓ ACCEPT TRADE");
-        meta.setLore(Arrays.asList(
-                ChatColor.GRAY + "Click to complete the trade",
-                ChatColor.GRAY + "and receive your gems"
+        meta.displayName(Component.text("✓ ACCEPT TRADE", NamedTextColor.GREEN, TextDecoration.BOLD));
+        meta.lore(Arrays.asList(
+                Component.text("Click to complete the trade", NamedTextColor.GRAY),
+                Component.text("and receive your gems", NamedTextColor.GRAY)
         ));
         meta.addItemFlags(ItemFlag.values());
         item.setItemMeta(meta);
@@ -314,10 +323,10 @@ public class MerchantManager implements Listener {
     private ItemStack createCancelButton() {
         ItemStack item = new ItemStack(Material.RED_CONCRETE);
         ItemMeta meta = item.getItemMeta();
-        meta.setDisplayName(ChatColor.RED + ChatColor.BOLD.toString() + "✗ CANCEL TRADE");
-        meta.setLore(Arrays.asList(
-                ChatColor.GRAY + "Click to cancel and",
-                ChatColor.GRAY + "return all items"
+        meta.displayName(Component.text("✗ CANCEL TRADE", NamedTextColor.RED, TextDecoration.BOLD));
+        meta.lore(Arrays.asList(
+                Component.text("Click to cancel and", NamedTextColor.GRAY),
+                Component.text("return all items", NamedTextColor.GRAY)
         ));
         meta.addItemFlags(ItemFlag.values());
         item.setItemMeta(meta);
@@ -330,14 +339,14 @@ public class MerchantManager implements Listener {
     private ItemStack createInfoItem() {
         ItemStack item = new ItemStack(Material.BOOK);
         ItemMeta meta = item.getItemMeta();
-        meta.setDisplayName(ChatColor.YELLOW + ChatColor.BOLD.toString() + "Trading Information");
-        meta.setLore(Arrays.asList(
-                ChatColor.GRAY + "• Only tradeable items can be sold",
-                ChatColor.GRAY + "• Values are calculated automatically",
-                ChatColor.GRAY + "• Higher tier items = more gems",
-                ChatColor.GRAY + "• Rare items give bonus value",
-                "",
-                ChatColor.GREEN + "Happy trading!"
+        meta.displayName(Component.text("Trading Information", NamedTextColor.YELLOW, TextDecoration.BOLD));
+        meta.lore(Arrays.asList(
+                Component.text("• Only tradeable items can be sold", NamedTextColor.GRAY),
+                Component.text("• Values are calculated automatically", NamedTextColor.GRAY),
+                Component.text("• Higher tier items = more gems", NamedTextColor.GRAY),
+                Component.text("• Rare items give bonus value", NamedTextColor.GRAY),
+                Component.empty(),
+                Component.text("Happy trading!", NamedTextColor.GREEN)
         ));
         meta.addItemFlags(ItemFlag.values());
         item.setItemMeta(meta);
@@ -380,8 +389,8 @@ public class MerchantManager implements Listener {
                         // Don't allow shift-clicking untradeable items into merchant
                         event.setCancelled(true);
                         String reason = MerchantItemUtil.getUntradeableReason(clickedItem);
-                        player.sendMessage(ChatColor.RED + (reason != null ? reason : "This item cannot be traded!"));
-                        player.playSound(player.getLocation(), Sound.ENTITY_VILLAGER_NO, 1.0f, 1.0f);
+                        player.sendMessage(Component.text(reason != null ? reason : "This item cannot be traded!", NamedTextColor.RED));
+                        player.playSound(Sound.sound(org.bukkit.Sound.ENTITY_VILLAGER_NO, Sound.Source.PLAYER, 1.0f, 1.0f));
                     } else {
                         // Allow shift-click but schedule update
                         Bukkit.getScheduler().runTaskLater(YakRealms.getInstance(), () -> {
@@ -433,8 +442,8 @@ public class MerchantManager implements Listener {
             if (!MerchantItemUtil.isTradeableItem(cursorItem)) {
                 event.setCancelled(true);
                 String reason = MerchantItemUtil.getUntradeableReason(cursorItem);
-                player.sendMessage(ChatColor.RED + (reason != null ? reason : "This item cannot be traded!"));
-                player.playSound(player.getLocation(), Sound.ENTITY_VILLAGER_NO, 1.0f, 1.0f);
+                player.sendMessage(Component.text(reason != null ? reason : "This item cannot be traded!", NamedTextColor.RED));
+                player.playSound(Sound.sound(org.bukkit.Sound.ENTITY_VILLAGER_NO, Sound.Source.PLAYER, 1.0f, 1.0f));
                 return;
             }
         }
@@ -483,8 +492,8 @@ public class MerchantManager implements Listener {
             if (draggedItem != null && !MerchantItemUtil.isTradeableItem(draggedItem)) {
                 event.setCancelled(true);
                 String reason = MerchantItemUtil.getUntradeableReason(draggedItem);
-                player.sendMessage(ChatColor.RED + (reason != null ? reason : "This item cannot be traded!"));
-                player.playSound(player.getLocation(), Sound.ENTITY_VILLAGER_NO, 1.0f, 1.0f);
+                player.sendMessage(Component.text(reason != null ? reason : "This item cannot be traded!", NamedTextColor.RED));
+                player.playSound(Sound.sound(org.bukkit.Sound.ENTITY_VILLAGER_NO, Sound.Source.PLAYER, 1.0f, 1.0f));
                 return;
             }
 
@@ -503,16 +512,16 @@ public class MerchantManager implements Listener {
             List<ItemStack> tradingItems = session.getTradingItems();
 
             if (tradingItems.isEmpty()) {
-                player.sendMessage(ChatColor.RED + "You must place items to trade first!");
-                player.playSound(player.getLocation(), Sound.ENTITY_VILLAGER_NO, 1.0f, 1.0f);
+                player.sendMessage(Component.text("You must place items to trade first!", NamedTextColor.RED));
+                player.playSound(Sound.sound(org.bukkit.Sound.ENTITY_VILLAGER_NO, Sound.Source.PLAYER, 1.0f, 1.0f));
                 return;
             }
 
             int totalValue = session.calculateTotalValue();
 
             if (totalValue <= 0) {
-                player.sendMessage(ChatColor.RED + "The items you've placed have no trade value!");
-                player.playSound(player.getLocation(), Sound.ENTITY_VILLAGER_NO, 1.0f, 1.0f);
+                player.sendMessage(Component.text("The items you've placed have no trade value!", NamedTextColor.RED));
+                player.playSound(Sound.sound(org.bukkit.Sound.ENTITY_VILLAGER_NO, Sound.Source.PLAYER, 1.0f, 1.0f));
                 return;
             }
 
@@ -546,15 +555,20 @@ public class MerchantManager implements Listener {
                 session.clearTradingItems();
 
                 // Success feedback
-                player.playSound(player.getLocation(), Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 1.0f, 1.2f);
-                player.sendMessage(ChatColor.GREEN + "Trade completed successfully.. Gems deposited to bank.");
+                player.playSound(Sound.sound(org.bukkit.Sound.ENTITY_EXPERIENCE_ORB_PICKUP, Sound.Source.PLAYER, 1.0f, 1.2f));
+                player.sendMessage(Component.text("Trade completed successfully. Gems deposited to bank.", NamedTextColor.GREEN));
 
-                String bonusMessage = multiplier > 1.0 ?
-                        ChatColor.GRAY + " (+" + (finalValue - totalValue) + " " + bonusType + " bonus gems)" : "";
+                Component bonusMessage = multiplier > 1.0 ?
+                        Component.text(" (+" + (finalValue - totalValue) + " " + bonusType + " bonus gems)", NamedTextColor.GRAY) :
+                        Component.empty();
 
-                TextUtil.sendCenteredMessage(player,
-                        ChatColor.GREEN + "✦ Received " + ChatColor.GOLD + finalValue +
-                                ChatColor.GREEN + " gems" + bonusMessage + ChatColor.GREEN + " ✦");
+                Component tradeMessage = Component.text("✦ Received ", NamedTextColor.GREEN)
+                        .append(Component.text(finalValue, NamedTextColor.GOLD))
+                        .append(Component.text(" gems", NamedTextColor.GREEN))
+                        .append(bonusMessage)
+                        .append(Component.text(" ✦", NamedTextColor.GREEN));
+
+                TextUtil.sendCenteredMessage(player, tradeMessage);
 
                 // Close session
                 session.closeSession(false);
@@ -562,8 +576,8 @@ public class MerchantManager implements Listener {
                 player.closeInventory();
 
             } else {
-                player.sendMessage(ChatColor.RED + "Trade failed: " + result.getMessage());
-                player.playSound(player.getLocation(), Sound.ENTITY_VILLAGER_NO, 1.0f, 1.0f);
+                player.sendMessage(Component.text("Trade failed: " + result.getMessage(), NamedTextColor.RED));
+                player.playSound(Sound.sound(org.bukkit.Sound.ENTITY_VILLAGER_NO, Sound.Source.PLAYER, 1.0f, 1.0f));
 
                 if (MerchantConfig.getInstance().isDebugMode()) {
                     logger.warning("Trade failed for player " + player.getName() + ": " + result.getMessage());
@@ -571,7 +585,7 @@ public class MerchantManager implements Listener {
             }
 
         } catch (Exception e) {
-            player.sendMessage(ChatColor.RED + "An error occurred while processing your trade!");
+            player.sendMessage(Component.text("An error occurred while processing your trade!", NamedTextColor.RED));
             logger.log(Level.SEVERE, "Error processing trade for player " + player.getName(), e);
         }
     }
@@ -584,8 +598,8 @@ public class MerchantManager implements Listener {
         activeSessions.remove(player.getUniqueId());
         player.closeInventory();
 
-        player.sendMessage(ChatColor.YELLOW + "Trade cancelled. All items have been returned.");
-        player.playSound(player.getLocation(), Sound.BLOCK_CHEST_CLOSE, 1.0f, 1.0f);
+        player.sendMessage(Component.text("Trade cancelled. All items have been returned.", NamedTextColor.YELLOW));
+        player.playSound(Sound.sound(org.bukkit.Sound.BLOCK_CHEST_CLOSE, Sound.Source.PLAYER, 1.0f, 1.0f));
     }
 
     /**
@@ -666,7 +680,7 @@ public class MerchantManager implements Listener {
                 if (config.isDebugMode()) {
                     Player player = Bukkit.getPlayer(playerUuid);
                     if (player != null) {
-                        player.sendMessage(ChatColor.GRAY + "Debug: " + item.getType() + " x" + item.getAmount() + " = " + itemValue + " gems");
+                        player.sendMessage(Component.text("Debug: " + item.getType() + " x" + item.getAmount() + " = " + itemValue + " gems", NamedTextColor.GRAY));
                     }
                 }
             }

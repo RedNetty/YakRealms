@@ -8,6 +8,9 @@ import com.rednetty.server.mechanics.player.moderation.Rank;
 import com.rednetty.server.utils.text.TextUtil;
 import lombok.Getter;
 import lombok.Setter;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.NamedTextColor;
+import net.kyori.adventure.text.format.TextDecoration;
 import org.bson.codecs.pojo.annotations.BsonId;
 import org.bson.codecs.pojo.annotations.BsonProperty;
 import org.bukkit.*;
@@ -28,8 +31,8 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
- *  YakPlayer - Enhanced inventory persistence with guaranteed save/load
- * FIXES: Inventory rollback, save timing, serialization errors, state conflicts
+ * YakPlayer - Player data model with inventory persistence
+ * Compatible with Paper 1.21.7+
  */
 @Getter
 @Setter
@@ -45,8 +48,8 @@ public class YakPlayer {
     private static final int MAX_LEVEL = 200;
     private static final int MIN_LEVEL = 1;
     private static final int MAX_USERNAME_LENGTH = 16;
-    private static final double DEFAULT_HEALTH = 20.0;
-    private static final double DEFAULT_MAX_HEALTH = 20.0;
+    private static final double DEFAULT_HEALTH = 50.0;
+    private static final double DEFAULT_MAX_HEALTH = 50.0;
 
     // Player identification
     @BsonId
@@ -303,7 +306,7 @@ public class YakPlayer {
     @Expose @SerializedName("previous_location") @BsonProperty("previous_location")
     private String previousLocation;
 
-    // FIXED Player state with better defaults and validation
+    // Player state with better defaults and validation
     @Expose @SerializedName("health") @BsonProperty("health")
     private double health = DEFAULT_HEALTH;
 
@@ -331,7 +334,7 @@ public class YakPlayer {
     @Expose @SerializedName("gamemode") @BsonProperty("gamemode")
     private String gameMode = "SURVIVAL";
 
-    // GUARANTEED INVENTORY PERSISTENCE - Enhanced with validation and backup
+    // Inventory persistence - Enhanced with validation and backup
     @Expose @SerializedName("inventory_contents") @BsonProperty("inventory_contents")
     private String serializedInventory;
 
@@ -344,7 +347,7 @@ public class YakPlayer {
     @Expose @SerializedName("offhand_item") @BsonProperty("offhand_item")
     private String serializedOffhand;
 
-    // ENHANCED backup inventory system
+    // Backup inventory system
     @Expose @SerializedName("backup_inventory") @BsonProperty("backup_inventory")
     private String backupSerializedInventory;
 
@@ -369,7 +372,7 @@ public class YakPlayer {
     @Expose @SerializedName("death_timestamp") @BsonProperty("death_timestamp")
     private long deathTimestamp = 0;
 
-    // FIXED Combat logout state with thread safety
+    // Combat logout state with thread safety
     @Expose @SerializedName("combat_logout_state") @BsonProperty("combat_logout_state")
     private volatile CombatLogoutState combatLogoutState = CombatLogoutState.NONE;
 
@@ -527,7 +530,7 @@ public class YakPlayer {
         return "unknown";
     }
 
-    // ENHANCED GUARANTEED INVENTORY PERSISTENCE
+    // Inventory persistence methods
     // This method ALWAYS updates inventory regardless of state
     public void forceUpdateInventory(Player player) {
         if (player == null || !player.isOnline()) {
@@ -541,7 +544,7 @@ public class YakPlayer {
         }
 
         try {
-            logger.info("FORCE updating inventory for player: " + player.getName());
+            logger.info("Updating inventory for player: " + player.getName());
 
             // Update location first
             Location location = player.getLocation();
@@ -558,11 +561,11 @@ public class YakPlayer {
             ItemStack[] enderContents = player.getEnderChest().getContents();
             ItemStack offhandItem = player.getInventory().getItemInOffHand();
 
-            // Serialize with enhanced validation
-            String newInventoryData = GuaranteedItemSerializer.serializeItemStacksWithValidation(inventoryContents, "main_inventory");
-            String newArmorData = GuaranteedItemSerializer.serializeItemStacksWithValidation(armorContents, "armor");
-            String newEnderData = GuaranteedItemSerializer.serializeItemStacksWithValidation(enderContents, "ender_chest");
-            String newOffhandData = GuaranteedItemSerializer.serializeItemStackWithValidation(offhandItem, "offhand");
+            // Serialize with validation
+            String newInventoryData = ItemSerializer.serializeItemStacksWithValidation(inventoryContents, "main_inventory");
+            String newArmorData = ItemSerializer.serializeItemStacksWithValidation(armorContents, "armor");
+            String newEnderData = ItemSerializer.serializeItemStacksWithValidation(enderContents, "ender_chest");
+            String newOffhandData = ItemSerializer.serializeItemStackWithValidation(offhandItem, "offhand");
 
             // Update with validation
             this.serializedInventory = newInventoryData;
@@ -584,10 +587,10 @@ public class YakPlayer {
             }
             if (offhandItem != null && offhandItem.getType() != Material.AIR) itemCount++;
 
-            logger.info("FORCE inventory update completed for " + player.getName() + " - " + itemCount + " items saved");
+            logger.info("Inventory update completed for " + player.getName() + " - " + itemCount + " items saved");
 
         } catch (Exception e) {
-            logger.log(Level.SEVERE, "CRITICAL: Force inventory update failed for " + player.getName(), e);
+            logger.log(Level.SEVERE, "Inventory update failed for " + player.getName(), e);
             // Try to restore from backup
             restoreInventoryFromBackup();
         } finally {
@@ -627,7 +630,7 @@ public class YakPlayer {
         }
     }
 
-    // ENHANCED Inventory application with guaranteed recovery
+    // Inventory application with recovery
     public void applyInventory(Player player) {
         if (player == null || !player.isOnline()) {
             logger.warning("Cannot apply inventory to null or offline player");
@@ -648,7 +651,7 @@ public class YakPlayer {
             // Clear inventory first
             clearInventoryForLoading(player);
 
-            // Apply inventory components with enhanced error handling
+            // Apply inventory components with error handling
             boolean success = applyInventoryWithRecovery(player);
 
             if (!success) {
@@ -657,7 +660,7 @@ public class YakPlayer {
             }
 
         } catch (Exception e) {
-            logger.log(Level.SEVERE, "CRITICAL: Inventory application failed for " + player.getName(), e);
+            logger.log(Level.SEVERE, "Inventory application failed for " + player.getName(), e);
             // Apply default inventory on complete failure
             applyDefaultInventoryState(player);
         } finally {
@@ -756,7 +759,7 @@ public class YakPlayer {
         }
 
         try {
-            ItemStack[] contents = GuaranteedItemSerializer.deserializeItemStacksWithValidation(serializedInventory);
+            ItemStack[] contents = ItemSerializer.deserializeItemStacksWithValidation(serializedInventory);
             if (contents != null) {
                 int itemsApplied = 0;
                 int inventorySize = player.getInventory().getSize();
@@ -791,7 +794,7 @@ public class YakPlayer {
         }
 
         try {
-            ItemStack[] armor = GuaranteedItemSerializer.deserializeItemStacksWithValidation(serializedArmor);
+            ItemStack[] armor = ItemSerializer.deserializeItemStacksWithValidation(serializedArmor);
             if (armor != null) {
                 int armorApplied = 0;
 
@@ -849,7 +852,7 @@ public class YakPlayer {
 
             // Apply ender chest contents
             if (serializedEnderChest != null && !serializedEnderChest.isEmpty()) {
-                ItemStack[] enderContents = GuaranteedItemSerializer.deserializeItemStacksWithValidation(serializedEnderChest);
+                ItemStack[] enderContents = ItemSerializer.deserializeItemStacksWithValidation(serializedEnderChest);
                 if (enderContents != null) {
                     for (int i = 0; i < enderContents.length && i < 27; i++) {
                         if (enderContents[i] != null && enderContents[i].getType() != Material.AIR) {
@@ -879,7 +882,7 @@ public class YakPlayer {
         try {
             if (serializedOffhand != null && !serializedOffhand.isEmpty()) {
                 try {
-                    ItemStack offhandItem = GuaranteedItemSerializer.deserializeItemStackWithValidation(serializedOffhand);
+                    ItemStack offhandItem = ItemSerializer.deserializeItemStackWithValidation(serializedOffhand);
                     if (offhandItem != null && offhandItem.getType() != Material.AIR) {
                         player.getInventory().setItemInOffHand(offhandItem.clone());
                     } else {
@@ -942,7 +945,7 @@ public class YakPlayer {
         }
     }
 
-    // FIXED Respawn items management with enhanced safety
+    // Respawn items management with safety
     public boolean setRespawnItems(List<ItemStack> items) {
         if (items == null || items.isEmpty()) {
             clearRespawnItems();
@@ -966,7 +969,7 @@ public class YakPlayer {
         }
 
         try {
-            String serialized = GuaranteedItemSerializer.serializeItemStacksWithValidation(
+            String serialized = ItemSerializer.serializeItemStacksWithValidation(
                     validItems.toArray(new ItemStack[0]), "respawn");
             if (serialized != null) {
                 this.serializedRespawnItems = serialized;
@@ -988,7 +991,7 @@ public class YakPlayer {
         }
 
         try {
-            ItemStack[] items = GuaranteedItemSerializer.deserializeItemStacksWithValidation(serializedRespawnItems);
+            ItemStack[] items = ItemSerializer.deserializeItemStacksWithValidation(serializedRespawnItems);
             if (items != null) {
                 List<ItemStack> itemList = new ArrayList<>();
                 for (ItemStack item : items) {
@@ -1067,7 +1070,7 @@ public class YakPlayer {
         return inventoryBeingApplied.get();
     }
 
-    // FIXED Connection management with better error handling
+    // Connection management with better error handling
     public void connect(Player player) {
         if (player == null) {
             logger.warning("Cannot connect null player");
@@ -1084,7 +1087,7 @@ public class YakPlayer {
             this.ipAddress = newIpAddress;
         }
 
-        // FIXED: Validate and fix health values on connect
+        // Validate and fix health values on connect
         validateAndFixHealthValues();
 
         logger.info("Connected player: " + player.getName());
@@ -1092,27 +1095,27 @@ public class YakPlayer {
 
     private void validateAndFixHealthValues() {
         // Validate max health
-        if (maxHealth <= 0 || maxHealth > 2048 || Double.isNaN(maxHealth) || Double.isInfinite(maxHealth)) {
+        if (maxHealth <= 0 || Double.isNaN(maxHealth) || Double.isInfinite(maxHealth)) {
             maxHealth = DEFAULT_MAX_HEALTH;
-            logger.info(" invalid max health for " + username + " to " + DEFAULT_MAX_HEALTH);
+            logger.info("Fixed invalid max health for " + username + " to " + DEFAULT_MAX_HEALTH);
         }
 
         // Validate health
         if (health <= 0 || health > maxHealth || Double.isNaN(health) || Double.isInfinite(health)) {
             health = maxHealth;
-            logger.info(" invalid health for " + username + " to " + health);
+            logger.info("Fixed invalid health for " + username + " to " + health);
         }
 
         // Validate food level
         if (foodLevel < 0 || foodLevel > 20) {
             foodLevel = 20;
-            logger.info(" invalid food level for " + username + " to 20");
+            logger.info("Fixed invalid food level for " + username + " to 20");
         }
 
         // Validate saturation
         if (saturation < 0 || saturation > 20 || Float.isNaN(saturation) || Float.isInfinite(saturation)) {
             saturation = 5.0f;
-            logger.info(" invalid saturation for " + username + " to 5.0");
+            logger.info("Fixed invalid saturation for " + username + " to 5.0");
         }
     }
 
@@ -1136,7 +1139,7 @@ public class YakPlayer {
         this.bukkitPlayer = null;
     }
 
-    // FIXED Location management with better validation
+    // Location management with better validation
     public void updateLocation(Location location) {
         if (location == null || location.getWorld() == null) {
             logger.fine("Cannot update location - null location or world");
@@ -1181,7 +1184,7 @@ public class YakPlayer {
         }
     }
 
-    // FIXED Stats management with proper validation and health handling
+    // Stats management with proper validation and health handling
     public void updateStats(Player player) {
         updateStatsSafely(player);
     }
@@ -1193,12 +1196,12 @@ public class YakPlayer {
         }
 
         try {
-            // FIXED: Proper health handling with validation
+            // Proper health handling with validation
             double playerHealth = player.getHealth();
             double playerMaxHealth = player.getMaxHealth();
 
             // Validate and store health values
-            if (playerMaxHealth > 0 && playerMaxHealth <= 2048 && !Double.isNaN(playerMaxHealth) && !Double.isInfinite(playerMaxHealth)) {
+            if (playerMaxHealth > 0 && !Double.isNaN(playerMaxHealth) && !Double.isInfinite(playerMaxHealth)) {
                 this.maxHealth = playerMaxHealth;
             } else {
                 this.maxHealth = DEFAULT_MAX_HEALTH;
@@ -1232,7 +1235,7 @@ public class YakPlayer {
         }
     }
 
-    // FIXED Stats application with enhanced health management
+    // Stats application with health management
     public void applyStats(Player player, boolean skipGameMode) {
         if (player == null) {
             logger.warning("Cannot apply stats to null player");
@@ -1240,7 +1243,7 @@ public class YakPlayer {
         }
 
         try {
-            // FIXED: Enhanced health application with proper sequencing
+            // Enhanced health application with proper sequencing
             applyHealthSafely(player);
 
             // Apply other stats
@@ -1295,10 +1298,9 @@ public class YakPlayer {
             validateAndFixHealthValues();
 
             // Apply max health first
-            double safeMaxHealth = Math.max(1, Math.min(2048, maxHealth));
-            player.setMaxHealth(safeMaxHealth);
+            player.setMaxHealth(maxHealth);
 
-            // Schedule health application after max health is set - CRITICAL FIX
+            // Schedule health application after max health is set
             Bukkit.getScheduler().runTaskLater(YakRealms.getInstance(), () -> {
                 if (player.isOnline()) {
                     try {
@@ -1402,31 +1404,35 @@ public class YakPlayer {
         }
     }
 
-    // Social system methods with enhanced error handling
+    // Social system methods with error handling - Using Paper's Adventure API
     public boolean addBuddy(String buddyName) {
         if (buddyName == null || buddyName.trim().isEmpty()) {
             return false;
         }
 
         if (buddies.size() >= MAX_BUDDIES) {
-            sendMessageIfOnline(TextUtil.colorize("&cYou have reached the maximum number of buddies (" + MAX_BUDDIES + ")."));
+            sendMessageIfOnline(Component.text("You have reached the maximum number of buddies (" + MAX_BUDDIES + ").")
+                    .color(NamedTextColor.RED));
             return false;
         }
 
         String normalizedName = buddyName.toLowerCase().trim();
 
         if (normalizedName.equals(username.toLowerCase())) {
-            sendMessageIfOnline(TextUtil.colorize("&cYou cannot add yourself as a buddy!"));
+            sendMessageIfOnline(Component.text("You cannot add yourself as a buddy!")
+                    .color(NamedTextColor.RED));
             return false;
         }
 
         if (blockedPlayers.contains(normalizedName)) {
-            sendMessageIfOnline(TextUtil.colorize("&cYou cannot add a blocked player as a buddy!"));
+            sendMessageIfOnline(Component.text("You cannot add a blocked player as a buddy!")
+                    .color(NamedTextColor.RED));
             return false;
         }
 
         if (buddies.add(normalizedName)) {
-            sendMessageIfOnline(TextUtil.colorize("&aSuccessfully added " + buddyName + " as a buddy!"));
+            sendMessageIfOnline(Component.text("Successfully added " + buddyName + " as a buddy!")
+                    .color(NamedTextColor.GREEN));
 
             Player player = getBukkitPlayer();
             if (player != null) {
@@ -1447,7 +1453,8 @@ public class YakPlayer {
 
         boolean removed = buddies.remove(buddyName.toLowerCase().trim());
         if (removed) {
-            sendMessageIfOnline(TextUtil.colorize("&eRemoved " + buddyName + " from your buddy list."));
+            sendMessageIfOnline(Component.text("Removed " + buddyName + " from your buddy list.")
+                    .color(NamedTextColor.YELLOW));
 
             Player player = getBukkitPlayer();
             if (player != null) {
@@ -1470,7 +1477,8 @@ public class YakPlayer {
         if (tag == null) return;
 
         unlockedChatTags.add(tag.name());
-        sendMessageIfOnline(TextUtil.colorize("&aUnlocked chat tag: " + tag.getTag()));
+        sendMessageIfOnline(Component.text("Unlocked chat tag: " + tag.getTag())
+                .color(NamedTextColor.GREEN));
     }
 
     // Display formatting methods
@@ -1607,8 +1615,11 @@ public class YakPlayer {
             Player player = getBukkitPlayer();
             if (player != null) {
                 try {
-                    player.sendMessage("§6§l*** ACHIEVEMENT UNLOCKED ***");
-                    player.sendMessage("§e" + achievement);
+                    player.sendMessage(Component.text("*** ACHIEVEMENT UNLOCKED ***")
+                            .color(NamedTextColor.GOLD)
+                            .decorate(TextDecoration.BOLD));
+                    player.sendMessage(Component.text(achievement)
+                            .color(NamedTextColor.YELLOW));
                 } catch (Exception e) {
                     logger.fine("Failed to send achievement message: " + e.getMessage());
                 }
@@ -1725,6 +1736,22 @@ public class YakPlayer {
         }
     }
 
+    // Paper 1.21.7+ Adventure API support for messages
+    private void sendMessageIfOnline(Component message) {
+        if (message == null) {
+            return;
+        }
+
+        Player player = getBukkitPlayer();
+        if (player != null && player.isOnline()) {
+            try {
+                player.sendMessage(message);
+            } catch (Exception e) {
+                logger.fine("Failed to send component message to player: " + e.getMessage());
+            }
+        }
+    }
+
     // Enhanced setters with validation
     public void setUsername(String username) {
         this.username = validateUsername(username);
@@ -1761,7 +1788,7 @@ public class YakPlayer {
         this.guildName = guildName != null ? guildName : "";
     }
 
-    // FIXED Health setters with proper validation
+    // Health setters with proper validation
     public void setHealth(double health) {
         if (Double.isNaN(health) || Double.isInfinite(health) || health < 0) {
             this.health = DEFAULT_HEALTH;
@@ -1776,7 +1803,6 @@ public class YakPlayer {
             this.maxHealth = DEFAULT_MAX_HEALTH;
             logger.warning("Invalid max health value provided for " + username + ", using default");
         } else {
-            this.maxHealth = Math.max(1, Math.min(2048, maxHealth));
             // Ensure current health doesn't exceed new max health
             if (this.health > this.maxHealth) {
                 this.health = this.maxHealth;
@@ -1949,8 +1975,8 @@ public class YakPlayer {
         COMPLETED
     }
 
-    // GUARANTEED ITEM SERIALIZER - Enhanced for absolute reliability
-    public static class GuaranteedItemSerializer {
+    // Item serializer - Enhanced for absolute reliability
+    public static class ItemSerializer {
         private static final Logger logger = YakRealms.getInstance().getLogger();
 
         public static String serializeItemStacksWithValidation(ItemStack[] items, String context) {
@@ -1962,7 +1988,7 @@ public class YakPlayer {
             try {
                 logger.fine("Starting serialization for " + context + " with " + items.length + " slots");
 
-                // Create validated copy with enhanced error handling
+                // Create validated copy with error handling
                 ItemStack[] validatedItems = new ItemStack[items.length];
                 int validItemCount = 0;
 
@@ -1986,7 +2012,7 @@ public class YakPlayer {
                     }
                 }
 
-                // Multiple serialization attempts for guaranteed success
+                // Multiple serialization attempts
                 String result = attemptSerialization(validatedItems, context);
                 if (result != null) {
                     logger.fine("Serialized " + validItemCount + " items for " + context + " (total slots: " + items.length + ")");
@@ -1998,7 +2024,7 @@ public class YakPlayer {
                 return createEmptySerializedArray(items.length);
 
             } catch (Exception e) {
-                logger.log(Level.SEVERE, "CRITICAL: Serialization completely failed for context: " + context, e);
+                logger.log(Level.SEVERE, "Serialization completely failed for context: " + context, e);
                 return createEmptySerializedArray(items != null ? items.length : 0);
             }
         }
@@ -2245,7 +2271,7 @@ public class YakPlayer {
         }
     }
 
-    // Enhanced utility classes
+    // Utility classes
     private static class PotionEffectSerializer {
         public static String serialize(PotionEffect effect) {
             if (effect == null) return null;

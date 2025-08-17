@@ -291,6 +291,21 @@ commands:
     usage: /shutdown [seconds] [reason] | /shutdown now [reason]
     aliases: [restart, stop]
     permission: yakrealms.admin.shutdown
+
+  # Debug Commands (from YakPlayerManager)
+  playerstate:
+    description: Debug player state and metrics
+    usage: /playerstate
+    permission: yakrealms.admin
+  inventorydiag:
+    description: Perform inventory diagnostic and test force save
+    usage: /inventorydiag
+    permission: yakrealms.admin
+  coordinationdiag:
+    description: Debug death and combat logout coordination metrics
+    usage: /coordinationdiag
+    permission: yakrealms.admin
+
 permissions:
   # Root Permissions
   yakrealms.*:

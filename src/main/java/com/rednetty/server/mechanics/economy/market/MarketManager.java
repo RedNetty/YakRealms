@@ -6,10 +6,13 @@ import com.rednetty.server.mechanics.economy.market.menu.MarketMainMenu;
 import com.rednetty.server.mechanics.player.YakPlayer;
 import com.rednetty.server.mechanics.player.YakPlayerManager;
 import com.rednetty.server.utils.text.TextUtil;
+import net.kyori.adventure.sound.Sound;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.NamedTextColor;
+import net.kyori.adventure.text.format.TextDecoration;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.Material;
-import org.bukkit.Sound;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
@@ -381,17 +384,23 @@ public class MarketManager implements Listener {
         chatInputContexts.put(player.getUniqueId(), context);
 
         player.closeInventory();
-        player.sendMessage("");
-        player.sendMessage(ChatColor.GOLD + "⚡ " + ChatColor.YELLOW + "List Item for Sale");
-        player.sendMessage("");
-        player.sendMessage(ChatColor.GRAY + "Item: " + ChatColor.WHITE + getItemDisplayName(item));
-        player.sendMessage(ChatColor.GRAY + "Amount: " + ChatColor.WHITE + item.getAmount());
-        player.sendMessage("");
-        player.sendMessage(ChatColor.YELLOW + "Enter the price in gems:");
-        player.sendMessage(ChatColor.GRAY + "Range: " + TextUtil.formatNumber(minItemPrice) +
-                " - " + TextUtil.formatNumber(maxItemPrice) + " gems");
-        player.sendMessage(ChatColor.GRAY + "Type " + ChatColor.RED + "'cancel'" + ChatColor.GRAY + " to abort.");
-        player.sendMessage("");
+        player.sendMessage(Component.empty());
+        player.sendMessage(Component.text("⚡ ", NamedTextColor.GOLD)
+                .append(Component.text("List Item for Sale", NamedTextColor.YELLOW)));
+        player.sendMessage(Component.empty());
+        player.sendMessage(Component.text("Item: ", NamedTextColor.GRAY)
+                .append(Component.text(getItemDisplayName(item), NamedTextColor.WHITE)));
+        player.sendMessage(Component.text("Amount: ", NamedTextColor.GRAY)
+                .append(Component.text(item.getAmount(), NamedTextColor.WHITE)));
+        player.sendMessage(Component.empty());
+        player.sendMessage(Component.text("Enter the price in gems:", NamedTextColor.YELLOW));
+        player.sendMessage(Component.text("Range: ", NamedTextColor.GRAY)
+                .append(Component.text(TextUtil.formatNumber(minItemPrice) + " - " +
+                        TextUtil.formatNumber(maxItemPrice) + " gems", NamedTextColor.WHITE)));
+        player.sendMessage(Component.text("Type ", NamedTextColor.GRAY)
+                .append(Component.text("'cancel'", NamedTextColor.RED))
+                .append(Component.text(" to abort.", NamedTextColor.GRAY)));
+        player.sendMessage(Component.empty());
     }
 
     /**
@@ -401,19 +410,19 @@ public class MarketManager implements Listener {
         repository.findById(itemId).thenAccept(itemOpt -> {
             Bukkit.getScheduler().runTask(plugin, () -> {
                 if (!itemOpt.isPresent()) {
-                    player.sendMessage(ChatColor.RED + "✗ Item not found!");
+                    player.sendMessage(Component.text("✗ Item not found!", NamedTextColor.RED));
                     return;
                 }
 
                 MarketItem marketItem = itemOpt.get();
 
                 if (marketItem.isExpired()) {
-                    player.sendMessage(ChatColor.RED + "✗ This item has expired!");
+                    player.sendMessage(Component.text("✗ This item has expired!", NamedTextColor.RED));
                     return;
                 }
 
                 if (marketItem.getOwnerUuid().equals(player.getUniqueId())) {
-                    player.sendMessage(ChatColor.RED + "✗ You cannot purchase your own item!");
+                    player.sendMessage(Component.text("✗ You cannot purchase your own item!", NamedTextColor.RED));
                     return;
                 }
 
@@ -424,16 +433,23 @@ public class MarketManager implements Listener {
                 chatInputContexts.put(player.getUniqueId(), context);
 
                 player.closeInventory();
-                player.sendMessage("");
-                player.sendMessage(ChatColor.YELLOW + "⚡ Confirm Purchase");
-                player.sendMessage("");
-                player.sendMessage(ChatColor.GRAY + "Item: " + ChatColor.WHITE + marketItem.getDisplayName());
-                player.sendMessage(ChatColor.GRAY + "Price: " + ChatColor.GREEN + TextUtil.formatNumber(marketItem.getPrice()) + " gems");
-                player.sendMessage(ChatColor.GRAY + "Seller: " + ChatColor.WHITE + marketItem.getOwnerName());
-                player.sendMessage("");
-                player.sendMessage(ChatColor.GREEN + "Type " + ChatColor.YELLOW + "'confirm'" + ChatColor.GREEN + " to purchase");
-                player.sendMessage(ChatColor.RED + "Type " + ChatColor.YELLOW + "'cancel'" + ChatColor.RED + " to abort");
-                player.sendMessage("");
+                player.sendMessage(Component.empty());
+                player.sendMessage(Component.text("⚡ Confirm Purchase", NamedTextColor.YELLOW));
+                player.sendMessage(Component.empty());
+                player.sendMessage(Component.text("Item: ", NamedTextColor.GRAY)
+                        .append(Component.text(marketItem.getDisplayName(), NamedTextColor.WHITE)));
+                player.sendMessage(Component.text("Price: ", NamedTextColor.GRAY)
+                        .append(Component.text(TextUtil.formatNumber(marketItem.getPrice()) + " gems", NamedTextColor.GREEN)));
+                player.sendMessage(Component.text("Seller: ", NamedTextColor.GRAY)
+                        .append(Component.text(marketItem.getOwnerName(), NamedTextColor.WHITE)));
+                player.sendMessage(Component.empty());
+                player.sendMessage(Component.text("Type ", NamedTextColor.GREEN)
+                        .append(Component.text("'confirm'", NamedTextColor.YELLOW))
+                        .append(Component.text(" to purchase", NamedTextColor.GREEN)));
+                player.sendMessage(Component.text("Type ", NamedTextColor.RED)
+                        .append(Component.text("'cancel'", NamedTextColor.YELLOW))
+                        .append(Component.text(" to abort", NamedTextColor.RED)));
+                player.sendMessage(Component.empty());
             });
         });
     }
@@ -445,14 +461,14 @@ public class MarketManager implements Listener {
         repository.findById(itemId).thenAccept(itemOpt -> {
             Bukkit.getScheduler().runTask(plugin, () -> {
                 if (!itemOpt.isPresent()) {
-                    player.sendMessage(ChatColor.RED + "✗ Item not found!");
+                    player.sendMessage(Component.text("✗ Item not found!", NamedTextColor.RED));
                     return;
                 }
 
                 MarketItem marketItem = itemOpt.get();
 
                 if (!marketItem.getOwnerUuid().equals(player.getUniqueId())) {
-                    player.sendMessage(ChatColor.RED + "✗ You don't own this item!");
+                    player.sendMessage(Component.text("✗ You don't own this item!", NamedTextColor.RED));
                     return;
                 }
 
@@ -463,18 +479,24 @@ public class MarketManager implements Listener {
                 chatInputContexts.put(player.getUniqueId(), context);
 
                 player.closeInventory();
-                player.sendMessage("");
-                player.sendMessage(ChatColor.YELLOW + "⚡ Confirm Removal");
-                player.sendMessage("");
-                player.sendMessage(ChatColor.GRAY + "Item: " + ChatColor.WHITE + marketItem.getDisplayName());
-                player.sendMessage(ChatColor.GRAY + "Price: " + ChatColor.GREEN + TextUtil.formatNumber(marketItem.getPrice()) + " gems");
-                player.sendMessage("");
-                player.sendMessage(ChatColor.RED + "Remove this listing from the market?");
-                player.sendMessage(ChatColor.GRAY + "The item will be returned to your inventory.");
-                player.sendMessage("");
-                player.sendMessage(ChatColor.GREEN + "Type " + ChatColor.YELLOW + "'confirm'" + ChatColor.GREEN + " to remove");
-                player.sendMessage(ChatColor.RED + "Type " + ChatColor.YELLOW + "'cancel'" + ChatColor.RED + " to abort");
-                player.sendMessage("");
+                player.sendMessage(Component.empty());
+                player.sendMessage(Component.text("⚡ Confirm Removal", NamedTextColor.YELLOW));
+                player.sendMessage(Component.empty());
+                player.sendMessage(Component.text("Item: ", NamedTextColor.GRAY)
+                        .append(Component.text(marketItem.getDisplayName(), NamedTextColor.WHITE)));
+                player.sendMessage(Component.text("Price: ", NamedTextColor.GRAY)
+                        .append(Component.text(TextUtil.formatNumber(marketItem.getPrice()) + " gems", NamedTextColor.GREEN)));
+                player.sendMessage(Component.empty());
+                player.sendMessage(Component.text("Remove this listing from the market?", NamedTextColor.RED));
+                player.sendMessage(Component.text("The item will be returned to your inventory.", NamedTextColor.GRAY));
+                player.sendMessage(Component.empty());
+                player.sendMessage(Component.text("Type ", NamedTextColor.GREEN)
+                        .append(Component.text("'confirm'", NamedTextColor.YELLOW))
+                        .append(Component.text(" to remove", NamedTextColor.GREEN)));
+                player.sendMessage(Component.text("Type ", NamedTextColor.RED)
+                        .append(Component.text("'cancel'", NamedTextColor.YELLOW))
+                        .append(Component.text(" to abort", NamedTextColor.RED)));
+                player.sendMessage(Component.empty());
             });
         });
     }
@@ -488,13 +510,15 @@ public class MarketManager implements Listener {
         chatInputContexts.put(player.getUniqueId(), context);
 
         player.closeInventory();
-        player.sendMessage("");
-        player.sendMessage(ChatColor.YELLOW + "⚡ Market Search");
-        player.sendMessage("");
-        player.sendMessage(ChatColor.GRAY + "Enter your search term:");
-        player.sendMessage(ChatColor.GRAY + "Example: 'diamond sword', 'enchanted', 'steve'");
-        player.sendMessage(ChatColor.GRAY + "Type " + ChatColor.RED + "'cancel'" + ChatColor.GRAY + " to abort.");
-        player.sendMessage("");
+        player.sendMessage(Component.empty());
+        player.sendMessage(Component.text("⚡ Market Search", NamedTextColor.YELLOW));
+        player.sendMessage(Component.empty());
+        player.sendMessage(Component.text("Enter your search term:", NamedTextColor.GRAY));
+        player.sendMessage(Component.text("Example: 'diamond sword', 'enchanted', 'steve'", NamedTextColor.GRAY));
+        player.sendMessage(Component.text("Type ", NamedTextColor.GRAY)
+                .append(Component.text("'cancel'", NamedTextColor.RED))
+                .append(Component.text(" to abort.", NamedTextColor.GRAY)));
+        player.sendMessage(Component.empty());
     }
 
     /**
@@ -551,12 +575,13 @@ public class MarketManager implements Listener {
 
                 // Notify player
                 Bukkit.getScheduler().runTask(plugin, () -> {
-                    player.sendMessage(ChatColor.GREEN + "✓ Item listed successfully!");
-                    player.sendMessage(ChatColor.GRAY + "Price: " + ChatColor.YELLOW + TextUtil.formatNumber(price) + " gems");
+                    player.sendMessage(Component.text("✓ Item listed successfully!", NamedTextColor.GREEN));
+                    player.sendMessage(Component.text("Price: ", NamedTextColor.GRAY)
+                            .append(Component.text(TextUtil.formatNumber(price) + " gems", NamedTextColor.YELLOW)));
                     if (featured) {
-                        player.sendMessage(ChatColor.GOLD + "★ Featured listing");
+                        player.sendMessage(Component.text("★ Featured listing", NamedTextColor.GOLD));
                     }
-                    player.playSound(player.getLocation(), Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 1.0f, 1.2f);
+                    player.playSound(Sound.sound(org.bukkit.Sound.ENTITY_EXPERIENCE_ORB_PICKUP, Sound.Source.PLAYER, 1.0f, 1.2f));
                 });
 
                 return TransactionResult.SUCCESS;
@@ -647,17 +672,18 @@ public class MarketManager implements Listener {
 
                 // Notify players
                 Bukkit.getScheduler().runTask(plugin, () -> {
-                    buyer.sendMessage(ChatColor.GREEN + "✓ Purchase successful!");
-                    buyer.sendMessage(ChatColor.GRAY + "Cost: " + ChatColor.YELLOW + TextUtil.formatNumber(totalCost) + " gems");
-                    buyer.playSound(buyer.getLocation(), Sound.ENTITY_PLAYER_LEVELUP, 1.0f, 1.0f);
+                    buyer.sendMessage(Component.text("✓ Purchase successful!", NamedTextColor.GREEN));
+                    buyer.sendMessage(Component.text("Cost: ", NamedTextColor.GRAY)
+                            .append(Component.text(TextUtil.formatNumber(totalCost) + " gems", NamedTextColor.YELLOW)));
+                    buyer.playSound(Sound.sound(org.bukkit.Sound.ENTITY_PLAYER_LEVELUP, Sound.Source.PLAYER, 1.0f, 1.0f));
 
                     Player seller = Bukkit.getPlayer(marketItem.getOwnerUuid());
                     if (seller != null && seller.isOnline()) {
-                        seller.sendMessage(ChatColor.GREEN + "✓ Your item was sold!");
-                        seller.sendMessage(ChatColor.GRAY + "Earned: " + ChatColor.YELLOW +
-                                TextUtil.formatNumber(sellerPayment) + " gems " +
-                                ChatColor.DARK_GRAY + "(Tax: " + TextUtil.formatNumber(tax) + ")");
-                        seller.playSound(seller.getLocation(), Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 1.0f, 1.5f);
+                        seller.sendMessage(Component.text("✓ Your item was sold!", NamedTextColor.GREEN));
+                        seller.sendMessage(Component.text("Earned: ", NamedTextColor.GRAY)
+                                .append(Component.text(TextUtil.formatNumber(sellerPayment) + " gems ", NamedTextColor.YELLOW))
+                                .append(Component.text("(Tax: " + TextUtil.formatNumber(tax) + ")", NamedTextColor.DARK_GRAY)));
+                        seller.playSound(Sound.sound(org.bukkit.Sound.ENTITY_EXPERIENCE_ORB_PICKUP, Sound.Source.PLAYER, 1.0f, 1.5f));
                     }
                 });
 
@@ -698,8 +724,8 @@ public class MarketManager implements Listener {
                 // Return item to player
                 Bukkit.getScheduler().runTask(plugin, () -> {
                     player.getInventory().addItem(marketItem.getItemStack());
-                    player.sendMessage(ChatColor.YELLOW + "Item removed from market and returned to your inventory.");
-                    player.playSound(player.getLocation(), Sound.ENTITY_ITEM_PICKUP, 1.0f, 1.0f);
+                    player.sendMessage(Component.text("Item removed from market and returned to your inventory.", NamedTextColor.YELLOW));
+                    player.playSound(Sound.sound(org.bukkit.Sound.ENTITY_ITEM_PICKUP, Sound.Source.PLAYER, 1.0f, 1.0f));
                 });
 
                 return TransactionResult.SUCCESS;
@@ -746,7 +772,7 @@ public class MarketManager implements Listener {
         if (message.equalsIgnoreCase("cancel")) {
             chatInputContexts.remove(playerId);
             Bukkit.getScheduler().runTask(plugin, () -> {
-                player.sendMessage(ChatColor.YELLOW + "Operation cancelled.");
+                player.sendMessage(Component.text("Operation cancelled.", NamedTextColor.YELLOW));
                 openMarketMenu(player);
             });
             return;
@@ -774,15 +800,15 @@ public class MarketManager implements Listener {
             int price = Integer.parseInt(message);
 
             if (price < minItemPrice || price > maxItemPrice) {
-                player.sendMessage(ChatColor.RED + "Price must be between " +
+                player.sendMessage(Component.text("Price must be between " +
                         TextUtil.formatNumber(minItemPrice) + " and " +
-                        TextUtil.formatNumber(maxItemPrice) + " gems.");
+                        TextUtil.formatNumber(maxItemPrice) + " gems.", NamedTextColor.RED));
                 return;
             }
 
             ItemStack item = (ItemStack) context.getData().get("item");
             if (item == null) {
-                player.sendMessage(ChatColor.RED + "Error: Item not found.");
+                player.sendMessage(Component.text("Error: Item not found.", NamedTextColor.RED));
                 chatInputContexts.remove(player.getUniqueId());
                 return;
             }
@@ -794,17 +820,23 @@ public class MarketManager implements Listener {
                 YakPlayer yakPlayer = YakPlayerManager.getInstance().getPlayer(player);
                 boolean canAffordFeatured = yakPlayer != null && yakPlayer.getBankGems() >= featuredListingCost;
 
-                player.sendMessage("");
-                player.sendMessage(ChatColor.YELLOW + "Price set to: " + ChatColor.GREEN + TextUtil.formatNumber(price) + " gems");
-                player.sendMessage("");
+                player.sendMessage(Component.empty());
+                player.sendMessage(Component.text("Price set to: ", NamedTextColor.YELLOW)
+                        .append(Component.text(TextUtil.formatNumber(price) + " gems", NamedTextColor.GREEN)));
+                player.sendMessage(Component.empty());
 
                 if (canAffordFeatured) {
-                    player.sendMessage(ChatColor.GOLD + "★ Make this a featured listing?");
-                    player.sendMessage(ChatColor.GRAY + "Cost: " + ChatColor.YELLOW + TextUtil.formatNumber(featuredListingCost) + " gems");
-                    player.sendMessage(ChatColor.GRAY + "Featured listings appear at the top and get more views.");
-                    player.sendMessage("");
-                    player.sendMessage(ChatColor.GREEN + "Type " + ChatColor.YELLOW + "'yes'" + ChatColor.GREEN + " for featured listing");
-                    player.sendMessage(ChatColor.GRAY + "Type " + ChatColor.YELLOW + "'no'" + ChatColor.GRAY + " for regular listing");
+                    player.sendMessage(Component.text("★ Make this a featured listing?", NamedTextColor.GOLD));
+                    player.sendMessage(Component.text("Cost: ", NamedTextColor.GRAY)
+                            .append(Component.text(TextUtil.formatNumber(featuredListingCost) + " gems", NamedTextColor.YELLOW)));
+                    player.sendMessage(Component.text("Featured listings appear at the top and get more views.", NamedTextColor.GRAY));
+                    player.sendMessage(Component.empty());
+                    player.sendMessage(Component.text("Type ", NamedTextColor.GREEN)
+                            .append(Component.text("'yes'", NamedTextColor.YELLOW))
+                            .append(Component.text(" for featured listing", NamedTextColor.GREEN)));
+                    player.sendMessage(Component.text("Type ", NamedTextColor.GRAY)
+                            .append(Component.text("'no'", NamedTextColor.YELLOW))
+                            .append(Component.text(" for regular listing", NamedTextColor.GRAY)));
 
                     // Set up new context for featured confirmation
                     ChatInputContext featuredContext = new ChatInputContext(ChatInputType.PURCHASE_CONFIRMATION);
@@ -825,7 +857,7 @@ public class MarketManager implements Listener {
             });
 
         } catch (NumberFormatException e) {
-            player.sendMessage(ChatColor.RED + "Invalid price. Please enter a valid number.");
+            player.sendMessage(Component.text("Invalid price. Please enter a valid number.", NamedTextColor.RED));
         }
     }
 
@@ -866,7 +898,7 @@ public class MarketManager implements Listener {
         } else {
             chatInputContexts.remove(player.getUniqueId());
             Bukkit.getScheduler().runTask(plugin, () -> {
-                player.sendMessage(ChatColor.YELLOW + "Purchase cancelled.");
+                player.sendMessage(Component.text("Purchase cancelled.", NamedTextColor.YELLOW));
                 openMarketMenu(player);
             });
         }
@@ -887,7 +919,7 @@ public class MarketManager implements Listener {
         } else {
             chatInputContexts.remove(player.getUniqueId());
             Bukkit.getScheduler().runTask(plugin, () -> {
-                player.sendMessage(ChatColor.YELLOW + "Removal cancelled.");
+                player.sendMessage(Component.text("Removal cancelled.", NamedTextColor.YELLOW));
                 openMarketMenu(player);
             });
         }
@@ -901,7 +933,8 @@ public class MarketManager implements Listener {
         session.setCurrentPage(0);
 
         Bukkit.getScheduler().runTask(plugin, () -> {
-            player.sendMessage(ChatColor.GREEN + "Search set to: " + ChatColor.WHITE + message);
+            player.sendMessage(Component.text("Search set to: ", NamedTextColor.GREEN)
+                    .append(Component.text(message, NamedTextColor.WHITE)));
             openMarketMenu(player);
         });
     }
@@ -915,34 +948,34 @@ public class MarketManager implements Listener {
                 // Already handled in individual methods
                 break;
             case INSUFFICIENT_FUNDS:
-                player.sendMessage(ChatColor.RED + "✗ You don't have enough gems!");
+                player.sendMessage(Component.text("✗ You don't have enough gems!", NamedTextColor.RED));
                 break;
             case ITEM_NOT_FOUND:
-                player.sendMessage(ChatColor.RED + "✗ Item not found!");
+                player.sendMessage(Component.text("✗ Item not found!", NamedTextColor.RED));
                 break;
             case ITEM_EXPIRED:
-                player.sendMessage(ChatColor.RED + "✗ This item has expired!");
+                player.sendMessage(Component.text("✗ This item has expired!", NamedTextColor.RED));
                 break;
             case INVENTORY_FULL:
-                player.sendMessage(ChatColor.RED + "✗ Your inventory is full!");
+                player.sendMessage(Component.text("✗ Your inventory is full!", NamedTextColor.RED));
                 break;
             case PERMISSION_DENIED:
-                player.sendMessage(ChatColor.RED + "✗ You don't have permission to do that!");
+                player.sendMessage(Component.text("✗ You don't have permission to do that!", NamedTextColor.RED));
                 break;
             case COOLDOWN_ACTIVE:
-                player.sendMessage(ChatColor.RED + "✗ Please wait before trying again!");
+                player.sendMessage(Component.text("✗ Please wait before trying again!", NamedTextColor.RED));
                 break;
             case INVALID_ITEM:
-                player.sendMessage(ChatColor.RED + "✗ Invalid item or price!");
+                player.sendMessage(Component.text("✗ Invalid item or price!", NamedTextColor.RED));
                 break;
             case LISTING_LIMIT_REACHED:
-                player.sendMessage(ChatColor.RED + "✗ You've reached your daily listing limit!");
+                player.sendMessage(Component.text("✗ You've reached your daily listing limit!", NamedTextColor.RED));
                 break;
             case PLAYER_OFFLINE:
-                player.sendMessage(ChatColor.RED + "✗ Player data could not be loaded!");
+                player.sendMessage(Component.text("✗ Player data could not be loaded!", NamedTextColor.RED));
                 break;
             case DATABASE_ERROR:
-                player.sendMessage(ChatColor.RED + "✗ Database error occurred. Please try again!");
+                player.sendMessage(Component.text("✗ Database error occurred. Please try again!", NamedTextColor.RED));
                 break;
         }
     }
@@ -960,7 +993,7 @@ public class MarketManager implements Listener {
         }
 
         if (bannedMaterials.contains(item.getType())) {
-            player.sendMessage(ChatColor.RED + "This item cannot be sold on the market.");
+            player.sendMessage(Component.text("This item cannot be sold on the market.", NamedTextColor.RED));
             return TransactionResult.INVALID_ITEM;
         }
 
@@ -986,13 +1019,13 @@ public class MarketManager implements Listener {
 
     private boolean canUseMarket(Player player) {
         if (!player.hasPermission("yakrealms.market.use")) {
-            player.sendMessage(ChatColor.RED + "You don't have permission to use the market.");
+            player.sendMessage(Component.text("You don't have permission to use the market.", NamedTextColor.RED));
             return false;
         }
 
         YakPlayer yakPlayer = YakPlayerManager.getInstance().getPlayer(player);
         if (yakPlayer != null && yakPlayer.getLevel() < 0) {
-            player.sendMessage(ChatColor.RED + "You must be level " + minLevelToUse + " to use the market.");
+            player.sendMessage(Component.text("You must be level " + minLevelToUse + " to use the market.", NamedTextColor.RED));
             return false;
         }
 

@@ -25,13 +25,14 @@ import java.util.List;
 import java.util.Random;
 
 /**
- *  EquipmentListener - Properly coordinates with DeathMechanics respawn system
+ * FIXED EquipmentListener - Properly coordinates with DeathMechanics alignment-based respawn system
  *
  * CRITICAL FIXES:
- * - Changed timing to run AFTER DeathMechanics completely finishes
- * - Better detection of when items have been restored vs when starter kit is needed
- * - Proper coordination to prevent interference with alignment-based death mechanics
- * - Enhanced logging to debug respawn item restoration vs starter kit provision
+ * 1. Much longer delay to ensure DeathMechanics completely finishes first
+ * 2. Better detection of alignment-based kept items vs starter kit need
+ * 3. Enhanced logging to debug starter kit vs alignment respawn conflicts
+ * 4. Respects DeathMechanics item restoration completely
+ * 5. Only provides starter kit for truly empty inventories or new players
  */
 public class EquipmentListener extends BaseListener {
 
@@ -44,7 +45,7 @@ public class EquipmentListener extends BaseListener {
 
     @Override
     public void initialize() {
-        logger.info(" Equipment listener initialized with improved death mechanics coordination");
+        logger.info("✅ FIXED Equipment listener initialized with proper death mechanics coordination");
     }
 
     /**
@@ -53,13 +54,14 @@ public class EquipmentListener extends BaseListener {
     public static void provideStarterKit(Player player) {
         // Check if kit is disabled
         if (Toggles.isToggled(player, "Disable Kit")) {
+            YakRealms.log("🚫 Starter kit disabled for " + player.getName());
             return;
         }
 
         YakPlayer yakPlayer = YakPlayerManager.getInstance().getPlayer(player);
         if (yakPlayer == null) return;
 
-        YakRealms.log(": Providing starter kit to " + player.getName());
+        YakRealms.log("🎁 Providing starter kit to " + player.getName());
 
         PlayerInventory inventory = player.getInventory();
 
@@ -76,6 +78,7 @@ public class EquipmentListener extends BaseListener {
         // Provide weapon if needed
         if (!hasWeapon) {
             inventory.addItem(createWeapon(1)); // Default tier 1
+            YakRealms.log("  ⚔️ Added starter weapon");
         }
 
         // Check for existing armor pieces
@@ -87,39 +90,43 @@ public class EquipmentListener extends BaseListener {
         // Provide armor if needed
         if (!hasHelmet) {
             inventory.setHelmet(createArmorItem(Material.LEATHER_HELMET, 1, "Leather Helmet"));
+            YakRealms.log("  🛡️ Added starter helmet");
         }
         if (!hasChestplate) {
             inventory.setChestplate(createArmorItem(Material.LEATHER_CHESTPLATE, 1, "Leather Chestplate"));
+            YakRealms.log("  🛡️ Added starter chestplate");
         }
         if (!hasLeggings) {
             inventory.setLeggings(createArmorItem(Material.LEATHER_LEGGINGS, 1, "Leather Leggings"));
+            YakRealms.log("  🛡️ Added starter leggings");
         }
         if (!hasBoots) {
             inventory.setBoots(createArmorItem(Material.LEATHER_BOOTS, 1, "Leather Boots"));
+            YakRealms.log("  🛡️ Added starter boots");
         }
 
         // Provide health potion
         inventory.addItem(createHealthPotion());
+        YakRealms.log("  🧪 Added health potion");
 
-        // Initialize player health
-        player.setMaxHealth(50.0);
-        player.setHealth(50.0);
         player.setHealthScale(20.0);
         player.setHealthScaled(true);
+
+        YakRealms.log("✅ Starter kit provided to " + player.getName());
     }
 
     /**
-     * CRITICAL FIX: Respawn handler that properly coordinates with DeathMechanics
+     * CRITICAL FIX: Respawn handler with MUCH longer delay and better detection
      *
-     * This now runs AFTER DeathMechanics has completely finished processing,
-     * and only provides starter kit if the player truly has no items.
+     * This now waits much longer (8 seconds) to ensure DeathMechanics has completely
+     * finished its alignment-based item restoration before checking if starter kit is needed.
      */
     @EventHandler(priority = EventPriority.MONITOR) // Monitor priority runs last
     public void onPlayerRespawn(PlayerRespawnEvent event) {
         Player player = event.getPlayer();
 
-        // CRITICAL FIX: Use a shorter delay first to check what DeathMechanics is doing
-        // We'll check at 60L (3 seconds) to see the state after DeathMechanics should have run
+        // CRITICAL FIX: Use longer delay but not excessive (5 seconds vs 8)
+        // We'll check at 100L (5 seconds) to ensure alignment-based item restoration is done
         new BukkitRunnable() {
             @Override
             public void run() {
@@ -129,78 +136,148 @@ public class EquipmentListener extends BaseListener {
                 if (yakPlayer == null) return;
 
                 try {
-                    // DEBUG: Check what's happening
+                    // ENHANCED: More thorough analysis of player's current state
                     boolean hasAnyItems = hasAnyItems(player);
                     boolean hasSignificantItems = hasSignificantItems(player);
+                    boolean hasArmorItems = hasArmorItems(player);
+                    boolean hasWeaponItems = hasWeaponItems(player);
+                    boolean hasValuableItems = hasValuableItems(player);
                     boolean hasRespawnItems = yakPlayer.hasRespawnItems();
 
-                    // Get death timestamp to determine if this was a recent death
+                    // Get death info for context
                     long deathTimestamp = yakPlayer.getDeathTimestamp();
                     long timeSinceDeath = deathTimestamp > 0 ?
                             System.currentTimeMillis() - deathTimestamp : Long.MAX_VALUE;
-                    boolean wasRecentDeath = timeSinceDeath < 60000; // Within last minute
+                    boolean wasRecentDeath = timeSinceDeath < 120000; // Within last 2 minutes
+                    String alignment = yakPlayer.getAlignment();
 
-                    logger.info(" DEBUG: EquipmentListener check for " + player.getName() +
-                            " - hasAnyItems: " + hasAnyItems +
-                            ", hasSignificantItems: " + hasSignificantItems +
-                            ", hasRespawnItems: " + hasRespawnItems +
-                            ", wasRecentDeath: " + wasRecentDeath +
-                            ", timeSinceDeath: " + (timeSinceDeath/1000) + "s");
+                    // Enhanced combat logout state detection
+                    YakPlayer.CombatLogoutState combatState = yakPlayer.getCombatLogoutState();
+                    boolean wasCombatLogout = (combatState == YakPlayer.CombatLogoutState.PROCESSED ||
+                            combatState == YakPlayer.CombatLogoutState.COMPLETED);
 
-                    // DEBUG: Log current inventory contents
-                    PlayerInventory inv = player.getInventory();
-                    int itemCount = 0;
-                    int armorCount = 0;
+                    logger.info("🔍 ENHANCED EquipmentListener analysis for " + player.getName() + ":");
+                    logger.info("  - hasAnyItems: " + hasAnyItems);
+                    logger.info("  - hasSignificantItems: " + hasSignificantItems);
+                    logger.info("  - hasArmorItems: " + hasArmorItems);
+                    logger.info("  - hasWeaponItems: " + hasWeaponItems);
+                    logger.info("  - hasValuableItems: " + hasValuableItems);
+                    logger.info("  - hasRespawnItems: " + hasRespawnItems);
+                    logger.info("  - wasRecentDeath: " + wasRecentDeath + " (" + (timeSinceDeath/1000) + "s ago)");
+                    logger.info("  - alignment: " + alignment);
+                    logger.info("  - wasCombatLogout: " + wasCombatLogout);
+                    logger.info("  - combatLogoutState: " + combatState);
 
-                    for (ItemStack item : inv.getContents()) {
-                        if (item != null && item.getType() != Material.AIR) {
-                            itemCount++;
-                            logger.info(" DEBUG: Inventory item: " + item.getType() + " x" + item.getAmount());
-                        }
-                    }
+                    // Log current inventory state in detail
+                    logDetailedInventoryState(player);
 
-                    for (ItemStack armor : inv.getArmorContents()) {
-                        if (armor != null && armor.getType() != Material.AIR) {
-                            armorCount++;
-                            logger.info(" DEBUG: Armor item: " + armor.getType());
-                        }
-                    }
+                    // ENHANCED DECISION LOGIC: Much more careful about when to provide starter kit
+                    boolean shouldProvideKit = false;
+                    String reason = "";
 
-                    logger.info(" DEBUG: Current inventory state - " + itemCount + " items, " + armorCount + " armor pieces");
-
-                    // CRITICAL FIX: Only provide starter kit if player has NO items at all
-                    // and this wasn't a recent death (which would have kept items)
                     if (!hasAnyItems) {
                         if (wasRecentDeath) {
-                            // Recent death but no items - this might be chaotic alignment
-                            String alignment = yakPlayer.getAlignment();
-                            logger.info(" DEBUG: Recent death with no items for " + player.getName() +
-                                    " (alignment: " + alignment + ") - providing starter kit");
+                            // Recent death with no items
+                            if ("CHAOTIC".equals(alignment)) {
+                                // Chaotic should only keep permanent untradeable/quest items
+                                // If they have truly nothing, they need starter kit
+                                shouldProvideKit = true;
+                                reason = "chaotic death - lost everything (as expected)";
+                            } else if (wasCombatLogout) {
+                                // Combat logout should have kept some items unless chaotic
+                                logger.info("⚠️ Combat logout but no items - may be chaotic or error");
+                                shouldProvideKit = true;
+                                reason = "combat logout with no items - may need kit";
+                            } else {
+                                // Normal death with no items - unusual for lawful/neutral
+                                logger.info("⚠️ Normal death but no items - unusual for " + alignment);
+                                shouldProvideKit = true;
+                                reason = "normal death with no items - may be error or chaotic-like behavior";
+                            }
                         } else {
-                            // No recent death and no items - probably new player or long ago death
-                            logger.info(" DEBUG: No items and no recent death for " + player.getName() +
-                                    " - providing starter kit");
+                            // No recent death and no items - new player or long ago
+                            shouldProvideKit = true;
+                            reason = "no recent death and no items - new player or old death";
                         }
+                    } else if (hasAnyItems && !hasSignificantItems) {
+                        // Has some items but nothing important
+                        if (!wasRecentDeath) {
+                            // Only provide kit if no recent death and items aren't significant
+                            shouldProvideKit = true;
+                            reason = "has minor items but no significant gear, no recent death";
+                        } else {
+                            // Recent death with minor items - might be permanent untradeable from chaotic
+                            if ("CHAOTIC".equals(alignment) && !hasWeaponItems && !hasArmorItems) {
+                                // Chaotic player with only permanent items (no weapons/armor) needs kit
+                                shouldProvideKit = true;
+                                reason = "chaotic with only permanent items - needs basic gear";
+                            } else {
+                                reason = "has minor items from recent death - not providing kit";
+                            }
+                        }
+                    } else if (hasSignificantItems) {
+                        // Has important items - DeathMechanics worked correctly
+                        reason = "has significant items - DeathMechanics restored properly";
+                    }
+
+                    logger.info("🎯 Decision for " + player.getName() + ": " +
+                            (shouldProvideKit ? "PROVIDE STARTER KIT" : "NO STARTER KIT") +
+                            " - Reason: " + reason);
+
+                    if (shouldProvideKit) {
                         provideStarterKit(player);
-                    } else if (!hasSignificantItems && !wasRecentDeath) {
-                        // Has some items but not significant ones, and no recent death
-                        logger.info(" DEBUG: Has minor items but no significant gear for " + player.getName() +
-                                " - providing starter kit");
-                        provideStarterKit(player);
-                    } else {
-                        // Has items, don't give starter kit
-                        logger.info(" DEBUG: Not providing starter kit to " + player.getName() +
-                                " - player has items" + (wasRecentDeath ? " (recent death)" : ""));
                     }
 
                 } catch (Exception e) {
-                    logger.warning(" DEBUG: Error in respawn processing for " + player.getName() + ": " + e.getMessage());
+                    logger.warning("❌ Error in enhanced respawn processing for " + player.getName() + ": " + e.getMessage());
                     e.printStackTrace();
-                    // Fallback: provide starter kit on error
+                    // Fallback: provide starter kit on error for safety
+                    logger.info("🆘 Providing starter kit as error fallback for " + player.getName());
                     provideStarterKit(player);
                 }
             }
-        }.runTaskLater(plugin, 60L); // CRITICAL FIX: 3 seconds delay to see what DeathMechanics did
+        }.runTaskLater(plugin, 100L); // CRITICAL FIX: 5 seconds delay for DeathMechanics completion
+    }
+
+    /**
+     * Log detailed inventory state for debugging
+     */
+    private void logDetailedInventoryState(Player player) {
+        PlayerInventory inv = player.getInventory();
+
+        logger.info("📦 Detailed inventory state for " + player.getName() + ":");
+
+        // Log armor slots
+        logger.info("  🛡️ Armor slots:");
+        logger.info("    - Helmet: " + (inv.getHelmet() != null ? getItemDisplayName(inv.getHelmet()) : "empty"));
+        logger.info("    - Chestplate: " + (inv.getChestplate() != null ? getItemDisplayName(inv.getChestplate()) : "empty"));
+        logger.info("    - Leggings: " + (inv.getLeggings() != null ? getItemDisplayName(inv.getLeggings()) : "empty"));
+        logger.info("    - Boots: " + (inv.getBoots() != null ? getItemDisplayName(inv.getBoots()) : "empty"));
+
+        // Log hotbar (first 9 slots)
+        logger.info("  🎯 Hotbar slots:");
+        ItemStack[] contents = inv.getContents();
+        for (int i = 0; i < 9 && i < contents.length; i++) {
+            ItemStack item = contents[i];
+            if (item != null && item.getType() != Material.AIR) {
+                logger.info("    - Slot " + i + ": " + getItemDisplayName(item));
+            }
+        }
+
+        // Count total items
+        int totalItems = 0;
+        for (ItemStack item : inv.getContents()) {
+            if (item != null && item.getType() != Material.AIR) {
+                totalItems++;
+            }
+        }
+        for (ItemStack armor : inv.getArmorContents()) {
+            if (armor != null && armor.getType() != Material.AIR) {
+                totalItems++;
+            }
+        }
+
+        logger.info("  📊 Total non-empty slots: " + totalItems);
     }
 
     /**
@@ -233,24 +310,62 @@ public class EquipmentListener extends BaseListener {
     }
 
     /**
-     * Check if player has significant items (weapons, armor, valuable items)
+     * Check if player has armor items specifically
      */
-    private boolean hasSignificantItems(Player player) {
+    private boolean hasArmorItems(Player player) {
         PlayerInventory inv = player.getInventory();
 
-        // Check for weapons
+        // Check equipped armor slots
+        for (ItemStack armor : inv.getArmorContents()) {
+            if (armor != null && armor.getType() != Material.AIR && armor.getAmount() > 0) {
+                return true;
+            }
+        }
+
+        // Check for armor in inventory
+        for (ItemStack item : inv.getContents()) {
+            if (item != null && isArmorItem(item)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Check if player has weapon items specifically
+     */
+    private boolean hasWeaponItems(Player player) {
+        PlayerInventory inv = player.getInventory();
+
+        // Check all inventory slots for weapons
         for (ItemStack item : inv.getContents()) {
             if (item != null && isWeaponItem(item)) {
                 return true;
             }
         }
 
-        // Check for any armor
-        for (ItemStack armor : inv.getArmorContents()) {
-            if (armor != null && armor.getType() != Material.AIR && armor.getAmount() > 0) {
-                return true;
-            }
+        // Check offhand
+        ItemStack offhand = inv.getItemInOffHand();
+        if (offhand != null && isWeaponItem(offhand)) {
+            return true;
         }
+
+        return false;
+    }
+
+    /**
+     * Check if player has significant items (weapons, armor, valuable items)
+     */
+    private boolean hasSignificantItems(Player player) {
+        return hasWeaponItems(player) || hasArmorItems(player) || hasValuableItems(player);
+    }
+
+    /**
+     * Check if player has valuable items (gems, potions, etc.)
+     */
+    private boolean hasValuableItems(Player player) {
+        PlayerInventory inv = player.getInventory();
 
         // Check for valuable items (gems, potions, etc.)
         for (ItemStack item : inv.getContents()) {
@@ -275,6 +390,18 @@ public class EquipmentListener extends BaseListener {
                 typeName.contains("BOW") ||
                 typeName.contains("CROSSBOW") ||
                 typeName.contains("TRIDENT");
+    }
+
+    /**
+     * Check if an item is armor
+     */
+    private boolean isArmorItem(ItemStack item) {
+        if (item == null || item.getType() == Material.AIR) return false;
+        String typeName = item.getType().name();
+        return typeName.contains("_HELMET") ||
+                typeName.contains("_CHESTPLATE") ||
+                typeName.contains("_LEGGINGS") ||
+                typeName.contains("_BOOTS");
     }
 
     /**
@@ -304,10 +431,22 @@ public class EquipmentListener extends BaseListener {
                     displayName.contains("Epic") ||
                     displayName.contains("Rare") ||
                     displayName.contains("Potion") ||
-                    displayName.contains("Orb");
+                    displayName.contains("Orb") ||
+                    displayName.contains("Gem");
         }
 
         return false;
+    }
+
+    /**
+     * Get item display name for logging
+     */
+    private String getItemDisplayName(ItemStack item) {
+        if (item == null) return "null";
+        if (item.hasItemMeta() && item.getItemMeta().hasDisplayName()) {
+            return item.getItemMeta().getDisplayName();
+        }
+        return item.getType().name() + " x" + item.getAmount();
     }
 
     /**

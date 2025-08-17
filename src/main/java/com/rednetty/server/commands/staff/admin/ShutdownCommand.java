@@ -8,9 +8,13 @@ import com.rednetty.server.mechanics.player.moderation.Rank;
 import com.rednetty.server.mechanics.player.YakPlayer;
 import com.rednetty.server.mechanics.player.YakPlayerManager;
 import com.rednetty.server.utils.text.TextUtil;
+import net.kyori.adventure.key.Key;
+import net.kyori.adventure.sound.Sound;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.NamedTextColor;
+import net.kyori.adventure.text.format.TextDecoration;
+import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 import org.bukkit.Bukkit;
-import org.bukkit.ChatColor;
-import org.bukkit.Sound;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
@@ -27,6 +31,7 @@ import java.util.logging.Level;
 
 /**
  * Shutdown command for safely restarting the server with proper player data saving
+ * Modernized to use Adventure API and Paper 1.21.7 capabilities
  */
 public class ShutdownCommand implements CommandExecutor, TabCompleter {
 
@@ -37,6 +42,12 @@ public class ShutdownCommand implements CommandExecutor, TabCompleter {
     private final YakPlayerManager playerManager;
     private boolean shutdownInProgress = false;
 
+    // Adventure API Sound constants
+    private static final Sound SOUND_ANVIL_LAND = Sound.sound(Key.key("minecraft:block.anvil.land"), Sound.Source.PLAYER, 0.8f, 1.2f);
+    private static final Sound SOUND_NOTE_PLING = Sound.sound(Key.key("minecraft:block.note_block.pling"), Sound.Source.PLAYER, 1.0f, 2.0f);
+    private static final Sound SOUND_NOTE_BASS = Sound.sound(Key.key("minecraft:block.note_block.bass"), Sound.Source.PLAYER, 0.8f, 0.8f);
+    private static final Sound SOUND_ENDER_DRAGON_DEATH = Sound.sound(Key.key("minecraft:entity.ender_dragon.death"), Sound.Source.PLAYER, 0.5f, 1.5f);
+
     public ShutdownCommand() {
         this.playerManager = YakPlayerManager.getInstance();
     }
@@ -45,13 +56,13 @@ public class ShutdownCommand implements CommandExecutor, TabCompleter {
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         // Check permissions
         if (!hasPermission(sender)) {
-            sender.sendMessage(ChatColor.RED + "You don't have permission to use this command.");
+            sender.sendMessage(Component.text("You don't have permission to use this command.", NamedTextColor.RED));
             return true;
         }
 
         // Check if shutdown is already in progress
         if (shutdownInProgress) {
-            sender.sendMessage(ChatColor.YELLOW + "Server shutdown is already in progress!");
+            sender.sendMessage(Component.text("Server shutdown is already in progress!", NamedTextColor.YELLOW));
             return true;
         }
 
@@ -70,11 +81,11 @@ public class ShutdownCommand implements CommandExecutor, TabCompleter {
                 try {
                     countdownSeconds = Integer.parseInt(args[0]);
                     if (countdownSeconds < MIN_COUNTDOWN_SECONDS) {
-                        sender.sendMessage(ChatColor.RED + "Minimum countdown time is " + MIN_COUNTDOWN_SECONDS + " seconds.");
+                        sender.sendMessage(Component.text("Minimum countdown time is " + MIN_COUNTDOWN_SECONDS + " seconds.", NamedTextColor.RED));
                         return true;
                     }
                     if (countdownSeconds > MAX_COUNTDOWN_SECONDS) {
-                        sender.sendMessage(ChatColor.RED + "Maximum countdown time is " + MAX_COUNTDOWN_SECONDS + " seconds.");
+                        sender.sendMessage(Component.text("Maximum countdown time is " + MAX_COUNTDOWN_SECONDS + " seconds.", NamedTextColor.RED));
                         return true;
                     }
 
@@ -197,61 +208,83 @@ public class ShutdownCommand implements CommandExecutor, TabCompleter {
     }
 
     /**
-     * Broadcast shutdown warning to all players
+     * Broadcast shutdown warning to all players using Adventure API
      */
     private void broadcastShutdownWarning(int timeLeft, String reason, boolean initial) {
         String timeString = formatTime(timeLeft);
 
         if (initial) {
             // Initial announcement with more detail
-            Bukkit.broadcastMessage("");
-            TextUtil.broadcastCenteredMessage(ChatColor.RED + "" + ChatColor.BOLD + "⚠ SERVER RESTART SCHEDULED ⚠");
-            TextUtil.broadcastCenteredMessage(ChatColor.YELLOW + "Server will restart in " + ChatColor.BOLD + timeString);
-            TextUtil.broadcastCenteredMessage(ChatColor.GRAY + "Reason: " + ChatColor.WHITE + reason);
-            TextUtil.broadcastCenteredMessage(ChatColor.GRAY + "Please finish what you're doing and find a safe location!");
-            Bukkit.broadcastMessage("");
+            Bukkit.broadcast(Component.empty());
 
-            // Play alert sound
+            Component title = Component.text("âš  SERVER RESTART SCHEDULED âš ", NamedTextColor.RED, TextDecoration.BOLD);
+            Component timeMessage = Component.text("Server will restart in ", NamedTextColor.YELLOW)
+                    .append(Component.text(timeString, NamedTextColor.YELLOW, TextDecoration.BOLD));
+            Component reasonMessage = Component.text("Reason: ", NamedTextColor.GRAY)
+                    .append(Component.text(reason, NamedTextColor.WHITE));
+            Component warningMessage = Component.text("Please finish what you're doing and find a safe location!", NamedTextColor.GRAY);
+
+            // Use legacy serializer for TextUtil compatibility
+            TextUtil.broadcastCenteredMessage(LegacyComponentSerializer.legacySection().serialize(title));
+            TextUtil.broadcastCenteredMessage(LegacyComponentSerializer.legacySection().serialize(timeMessage));
+            TextUtil.broadcastCenteredMessage(LegacyComponentSerializer.legacySection().serialize(reasonMessage));
+            TextUtil.broadcastCenteredMessage(LegacyComponentSerializer.legacySection().serialize(warningMessage));
+
+            Bukkit.broadcast(Component.empty());
+
+            // Play alert sound using Adventure API
             for (Player player : Bukkit.getOnlinePlayers()) {
-                player.playSound(player.getLocation(), Sound.BLOCK_ANVIL_LAND, 0.8f, 1.2f);
+                player.playSound(SOUND_ANVIL_LAND);
             }
         } else {
             // Regular countdown warnings
-            String message = ChatColor.RED + "⚠ " + ChatColor.YELLOW + "Server restart in " +
-                    ChatColor.BOLD + timeString + ChatColor.YELLOW + "!";
+            Component warningIcon = Component.text("âš  ", NamedTextColor.RED);
+            Component restartMessage = Component.text("Server restart in ", NamedTextColor.YELLOW);
+            Component timeComponent = Component.text(timeString, NamedTextColor.YELLOW, TextDecoration.BOLD);
+            Component exclamation = Component.text("!", NamedTextColor.YELLOW);
+
+            Component fullMessage = warningIcon.append(restartMessage).append(timeComponent).append(exclamation);
 
             if (timeLeft <= 10) {
                 // More urgent for final 10 seconds
-                TextUtil.broadcastCenteredMessage(ChatColor.RED + "" + ChatColor.BOLD + message);
+                Component urgentMessage = Component.text(LegacyComponentSerializer.legacySection().serialize(fullMessage),
+                        NamedTextColor.RED, TextDecoration.BOLD);
+                TextUtil.broadcastCenteredMessage(LegacyComponentSerializer.legacySection().serialize(urgentMessage));
 
                 // Play urgent sound
                 for (Player player : Bukkit.getOnlinePlayers()) {
-                    player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_PLING, 1.0f, 2.0f);
+                    player.playSound(SOUND_NOTE_PLING);
                 }
             } else {
-                Bukkit.broadcastMessage(message);
+                Bukkit.broadcast(fullMessage);
 
                 // Play warning sound
                 for (Player player : Bukkit.getOnlinePlayers()) {
-                    player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_BASS, 0.8f, 0.8f);
+                    player.playSound(SOUND_NOTE_BASS);
                 }
             }
         }
     }
 
     /**
-     * Broadcast final shutdown message
+     * Broadcast final shutdown message using Adventure API
      */
     private void broadcastFinalShutdownMessage(String reason) {
-        Bukkit.broadcastMessage("");
-        TextUtil.broadcastCenteredMessage(ChatColor.RED + "" + ChatColor.BOLD + "⚠ SERVER SHUTTING DOWN NOW ⚠");
-        TextUtil.broadcastCenteredMessage(ChatColor.YELLOW + "Saving all player data...");
-        TextUtil.broadcastCenteredMessage(ChatColor.GRAY + "You will be reconnected automatically in a moment.");
-        Bukkit.broadcastMessage("");
+        Bukkit.broadcast(Component.empty());
 
-        // Play final shutdown sound
+        Component title = Component.text("âš  SERVER SHUTTING DOWN NOW âš ", NamedTextColor.RED, TextDecoration.BOLD);
+        Component savingMessage = Component.text("Saving all player data...", NamedTextColor.YELLOW);
+        Component reconnectMessage = Component.text("You will be reconnected automatically in a moment.", NamedTextColor.GRAY);
+
+        TextUtil.broadcastCenteredMessage(LegacyComponentSerializer.legacySection().serialize(title));
+        TextUtil.broadcastCenteredMessage(LegacyComponentSerializer.legacySection().serialize(savingMessage));
+        TextUtil.broadcastCenteredMessage(LegacyComponentSerializer.legacySection().serialize(reconnectMessage));
+
+        Bukkit.broadcast(Component.empty());
+
+        // Play final shutdown sound using Adventure API
         for (Player player : Bukkit.getOnlinePlayers()) {
-            player.playSound(player.getLocation(), Sound.ENTITY_ENDER_DRAGON_DEATH, 0.5f, 1.5f);
+            player.playSound(SOUND_ENDER_DRAGON_DEATH);
         }
     }
 
@@ -301,17 +334,17 @@ public class ShutdownCommand implements CommandExecutor, TabCompleter {
     }
 
     /**
-     * Kick all players with shutdown message
+     * Kick all players with shutdown message using Adventure API
      */
     private void kickAllPlayers(String reason) {
         YakRealms.log("Kicking all players for shutdown...");
 
-        String kickMessage = formatKickMessage(reason);
+        Component kickMessage = formatKickMessage(reason);
 
         for (Player player : Bukkit.getOnlinePlayers()) {
             try {
                 CombatLogoutMechanics.getInstance().clearCombatTag(player);
-                player.kickPlayer(kickMessage);
+                player.kick(kickMessage);
             } catch (Exception e) {
                 YakRealms.getInstance().getLogger().log(Level.WARNING,
                         "Error kicking player " + player.getName() + " during shutdown", e);
@@ -387,16 +420,26 @@ public class ShutdownCommand implements CommandExecutor, TabCompleter {
     }
 
     /**
-     * Format kick message for players
+     * Format kick message for players using Adventure API Components
      */
-    private String formatKickMessage(String reason) {
-        return ChatColor.RED + "" + ChatColor.BOLD + "⚠ SERVER RESTART ⚠\n\n" +
-                ChatColor.YELLOW + "The server is restarting for maintenance.\n" +
-                ChatColor.GRAY + "Reason: " + ChatColor.WHITE + reason + "\n\n" +
-                ChatColor.GREEN + "Your character data has been saved safely!\n" +
-                ChatColor.AQUA + "Please reconnect in a moment.\n\n" +
-                ChatColor.GRAY + "Visit " + ChatColor.BLUE + "discord.gg/yakrealms" +
-                ChatColor.GRAY + " for updates.";
+    private Component formatKickMessage(String reason) {
+        return Component.text("âš  SERVER RESTART âš ", NamedTextColor.RED, TextDecoration.BOLD)
+                .appendNewline()
+                .appendNewline()
+                .append(Component.text("The server is restarting for maintenance.", NamedTextColor.YELLOW))
+                .appendNewline()
+                .append(Component.text("Reason: ", NamedTextColor.GRAY))
+                .append(Component.text(reason, NamedTextColor.WHITE))
+                .appendNewline()
+                .appendNewline()
+                .append(Component.text("Your character data has been saved safely!", NamedTextColor.GREEN))
+                .appendNewline()
+                .append(Component.text("Please reconnect in a moment.", NamedTextColor.AQUA))
+                .appendNewline()
+                .appendNewline()
+                .append(Component.text("Visit ", NamedTextColor.GRAY))
+                .append(Component.text("discord.gg/yakrealms", NamedTextColor.BLUE))
+                .append(Component.text(" for updates.", NamedTextColor.GRAY));
     }
 
     /**

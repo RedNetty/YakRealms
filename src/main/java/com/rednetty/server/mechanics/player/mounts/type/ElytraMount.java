@@ -1,6 +1,10 @@
 package com.rednetty.server.mechanics.player.mounts.type;
 
 import com.rednetty.server.mechanics.player.mounts.MountManager;
+import net.kyori.adventure.sound.Sound;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.NamedTextColor;
+import net.kyori.adventure.text.format.TextDecoration;
 import org.bukkit.*;
 import org.bukkit.block.Block;
 import org.bukkit.enchantments.Enchantment;
@@ -46,8 +50,8 @@ public class ElytraMount implements Mount {
     private static class ChestplateState {
         private final ItemStack originalItem;
         private final Map<Enchantment, Integer> enchantments;
-        private final String displayName;
-        private final List<String> lore;
+        private final Component displayName;
+        private final List<Component> lore;
         private final boolean unbreakable;
         private final int durability;
         private final Set<ItemFlag> itemFlags;
@@ -60,8 +64,8 @@ public class ElytraMount implements Mount {
 
                 ItemMeta meta = chestplate.getItemMeta();
                 if (meta != null) {
-                    this.displayName = meta.hasDisplayName() ? meta.getDisplayName() : null;
-                    this.lore = meta.hasLore() ? new ArrayList<>(meta.getLore()) : null;
+                    this.displayName = meta.displayName();
+                    this.lore = meta.lore() != null ? new ArrayList<>(meta.lore()) : null;
                     this.unbreakable = meta.isUnbreakable();
                     this.itemFlags = new HashSet<>(meta.getItemFlags());
                 } else {
@@ -89,11 +93,11 @@ public class ElytraMount implements Mount {
             return new HashMap<>(enchantments);
         }
 
-        public String getDisplayName() {
+        public Component getDisplayName() {
             return displayName;
         }
 
-        public List<String> getLore() {
+        public List<Component> getLore() {
             return lore != null ? new ArrayList<>(lore) : null;
         }
 
@@ -132,15 +136,15 @@ public class ElytraMount implements Mount {
     public boolean summonMount(Player player) {
         // Check if already summoning
         if (isSummoning(player)) {
-            player.sendMessage(ChatColor.RED + "You are already summoning a mount.");
+            player.sendMessage(Component.text("You are already summoning a mount.", NamedTextColor.RED));
             return false;
         }
 
         // Check damage cooldown
         if (isOnDamageCooldown(player)) {
             long timeLeft = getRemainingCooldownTime(player);
-            player.sendMessage(ChatColor.RED + "You cannot summon an elytra mount for " +
-                    (timeLeft / 1000) + " more seconds after taking damage.");
+            player.sendMessage(Component.text("You cannot summon an elytra mount for " +
+                    (timeLeft / 1000) + " more seconds after taking damage.", NamedTextColor.RED));
             return false;
         }
 
@@ -154,8 +158,8 @@ public class ElytraMount implements Mount {
 
         summonLocations.put(player.getUniqueId(), player.getLocation());
 
-        player.sendMessage(ChatColor.WHITE + ChatColor.BOLD.toString() +
-                "SUMMONING ELYTRA MOUNT.... " + summonTime + "s");
+        player.sendMessage(Component.text("SUMMONING ELYTRA MOUNT.... " + summonTime + "s",
+                NamedTextColor.WHITE, TextDecoration.BOLD));
 
         BukkitTask task = new BukkitRunnable() {
             int countdown = summonTime;
@@ -174,8 +178,8 @@ public class ElytraMount implements Mount {
                     cancel();
                     cleanupPlayerData(player.getUniqueId());
                     long timeLeft = getRemainingCooldownTime(player);
-                    player.sendMessage(ChatColor.RED + "ELYTRA MOUNT SUMMONING CANCELLED - Damage cooldown: " +
-                            (timeLeft / 1000) + "s remaining");
+                    player.sendMessage(Component.text("ELYTRA MOUNT SUMMONING CANCELLED - Damage cooldown: " +
+                            (timeLeft / 1000) + "s remaining", NamedTextColor.RED));
                     return;
                 }
 
@@ -192,8 +196,8 @@ public class ElytraMount implements Mount {
                     cancel();
                 } else {
                     // Update message
-                    player.sendMessage(ChatColor.WHITE + ChatColor.BOLD.toString() +
-                            "SUMMONING ELYTRA MOUNT.... " + countdown + "s");
+                    player.sendMessage(Component.text("SUMMONING ELYTRA MOUNT.... " + countdown + "s",
+                            NamedTextColor.WHITE, TextDecoration.BOLD));
                 }
             }
         }.runTaskTimer(manager.getPlugin(), 20L, 20L);
@@ -241,7 +245,8 @@ public class ElytraMount implements Mount {
         manager.unregisterActiveMount(playerUUID);
 
         if (sendMessage && wasUsingElytra) {
-            player.sendMessage(ChatColor.RED + "Your elytra wings have worn out and can no longer sustain flight.");
+            player.sendMessage(Component.text("Your elytra wings have worn out and can no longer sustain flight.",
+                    NamedTextColor.RED));
         }
 
         return true;
@@ -263,8 +268,11 @@ public class ElytraMount implements Mount {
 
         summonLocations.remove(playerUUID);
 
-        player.sendMessage(ChatColor.RED + "ELYTRA MOUNT SUMMONING CANCELLED" +
-                (reason != null ? " - " + reason : ""));
+        Component message = Component.text("ELYTRA MOUNT SUMMONING CANCELLED", NamedTextColor.RED);
+        if (reason != null) {
+            message = message.append(Component.text(" - " + reason, NamedTextColor.RED));
+        }
+        player.sendMessage(message);
     }
 
     /**
@@ -322,13 +330,15 @@ public class ElytraMount implements Mount {
             player.getInventory().setArmorContents(armorContents);
 
             if (chestplateState.hasOriginalItem()) {
-                player.sendMessage(ChatColor.GREEN + "Your original chestplate has been restored.");
+                player.sendMessage(Component.text("Your original chestplate has been restored.",
+                        NamedTextColor.GREEN));
             }
         } else if (currentChestplate != null && isAnyElytraMount(currentChestplate)) {
             // ENHANCED: Failsafe - if no stored state but current is elytra mount, remove it
             armorContents[2] = null;
             player.getInventory().setArmorContents(armorContents);
-            player.sendMessage(ChatColor.YELLOW + "Stuck elytra mount has been removed.");
+            player.sendMessage(Component.text("Stuck elytra mount has been removed.",
+                    NamedTextColor.YELLOW));
         }
     }
 
@@ -356,17 +366,21 @@ public class ElytraMount implements Mount {
         }
 
         // Check for legacy display name patterns
-        if (meta.hasDisplayName()) {
-            String displayName = meta.getDisplayName();
-            return displayName.contains("Elytra Mount") || displayName.contains("Elytra");
+        Component displayName = meta.displayName();
+        if (displayName != null) {
+            String displayNameString = displayName.toString();
+            if (displayNameString.contains("Elytra Mount") || displayNameString.contains("Elytra")) {
+                return true;
+            }
         }
 
         // Check for characteristic lore
-        if (meta.hasLore()) {
-            List<String> lore = meta.getLore();
-            for (String line : lore) {
-                if (line.contains("Active Mount") || line.contains("Do Not Remove") ||
-                        line.contains("Magical wings")) {
+        List<Component> lore = meta.lore();
+        if (lore != null) {
+            for (Component line : lore) {
+                String lineString = line.toString();
+                if (lineString.contains("Active Mount") || lineString.contains("Do Not Remove") ||
+                        lineString.contains("Magical wings")) {
                     return true;
                 }
             }
@@ -593,8 +607,8 @@ public class ElytraMount implements Mount {
 
         // Check current height
         if (loc.getY() >= maxHeight - 10) { // Leave 10 block buffer
-            player.sendMessage(ChatColor.RED + ChatColor.BOLD.toString() +
-                    "Unable to launch elytra mount - too close to height limit (" + (int) maxHeight + ")");
+            player.sendMessage(Component.text("Unable to launch elytra mount - too close to height limit (" +
+                    (int) maxHeight + ")", NamedTextColor.RED, TextDecoration.BOLD));
             return false;
         }
 
@@ -609,14 +623,15 @@ public class ElytraMount implements Mount {
         }
 
         if (!hasSpace) {
-            player.sendMessage(ChatColor.RED + ChatColor.BOLD.toString() +
-                    "Unable to launch elytra mount - insufficient space above");
+            player.sendMessage(Component.text("Unable to launch elytra mount - insufficient space above",
+                    NamedTextColor.RED, TextDecoration.BOLD));
             return false;
         }
 
         // Check if player is in water or lava
         if (player.isInWater() || loc.getBlock().getType() == Material.LAVA) {
-            player.sendMessage(ChatColor.RED + "Cannot launch elytra mount while in water or lava.");
+            player.sendMessage(Component.text("Cannot launch elytra mount while in water or lava.",
+                    NamedTextColor.RED));
             return false;
         }
 
@@ -646,7 +661,7 @@ public class ElytraMount implements Mount {
                     return;
                 }
 
-                player.sendMessage(ChatColor.WHITE + ChatColor.BOLD.toString() + "LAUNCHING...");
+                player.sendMessage(Component.text("LAUNCHING...", NamedTextColor.WHITE, TextDecoration.BOLD));
 
                 // Enhanced chestplate handling
                 equipElytraWithChestplateProperties(player);
@@ -658,8 +673,8 @@ public class ElytraMount implements Mount {
                 // Register mount
                 manager.registerActiveMount(playerUUID, ElytraMount.this);
 
-                // Play sound
-                player.playSound(player.getLocation(), Sound.ITEM_ELYTRA_FLYING, 1.0f, 1.0f);
+                // Play sound using Adventure API
+                player.playSound(Sound.sound(org.bukkit.Sound.ITEM_ELYTRA_FLYING, Sound.Source.PLAYER, 1.0f, 1.0f));
 
                 // Start landing detection with delay
                 startLandingDetectionDelayed(player);
@@ -738,44 +753,50 @@ public class ElytraMount implements Mount {
             elytraMeta.addItemFlags(ItemFlag.HIDE_ATTRIBUTES, ItemFlag.HIDE_UNBREAKABLE);
 
             // Set display name to indicate it's enhanced
-            String originalName = chestplateState.getDisplayName();
+            Component originalName = chestplateState.getDisplayName();
             if (originalName != null) {
-                elytraMeta.setDisplayName(ChatColor.AQUA + " Elytra " + ChatColor.GRAY + "(" + originalName + ")");
+                Component displayName = Component.text("✈ Elytra ", NamedTextColor.AQUA)
+                        .append(Component.text("(", NamedTextColor.GRAY))
+                        .append(originalName)
+                        .append(Component.text(")", NamedTextColor.GRAY));
+                elytraMeta.displayName(displayName);
             } else {
-                elytraMeta.setDisplayName(ChatColor.AQUA + " Elytra Mount");
+                elytraMeta.displayName(Component.text("✈ Elytra Mount", NamedTextColor.AQUA));
             }
 
             // Create enhanced lore
-            List<String> lore = new ArrayList<>();
-            lore.add(ChatColor.GRAY + "Magical wings enhanced with your");
-            lore.add(ChatColor.GRAY + "chestplate's protective properties.");
-            lore.add("");
+            List<Component> lore = new ArrayList<>();
+            lore.add(Component.text("Magical wings enhanced with your", NamedTextColor.GRAY));
+            lore.add(Component.text("chestplate's protective properties.", NamedTextColor.GRAY));
+            lore.add(Component.empty());
 
             if (chestplateState.hasOriginalItem()) {
-                lore.add(ChatColor.YELLOW + "Inherited Properties:");
+                lore.add(Component.text("Inherited Properties:", NamedTextColor.YELLOW));
                 if (!chestplateState.getEnchantments().isEmpty()) {
-                    lore.add(ChatColor.GRAY + "• Enchantments: " + chestplateState.getEnchantments().size());
+                    lore.add(Component.text("• Enchantments: " + chestplateState.getEnchantments().size(),
+                            NamedTextColor.GRAY));
                 }
                 if (chestplateState.isUnbreakable()) {
-                    lore.add(ChatColor.GRAY + "• Unbreakable");
+                    lore.add(Component.text("• Unbreakable", NamedTextColor.GRAY));
                 }
-                lore.add("");
+                lore.add(Component.empty());
             }
 
-            lore.add(ChatColor.YELLOW + "Duration: " + manager.getConfig().getElytraDuration() + " seconds");
-            lore.add(ChatColor.GRAY + "Active Mount - Do Not Remove");
+            lore.add(Component.text("Duration: " + manager.getConfig().getElytraDuration() + " seconds",
+                    NamedTextColor.YELLOW));
+            lore.add(Component.text("Active Mount - Do Not Remove", NamedTextColor.GRAY));
 
             // Add original lore if it existed
-            List<String> originalLore = chestplateState.getLore();
+            List<Component> originalLore = chestplateState.getLore();
             if (originalLore != null && !originalLore.isEmpty()) {
-                lore.add("");
-                lore.add(ChatColor.DARK_GRAY + "Original Properties:");
-                for (String loreLine : originalLore) {
-                    lore.add(ChatColor.DARK_GRAY + loreLine);
+                lore.add(Component.empty());
+                lore.add(Component.text("Original Properties:", NamedTextColor.DARK_GRAY));
+                for (Component loreLine : originalLore) {
+                    lore.add(Component.text().color(NamedTextColor.DARK_GRAY).append(loreLine).build());
                 }
             }
 
-            elytraMeta.setLore(lore);
+            elytraMeta.lore(lore);
 
             // Mark as enhanced elytra mount
             NamespacedKey mountKey = new NamespacedKey(manager.getPlugin(), "_elytra_mount");
@@ -828,7 +849,8 @@ public class ElytraMount implements Mount {
 
                     // Dismount with a gentle message
                     dismount(player, false);
-                    player.sendMessage(ChatColor.YELLOW + "You have landed safely. Your elytra mount has been deactivated.");
+                    player.sendMessage(Component.text("You have landed safely. Your elytra mount has been deactivated.",
+                            NamedTextColor.YELLOW));
                 }
             }
         }.runTaskTimer(manager.getPlugin(), LANDING_CHECK_INTERVAL, LANDING_CHECK_INTERVAL);
@@ -849,24 +871,25 @@ public class ElytraMount implements Mount {
             return itemStack;
         }
 
-        itemMeta.setDisplayName(ChatColor.AQUA + "Elytra Mount");
+        itemMeta.displayName(Component.text("Elytra Mount", NamedTextColor.AQUA));
 
-        List<String> lore = new ArrayList<>();
-        lore.add(ChatColor.GRAY + "Magical wings that allow you to");
-        lore.add(ChatColor.GRAY + "soar through the skies gracefully.");
-        lore.add("");
-        lore.add(ChatColor.YELLOW + "Features:");
-        lore.add(ChatColor.GRAY + "• Inherits chestplate properties");
-        lore.add(ChatColor.GRAY + "• Advanced landing detection");
-        lore.add(ChatColor.GRAY + "• Enhanced durability");
-        lore.add("");
-        lore.add(ChatColor.YELLOW + "Duration: " + manager.getConfig().getElytraDuration() + " seconds");
-        lore.add(ChatColor.YELLOW + "Cooldown: 2 minutes after damage");
-        lore.add("");
-        lore.add(ChatColor.GRAY + "Right-click to activate");
-        lore.add(ChatColor.GRAY + "Permanent Untradeable");
+        List<Component> lore = new ArrayList<>();
+        lore.add(Component.text("Magical wings that allow you to", NamedTextColor.GRAY));
+        lore.add(Component.text("soar through the skies gracefully.", NamedTextColor.GRAY));
+        lore.add(Component.empty());
+        lore.add(Component.text("Features:", NamedTextColor.YELLOW));
+        lore.add(Component.text("• Inherits chestplate properties", NamedTextColor.GRAY));
+        lore.add(Component.text("• Advanced landing detection", NamedTextColor.GRAY));
+        lore.add(Component.text("• Enhanced durability", NamedTextColor.GRAY));
+        lore.add(Component.empty());
+        lore.add(Component.text("Duration: " + manager.getConfig().getElytraDuration() + " seconds",
+                NamedTextColor.YELLOW));
+        lore.add(Component.text("Cooldown: 2 minutes after damage", NamedTextColor.YELLOW));
+        lore.add(Component.empty());
+        lore.add(Component.text("Right-click to activate", NamedTextColor.GRAY));
+        lore.add(Component.text("Permanent Untradeable", NamedTextColor.GRAY));
 
-        itemMeta.setLore(lore);
+        itemMeta.lore(lore);
         itemMeta.addItemFlags(ItemFlag.HIDE_ATTRIBUTES, ItemFlag.HIDE_UNBREAKABLE);
         itemMeta.setUnbreakable(true);
 
@@ -900,7 +923,13 @@ public class ElytraMount implements Mount {
         }
 
         // Fallback to display name check for legacy items
-        return meta.hasDisplayName() && meta.getDisplayName().equals(ChatColor.AQUA + "Elytra Mount");
+        Component displayName = meta.displayName();
+        if (displayName != null) {
+            String displayNameString = displayName.toString();
+            return displayNameString.contains("Elytra Mount");
+        }
+
+        return false;
     }
 
     /**
@@ -919,7 +948,8 @@ public class ElytraMount implements Mount {
         if (foundStuckElytra || isUsingElytra(player)) {
             // Force complete dismount
             dismount(player, false);
-            player.sendMessage(ChatColor.GREEN + "Forced cleanup of stuck elytra mount completed.");
+            player.sendMessage(Component.text("Forced cleanup of stuck elytra mount completed.",
+                    NamedTextColor.GREEN));
             return true;
         }
 

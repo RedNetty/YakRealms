@@ -1282,6 +1282,9 @@ public class YakRealms extends JavaPlugin {
             // Economy commands
             commandResults.put("balance", registerCommand("balance", new BalanceCommand(economyManager)));
             commandResults.put("pay", registerCommand("pay", new PayCommand(economyManager)));
+            commandResults.put("inventorydiag", registerCommand("inventorydiag", getPlayerManager()));
+            commandResults.put("playerstate", registerCommand("playerstate", getPlayerManager()));
+            commandResults.put("coordinationdiag", registerCommand("coordinationdiag", getPlayerManager()));
             commandResults.put("bank", registerCommand("bank", new BankCommand(bankManager)));
             commandResults.put("gems", registerCommand("gems", new GemsCommand(economyManager)));
             commandResults.put("gempouch", registerCommand("gempouch", new GemPouchCommand(gemPouchManager)));

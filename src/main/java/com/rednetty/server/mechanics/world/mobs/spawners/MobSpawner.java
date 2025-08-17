@@ -2,6 +2,9 @@ package com.rednetty.server.mechanics.world.mobs.spawners;
 
 import com.rednetty.server.YakRealms;
 import com.rednetty.server.mechanics.world.mobs.SpawnerProperties;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.NamedTextColor;
+import net.kyori.adventure.text.format.TextDecoration;
 import org.bukkit.*;
 import org.bukkit.block.Block;
 import org.bukkit.configuration.ConfigurationSection;
@@ -472,7 +475,7 @@ public class MobSpawner implements Listener {
             spawners.put(spawnerId, spawner);
             locationToId.put(location, spawnerId);
 
-            
+
             setSpawnerBlockSafe(location.getBlock(), visible);
 
             return true;
@@ -924,14 +927,14 @@ public class MobSpawner implements Listener {
         SpawnerCreationSession session = new SpawnerCreationSession(location, playerName);
         creationSessions.put(playerName, session);
 
-        player.sendMessage(ChatColor.GREEN + "Starting spawner creation at " + formatLocation(location));
-        player.sendMessage(ChatColor.YELLOW + session.getHelpForCurrentStep());
+        player.sendMessage(Component.text("Starting spawner creation at " + formatLocation(location), NamedTextColor.GREEN));
+        player.sendMessage(Component.text(session.getHelpForCurrentStep(), NamedTextColor.YELLOW));
     }
 
     public void endCreationSession(Player player) {
         String playerName = player.getName();
         creationSessions.remove(playerName);
-        player.sendMessage(ChatColor.GREEN + "Spawner creation session ended.");
+        player.sendMessage(Component.text("Spawner creation session ended.", NamedTextColor.GREEN));
     }
 
     public SpawnerCreationSession getCreationSession(Player player) {
@@ -956,21 +959,21 @@ public class MobSpawner implements Listener {
                         if (templates.containsKey(templateName.toLowerCase())) {
                             session.setTemplateName(templateName.toLowerCase());
                             session.setCurrentStep(5); // Skip to completion
-                            player.sendMessage(ChatColor.GREEN + "Template '" + templateName + "' selected!");
-                            player.sendMessage(ChatColor.YELLOW + "Type 'done' to create the spawner or 'advanced' for more options.");
+                            player.sendMessage(Component.text("Template '" + templateName + "' selected!", NamedTextColor.GREEN));
+                            player.sendMessage(Component.text("Type 'done' to create the spawner or 'advanced' for more options.", NamedTextColor.YELLOW));
                             return true;
                         } else {
-                            player.sendMessage(ChatColor.RED + "Template not found: " + templateName);
+                            player.sendMessage(Component.text("Template not found: " + templateName, NamedTextColor.RED));
                             return true;
                         }
                     } else if (session.validateMobType(input)) {
                         session.setCurrentMobType(input.toLowerCase());
                         session.setCurrentStep(1);
-                        player.sendMessage(ChatColor.GREEN + "Mob type set to: " + input);
-                        player.sendMessage(ChatColor.YELLOW + session.getHelpForCurrentStep());
+                        player.sendMessage(Component.text("Mob type set to: " + input, NamedTextColor.GREEN));
+                        player.sendMessage(Component.text(session.getHelpForCurrentStep(), NamedTextColor.YELLOW));
                         return true;
                     } else {
-                        player.sendMessage(ChatColor.RED + "Invalid mob type: " + input);
+                        player.sendMessage(Component.text("Invalid mob type: " + input, NamedTextColor.RED));
                         return true;
                     }
 
@@ -980,15 +983,15 @@ public class MobSpawner implements Listener {
                         if (session.validateTier(tier)) {
                             session.setCurrentTier(tier);
                             session.setCurrentStep(2);
-                            player.sendMessage(ChatColor.GREEN + "Tier set to: " + tier);
-                            player.sendMessage(ChatColor.YELLOW + session.getHelpForCurrentStep());
+                            player.sendMessage(Component.text("Tier set to: " + tier, NamedTextColor.GREEN));
+                            player.sendMessage(Component.text(session.getHelpForCurrentStep(), NamedTextColor.YELLOW));
                             return true;
                         } else {
-                            player.sendMessage(ChatColor.RED + "Tier must be between 1 and 6");
+                            player.sendMessage(Component.text("Tier must be between 1 and 6", NamedTextColor.RED));
                             return true;
                         }
                     } catch (NumberFormatException e) {
-                        player.sendMessage(ChatColor.RED + "Please enter a valid number");
+                        player.sendMessage(Component.text("Please enter a valid number", NamedTextColor.RED));
                         return true;
                     }
 
@@ -996,8 +999,8 @@ public class MobSpawner implements Listener {
                     boolean elite = input.toLowerCase().equals("true") || input.toLowerCase().equals("yes");
                     session.setCurrentElite(elite);
                     session.setCurrentStep(3);
-                    player.sendMessage(ChatColor.GREEN + "Elite status set to: " + elite);
-                    player.sendMessage(ChatColor.YELLOW + session.getHelpForCurrentStep());
+                    player.sendMessage(Component.text("Elite status set to: " + elite, NamedTextColor.GREEN));
+                    player.sendMessage(Component.text(session.getHelpForCurrentStep(), NamedTextColor.YELLOW));
                     return true;
 
                 case 3: // Amount
@@ -1006,15 +1009,15 @@ public class MobSpawner implements Listener {
                         if (amount >= 1 && amount <= 10) {
                             session.setCurrentAmount(amount);
                             session.setCurrentStep(4);
-                            player.sendMessage(ChatColor.GREEN + "Amount set to: " + amount);
-                            player.sendMessage(ChatColor.YELLOW + session.getHelpForCurrentStep());
+                            player.sendMessage(Component.text("Amount set to: " + amount, NamedTextColor.GREEN));
+                            player.sendMessage(Component.text(session.getHelpForCurrentStep(), NamedTextColor.YELLOW));
                             return true;
                         } else {
-                            player.sendMessage(ChatColor.RED + "Amount must be between 1 and 10");
+                            player.sendMessage(Component.text("Amount must be between 1 and 10", NamedTextColor.RED));
                             return true;
                         }
                     } catch (NumberFormatException e) {
-                        player.sendMessage(ChatColor.RED + "Please enter a valid number");
+                        player.sendMessage(Component.text("Please enter a valid number", NamedTextColor.RED));
                         return true;
                     }
 
@@ -1022,8 +1025,8 @@ public class MobSpawner implements Listener {
                     if (input.equalsIgnoreCase("add")) {
                         session.addCurrentMobEntry();
                         session.setCurrentStep(0);
-                        player.sendMessage(ChatColor.GREEN + "Mob entry added! Configure another:");
-                        player.sendMessage(ChatColor.YELLOW + session.getHelpForCurrentStep());
+                        player.sendMessage(Component.text("Mob entry added! Configure another:", NamedTextColor.GREEN));
+                        player.sendMessage(Component.text(session.getHelpForCurrentStep(), NamedTextColor.YELLOW));
                         return true;
                     } else if (input.equalsIgnoreCase("done")) {
                         return completeSpawnerCreation(player, session);
@@ -1031,11 +1034,11 @@ public class MobSpawner implements Listener {
                         session.addCurrentMobEntry();
                         session.setConfigureAdvanced(true);
                         session.setCurrentStep(6);
-                        player.sendMessage(ChatColor.GREEN + "Entering advanced configuration mode:");
-                        player.sendMessage(ChatColor.YELLOW + session.getHelpForCurrentStep());
+                        player.sendMessage(Component.text("Entering advanced configuration mode:", NamedTextColor.GREEN));
+                        player.sendMessage(Component.text(session.getHelpForCurrentStep(), NamedTextColor.YELLOW));
                         return true;
                     } else {
-                        player.sendMessage(ChatColor.RED + "Invalid option. Use 'add', 'done', or 'advanced'");
+                        player.sendMessage(Component.text("Invalid option. Use 'add', 'done', or 'advanced'", NamedTextColor.RED));
                         return true;
                     }
 
@@ -1045,11 +1048,11 @@ public class MobSpawner implements Listener {
                     } else if (input.equalsIgnoreCase("advanced")) {
                         session.setConfigureAdvanced(true);
                         session.setCurrentStep(6);
-                        player.sendMessage(ChatColor.GREEN + "Entering advanced configuration mode:");
-                        player.sendMessage(ChatColor.YELLOW + session.getHelpForCurrentStep());
+                        player.sendMessage(Component.text("Entering advanced configuration mode:", NamedTextColor.GREEN));
+                        player.sendMessage(Component.text(session.getHelpForCurrentStep(), NamedTextColor.YELLOW));
                         return true;
                     } else {
-                        player.sendMessage(ChatColor.RED + "Use 'done' to create or 'advanced' for more options");
+                        player.sendMessage(Component.text("Use 'done' to create or 'advanced' for more options", NamedTextColor.RED));
                         return true;
                     }
 
@@ -1058,17 +1061,17 @@ public class MobSpawner implements Listener {
                         return completeSpawnerCreation(player, session);
                     } else {
                         String result = session.processAdvancedCommand(input);
-                        player.sendMessage(ChatColor.GREEN + result);
+                        player.sendMessage(Component.text(result, NamedTextColor.GREEN));
                         return true;
                     }
 
                 default:
-                    player.sendMessage(ChatColor.RED + "Invalid session state. Please start over.");
+                    player.sendMessage(Component.text("Invalid session state. Please start over.", NamedTextColor.RED));
                     endCreationSession(player);
                     return true;
             }
         } catch (Exception e) {
-            player.sendMessage(ChatColor.RED + "Error processing input: " + e.getMessage());
+            player.sendMessage(Component.text("Error processing input: " + e.getMessage(), NamedTextColor.RED));
             return true;
         }
     }
@@ -1076,7 +1079,7 @@ public class MobSpawner implements Listener {
     private boolean completeSpawnerCreation(Player player, SpawnerCreationSession session) {
         try {
             if (!session.hasMobEntries()) {
-                player.sendMessage(ChatColor.RED + "No mobs configured for spawner!");
+                player.sendMessage(Component.text("No mobs configured for spawner!", NamedTextColor.RED));
                 return true;
             }
 
@@ -1101,19 +1104,19 @@ public class MobSpawner implements Listener {
                     }
                 }
 
-                player.sendMessage(ChatColor.GREEN + "Spawner created successfully!");
-                player.sendMessage(ChatColor.GRAY + "Summary:");
-                player.sendMessage(ChatColor.WHITE + session.getSummary());
+                player.sendMessage(Component.text("Spawner created successfully!", NamedTextColor.GREEN));
+                player.sendMessage(Component.text("Summary:", NamedTextColor.GRAY));
+                player.sendMessage(Component.text(session.getSummary(), NamedTextColor.WHITE));
 
                 endCreationSession(player);
                 saveSpawners();
                 return true;
             } else {
-                player.sendMessage(ChatColor.RED + "Failed to create spawner. Check console for errors.");
+                player.sendMessage(Component.text("Failed to create spawner. Check console for errors.", NamedTextColor.RED));
                 return true;
             }
         } catch (Exception e) {
-            player.sendMessage(ChatColor.RED + "Error creating spawner: " + e.getMessage());
+            player.sendMessage(Component.text("Error creating spawner: " + e.getMessage(), NamedTextColor.RED));
             logger.warning("§c[MobSpawner] Creation error: " + e.getMessage());
             return true;
         }
@@ -1263,10 +1266,10 @@ public class MobSpawner implements Listener {
             if (spawner != null) {
                 spawner.sendInfoTo(player);
             } else {
-                player.sendMessage(ChatColor.RED + "No spawner found at this location.");
+                player.sendMessage(Component.text("No spawner found at this location.", NamedTextColor.RED));
             }
         } else {
-            player.sendMessage(ChatColor.RED + "No spawner found at this location.");
+            player.sendMessage(Component.text("No spawner found at this location.", NamedTextColor.RED));
         }
     }
 
@@ -1342,7 +1345,7 @@ public class MobSpawner implements Listener {
             creationSessions.remove(playerName);
             Player player = Bukkit.getPlayerExact(playerName);
             if (player != null) {
-                player.sendMessage(ChatColor.RED + "Your spawner creation session has expired.");
+                player.sendMessage(Component.text("Your spawner creation session has expired.", NamedTextColor.RED));
             }
         }
     }

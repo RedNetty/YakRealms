@@ -10,6 +10,12 @@ import com.rednetty.server.mechanics.world.mobs.core.WorldBoss;
 import com.rednetty.server.mechanics.world.mobs.spawners.MobSpawner;
 import com.rednetty.server.mechanics.world.mobs.spawners.SpawnerMetrics;
 import com.rednetty.server.mechanics.world.mobs.utils.MobUtils;
+import net.kyori.adventure.sound.Sound;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.NamedTextColor;
+import net.kyori.adventure.text.format.TextColor;
+import net.kyori.adventure.text.format.TextDecoration;
+import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 import org.bukkit.*;
 import org.bukkit.attribute.Attribute;
 import org.bukkit.enchantments.Enchantment;
@@ -40,13 +46,14 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.logging.Logger;
 
 /**
- * MobManager with simplified hologram integration and  cleanup
+ * MobManager with simplified hologram integration and enhanced cleanup
  * Key Fixes:
  * - Simplified hologram coordination with CustomMob's new name system
  * - Removed complex hologram state management conflicts
  * - Better damage tracking and health updates
  * - Cleaner mob lifecycle management
- * -  cleanup without hologram conflicts
+ * - Enhanced cleanup without hologram conflicts
+ * - Modernized with Adventure API and Paper 1.21.7 capabilities
  */
 public class MobManager implements Listener {
 
@@ -63,10 +70,14 @@ public class MobManager implements Listener {
             "criticalState", "eliteOnly", "mob_unique_id"
     };
 
+    // ================ ADVENTURE API CONSTANTS ================
+    private static final Component LOG_PREFIX = Component.text("[MobManager]", NamedTextColor.GOLD);
+    private static final LegacyComponentSerializer LEGACY_SERIALIZER = LegacyComponentSerializer.legacySection();
+
     // ================ SINGLETON ================
     private static volatile MobManager instance;
 
-    // ================ CORE MAPS WITH  THREAD SAFETY ================
+    // ================ CORE MAPS WITH THREAD SAFETY ================
     private final Map<UUID, CustomMob> activeMobs = new ConcurrentHashMap<>();
     private final Map<String, CustomMob> mobsByUniqueId = new ConcurrentHashMap<>();
     private final Map<UUID, Map<UUID, Double>> damageContributions = new ConcurrentHashMap<>();
@@ -117,7 +128,7 @@ public class MobManager implements Listener {
     private final AtomicLong duplicateSpawnsPrevented = new AtomicLong(0);
 
     /**
-     * Constructor with  initialization
+     * Constructor with enhanced initialization
      */
     private MobManager() {
         this.plugin = YakRealms.getInstance();
@@ -140,11 +151,11 @@ public class MobManager implements Listener {
     }
 
     /**
-     *  initialization with startup cleanup
+     * Enhanced initialization with startup cleanup
      */
     public void initialize() {
         try {
-            logger.info("§6[MobManager] §7Starting  initialization with simplified hologram system...");
+            logInfo(Component.text("Starting enhanced initialization with simplified hologram system...", NamedTextColor.GRAY));
 
             // Clean up any orphaned custom mobs from previous sessions
             performStartupCleanup();
@@ -156,14 +167,16 @@ public class MobManager implements Listener {
             plugin.getServer().getPluginManager().registerEvents(this, plugin);
             startTasks();
 
-            logger.info(String.format("§a[MobManager] §7 initialization completed successfully with §e%d §7spawners",
-                    spawner.getAllSpawners().size()));
+            logInfo(Component.text("Enhanced initialization completed successfully with ")
+                    .color(NamedTextColor.GRAY)
+                    .append(Component.text(spawner.getAllSpawners().size(), NamedTextColor.YELLOW))
+                    .append(Component.text(" spawners", NamedTextColor.GRAY)));
 
             if (debug) {
-                logger.info("§6[MobManager] §7Debug mode enabled with simplified hologram integration");
+                logInfo(Component.text("Debug mode enabled with simplified hologram integration", NamedTextColor.GRAY));
             }
         } catch (Exception e) {
-            logger.severe("§c[MobManager] Failed to initialize: " + e.getMessage());
+            logSevere(Component.text("Failed to initialize: " + e.getMessage(), NamedTextColor.RED));
             e.printStackTrace();
         }
     }
@@ -173,7 +186,7 @@ public class MobManager implements Listener {
      */
     private void initializeMobTypeMapping() {
         try {
-            logger.info("§6[MobManager] §7Initializing comprehensive mob type mapping with elite support...");
+            logInfo(Component.text("Initializing comprehensive mob type mapping with elite support...", NamedTextColor.GRAY));
 
             // Core mob types with proper mapping
             mobTypeMapping.put("skeleton", EntityType.SKELETON);
@@ -264,11 +277,11 @@ public class MobManager implements Listener {
             // Populate valid types set
             validMobTypes.addAll(mobTypeMapping.keySet());
 
-            logger.info("§a[MobManager] §7Initialized " + mobTypeMapping.size() + " mob type mappings");
-            logger.info("§a[MobManager] §7Registered " + eliteOnlyTypes.size() + " elite-only types");
+            logInfo(Component.text("Initialized " + mobTypeMapping.size() + " mob type mappings", NamedTextColor.GREEN));
+            logInfo(Component.text("Registered " + eliteOnlyTypes.size() + " elite-only types", NamedTextColor.GREEN));
 
         } catch (Exception e) {
-            logger.severe("§c[MobManager] Failed to initialize mob type mapping: " + e.getMessage());
+            logSevere(Component.text("Failed to initialize mob type mapping: " + e.getMessage(), NamedTextColor.RED));
             e.printStackTrace();
         }
     }
@@ -291,7 +304,7 @@ public class MobManager implements Listener {
      */
     private void performStartupCleanup() {
         try {
-            logger.info("§6[MobManager] §7Performing startup cleanup of orphaned custom mobs...");
+            logInfo(Component.text("Performing startup cleanup of orphaned custom mobs...", NamedTextColor.GRAY));
 
             int totalFound = 0;
             int totalRemoved = 0;
@@ -299,9 +312,9 @@ public class MobManager implements Listener {
             // First, clean up all holograms to prevent orphaned holograms
             try {
                 com.rednetty.server.mechanics.world.holograms.HologramManager.forceCleanupAll();
-                logger.info("§6[MobManager] §7Cleaned up all existing holograms");
+                logInfo(Component.text("Cleaned up all existing holograms", NamedTextColor.GRAY));
             } catch (Exception e) {
-                logger.warning("§c[MobManager] Error during hologram cleanup: " + e.getMessage());
+                logWarning(Component.text("Error during hologram cleanup: " + e.getMessage(), NamedTextColor.YELLOW));
             }
 
             // Clean up all loaded worlds
@@ -312,23 +325,23 @@ public class MobManager implements Listener {
                     totalRemoved += result.entitiesRemoved;
 
                     if (result.entitiesFound > 0) {
-                        logger.info("§6[MobManager] §7World " + world.getName() + ": found " +
-                                result.entitiesFound + ", removed " + result.entitiesRemoved);
+                        logInfo(Component.text("World " + world.getName() + ": found " +
+                                result.entitiesFound + ", removed " + result.entitiesRemoved, NamedTextColor.GRAY));
                     }
                 } catch (Exception e) {
-                    logger.warning("§c[MobManager] Error cleaning world " + world.getName() + ": " + e.getMessage());
+                    logWarning(Component.text("Error cleaning world " + world.getName() + ": " + e.getMessage(), NamedTextColor.YELLOW));
                 }
             }
 
             if (totalFound > 0) {
-                logger.info("§a[MobManager] §7Startup cleanup complete: removed " + totalRemoved +
-                        "/" + totalFound + " orphaned custom mobs");
+                logInfo(Component.text("Startup cleanup complete: removed " + totalRemoved +
+                        "/" + totalFound + " orphaned custom mobs", NamedTextColor.GREEN));
             } else {
-                logger.info("§a[MobManager] §7Startup cleanup complete: no orphaned mobs found");
+                logInfo(Component.text("Startup cleanup complete: no orphaned mobs found", NamedTextColor.GREEN));
             }
 
         } catch (Exception e) {
-            logger.severe("§c[MobManager] Startup cleanup failed: " + e.getMessage());
+            logSevere(Component.text("Startup cleanup failed: " + e.getMessage(), NamedTextColor.RED));
             e.printStackTrace();
         }
     }
@@ -379,14 +392,14 @@ public class MobManager implements Listener {
                         }
                     }
                 } catch (Exception e) {
-                    logger.warning("§c[MobManager] Error processing entity " + entity.getUniqueId() + ": " + e.getMessage());
+                    logWarning(Component.text("Error processing entity " + entity.getUniqueId() + ": " + e.getMessage(), NamedTextColor.YELLOW));
                 }
             }
 
             return new CleanupResult(found, removed);
 
         } catch (Exception e) {
-            logger.warning("§c[MobManager] Error cleaning world " + world.getName() + ": " + e.getMessage());
+            logWarning(Component.text("Error cleaning world " + world.getName() + ": " + e.getMessage(), NamedTextColor.YELLOW));
             return new CleanupResult(0, 0);
         }
     }
@@ -410,7 +423,7 @@ public class MobManager implements Listener {
             entity.setMetadata("no_drops", new FixedMetadataValue(plugin, true));
             entity.setMetadata("system_kill", new FixedMetadataValue(plugin, true));
         } catch (Exception e) {
-            logger.warning("§c[MobManager] Failed to mark entity as cleanup kill: " + e.getMessage());
+            logWarning(Component.text("Failed to mark entity as cleanup kill: " + e.getMessage(), NamedTextColor.YELLOW));
         }
     }
 
@@ -439,8 +452,8 @@ public class MobManager implements Listener {
             UUID entityId = entity.getUniqueId();
 
             if (debug) {
-                logger.info("§6[MobManager] §7Removing entity " + entityId.toString().substring(0, 8) +
-                        " (" + entity.getType() + ") - " + reason);
+                logInfo(Component.text("Removing entity " + entityId.toString().substring(0, 8) +
+                        " (" + entity.getType() + ") - " + reason, NamedTextColor.GRAY));
             }
 
             // Mark as cleanup kill
@@ -466,7 +479,7 @@ public class MobManager implements Listener {
             return true;
 
         } catch (Exception e) {
-            logger.warning("§c[MobManager] Error removing entity: " + e.getMessage());
+            logWarning(Component.text("Error removing entity: " + e.getMessage(), NamedTextColor.YELLOW));
             return false;
         }
     }
@@ -492,7 +505,7 @@ public class MobManager implements Listener {
             processedEntities.remove(entityId);
 
         } catch (Exception e) {
-            logger.warning("§c[MobManager] Error removing from tracking systems: " + e.getMessage());
+            logWarning(Component.text("Error removing from tracking systems: " + e.getMessage(), NamedTextColor.YELLOW));
         }
     }
 
@@ -538,11 +551,11 @@ public class MobManager implements Listener {
     // ================ SHUTDOWN SYSTEM ================
 
     /**
-     *  shutdown with comprehensive cleanup
+     * Enhanced shutdown with comprehensive cleanup
      */
     public void shutdown() {
         try {
-            logger.info("§6[MobManager] §7Starting  shutdown with simplified cleanup...");
+            logInfo(Component.text("Starting enhanced shutdown with simplified cleanup...", NamedTextColor.GRAY));
             isShuttingDown.set(true);
 
             // Cancel all tasks first
@@ -558,7 +571,7 @@ public class MobManager implements Listener {
                 spawner.saveSpawners();
                 spawner.shutdown();
             } catch (Exception e) {
-                logger.warning("§c[MobManager] Error during spawner shutdown: " + e.getMessage());
+                logWarning(Component.text("Error during spawner shutdown: " + e.getMessage(), NamedTextColor.YELLOW));
             }
 
             // Clean up CritManager
@@ -567,15 +580,15 @@ public class MobManager implements Listener {
                     CritManager.getInstance().cleanup();
                 }
             } catch (Exception e) {
-                logger.warning("§c[MobManager] Error cleaning up CritManager: " + e.getMessage());
+                logWarning(Component.text("Error cleaning up CritManager: " + e.getMessage(), NamedTextColor.YELLOW));
             }
 
             // Final hologram cleanup
             try {
                 com.rednetty.server.mechanics.world.holograms.HologramManager.cleanup();
-                logger.info("§a[MobManager] §7All holograms cleaned up during shutdown");
+                logInfo(Component.text("All holograms cleaned up during shutdown", NamedTextColor.GREEN));
             } catch (Exception e) {
-                logger.warning("§c[MobManager] Error during hologram cleanup: " + e.getMessage());
+                logWarning(Component.text("Error during hologram cleanup: " + e.getMessage(), NamedTextColor.YELLOW));
             }
 
             // Clear all collections
@@ -584,10 +597,10 @@ public class MobManager implements Listener {
             activeWorldBoss = null;
             cleanupCompleted.set(true);
 
-            logger.info("§a[MobManager] §7 shutdown completed successfully");
+            logInfo(Component.text("Enhanced shutdown completed successfully", NamedTextColor.GREEN));
 
         } catch (Exception e) {
-            logger.severe("§c[MobManager]  shutdown error: " + e.getMessage());
+            logSevere(Component.text("Enhanced shutdown error: " + e.getMessage(), NamedTextColor.RED));
             e.printStackTrace();
         }
     }
@@ -597,7 +610,7 @@ public class MobManager implements Listener {
      */
     private void performShutdownCleanup() {
         try {
-            logger.info("§6[MobManager] §7Performing comprehensive shutdown cleanup...");
+            logInfo(Component.text("Performing comprehensive shutdown cleanup...", NamedTextColor.GRAY));
 
             int totalFound = 0;
             int totalRemoved = 0;
@@ -613,7 +626,7 @@ public class MobManager implements Listener {
                             totalRemoved++;
                         }
                     } catch (Exception e) {
-                        logger.warning("§c[MobManager] Error removing tracked mob: " + e.getMessage());
+                        logWarning(Component.text("Error removing tracked mob: " + e.getMessage(), NamedTextColor.YELLOW));
                     }
                 }
                 totalFound += mobsToRemove.size();
@@ -636,20 +649,20 @@ public class MobManager implements Listener {
                     totalRemoved += result.entitiesRemoved;
 
                     if (result.entitiesFound > 0) {
-                        logger.info("§6[MobManager] §7World " + world.getName() +
-                                ": found " + result.entitiesFound + " additional entities, removed " + result.entitiesRemoved);
+                        logInfo(Component.text("World " + world.getName() +
+                                ": found " + result.entitiesFound + " additional entities, removed " + result.entitiesRemoved, NamedTextColor.GRAY));
                     }
                 } catch (Exception e) {
-                    logger.warning("§c[MobManager] Error cleaning world " + world.getName() +
-                            " during shutdown: " + e.getMessage());
+                    logWarning(Component.text("Error cleaning world " + world.getName() +
+                            " during shutdown: " + e.getMessage(), NamedTextColor.YELLOW));
                 }
             }
 
-            logger.info("§a[MobManager] §7Shutdown cleanup complete: removed " + totalRemoved +
-                    "/" + totalFound + " custom mobs");
+            logInfo(Component.text("Shutdown cleanup complete: removed " + totalRemoved +
+                    "/" + totalFound + " custom mobs", NamedTextColor.GREEN));
 
         } catch (Exception e) {
-            logger.severe("§c[MobManager] Shutdown cleanup failed: " + e.getMessage());
+            logSevere(Component.text("Shutdown cleanup failed: " + e.getMessage(), NamedTextColor.RED));
             e.printStackTrace();
         }
     }
@@ -660,7 +673,7 @@ public class MobManager implements Listener {
      * Start essential tasks
      */
     private void startTasks() {
-        logger.info("§6[MobManager] §7Starting essential tasks...");
+        logInfo(Component.text("Starting essential tasks...", NamedTextColor.GRAY));
 
         // Main processing task
         mainTask = new BukkitRunnable() {
@@ -674,7 +687,7 @@ public class MobManager implements Listener {
                     }
                 } catch (Exception e) {
                     if (!isShuttingDown.get()) {
-                        logger.warning("§c[MobManager] Main task error: " + e.getMessage());
+                        logWarning(Component.text("Main task error: " + e.getMessage(), NamedTextColor.YELLOW));
                         if (debug) e.printStackTrace();
                     }
                 }
@@ -691,7 +704,7 @@ public class MobManager implements Listener {
                     }
                 } catch (Exception e) {
                     if (!isShuttingDown.get()) {
-                        logger.warning("§c[MobManager] Untracked mob cleanup error: " + e.getMessage());
+                        logWarning(Component.text("Untracked mob cleanup error: " + e.getMessage(), NamedTextColor.YELLOW));
                     }
                 }
             }
@@ -707,13 +720,13 @@ public class MobManager implements Listener {
                     }
                 } catch (Exception e) {
                     if (!isShuttingDown.get()) {
-                        logger.warning("§c[MobManager] Cleanup task error: " + e.getMessage());
+                        logWarning(Component.text("Cleanup task error: " + e.getMessage(), NamedTextColor.YELLOW));
                     }
                 }
             }
         }.runTaskTimer(plugin, 1200L, 1200L); // Every minute
 
-        logger.info("§a[MobManager] §7Essential tasks started successfully");
+        logInfo(Component.text("Essential tasks started successfully", NamedTextColor.GREEN));
     }
 
     // ================ ACTIVE MOBS MANAGEMENT ================
@@ -721,7 +734,6 @@ public class MobManager implements Listener {
     /**
      * Update active mobs with simplified system
      */
-    // In MobManager.java
     private void updateActiveMobs() {
         if (activeWorldBoss != null && activeWorldBoss.isValid()) {
             activeWorldBoss.tick();
@@ -757,7 +769,7 @@ public class MobManager implements Listener {
     // ================ MOB REGISTRATION ================
 
     /**
-     * Register mob with  tracking
+     * Register mob with enhanced tracking
      */
     public void registerMob(CustomMob mob) {
         if (mob == null || mob.getEntity() == null) return;
@@ -782,8 +794,8 @@ public class MobManager implements Listener {
         }
 
         if (debug) {
-            logger.info("§a[MobManager] §7Registered mob: " + mob.getType().getId() +
-                    " (ID: " + mob.getUniqueMobId() + ")");
+            logInfo(Component.text("Registered mob: " + mob.getType().getId() +
+                    " (ID: " + mob.getUniqueMobId() + ")", NamedTextColor.GREEN));
         }
     }
 
@@ -818,8 +830,8 @@ public class MobManager implements Listener {
         }
 
         if (debug) {
-            logger.info("§a[MobManager] §7Unregistered mob: " + mob.getType().getId() +
-                    " (ID: " + mob.getUniqueMobId() + ")");
+            logInfo(Component.text("Unregistered mob: " + mob.getType().getId() +
+                    " (ID: " + mob.getUniqueMobId() + ")", NamedTextColor.GREEN));
         }
     }
 
@@ -841,16 +853,16 @@ public class MobManager implements Listener {
             // Roll for critical hit
             rollForCriticalHit(entity, damage);
 
-            // : Simplified damage handling - mob handles its own display updates
+            // Enhanced: Simplified damage handling - mob handles its own display updates
             mob.handleDamage(damage);
 
             if (debug) {
-                logger.info(String.format("§a[MobManager] §7Damage processed for %s (ID: %s): %.1f damage",
-                        mob.getType().getId(), mob.getUniqueMobId(), damage));
+                logInfo(Component.text(String.format("Damage processed for %s (ID: %s): %.1f damage",
+                        mob.getType().getId(), mob.getUniqueMobId(), damage), NamedTextColor.GREEN));
             }
 
         } catch (Exception e) {
-            logger.warning("§c[MobManager] Handle mob hit error: " + e.getMessage());
+            logWarning(Component.text("Handle mob hit error: " + e.getMessage(), NamedTextColor.YELLOW));
         }
     }
 
@@ -868,8 +880,8 @@ public class MobManager implements Listener {
                 .merge(playerUuid, damage, Double::sum);
 
         if (debug) {
-            logger.info(String.format("§6[MobManager] §7Damage tracked: %.1f from %s to %s",
-                    damage, player.getName(), entity.getType()));
+            logInfo(Component.text(String.format("Damage tracked: %.1f from %s to %s",
+                    damage, player.getName(), entity.getType()), NamedTextColor.GRAY));
         }
     }
 
@@ -905,7 +917,7 @@ public class MobManager implements Listener {
             }
 
         } catch (Exception e) {
-            logger.warning("§c[MobManager] Position check error: " + e.getMessage());
+            logWarning(Component.text("Position check error: " + e.getMessage(), NamedTextColor.YELLOW));
         }
     }
 
@@ -970,11 +982,11 @@ public class MobManager implements Listener {
     }
 
     /**
-     * Safe mob teleportation - MAIN THREAD ONLY
+     * Safe mob teleportation with Adventure API sounds - MAIN THREAD ONLY
      */
     private void teleportMobToSpawner(LivingEntity entity, Location spawnerLoc, String reason) {
         if (!Bukkit.isPrimaryThread()) {
-            logger.severe("§c[MobManager] CRITICAL: teleportMobToSpawner called from async thread!");
+            logSevere(Component.text("CRITICAL: teleportMobToSpawner called from async thread!", NamedTextColor.RED));
             Bukkit.getScheduler().runTask(plugin, () -> teleportMobToSpawner(entity, spawnerLoc, reason));
             return;
         }
@@ -992,7 +1004,10 @@ public class MobManager implements Listener {
             safeLoc.setZ(safeLoc.getBlockZ() + 0.5);
 
             entity.getWorld().spawnParticle(org.bukkit.Particle.PORTAL, entity.getLocation().clone().add(0, 1, 0), 30, 0.5, 0.5, 0.5, 0.1);
-            entity.getWorld().playSound(entity.getLocation(), Sound.ENTITY_ENDERMAN_TELEPORT, 1.0f, 1.0f);
+
+            // Enhanced: Use Adventure Sound API
+            Sound teleportSound = Sound.sound(org.bukkit.Sound.ENTITY_ENDERMAN_TELEPORT, Sound.Source.HOSTILE, 1.0f, 1.0f);
+            entity.getWorld().playSound(teleportSound, entity.getLocation().getX(), entity.getLocation().getY(), entity.getLocation().getZ());
 
             if (entity instanceof Mob mob) {
                 mob.setTarget(null);
@@ -1010,7 +1025,7 @@ public class MobManager implements Listener {
             entity.getWorld().spawnParticle(org.bukkit.Particle.PORTAL, safeLoc.clone().add(0, 1, 0), 30, 0.5, 0.5, 0.5, 0.1);
 
         } catch (Exception e) {
-            logger.warning("§c[MobManager] Teleport error: " + e.getMessage());
+            logWarning(Component.text("Teleport error: " + e.getMessage(), NamedTextColor.YELLOW));
         }
     }
 
@@ -1026,13 +1041,12 @@ public class MobManager implements Listener {
                 CritManager.getInstance().initiateCrit(customMob);
             }
         } catch (Exception e) {
-            logger.severe("§c[MobManager] Critical roll error: " + e.getMessage());
+            logSevere(Component.text("Critical roll error: " + e.getMessage(), NamedTextColor.RED));
         }
     }
 
     // ================ ENTITY VALIDATION ================
 
-    // In MobManager.java
     private void validateEntityTracking() {
         try {
             mobLock.readLock().lock();
@@ -1107,7 +1121,7 @@ public class MobManager implements Listener {
             cleanupUniqueIdMapping();
 
         } catch (Exception e) {
-            logger.severe("§c[MobManager] Cleanup error: " + e.getMessage());
+            logSevere(Component.text("Cleanup error: " + e.getMessage(), NamedTextColor.RED));
         }
     }
 
@@ -1227,7 +1241,7 @@ public class MobManager implements Listener {
             handleMobHitByPlayer(entity, damager, damage);
 
         } catch (Exception e) {
-            logger.severe("§c[MobManager] Entity damage event error: " + e.getMessage());
+            logSevere(Component.text("Entity damage event error: " + e.getMessage(), NamedTextColor.RED));
         }
     }
 
@@ -1244,7 +1258,6 @@ public class MobManager implements Listener {
 
     // ================ DEATH HANDLING ================
 
-    // In MobManager.java
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onEntityDeath(EntityDeathEvent event) {
         try {
@@ -1258,8 +1271,8 @@ public class MobManager implements Listener {
             processedEntities.add(entityId);
 
             if (debug) {
-                logger.info("§6[MobManager] §7Processing death: " + entity.getType() +
-                        " ID: " + entityId.toString().substring(0, 8));
+                logInfo(Component.text("Processing death: " + entity.getType() +
+                        " ID: " + entityId.toString().substring(0, 8), NamedTextColor.GRAY));
             }
 
             // Clean up from CritManager
@@ -1276,8 +1289,8 @@ public class MobManager implements Listener {
                 spawner.registerMobDeath(spawnerLoc, entityId);
 
                 if (debug) {
-                    logger.info("§a[MobManager] §7Notified spawner at " + formatLocation(spawnerLoc) +
-                            " of mob death");
+                    logInfo(Component.text("Notified spawner at " + formatLocation(spawnerLoc) +
+                            " of mob death", NamedTextColor.GREEN));
                 }
             }
 
@@ -1290,7 +1303,7 @@ public class MobManager implements Listener {
                 mob.remove();
             }
         } catch (Exception e) {
-            logger.warning("§c[MobManager] Entity death processing error: " + e.getMessage());
+            logWarning(Component.text("Entity death processing error: " + e.getMessage(), NamedTextColor.YELLOW));
             if (debug) e.printStackTrace();
         }
     }
@@ -1309,7 +1322,7 @@ public class MobManager implements Listener {
     }
 
     /**
-     *  spawner finding for dead mobs
+     * Enhanced spawner finding for dead mobs
      */
     private Location findSpawnerForMob(LivingEntity entity) {
         if (entity == null) return null;
@@ -1337,7 +1350,7 @@ public class MobManager implements Listener {
                     }
                 } catch (Exception e) {
                     if (debug) {
-                        logger.warning("§c[MobManager] Error reading spawner metadata: " + e.getMessage());
+                        logWarning(Component.text("Error reading spawner metadata: " + e.getMessage(), NamedTextColor.YELLOW));
                     }
                 }
             }
@@ -1347,7 +1360,7 @@ public class MobManager implements Listener {
             return spawner.findNearestSpawner(mobLocation, mobRespawnDistanceCheck);
 
         } catch (Exception e) {
-            logger.warning("§c[MobManager] Error finding spawner for mob: " + e.getMessage());
+            logWarning(Component.text("Error finding spawner for mob: " + e.getMessage(), NamedTextColor.YELLOW));
             return null;
         }
     }
@@ -1387,7 +1400,7 @@ public class MobManager implements Listener {
             return null;
         } catch (Exception e) {
             if (debug) {
-                logger.warning("§c[MobManager] Error finding spawner by ID: " + e.getMessage());
+                logWarning(Component.text("Error finding spawner by ID: " + e.getMessage(), NamedTextColor.YELLOW));
             }
             return null;
         }
@@ -1400,11 +1413,11 @@ public class MobManager implements Listener {
             damageContributions.remove(entityId);
 
             if (debug) {
-                logger.info("§6[MobManager] §7Cleaned up data for mob: " + entityId.toString().substring(0, 8));
+                logInfo(Component.text("Cleaned up data for mob: " + entityId.toString().substring(0, 8), NamedTextColor.GRAY));
             }
 
         } catch (Exception e) {
-            logger.warning("§c[MobManager] Error cleaning up mob data: " + e.getMessage());
+            logWarning(Component.text("Error cleaning up mob data: " + e.getMessage(), NamedTextColor.YELLOW));
         }
     }
 
@@ -1436,12 +1449,12 @@ public class MobManager implements Listener {
                 entity.setFireTicks(0);
 
                 if (debug) {
-                    logger.info("§6[MobManager] §7Prevented custom mob " +
-                            entity.getType() + " from burning (sunlight protection)");
+                    logInfo(Component.text("Prevented custom mob " +
+                            entity.getType() + " from burning (sunlight protection)", NamedTextColor.GRAY));
                 }
             }
         } catch (Exception e) {
-            logger.warning("§c[MobManager] Error in sunlight protection: " + e.getMessage());
+            logWarning(Component.text("Error in sunlight protection: " + e.getMessage(), NamedTextColor.YELLOW));
         }
     }
 
@@ -1463,17 +1476,17 @@ public class MobManager implements Listener {
                 entity.setFireTicks(0);
 
                 if (debug) {
-                    logger.info("§6[MobManager] §7Prevented fire damage to custom mob " +
-                            entity.getType() + " (damage cause: " + event.getCause() + ")");
+                    logInfo(Component.text("Prevented fire damage to custom mob " +
+                            entity.getType() + " (damage cause: " + event.getCause() + ")", NamedTextColor.GRAY));
                 }
             }
         } catch (Exception e) {
-            logger.warning("§c[MobManager] Error in fire damage protection: " + e.getMessage());
+            logWarning(Component.text("Error in fire damage protection: " + e.getMessage(), NamedTextColor.YELLOW));
         }
     }
 
     /**
-     *  custom mob validation during cleanup
+     * Enhanced custom mob validation during cleanup
      */
     private boolean isCustomMobEntity(LivingEntity entity) {
         if (entity == null) return false;
@@ -1625,7 +1638,7 @@ public class MobManager implements Listener {
 
     public void resetAllSpawners() {
         spawner.resetAllSpawners();
-        logger.info("§a[MobManager] §7All spawners reset");
+        logInfo(Component.text("All spawners reset", NamedTextColor.GREEN));
     }
 
     // ================ CONFIGURATION GETTERS ================
@@ -1664,7 +1677,7 @@ public class MobManager implements Listener {
 
     public String getDiagnosticInfo() {
         StringBuilder info = new StringBuilder();
-        info.append("===  MobManager Diagnostic Info ===\n");
+        info.append("=== Enhanced MobManager Diagnostic Info ===\n");
         info.append("Valid Mob Types: ").append(validMobTypes.size()).append("\n");
         info.append("Mob Type Mappings: ").append(mobTypeMapping.size()).append("\n");
         info.append("Elite-Only Types: ").append(eliteOnlyTypes.size()).append("\n");
@@ -1679,12 +1692,12 @@ public class MobManager implements Listener {
     }
 
     public String getCleanupStatus() {
-        return String.format(" Cleanup Status: shutting_down=%s, cleanup_completed=%s, active_mobs=%d, unique_tracked=%d",
+        return String.format("Enhanced Cleanup Status: shutting_down=%s, cleanup_completed=%s, active_mobs=%d, unique_tracked=%d",
                 isShuttingDown.get(), cleanupCompleted.get(), activeMobs.size(), mobsByUniqueId.size());
     }
 
     public void forceCleanup() {
-        logger.info("§6[MobManager] §7Force cleanup requested by admin");
+        logInfo(Component.text("Force cleanup requested by admin", NamedTextColor.GRAY));
         performStartupCleanup();
         com.rednetty.server.mechanics.world.holograms.HologramManager.cleanup();
         performCleanup();
@@ -1713,7 +1726,7 @@ public class MobManager implements Listener {
     // ================ UNTRACKED MOB CLEANUP ================
 
     public int killAllUntrackedMobs() {
-        logger.info("§6[MobManager] §7Killing all untracked mobs in all worlds");
+        logInfo(Component.text("Killing all untracked mobs in all worlds", NamedTextColor.GRAY));
 
         int totalKilled = 0;
         for (World world : Bukkit.getWorlds()) {
@@ -1721,22 +1734,22 @@ public class MobManager implements Listener {
                 int killed = killUntrackedMobsInWorld(world);
                 totalKilled += killed;
             } catch (Exception e) {
-                logger.warning("§c[MobManager] Error killing untracked mobs in world " +
-                        world.getName() + ": " + e.getMessage());
+                logWarning(Component.text("Error killing untracked mobs in world " +
+                        world.getName() + ": " + e.getMessage(), NamedTextColor.YELLOW));
             }
         }
 
-        logger.info("§a[MobManager] §7Total untracked mobs killed: " + totalKilled);
+        logInfo(Component.text("Total untracked mobs killed: " + totalKilled, NamedTextColor.GREEN));
         return totalKilled;
     }
 
     public int killUntrackedMobsInWorld(World world) {
         if (world == null) {
-            logger.warning("§c[MobManager] Cannot kill untracked mobs - world is null");
+            logWarning(Component.text("Cannot kill untracked mobs - world is null", NamedTextColor.YELLOW));
             return 0;
         }
 
-        logger.info("§6[MobManager] §7Killing untracked mobs in world: " + world.getName());
+        logInfo(Component.text("Killing untracked mobs in world: " + world.getName(), NamedTextColor.GRAY));
 
         int killed = 0;
         Set<UUID> trackedMobIds = new HashSet<>();
@@ -1762,8 +1775,8 @@ public class MobManager implements Listener {
 
                 if (trackedMobIds.contains(entity.getUniqueId())) {
                     if (debug) {
-                        logger.info("§6[MobManager] §7Skipping tracked mob: " + entity.getType() +
-                                " ID: " + entity.getUniqueId().toString().substring(0, 8));
+                        logInfo(Component.text("Skipping tracked mob: " + entity.getType() +
+                                " ID: " + entity.getUniqueId().toString().substring(0, 8), NamedTextColor.GRAY));
                     }
                     continue;
                 }
@@ -1772,9 +1785,9 @@ public class MobManager implements Listener {
                     markEntityAsCleanupKill(entity);
 
                     if (debug) {
-                        logger.info("§6[MobManager] §7Killing untracked mob: " + entity.getType() +
+                        logInfo(Component.text("Killing untracked mob: " + entity.getType() +
                                 " at " + formatLocation(entity.getLocation()) +
-                                " ID: " + entity.getUniqueId().toString().substring(0, 8));
+                                " ID: " + entity.getUniqueId().toString().substring(0, 8), NamedTextColor.GRAY));
                     }
 
                     entity.setHealth(0);
@@ -1784,19 +1797,19 @@ public class MobManager implements Listener {
 
                 } catch (Exception e) {
                     if (debug) {
-                        logger.warning("§c[MobManager] Failed to kill untracked entity " +
-                                entity.getType() + ": " + e.getMessage());
+                        logWarning(Component.text("Failed to kill untracked entity " +
+                                entity.getType() + ": " + e.getMessage(), NamedTextColor.YELLOW));
                     }
                 }
             }
 
         } catch (Exception e) {
-            logger.warning("§c[MobManager] Error getting entities from world " + world.getName() +
-                    ": " + e.getMessage());
+            logWarning(Component.text("Error getting entities from world " + world.getName() +
+                    ": " + e.getMessage(), NamedTextColor.YELLOW));
         }
 
-        logger.info("§a[MobManager] §7Killed " + killed + " untracked mobs in world: " + world.getName() +
-                " (preserved " + trackedMobIds.size() + " tracked mobs)");
+        logInfo(Component.text("Killed " + killed + " untracked mobs in world: " + world.getName() +
+                " (preserved " + trackedMobIds.size() + " tracked mobs)", NamedTextColor.GREEN));
 
         return killed;
     }
@@ -1805,7 +1818,7 @@ public class MobManager implements Listener {
 
     public LivingEntity spawnMobFromSpawner(Location location, String type, int tier, boolean elite) {
         if (!Bukkit.isPrimaryThread()) {
-            logger.severe("§c[MobManager] CRITICAL: spawnMobFromSpawner called from async thread!");
+            logSevere(Component.text("CRITICAL: spawnMobFromSpawner called from async thread!", NamedTextColor.RED));
             Bukkit.getScheduler().runTask(plugin, () -> spawnMobFromSpawner(location, type, tier, elite));
             return null;
         }
@@ -1816,8 +1829,8 @@ public class MobManager implements Listener {
 
         if (!isValidSpawnRequest(location, type, tier, elite)) {
             if (debug) {
-                logger.warning("§c[MobManager] Invalid spawn request: " + type + " T" + tier +
-                        (elite ? "+" : "") + " at " + formatLocation(location));
+                logWarning(Component.text("Invalid spawn request: " + type + " T" + tier +
+                        (elite ? "+" : "") + " at " + formatLocation(location), NamedTextColor.YELLOW));
             }
             return null;
         }
@@ -1825,7 +1838,7 @@ public class MobManager implements Listener {
         String normalizedType = normalizeMobType(type);
         if (normalizedType == null) {
             incrementFailureCount(type);
-            logger.warning("§c[MobManager] Failed to normalize mob type: " + type);
+            logWarning(Component.text("Failed to normalize mob type: " + type, NamedTextColor.YELLOW));
             return null;
         }
 
@@ -1833,7 +1846,7 @@ public class MobManager implements Listener {
         if (activeSpawning.contains(spawnKey)) {
             duplicateSpawnsPrevented.incrementAndGet();
             if (debug) {
-                logger.info("§6[MobManager] §7Prevented duplicate spawn: " + spawnKey);
+                logInfo(Component.text("Prevented duplicate spawn: " + spawnKey, NamedTextColor.GRAY));
             }
             return null;
         }
@@ -1843,14 +1856,14 @@ public class MobManager implements Listener {
 
             if (!ensureChunkLoadedForSpawning(location)) {
                 incrementFailureCount(normalizedType);
-                logger.warning("§c[MobManager] Chunk loading failed for spawn at " + formatLocation(location));
+                logWarning(Component.text("Chunk loading failed for spawn at " + formatLocation(location), NamedTextColor.YELLOW));
                 return null;
             }
 
             Location spawnLoc = getSafeSpawnLocation(location);
             if (spawnLoc == null) {
                 incrementFailureCount(normalizedType);
-                logger.warning("§c[MobManager] No safe spawn location found near " + formatLocation(location));
+                logWarning(Component.text("No safe spawn location found near " + formatLocation(location), NamedTextColor.YELLOW));
                 return null;
             }
 
@@ -1860,20 +1873,20 @@ public class MobManager implements Listener {
                 registerSpawnedMob(entity, location);
 
                 if (debug) {
-                    logger.info("§a[MobManager] §7Successfully spawned " + normalizedType + " T" + tier +
+                    logInfo(Component.text("Successfully spawned " + normalizedType + " T" + tier +
                             (elite ? "+" : "") + " at " + formatLocation(spawnLoc) +
-                            " with ID: " + entity.getUniqueId().toString().substring(0, 8));
+                            " with ID: " + entity.getUniqueId().toString().substring(0, 8), NamedTextColor.GREEN));
                 }
 
                 failureCounter.put(normalizedType, 0);
                 return entity;
             } else {
                 incrementFailureCount(normalizedType);
-                logger.warning("§c[MobManager] Failed to create entity for " + normalizedType);
+                logWarning(Component.text("Failed to create entity for " + normalizedType, NamedTextColor.YELLOW));
             }
         } catch (Exception e) {
             incrementFailureCount(normalizedType);
-            logger.severe("§c[MobManager] Critical error spawning mob " + normalizedType + ": " + e.getMessage());
+            logSevere(Component.text("Critical error spawning mob " + normalizedType + ": " + e.getMessage(), NamedTextColor.RED));
             if (debug) e.printStackTrace();
         } finally {
             activeSpawning.remove(spawnKey);
@@ -1898,18 +1911,18 @@ public class MobManager implements Listener {
 
             boolean loaded = world.loadChunk(chunkX, chunkZ, true);
             if (!loaded) {
-                logger.warning("§c[MobManager] Failed to load chunk at " + chunkX + "," + chunkZ);
+                logWarning(Component.text("Failed to load chunk at " + chunkX + "," + chunkZ, NamedTextColor.YELLOW));
                 return false;
             }
 
             if (!world.isChunkLoaded(chunkX, chunkZ)) {
-                logger.warning("§c[MobManager] Chunk loading verification failed at " + chunkX + "," + chunkZ);
+                logWarning(Component.text("Chunk loading verification failed at " + chunkX + "," + chunkZ, NamedTextColor.YELLOW));
                 return false;
             }
 
             return true;
         } catch (Exception e) {
-            logger.warning("§c[MobManager] Chunk loading error: " + e.getMessage());
+            logWarning(Component.text("Chunk loading error: " + e.getMessage(), NamedTextColor.YELLOW));
             return false;
         }
     }
@@ -1955,27 +1968,27 @@ public class MobManager implements Listener {
         for (String validType : validMobTypes) {
             if (validType.contains(normalized) || normalized.contains(validType)) {
                 if (debug) {
-                    logger.info("§6[MobManager] §7Mapped " + type + " to " + validType);
+                    logInfo(Component.text("Mapped " + type + " to " + validType, NamedTextColor.GRAY));
                 }
                 return validType;
             }
         }
 
-        logger.warning("§c[MobManager] Unknown mob type: " + type + ". Available types: " +
-                String.join(", ", validMobTypes));
+        logWarning(Component.text("Unknown mob type: " + type + ". Available types: " +
+                String.join(", ", validMobTypes), NamedTextColor.YELLOW));
         return null;
     }
 
     private LivingEntity createEntityWithValidation(Location location, String type, int tier, boolean elite) {
         if (!Bukkit.isPrimaryThread()) {
-            logger.severe("§c[MobManager] CRITICAL: createEntityWithValidation called from async thread!");
+            logSevere(Component.text("CRITICAL: createEntityWithValidation called from async thread!", NamedTextColor.RED));
             return null;
         }
 
         try {
             if (debug) {
-                logger.info("§6[MobManager] §7Creating entity: " + type + " T" + tier + (elite ? "+" : "") +
-                        " (Elite-only: " + eliteOnlyTypes.contains(type) + ")");
+                logInfo(Component.text("Creating entity: " + type + " T" + tier + (elite ? "+" : "") +
+                        " (Elite-only: " + eliteOnlyTypes.contains(type) + ")", NamedTextColor.GRAY));
             }
 
             LivingEntity entity = null;
@@ -1984,7 +1997,7 @@ public class MobManager implements Listener {
                 entity = createEntityUsingMobTypeSystem(location, type, tier, elite);
                 if (entity != null) {
                     if (debug) {
-                        logger.info("§a[MobManager] §7Entity created via MobType system: " + type);
+                        logInfo(Component.text("Entity created via MobType system: " + type, NamedTextColor.GREEN));
                     }
                     return entity;
                 }
@@ -1993,7 +2006,7 @@ public class MobManager implements Listener {
             entity = createEntityWithMultipleAttempts(location, type, tier, elite);
             if (entity != null) {
                 if (debug) {
-                    logger.info("§a[MobManager] §7Entity created via direct spawning: " + type);
+                    logInfo(Component.text("Entity created via direct spawning: " + type, NamedTextColor.GREEN));
                 }
                 return entity;
             }
@@ -2001,7 +2014,7 @@ public class MobManager implements Listener {
             return createEntityFinalFallback(location, type, tier, elite);
 
         } catch (Exception e) {
-            logger.warning("§c[MobManager] Entity creation error for " + type + ": " + e.getMessage());
+            logWarning(Component.text("Entity creation error for " + type + ": " + e.getMessage(), NamedTextColor.YELLOW));
             if (debug) e.printStackTrace();
             return null;
         }
@@ -2009,18 +2022,18 @@ public class MobManager implements Listener {
 
     private LivingEntity createEntityWithMultipleAttempts(Location location, String type, int tier, boolean elite) {
         if (!Bukkit.isPrimaryThread()) {
-            logger.severe("§c[MobManager] CRITICAL: createEntityWithMultipleAttempts called from async thread!");
+            logSevere(Component.text("CRITICAL: createEntityWithMultipleAttempts called from async thread!", NamedTextColor.RED));
             return null;
         }
 
         EntityType entityType = mobTypeMapping.get(type);
         if (entityType == null) {
-            logger.warning("§c[MobManager] No EntityType mapping for: " + type);
+            logWarning(Component.text("No EntityType mapping for: " + type, NamedTextColor.YELLOW));
             return null;
         }
 
         if (!isLivingEntityType(entityType)) {
-            logger.warning("§c[MobManager] EntityType " + entityType + " is not a living entity");
+            logWarning(Component.text("EntityType " + entityType + " is not a living entity", NamedTextColor.YELLOW));
             return null;
         }
 
@@ -2028,7 +2041,7 @@ public class MobManager implements Listener {
             try {
                 World world = location.getWorld();
                 if (world == null) {
-                    logger.warning("§c[MobManager] World is null for location");
+                    logWarning(Component.text("World is null for location", NamedTextColor.YELLOW));
                     return null;
                 }
 
@@ -2045,19 +2058,19 @@ public class MobManager implements Listener {
                         configureEntityEquipment(entity, tier, elite);
 
                         if (debug && attempt > 1) {
-                            logger.info("§6[MobManager] §7Entity creation succeeded on attempt " + attempt + " for " + type);
+                            logInfo(Component.text("Entity creation succeeded on attempt " + attempt + " for " + type, NamedTextColor.GRAY));
                         }
 
                         return entity;
                     } else {
                         entity.remove();
                         if (debug) {
-                            logger.warning("§c[MobManager] Created entity was invalid on attempt " + attempt);
+                            logWarning(Component.text("Created entity was invalid on attempt " + attempt, NamedTextColor.YELLOW));
                         }
                     }
                 } else {
                     if (debug) {
-                        logger.warning("§c[MobManager] world.spawnEntity returned null on attempt " + attempt + " for " + type);
+                        logWarning(Component.text("world.spawnEntity returned null on attempt " + attempt + " for " + type, NamedTextColor.YELLOW));
                     }
                 }
 
@@ -2071,7 +2084,7 @@ public class MobManager implements Listener {
                 }
 
             } catch (Exception e) {
-                logger.warning("§c[MobManager] Entity creation attempt " + attempt + " failed for " + type + ": " + e.getMessage());
+                logWarning(Component.text("Entity creation attempt " + attempt + " failed for " + type + ": " + e.getMessage(), NamedTextColor.YELLOW));
             }
         }
 
@@ -2093,7 +2106,7 @@ public class MobManager implements Listener {
             return MobType.getById("skeleton") != null;
         } catch (Exception e) {
             if (debug) {
-                logger.warning("§6[MobManager] MobType system not available, using fallback: " + e.getMessage());
+                logWarning(Component.text("MobType system not available, using fallback: " + e.getMessage(), NamedTextColor.YELLOW));
             }
             return false;
         }
@@ -2101,7 +2114,7 @@ public class MobManager implements Listener {
 
     private LivingEntity createEntityUsingMobTypeSystem(Location location, String type, int tier, boolean elite) {
         if (!Bukkit.isPrimaryThread()) {
-            logger.severe("§c[MobManager] CRITICAL: createEntityUsingMobTypeSystem called from async thread!");
+            logSevere(Component.text("CRITICAL: createEntityUsingMobTypeSystem called from async thread!", NamedTextColor.RED));
             return null;
         }
 
@@ -2109,13 +2122,13 @@ public class MobManager implements Listener {
             MobType mobType = MobType.getById(type);
             if (mobType == null) {
                 if (debug) {
-                    logger.warning("§c[MobManager] MobType.getById returned null for: " + type);
+                    logWarning(Component.text("MobType.getById returned null for: " + type, NamedTextColor.YELLOW));
                 }
                 return null;
             }
 
             if (eliteOnlyTypes.contains(type) && !elite) {
-                logger.warning("§c[MobManager] " + type + " is an elite-only type but elite=false was specified");
+                logWarning(Component.text(type + " is an elite-only type but elite=false was specified", NamedTextColor.YELLOW));
                 return null;
             }
 
@@ -2124,24 +2137,24 @@ public class MobManager implements Listener {
             if (elite || mobType.isElite()) {
                 customMob = new EliteMob(mobType, tier);
                 if (debug) {
-                    logger.info("§d[MobManager] §7Creating EliteMob for " + type + " T" + tier);
+                    logInfo(Component.text("Creating EliteMob for " + type + " T" + tier, NamedTextColor.LIGHT_PURPLE));
                 }
             } else {
                 customMob = new CustomMob(mobType, tier, false);
                 if (debug) {
-                    logger.info("§a[MobManager] §7Creating CustomMob for " + type + " T" + tier);
+                    logInfo(Component.text("Creating CustomMob for " + type + " T" + tier, NamedTextColor.GREEN));
                 }
             }
 
             boolean spawnSuccess = customMob.spawn(location);
             if (!spawnSuccess) {
-                logger.warning("§c[MobManager] CustomMob spawn failed for " + type);
+                logWarning(Component.text("CustomMob spawn failed for " + type, NamedTextColor.YELLOW));
                 return null;
             }
 
             LivingEntity entity = customMob.getEntity();
             if (entity == null) {
-                logger.warning("§c[MobManager] CustomMob entity is null after spawn for " + type);
+                logWarning(Component.text("CustomMob entity is null after spawn for " + type, NamedTextColor.YELLOW));
                 return null;
             }
 
@@ -2150,7 +2163,7 @@ public class MobManager implements Listener {
             return entity;
 
         } catch (Exception e) {
-            logger.warning("§c[MobManager] MobType system creation failed for " + type + ": " + e.getMessage());
+            logWarning(Component.text("MobType system creation failed for " + type + ": " + e.getMessage(), NamedTextColor.YELLOW));
             if (debug) e.printStackTrace();
             return null;
         }
@@ -2158,14 +2171,14 @@ public class MobManager implements Listener {
 
     private LivingEntity createEntityFinalFallback(Location location, String type, int tier, boolean elite) {
         if (!Bukkit.isPrimaryThread()) {
-            logger.severe("§c[MobManager] CRITICAL: createEntityFinalFallback called from async thread!");
+            logSevere(Component.text("CRITICAL: createEntityFinalFallback called from async thread!", NamedTextColor.RED));
             return null;
         }
 
         try {
             World world = location.getWorld();
             if (world == null) {
-                logger.warning("§c[MobManager] World is null for final fallback");
+                logWarning(Component.text("World is null for final fallback", NamedTextColor.YELLOW));
                 return null;
             }
 
@@ -2176,13 +2189,13 @@ public class MobManager implements Listener {
                 configureBasicEntity(entity, type, tier, elite);
 
                 if (debug) {
-                    logger.info("§6[MobManager] §7Created entity using final fallback (" + fallbackType + ") for: " + type);
+                    logInfo(Component.text("Created entity using final fallback (" + fallbackType + ") for: " + type, NamedTextColor.GRAY));
                 }
 
                 return entity;
             }
         } catch (Exception e) {
-            logger.severe("§c[MobManager] Final fallback failed: " + e.getMessage());
+            logSevere(Component.text("Final fallback failed: " + e.getMessage(), NamedTextColor.RED));
         }
 
         return null;
@@ -2227,7 +2240,7 @@ public class MobManager implements Listener {
             configureEntityAttributes(entity, tier, elite);
 
         } catch (Exception e) {
-            logger.warning("§c[MobManager] Failed to configure basic entity: " + e.getMessage());
+            logWarning(Component.text("Failed to configure basic entity: " + e.getMessage(), NamedTextColor.YELLOW));
         }
     }
 
@@ -2248,43 +2261,52 @@ public class MobManager implements Listener {
             }
 
         } catch (Exception e) {
-            logger.warning("§c[MobManager] Failed to configure entity attributes: " + e.getMessage());
+            logWarning(Component.text("Failed to configure entity attributes: " + e.getMessage(), NamedTextColor.YELLOW));
         }
     }
 
     private void configureEntityAppearance(LivingEntity entity, String type, int tier, boolean elite) {
         try {
-            String nameColor = getNameColor(tier, elite);
-            String displayName = nameColor + MobType.getById(type).getFormattedName(tier);
-            if (elite) displayName += " §e[Elite]";
-            displayName += " §7T" + tier;
+            Component nameColor = getNameColor(tier, elite);
+            String displayName = MobType.getById(type).getFormattedName(tier);
 
-            entity.setCustomName(displayName);
+            // Enhanced: Build display name using Adventure Components
+            Component fullName = nameColor
+                    .append(Component.text(displayName));
+
+            if (elite) {
+                fullName = fullName.append(Component.text(" [Elite]", NamedTextColor.YELLOW));
+            }
+
+            fullName = fullName.append(Component.text(" T" + tier, NamedTextColor.GRAY));
+
+            // Convert to legacy string for backwards compatibility with Bukkit
+            entity.setCustomName(LEGACY_SERIALIZER.serialize(fullName));
         } catch (Exception e) {
-            logger.warning("§c[MobManager] Failed to configure entity appearance: " + e.getMessage());
+            logWarning(Component.text("Failed to configure entity appearance: " + e.getMessage(), NamedTextColor.YELLOW));
         }
     }
 
-    private String getNameColor(int tier, boolean elite) {
+    private Component getNameColor(int tier, boolean elite) {
         if (elite) {
             return switch (tier) {
-                case 1 -> "§f";
-                case 2 -> "§a";
-                case 3 -> "§b";
-                case 4 -> "§d";
-                case 5 -> "§e";
-                case 6 -> "§6";
-                default -> "§f";
+                case 1 -> Component.empty().color(NamedTextColor.WHITE);
+                case 2 -> Component.empty().color(NamedTextColor.GREEN);
+                case 3 -> Component.empty().color(NamedTextColor.AQUA);
+                case 4 -> Component.empty().color(NamedTextColor.LIGHT_PURPLE);
+                case 5 -> Component.empty().color(NamedTextColor.YELLOW);
+                case 6 -> Component.empty().color(NamedTextColor.GOLD);
+                default -> Component.empty().color(NamedTextColor.WHITE);
             };
         } else {
             return switch (tier) {
-                case 1 -> "§7";
-                case 2 -> "§2";
-                case 3 -> "§3";
-                case 4 -> "§5";
-                case 5 -> "§6";
-                case 6 -> "§c";
-                default -> "§7";
+                case 1 -> Component.empty().color(NamedTextColor.GRAY);
+                case 2 -> Component.empty().color(NamedTextColor.DARK_GREEN);
+                case 3 -> Component.empty().color(NamedTextColor.DARK_AQUA);
+                case 4 -> Component.empty().color(NamedTextColor.DARK_PURPLE);
+                case 5 -> Component.empty().color(NamedTextColor.GOLD);
+                case 6 -> Component.empty().color(NamedTextColor.RED);
+                default -> Component.empty().color(NamedTextColor.GRAY);
             };
         }
     }
@@ -2300,7 +2322,7 @@ public class MobManager implements Listener {
             applyEntityArmor(entity, tier, elite);
 
         } catch (Exception e) {
-            logger.warning("§c[MobManager] Failed to configure entity equipment: " + e.getMessage());
+            logWarning(Component.text("Failed to configure entity equipment: " + e.getMessage(), NamedTextColor.YELLOW));
         }
     }
 
@@ -2318,16 +2340,17 @@ public class MobManager implements Listener {
             ItemStack weapon = new ItemStack(weaponMaterial);
             ItemMeta meta = weapon.getItemMeta();
             if (meta != null) {
-                List<String> lore = new ArrayList<>();
-                lore.add(ChatColor.GRAY + "Tier " + tier);
-                String rarityLine = elite ? ChatColor.YELLOW + "Elite Weapon" : ChatColor.GRAY + "Common";
+                // Enhanced: Use Adventure Components for lore
+                List<Component> lore = new ArrayList<>();
+                lore.add(Component.text("Tier " + tier, NamedTextColor.GRAY));
+                Component rarityLine = elite ? Component.text("Elite Weapon", NamedTextColor.YELLOW) : Component.text("Common", NamedTextColor.GRAY);
                 lore.add(rarityLine);
 
-                meta.setLore(lore);
+                meta.lore(lore);
                 meta.setUnbreakable(true);
 
-                String displayName = generateMobWeaponName(weaponMaterial, tier, elite);
-                meta.setDisplayName(displayName);
+                Component displayName = generateMobWeaponName(weaponMaterial, tier, elite);
+                meta.displayName(displayName);
 
                 weapon.setItemMeta(meta);
 
@@ -2339,30 +2362,33 @@ public class MobManager implements Listener {
             return weapon;
 
         } catch (Exception e) {
-            logger.warning("§c[MobManager] Failed to create mob weapon: " + e.getMessage());
+            logWarning(Component.text("Failed to create mob weapon: " + e.getMessage(), NamedTextColor.YELLOW));
             return new ItemStack(Material.WOODEN_SWORD);
         }
     }
 
-    private String generateMobWeaponName(Material weaponType, int tier, boolean elite) {
-        ChatColor tierColor = switch (tier) {
-            case 1 -> ChatColor.WHITE;
-            case 2 -> ChatColor.GREEN;
-            case 3 -> ChatColor.AQUA;
-            case 4 -> ChatColor.LIGHT_PURPLE;
-            case 5 -> ChatColor.YELLOW;
-            case 6 -> ChatColor.GOLD;
-            default -> ChatColor.WHITE;
+    private Component generateMobWeaponName(Material weaponType, int tier, boolean elite) {
+        TextColor tierColor = switch (tier) {
+            case 1 -> NamedTextColor.WHITE;
+            case 2 -> NamedTextColor.GREEN;
+            case 3 -> NamedTextColor.AQUA;
+            case 4 -> NamedTextColor.LIGHT_PURPLE;
+            case 5 -> NamedTextColor.YELLOW;
+            case 6 -> NamedTextColor.GOLD;
+            default -> NamedTextColor.WHITE;
         };
 
-        String prefix = elite ? (tierColor.toString() + ChatColor.BOLD) : tierColor.toString();
+        Component nameComponent = Component.empty().color(tierColor);
+        if (elite) {
+            nameComponent = nameComponent.decorate(TextDecoration.BOLD);
+        }
 
         if (tier == 6) {
-            return prefix + "Nether Forged Blade";
+            return nameComponent.append(Component.text("Nether Forged Blade"));
         } else {
             String baseName = weaponType.name().replace("_SWORD", "").replace("_", " ");
             baseName = baseName.substring(0, 1).toUpperCase() + baseName.substring(1).toLowerCase();
-            return prefix + baseName + " Sword";
+            return nameComponent.append(Component.text(baseName + " Sword"));
         }
     }
 
@@ -2401,7 +2427,7 @@ public class MobManager implements Listener {
                         }
                     }
                 } catch (IllegalArgumentException e) {
-                    logger.warning("§c[MobManager] Invalid armor material: " + armorPrefix + " for piece " + i);
+                    logWarning(Component.text("Invalid armor material: " + armorPrefix + " for piece " + i, NamedTextColor.YELLOW));
                 }
             }
 
@@ -2416,7 +2442,7 @@ public class MobManager implements Listener {
             entity.getEquipment().setBootsDropChance(0.0f);
 
         } catch (Exception e) {
-            logger.warning("§c[MobManager] Failed to apply entity armor: " + e.getMessage());
+            logWarning(Component.text("Failed to apply entity armor: " + e.getMessage(), NamedTextColor.YELLOW));
         }
     }
 
@@ -2434,18 +2460,18 @@ public class MobManager implements Listener {
                     weapon.addUnsafeEnchantment(Enchantment.UNBREAKING, 1);
                 }
 
-                String weaponName = generateMobT6WeaponName(weapon.getType(), elite);
-                meta.setDisplayName(weaponName);
+                Component weaponName = generateMobT6WeaponName(weapon.getType(), elite);
+                meta.displayName(weaponName);
 
                 weapon.setItemMeta(meta);
             }
 
             if (debug) {
-                logger.info("§6[MobManager] §7Applied T6 Netherite weapon effects to " + weapon.getType());
+                logInfo(Component.text("Applied T6 Netherite weapon effects to " + weapon.getType(), NamedTextColor.GRAY));
             }
 
         } catch (Exception e) {
-            logger.warning("§c[MobManager] Failed to apply T6 weapon effects: " + e.getMessage());
+            logWarning(Component.text("Failed to apply T6 weapon effects: " + e.getMessage(), NamedTextColor.YELLOW));
         }
 
         return weapon;
@@ -2461,8 +2487,8 @@ public class MobManager implements Listener {
             if (meta != null) {
                 meta.setUnbreakable(true);
 
-                String armorName = generateMobT6ArmorName(armor.getType(), elite);
-                meta.setDisplayName(armorName);
+                Component armorName = generateMobT6ArmorName(armor.getType(), elite);
+                meta.displayName(armorName);
 
                 armor.setItemMeta(meta);
 
@@ -2470,11 +2496,11 @@ public class MobManager implements Listener {
             }
 
             if (debug) {
-                logger.info("§6[MobManager] §7Applied T6 Netherite armor effects with gold trim to " + armor.getType());
+                logInfo(Component.text("Applied T6 Netherite armor effects with gold trim to " + armor.getType(), NamedTextColor.GRAY));
             }
 
         } catch (Exception e) {
-            logger.warning("§c[MobManager] Failed to apply T6 armor effects: " + e.getMessage());
+            logWarning(Component.text("Failed to apply T6 armor effects: " + e.getMessage(), NamedTextColor.YELLOW));
         }
 
         return armor;
@@ -2494,44 +2520,50 @@ public class MobManager implements Listener {
                 item.setItemMeta(armorMeta);
 
                 if (debug) {
-                    logger.info("§6[MobManager] §7Applied gold trim to T6 mob Netherite armor: " + item.getType());
+                    logInfo(Component.text("Applied gold trim to T6 mob Netherite armor: " + item.getType(), NamedTextColor.GRAY));
                 }
             } catch (Exception e) {
-                logger.warning("§c[MobManager] Failed to apply gold trim to mob Netherite armor: " + e.getMessage());
+                logWarning(Component.text("Failed to apply gold trim to mob Netherite armor: " + e.getMessage(), NamedTextColor.YELLOW));
             }
         }
         return item;
     }
 
-    private String generateMobT6WeaponName(Material weaponType, boolean elite) {
-        String prefix = elite ? "§5§lElite " : "§5";
+    private Component generateMobT6WeaponName(Material weaponType, boolean elite) {
+        Component baseComponent = Component.empty().color(NamedTextColor.DARK_PURPLE);
+        if (elite) {
+            baseComponent = baseComponent.decorate(TextDecoration.BOLD);
+        }
 
         return switch (weaponType) {
-            case NETHERITE_SWORD -> prefix + "Nether Forged Blade";
-            case NETHERITE_AXE -> prefix + "Nether Forged War Axe";
-            case NETHERITE_PICKAXE -> prefix + "Nether Forged Crusher";
-            case NETHERITE_SHOVEL -> prefix + "Nether Forged Spade";
-            case NETHERITE_HOE -> prefix + "Nether Forged Scythe";
+            case NETHERITE_SWORD -> baseComponent.append(Component.text("Nether Forged Blade"));
+            case NETHERITE_AXE -> baseComponent.append(Component.text("Nether Forged War Axe"));
+            case NETHERITE_PICKAXE -> baseComponent.append(Component.text("Nether Forged Crusher"));
+            case NETHERITE_SHOVEL -> baseComponent.append(Component.text("Nether Forged Spade"));
+            case NETHERITE_HOE -> baseComponent.append(Component.text("Nether Forged Scythe"));
             default -> {
                 String baseName = weaponType.name().replace("NETHERITE_", "").replace("_", " ");
                 baseName = baseName.substring(0, 1).toUpperCase() + baseName.substring(1).toLowerCase();
-                yield prefix + "Nether Forged " + baseName;
+                yield baseComponent.append(Component.text("Nether Forged " + baseName));
             }
         };
     }
 
-    private String generateMobT6ArmorName(Material armorType, boolean elite) {
-        String prefix = elite ? "§5§lElite " : "§5";
+    private Component generateMobT6ArmorName(Material armorType, boolean elite) {
+        Component baseComponent = Component.empty().color(NamedTextColor.DARK_PURPLE);
+        if (elite) {
+            baseComponent = baseComponent.decorate(TextDecoration.BOLD);
+        }
 
         return switch (armorType) {
-            case NETHERITE_HELMET -> prefix + "Nether Forged Crown";
-            case NETHERITE_CHESTPLATE -> prefix + "Nether Forged Chestguard";
-            case NETHERITE_LEGGINGS -> prefix + "Nether Forged Legguards";
-            case NETHERITE_BOOTS -> prefix + "Nether Forged Warboots";
+            case NETHERITE_HELMET -> baseComponent.append(Component.text("Nether Forged Crown"));
+            case NETHERITE_CHESTPLATE -> baseComponent.append(Component.text("Nether Forged Chestguard"));
+            case NETHERITE_LEGGINGS -> baseComponent.append(Component.text("Nether Forged Legguards"));
+            case NETHERITE_BOOTS -> baseComponent.append(Component.text("Nether Forged Warboots"));
             default -> {
                 String baseName = armorType.name().replace("NETHERITE_", "").replace("_", " ");
                 baseName = baseName.substring(0, 1).toUpperCase() + baseName.substring(1).toLowerCase();
-                yield prefix + "Nether Forged " + baseName;
+                yield baseComponent.append(Component.text("Nether Forged " + baseName));
             }
         };
     }
@@ -2596,7 +2628,7 @@ public class MobManager implements Listener {
             return true;
         } catch (Exception e) {
             if (debug) {
-                logger.warning("§c[MobManager] Error validating spawn location: " + e.getMessage());
+                logWarning(Component.text("Error validating spawn location: " + e.getMessage(), NamedTextColor.YELLOW));
             }
             return false;
         }
@@ -2627,7 +2659,7 @@ public class MobManager implements Listener {
             }
 
         } catch (Exception e) {
-            logger.warning("§c[MobManager] Error registering spawned mob: " + e.getMessage());
+            logWarning(Component.text("Error registering spawned mob: " + e.getMessage(), NamedTextColor.YELLOW));
         }
     }
 
@@ -2636,7 +2668,7 @@ public class MobManager implements Listener {
         failureCounter.put(mobType, count);
 
         if (count > 10 && count % 5 == 0) {
-            logger.warning("§c[MobManager] High failure count for " + mobType + ": " + count + " failures");
+            logWarning(Component.text("High failure count for " + mobType + ": " + count + " failures", NamedTextColor.YELLOW));
         }
     }
 
@@ -2655,7 +2687,7 @@ public class MobManager implements Listener {
 
         if (eliteOnlyTypes.contains(type.toLowerCase()) && !elite) {
             if (debug) {
-                logger.warning("§c[MobManager] " + type + " is an elite-only type but elite=false");
+                logWarning(Component.text(type + " is an elite-only type but elite=false", NamedTextColor.YELLOW));
             }
             return false;
         }
@@ -2693,8 +2725,25 @@ public class MobManager implements Listener {
 
             return true;
         } catch (Exception e) {
-            logger.warning("§c[MobManager] Error checking spawner mob validity: " + e.getMessage());
+            logWarning(Component.text("Error checking spawner mob validity: " + e.getMessage(), NamedTextColor.YELLOW));
             return false;
         }
+    }
+
+    // ================ ADVENTURE API LOGGING HELPERS ================
+
+    /**
+     * Enhanced logging methods using Adventure Components for consistency
+     */
+    private void logInfo(Component message) {
+        logger.info(LEGACY_SERIALIZER.serialize(LOG_PREFIX.append(Component.space()).append(message)));
+    }
+
+    private void logWarning(Component message) {
+        logger.warning(LEGACY_SERIALIZER.serialize(LOG_PREFIX.append(Component.space()).append(message)));
+    }
+
+    private void logSevere(Component message) {
+        logger.severe(LEGACY_SERIALIZER.serialize(LOG_PREFIX.append(Component.space()).append(message)));
     }
 }

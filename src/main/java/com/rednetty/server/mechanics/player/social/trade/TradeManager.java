@@ -2,14 +2,19 @@ package com.rednetty.server.mechanics.player.social.trade;
 
 import com.rednetty.server.YakRealms;
 import com.rednetty.server.mechanics.player.settings.Toggles;
-import org.bukkit.ChatColor;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.NamedTextColor;
+import net.kyori.adventure.text.format.TextDecoration;
+import net.kyori.adventure.text.minimessage.MiniMessage;
+import net.kyori.adventure.sound.Sound;
+import net.kyori.adventure.title.Title;
 import org.bukkit.Material;
 import org.bukkit.Particle;
-import org.bukkit.Sound;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.scheduler.BukkitRunnable;
 
+import java.time.Duration;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -18,6 +23,7 @@ import java.util.UUID;
 /**
  * TradeManager handles the management of trade sessions between players.
  * It manages trade requests, active trades, trade cancellations, and trade completions.
+ * Updated for Adventure API and Paper Spigot 1.21.7.
  */
 public class TradeManager {
 
@@ -25,6 +31,7 @@ public class TradeManager {
     private final Map<UUID, Trade> activeTrades; // Map of active trades by player UUID
     private final Map<UUID, UUID> pendingTradeRequests; // Map of pending trade requests by sender UUID to recipient UUID
     private final Map<Trade, TradeMenu> tradeMenus; // Map of trades to their associated TradeMenu
+    private final MiniMessage miniMessage; // MiniMessage instance for text formatting
 
     /**
      * Constructs a new TradeManager.
@@ -36,9 +43,8 @@ public class TradeManager {
         this.activeTrades = new HashMap<>();
         this.pendingTradeRequests = new HashMap<>();
         this.tradeMenus = new HashMap<>();
+        this.miniMessage = MiniMessage.miniMessage();
     }
-
-
 
     /**
      * Checks if a player has any pending trade requests.
@@ -72,16 +78,23 @@ public class TradeManager {
         if (recipientUUID != null) {
             Player recipient = plugin.getServer().getPlayer(recipientUUID);
             if (recipient != null && recipient.isOnline()) {
-                recipient.sendMessage(ChatColor.RED + "✖ " + ChatColor.GRAY + "Trade request from " + ChatColor.YELLOW + sender.getDisplayName() + ChatColor.GRAY + " has been cancelled.");
-                recipient.playSound(recipient.getLocation(), Sound.ENTITY_VILLAGER_NO, 1.0f, 1.0f);
+                Component recipientMessage = Component.text("✖ ", NamedTextColor.RED)
+                        .append(Component.text("Trade request from ", NamedTextColor.GRAY))
+                        .append(Component.text(sender.getDisplayName(), NamedTextColor.YELLOW))
+                        .append(Component.text(" has been cancelled.", NamedTextColor.GRAY));
+                recipient.sendMessage(recipientMessage);
+
+                recipient.playSound(Sound.sound(org.bukkit.Sound.ENTITY_VILLAGER_NO, Sound.Source.PLAYER, 1.0f, 1.0f));
             }
-            sender.sendMessage(ChatColor.RED + "✖ " + ChatColor.GRAY + "Your trade request has been cancelled.");
-            sender.playSound(sender.getLocation(), Sound.ENTITY_VILLAGER_NO, 1.0f, 1.0f);
+
+            Component senderMessage = Component.text("✖ ", NamedTextColor.RED)
+                    .append(Component.text("Your trade request has been cancelled.", NamedTextColor.GRAY));
+            sender.sendMessage(senderMessage);
+
+            sender.playSound(Sound.sound(org.bukkit.Sound.ENTITY_VILLAGER_NO, Sound.Source.PLAYER, 1.0f, 1.0f));
             plugin.getLogger().info("Trade request cancelled by " + sender.getDisplayName());
         }
     }
-
-
 
     /**
      * Checks if a player is currently involved in a trade.
@@ -110,12 +123,19 @@ public class TradeManager {
             returnItems(player, trade.getPlayerItems(player));
             returnItems(otherPlayer, trade.getPlayerItems(otherPlayer));
 
-            player.sendMessage(ChatColor.RED + "✖ " + ChatColor.GRAY + "Trade cancelled. Your items have been returned.");
-            otherPlayer.sendMessage(ChatColor.RED + "✖ " + ChatColor.GRAY + "Trade cancelled by " + player.getDisplayName() + ". Your items have been returned.");
+            Component playerMessage = Component.text("✖ ", NamedTextColor.RED)
+                    .append(Component.text("Trade cancelled. Your items have been returned.", NamedTextColor.GRAY));
+            Component otherPlayerMessage = Component.text("✖ ", NamedTextColor.RED)
+                    .append(Component.text("Trade cancelled by ", NamedTextColor.GRAY))
+                    .append(Component.text(player.getDisplayName(), NamedTextColor.YELLOW))
+                    .append(Component.text(". Your items have been returned.", NamedTextColor.GRAY));
+
+            player.sendMessage(playerMessage);
+            otherPlayer.sendMessage(otherPlayerMessage);
 
             // Play sounds for both players
-            player.playSound(player.getLocation(), Sound.ENTITY_VILLAGER_NO, 1.0f, 1.0f);
-            otherPlayer.playSound(otherPlayer.getLocation(), Sound.ENTITY_VILLAGER_NO, 1.0f, 1.0f);
+            player.playSound(Sound.sound(org.bukkit.Sound.ENTITY_VILLAGER_NO, Sound.Source.PLAYER, 1.0f, 1.0f));
+            otherPlayer.playSound(Sound.sound(org.bukkit.Sound.ENTITY_VILLAGER_NO, Sound.Source.PLAYER, 1.0f, 1.0f));
 
             // Close inventories for both players
             new BukkitRunnable() {
@@ -153,13 +173,25 @@ public class TradeManager {
             activeTrades.remove(target.getUniqueId());
             tradeMenus.remove(trade);
 
-            // Send success messages
-            initiator.sendMessage(ChatColor.GREEN + "✔ " + ChatColor.GRAY + "Trade completed successfully!");
-            target.sendMessage(ChatColor.GREEN + "✔ " + ChatColor.GRAY + "Trade completed successfully!");
+            Component successMessage = Component.text("✓ ", NamedTextColor.GREEN)
+                    .append(Component.text("Trade completed successfully!", NamedTextColor.GRAY));
+
+            initiator.sendMessage(successMessage);
+            target.sendMessage(successMessage);
+
+            // Show title message for dramatic effect
+            Title successTitle = Title.title(
+                    Component.text("Trade Complete!", NamedTextColor.GREEN, TextDecoration.BOLD),
+                    Component.text("Items exchanged successfully", NamedTextColor.GRAY),
+                    Title.Times.times(Duration.ofMillis(500), Duration.ofSeconds(2), Duration.ofMillis(500))
+            );
+
+            initiator.showTitle(successTitle);
+            target.showTitle(successTitle);
 
             // Play level-up sounds for both players
-            initiator.playSound(initiator.getLocation(), Sound.ENTITY_PLAYER_LEVELUP, 1.0f, 2.0f);
-            target.playSound(target.getLocation(), Sound.ENTITY_PLAYER_LEVELUP, 1.0f, 2.0f);
+            initiator.playSound(Sound.sound(org.bukkit.Sound.ENTITY_PLAYER_LEVELUP, Sound.Source.PLAYER, 1.0f, 2.0f));
+            target.playSound(Sound.sound(org.bukkit.Sound.ENTITY_PLAYER_LEVELUP, Sound.Source.PLAYER, 1.0f, 2.0f));
 
             plugin.getLogger().info("Trade completed between " + initiator.getDisplayName() + " and " + target.getDisplayName());
         }
@@ -248,62 +280,84 @@ public class TradeManager {
         plugin.getLogger().info("Exchanged " + items.size() + " items from " + from.getDisplayName() + " to " + to.getDisplayName());
     }
 
-    //NEW
     /**
-     *  trade request sending with proper toggle validation
+     * Trade request sending with proper toggle validation
      */
     public void sendTradeRequest(Player sender, Player recipient) {
         plugin.getLogger().info("Sending trade request from " + sender.getDisplayName() + " to " + recipient.getDisplayName());
 
-        //  Check if sender has trading enabled
+        // Check if sender has trading enabled
         if (!isPlayerTradingEnabled(sender)) {
-            sender.sendMessage(ChatColor.RED + "⚠ " + ChatColor.GRAY + "You have trading disabled! Use /toggle to enable it.");
+            Component message = Component.text("⚠ ", NamedTextColor.RED)
+                    .append(Component.text("You have trading disabled! Use /toggle to enable it.", NamedTextColor.GRAY));
+            sender.sendMessage(message);
             return;
         }
 
-        //  Check if recipient has trading enabled
+        // Check if recipient has trading enabled
         if (!isPlayerTradingEnabled(recipient)) {
-            sender.sendMessage(ChatColor.RED + "⚠ " + ChatColor.GRAY + recipient.getDisplayName() + " has trading disabled!");
+            Component message = Component.text("⚠ ", NamedTextColor.RED)
+                    .append(Component.text(recipient.getDisplayName() + " has trading disabled!", NamedTextColor.GRAY));
+            sender.sendMessage(message);
             return;
         }
 
         if (isPlayerTrading(sender) || isPlayerTrading(recipient)) {
-            sender.sendMessage(ChatColor.RED + "⚠ " + ChatColor.GRAY + "One of the players is already in a trade.");
+            Component message = Component.text("⚠ ", NamedTextColor.RED)
+                    .append(Component.text("One of the players is already in a trade.", NamedTextColor.GRAY));
+            sender.sendMessage(message);
             return;
         }
 
         if (hasPendingTradeRequest(recipient)) {
-            sender.sendMessage(ChatColor.RED + "⚠ " + ChatColor.GRAY + "The player already has a pending trade request.");
+            Component message = Component.text("⚠ ", NamedTextColor.RED)
+                    .append(Component.text("The player already has a pending trade request.", NamedTextColor.GRAY));
+            sender.sendMessage(message);
             return;
         }
 
         pendingTradeRequests.put(sender.getUniqueId(), recipient.getUniqueId());
-        sender.sendMessage(ChatColor.GREEN + "✉ " + ChatColor.GRAY + "Trade request sent to " + ChatColor.YELLOW + recipient.getDisplayName());
-        recipient.sendMessage(ChatColor.GREEN + "✉ " + ChatColor.YELLOW + sender.getDisplayName() + ChatColor.GRAY + " has sent you a trade request. Open their interaction menu to accept.");
+
+        Component senderMessage = Component.text("✉ ", NamedTextColor.GREEN)
+                .append(Component.text("Trade request sent to ", NamedTextColor.GRAY))
+                .append(Component.text(recipient.getDisplayName(), NamedTextColor.YELLOW));
+        sender.sendMessage(senderMessage);
+
+        Component recipientMessage = Component.text("✉ ", NamedTextColor.GREEN)
+                .append(Component.text(sender.getDisplayName(), NamedTextColor.YELLOW))
+                .append(Component.text(" has sent you a trade request. Open their interaction menu to accept.", NamedTextColor.GRAY));
+        recipient.sendMessage(recipientMessage);
 
         // Play sounds and spawn particles for both players
-        playSoundAndParticles(sender, recipient, Sound.BLOCK_NOTE_BLOCK_CHIME, Particle.END_ROD, 1.2f, 1.0f);
+        playSoundAndParticles(sender, recipient, org.bukkit.Sound.BLOCK_NOTE_BLOCK_CHIME, Particle.END_ROD, 1.2f, 1.0f);
     }
 
     /**
-     *  trade request acceptance with toggle validation
+     * Trade request acceptance with toggle validation
      */
     public void acceptTradeRequest(Player recipient, Player sender) {
         plugin.getLogger().info("Accepting trade request from " + sender.getDisplayName() + " by " + recipient.getDisplayName());
 
-        //  Double-check trading toggles before accepting
+        // Double-check trading toggles before accepting
         if (!isPlayerTradingEnabled(recipient)) {
-            recipient.sendMessage(ChatColor.RED + "⚠ " + ChatColor.GRAY + "You have trading disabled! Use /toggle to enable it.");
+            Component message = Component.text("⚠ ", NamedTextColor.RED)
+                    .append(Component.text("You have trading disabled! Use /toggle to enable it.", NamedTextColor.GRAY));
+            recipient.sendMessage(message);
             return;
         }
 
         if (!isPlayerTradingEnabled(sender)) {
-            recipient.sendMessage(ChatColor.RED + "⚠ " + ChatColor.GRAY + sender.getDisplayName() + " has trading disabled!");
+            Component message = Component.text("⚠ ", NamedTextColor.RED)
+                    .append(Component.text(sender.getDisplayName() + " has trading disabled!", NamedTextColor.GRAY));
+            recipient.sendMessage(message);
             return;
         }
 
         if (!hasPendingTradeRequest(recipient, sender)) {
-            recipient.sendMessage(ChatColor.RED + "⚠ " + ChatColor.GRAY + "No pending trade request from " + ChatColor.YELLOW + sender.getDisplayName());
+            Component message = Component.text("⚠ ", NamedTextColor.RED)
+                    .append(Component.text("No pending trade request from ", NamedTextColor.GRAY))
+                    .append(Component.text(sender.getDisplayName(), NamedTextColor.YELLOW));
+            recipient.sendMessage(message);
             return;
         }
 
@@ -311,29 +365,37 @@ public class TradeManager {
         initiateTrade(sender, recipient);
 
         // Play sounds and spawn particles for both players
-        playSoundAndParticles(sender, recipient, Sound.BLOCK_ENCHANTMENT_TABLE_USE, Particle.INSTANT_EFFECT, 1.0f, 1.0f);
+        playSoundAndParticles(sender, recipient, org.bukkit.Sound.BLOCK_ENCHANTMENT_TABLE_USE, Particle.INSTANT_EFFECT, 1.0f, 1.0f);
     }
 
     /**
-     *  trade initiation with final toggle validation
+     * Trade initiation with final toggle validation
      */
     public void initiateTrade(Player initiator, Player target) {
         plugin.getLogger().info("Initiating trade between " + initiator.getDisplayName() + " and " + target.getDisplayName());
 
-        //  Final check for trading toggles
+        // Final check for trading toggles
         if (!isPlayerTradingEnabled(initiator)) {
-            initiator.sendMessage(ChatColor.RED + "⚠ " + ChatColor.GRAY + "You have trading disabled! Use /toggle to enable it.");
+            Component message = Component.text("⚠ ", NamedTextColor.RED)
+                    .append(Component.text("You have trading disabled! Use /toggle to enable it.", NamedTextColor.GRAY));
+            initiator.sendMessage(message);
             return;
         }
 
         if (!isPlayerTradingEnabled(target)) {
-            initiator.sendMessage(ChatColor.RED + "⚠ " + ChatColor.GRAY + target.getDisplayName() + " has trading disabled!");
-            target.sendMessage(ChatColor.RED + "⚠ " + ChatColor.GRAY + "You have trading disabled! Use /toggle to enable it.");
+            Component initiatorMessage = Component.text("⚠ ", NamedTextColor.RED)
+                    .append(Component.text(target.getDisplayName() + " has trading disabled!", NamedTextColor.GRAY));
+            Component targetMessage = Component.text("⚠ ", NamedTextColor.RED)
+                    .append(Component.text("You have trading disabled! Use /toggle to enable it.", NamedTextColor.GRAY));
+            initiator.sendMessage(initiatorMessage);
+            target.sendMessage(targetMessage);
             return;
         }
 
         if (isPlayerTrading(initiator) || isPlayerTrading(target)) {
-            initiator.sendMessage(ChatColor.RED + "⚠ " + ChatColor.GRAY + "One of the players is already in a trade.");
+            Component message = Component.text("⚠ ", NamedTextColor.RED)
+                    .append(Component.text("One of the players is already in a trade.", NamedTextColor.GRAY));
+            initiator.sendMessage(message);
             plugin.getLogger().warning("Trade initiation failed: One of the players is already in a trade.");
             return;
         }
@@ -360,7 +422,7 @@ public class TradeManager {
     }
 
     /**
-     *  Check if a player has trading enabled via toggles
+     * Check if a player has trading enabled via toggles
      */
     private boolean isPlayerTradingEnabled(Player player) {
         if (player == null || !player.isOnline()) {
@@ -378,7 +440,7 @@ public class TradeManager {
     }
 
     /**
-     *  Get a player's trading status for display/debugging
+     * Get a player's trading status for display/debugging
      */
     public String getPlayerTradingStatus(Player player) {
         if (player == null) {
@@ -402,7 +464,7 @@ public class TradeManager {
     }
 
     /**
-     *  Validate trade eligibility including toggle checks
+     * Validate trade eligibility including toggle checks
      */
     public boolean canPlayersTradeTogether(Player player1, Player player2) {
         if (player1 == null || player2 == null) {
@@ -435,6 +497,7 @@ public class TradeManager {
         double distance = player1.getLocation().distance(player2.getLocation());
         return distance <= 10.0; // Maximum trade distance of 10 blocks
     }
+
     /**
      * Plays sound and spawns particles for two players.
      *
@@ -445,9 +508,9 @@ public class TradeManager {
      * @param pitch1    The pitch of the sound for the sender.
      * @param pitch2    The pitch of the sound for the recipient.
      */
-    private void playSoundAndParticles(Player sender, Player recipient, Sound sound, Particle particle, float pitch1, float pitch2) {
-        sender.playSound(sender.getLocation(), sound, 0.7f, pitch1);
-        recipient.playSound(recipient.getLocation(), sound, 0.7f, pitch2);
+    private void playSoundAndParticles(Player sender, Player recipient, org.bukkit.Sound sound, Particle particle, float pitch1, float pitch2) {
+        sender.playSound(Sound.sound(sound, Sound.Source.PLAYER, 0.7f, pitch1));
+        recipient.playSound(Sound.sound(sound, Sound.Source.PLAYER, 0.7f, pitch2));
 
         // Spawn particles around both players
         sender.spawnParticle(particle, sender.getLocation().add(0, 1.8, 0), 15, 0.5, 0.1, 0.5, 0.05);

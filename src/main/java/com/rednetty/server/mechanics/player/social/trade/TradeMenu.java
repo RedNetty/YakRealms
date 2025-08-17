@@ -2,10 +2,13 @@ package com.rednetty.server.mechanics.player.social.trade;
 
 import com.rednetty.server.YakRealms;
 import com.rednetty.server.utils.items.ItemUtils;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.NamedTextColor;
+import net.kyori.adventure.text.format.TextDecoration;
+import net.kyori.adventure.sound.Sound;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.Particle;
-import org.bukkit.Sound;
 import org.bukkit.entity.Player;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryCloseEvent;
@@ -29,9 +32,9 @@ public class TradeMenu {
     private static final Map<UUID, Boolean> playersInPrompt = new ConcurrentHashMap<>();
 
     private static final long CLICK_COOLDOWN = 50; // 50ms cooldown between clicks
-    //  Add click processing prevention
+    // Add click processing prevention
     private final Map<UUID, Long> lastClickTime = new ConcurrentHashMap<>();
-    //  Add processing lock to prevent concurrent modifications
+    // Add processing lock to prevent concurrent modifications
     private volatile boolean processingClick = false;
 
     private final YakRealms plugin;
@@ -125,7 +128,7 @@ public class TradeMenu {
         inventory.setItem(slot, new ItemUtils().createPlayerHead(player));
     }
 
-    //  Completely rewritten click handling with proper synchronization
+    // Completely rewritten click handling with proper synchronization
     public void handleClick(InventoryClickEvent event) {
         // Always cancel the event first to prevent default behavior
         event.setCancelled(true);
@@ -133,7 +136,7 @@ public class TradeMenu {
         Player player = (Player) event.getWhoClicked();
         UUID playerId = player.getUniqueId();
 
-        //  Implement click cooldown to prevent spam
+        // Implement click cooldown to prevent spam
         long currentTime = System.currentTimeMillis();
         Long lastClick = lastClickTime.get(playerId);
         if (lastClick != null && (currentTime - lastClick) < CLICK_COOLDOWN) {
@@ -141,7 +144,7 @@ public class TradeMenu {
         }
         lastClickTime.put(playerId, currentTime);
 
-        //  Prevent concurrent click processing
+        // Prevent concurrent click processing
         if (processingClick) {
             return;
         }
@@ -166,7 +169,7 @@ public class TradeMenu {
         }
     }
 
-    //  Safe click handling that runs on the next tick
+    // Safe click handling that runs on the next tick
     private void handleClickSafely(InventoryClickEvent event) {
         Player player = (Player) event.getWhoClicked();
         int slot = event.getRawSlot();
@@ -193,7 +196,7 @@ public class TradeMenu {
         }
 
         // Handle clicks in player's inventory (item addition)
-        //  Better validation for player inventory clicks
+        // Better validation for player inventory clicks
         if (event.getClickedInventory() != null &&
                 event.getClickedInventory().equals(player.getInventory()) &&
                 event.getCurrentItem() != null &&
@@ -210,7 +213,7 @@ public class TradeMenu {
     private void handleConfirmClick(Player player) {
         trade.setPlayerConfirmed(player, !trade.isPlayerConfirmed(player));
         updateConfirmButton(player);
-        player.playSound(player.getLocation(), Sound.UI_BUTTON_CLICK, 0.5f, 1.2f);
+        player.playSound(Sound.sound(org.bukkit.Sound.UI_BUTTON_CLICK, Sound.Source.PLAYER, 0.5f, 1.2f));
 
         if (trade.isConfirmed()) {
             // Schedule completion for next tick
@@ -226,7 +229,7 @@ public class TradeMenu {
         }
     }
 
-    //  Improved item removal with better inventory management
+    // Improved item removal with better inventory management
     private void handleItemRemoval(Player player, ItemStack item, int slot) {
         if (item == null || item.getType() == Material.AIR) {
             return;
@@ -259,14 +262,14 @@ public class TradeMenu {
                 player.updateInventory();
 
                 // Play feedback
-                player.playSound(player.getLocation(), Sound.ENTITY_ITEM_PICKUP, 0.5f, 1.2f);
+                player.playSound(Sound.sound(org.bukkit.Sound.ENTITY_ITEM_PICKUP, Sound.Source.PLAYER, 0.5f, 1.2f));
                 player.spawnParticle(Particle.CLOUD, player.getLocation().add(0, 1, 0),
                         10, 0.2, 0.2, 0.2, 0.05);
             }
         }.runTask(plugin);
     }
 
-    //  Improved item addition with better validation
+    // Improved item addition with better validation
     private void handleItemAddition(Player player, ItemStack item) {
         if (item == null || item.getType() == Material.AIR) {
             return;
@@ -306,7 +309,7 @@ public class TradeMenu {
                         player.updateInventory();
 
                         // Play feedback
-                        player.playSound(player.getLocation(), Sound.ENTITY_ITEM_PICKUP, 0.5f, 0.8f);
+                        player.playSound(Sound.sound(org.bukkit.Sound.ENTITY_ITEM_PICKUP, Sound.Source.PLAYER, 0.5f, 0.8f));
                         player.spawnParticle(Particle.INSTANT_EFFECT, player.getLocation().add(0, 1, 0),
                                 15, 0.2, 0.2, 0.2, 0.05);
                     }
@@ -324,13 +327,23 @@ public class TradeMenu {
         ItemStack button = new ItemStack(confirmed ? Material.LIME_DYE : Material.GRAY_DYE);
         ItemMeta meta = button.getItemMeta();
         if (meta != null) {
-            meta.setDisplayName(confirmed ? "§aConfirmed" : "§cClick to Confirm");
-            List<String> lore = Arrays.asList(
-                    "",
-                    confirmed ? "§7Click to unconfirm" : "§7Click when ready to trade",
-                    "§7Trading: §e" + trade.getPlayerItems(player).size() + " §7items"
+            // Use Adventure API for item display names and lore
+            Component displayName = confirmed
+                    ? Component.text("Confirmed", NamedTextColor.GREEN)
+                    : Component.text("Click to Confirm", NamedTextColor.RED);
+
+            meta.displayName(displayName);
+
+            List<Component> lore = Arrays.asList(
+                    Component.empty(),
+                    confirmed
+                            ? Component.text("Click to unconfirm", NamedTextColor.GRAY)
+                            : Component.text("Click when ready to trade", NamedTextColor.GRAY),
+                    Component.text("Trading: ", NamedTextColor.GRAY)
+                            .append(Component.text(trade.getPlayerItems(player).size(), NamedTextColor.YELLOW))
+                            .append(Component.text(" items", NamedTextColor.GRAY))
             );
-            meta.setLore(lore);
+            meta.lore(lore);
             button.setItemMeta(meta);
         }
         inventory.setItem(slot, button);
@@ -340,8 +353,8 @@ public class TradeMenu {
         Player initiator = trade.getInitiator();
         Player target = trade.getTarget();
 
-        initiator.playSound(initiator.getLocation(), Sound.ENTITY_PLAYER_LEVELUP, 0.7f, 1.0f);
-        target.playSound(target.getLocation(), Sound.ENTITY_PLAYER_LEVELUP, 0.7f, 1.0f);
+        initiator.playSound(Sound.sound(org.bukkit.Sound.ENTITY_PLAYER_LEVELUP, Sound.Source.PLAYER, 0.7f, 1.0f));
+        target.playSound(Sound.sound(org.bukkit.Sound.ENTITY_PLAYER_LEVELUP, Sound.Source.PLAYER, 0.7f, 1.0f));
 
         initiator.spawnParticle(Particle.HAPPY_VILLAGER,
                 initiator.getLocation().add(0, 2, 0),
@@ -389,13 +402,16 @@ public class TradeMenu {
         lastClickTime.remove(initiator.getUniqueId());
         lastClickTime.remove(target.getUniqueId());
 
-        // Send cancellation messages
-        initiator.sendMessage("§c✖ Trade cancelled: " + reason);
-        target.sendMessage("§c✖ Trade cancelled: " + reason);
+        // Send cancellation messages using Adventure API
+        Component cancelMessage = Component.text("✖ Trade cancelled: ", NamedTextColor.RED)
+                .append(Component.text(reason, NamedTextColor.GRAY));
+
+        initiator.sendMessage(cancelMessage);
+        target.sendMessage(cancelMessage);
 
         // Play cancellation sound
-        initiator.playSound(initiator.getLocation(), Sound.ENTITY_VILLAGER_NO, 0.5f, 1.0f);
-        target.playSound(target.getLocation(), Sound.ENTITY_VILLAGER_NO, 0.5f, 1.0f);
+        initiator.playSound(Sound.sound(org.bukkit.Sound.ENTITY_VILLAGER_NO, Sound.Source.PLAYER, 0.5f, 1.0f));
+        target.playSound(Sound.sound(org.bukkit.Sound.ENTITY_VILLAGER_NO, Sound.Source.PLAYER, 0.5f, 1.0f));
 
         // Schedule inventory closing for next tick
         new BukkitRunnable() {
@@ -432,7 +448,7 @@ public class TradeMenu {
         return emptySlots >= requiredSlots;
     }
 
-    //  Add cleanup method
+    // Add cleanup method
     public void cleanup() {
         lastClickTime.clear();
         processingClick = false;

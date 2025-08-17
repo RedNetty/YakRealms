@@ -8,6 +8,11 @@ import com.rednetty.server.mechanics.world.mobs.MobManager;
 import com.rednetty.server.mechanics.world.mobs.utils.MobUtils;
 import com.rednetty.server.mechanics.world.holograms.HologramManager;
 import lombok.Getter;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.NamedTextColor;
+import net.kyori.adventure.text.format.TextDecoration;
+import net.kyori.adventure.text.format.TextColor;
+import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 import org.bukkit.*;
 import org.bukkit.enchantments.Enchantment;
 import org.bukkit.entity.*;
@@ -29,6 +34,7 @@ import java.util.logging.Logger;
 
 /**
  * CustomMob class with enhanced named elite support and T6 world boss detection
+ * Updated for Adventure API and Paper 1.21.7
  *
  * CRITICAL FIXES:
  * - Enhanced named elite detection and metadata storage
@@ -36,6 +42,7 @@ import java.util.logging.Logger;
  * - Improved elite configuration validation
  * - Better hologram management for world bosses
  * - Enhanced error handling and thread safety
+ * - Modern Adventure API integration with backwards compatibility
  */
 @Getter
 public class CustomMob {
@@ -48,6 +55,9 @@ public class CustomMob {
     public static final double HEALTH_CHANGE_THRESHOLD = 0.05; // 5% health change
     public static final int MAX_SPAWN_ATTEMPTS = 3;
     public static final int HEALTH_BAR_LENGTH = 36;
+
+    // Adventure API serializer for backwards compatibility
+    private static final LegacyComponentSerializer LEGACY_SERIALIZER = LegacyComponentSerializer.legacySection();
 
     // Core properties
     @Getter public final MobType type;
@@ -66,6 +76,8 @@ public class CustomMob {
     // Display system
     public volatile String baseDisplayName;
     public volatile String originalDisplayName; // ADDED: Store original name for drop notifications
+    public volatile Component baseDisplayComponent; // Modern Adventure component
+    public volatile Component originalDisplayComponent; // Modern Adventure component
     public volatile String hologramId;
     public volatile long lastHologramUpdate = 0;
 
@@ -86,7 +98,7 @@ public class CustomMob {
     @Getter public int lightningMultiplier = 0;
 
     /**
-     *: Creates a new CustomMob instance with named elite support
+     * Creates a new CustomMob instance with named elite support
      */
     public CustomMob(MobType type, int tier, boolean elite) {
         this(type, tier, elite, null);
@@ -115,6 +127,22 @@ public class CustomMob {
         return String.format("mob_%s_%d_%d", type.getId(), System.currentTimeMillis(), RANDOM.nextInt(10000));
     }
 
+    // ==================== ADVENTURE API COMPATIBILITY HELPERS ====================
+
+    /**
+     * Convert Component to legacy string for backwards compatibility
+     */
+    private String componentToLegacyString(Component component) {
+        return LEGACY_SERIALIZER.serialize(component);
+    }
+
+    /**
+     * Convert legacy string to Component
+     */
+    private Component legacyStringToComponent(String legacyString) {
+        return LEGACY_SERIALIZER.deserialize(legacyString);
+    }
+
     // ==================== LIFECYCLE MANAGEMENT ====================
 
     /**
@@ -139,7 +167,7 @@ public class CustomMob {
     }
 
     /**
-     *: Spawns the mob at the specified location with proper metadata
+     * Spawns the mob at the specified location with proper metadata
      */
     public boolean spawn(Location location) {
         if (!Bukkit.isPrimaryThread()) {
@@ -256,20 +284,24 @@ public class CustomMob {
     }
 
     /**
-     *: Updates the mob's display name based on current state with world boss support
+     * Updates the mob's display name based on current state with world boss support
      */
     private void updateMobName() {
         if (entity == null) return;
 
         try {
-            if (baseDisplayName == null) {
-                baseDisplayName = generateBaseDisplayName();
+            if (baseDisplayComponent == null) {
+                baseDisplayComponent = generateBaseDisplayComponent();
+                baseDisplayName = componentToLegacyString(baseDisplayComponent);
+                originalDisplayComponent = baseDisplayComponent;
                 originalDisplayName = baseDisplayName; // Store original for notifications
             }
 
-            String displayName = generateCurrentDisplayName();
+            Component displayComponent = generateCurrentDisplayComponent();
+            String displayName = componentToLegacyString(displayComponent);
+
             if (!displayName.equals(entity.getCustomName())) {
-                entity.setCustomName(displayName);
+                entity.customName(displayComponent); // Modern Adventure API
                 entity.setCustomNameVisible(true);
             }
 
@@ -279,27 +311,38 @@ public class CustomMob {
     }
 
     /**
-     *: Generates the base display name for the mob with named elite support
+     * Generates the base display component for the mob with named elite support
      */
-    private String generateBaseDisplayName() {
+    private Component generateBaseDisplayComponent() {
         if (isNamedElite && eliteConfigName != null) {
             // Use the elite configuration name for named elites
             String formattedName = formatEliteConfigName(eliteConfigName);
 
             // Add tier and elite indicators
-            ChatColor tierColor = getTierColor(tier);
-            String eliteIndicator = elite ? " ✦" : "";
+            NamedTextColor tierColor = getTierColor(tier);
+            Component eliteIndicator = elite ? Component.text(" ✦") : Component.empty();
 
             // Check if this should be a world boss (T6 or specific names)
             if (isWorldBoss()) {
-                return tierColor + "§l[WORLD BOSS] " + formattedName + eliteIndicator;
+                return Component.text()
+                        .color(tierColor)
+                        .decorate(TextDecoration.BOLD)
+                        .append(Component.text("[WORLD BOSS] "))
+                        .append(Component.text(formattedName))
+                        .append(eliteIndicator)
+                        .build();
             } else {
-                return tierColor + formattedName + eliteIndicator;
+                return Component.text()
+                        .color(tierColor)
+                        .append(Component.text(formattedName))
+                        .append(eliteIndicator)
+                        .build();
             }
         } else {
             // Use standard tier-specific naming
             String tierName = type.getTierSpecificName(tier);
-            return MobUtils.formatMobName(tierName, tier, elite);
+            String legacyFormatted = MobUtils.formatMobName(tierName, tier, elite);
+            return legacyStringToComponent(legacyFormatted);
         }
     }
 
@@ -335,7 +378,7 @@ public class CustomMob {
     }
 
     /**
-     *: Determines if this mob should be treated as a world boss
+     * Determines if this mob should be treated as a world boss
      */
     public boolean isWorldBoss() {
         // T6 mobs are always world bosses
@@ -370,25 +413,25 @@ public class CustomMob {
     }
 
     /**
-     * ADDED: Get tier color for display
+     * Get tier color for display using Adventure API
      */
-    private ChatColor getTierColor(int tier) {
+    private NamedTextColor getTierColor(int tier) {
         return switch (tier) {
-            case 1 -> ChatColor.WHITE;
-            case 2 -> ChatColor.GREEN;
-            case 3 -> ChatColor.AQUA;
-            case 4 -> ChatColor.LIGHT_PURPLE;
-            case 5 -> ChatColor.YELLOW;
-            case 6 -> ChatColor.GOLD; // T6 Netherite
-            default -> ChatColor.WHITE;
+            case 1 -> NamedTextColor.WHITE;
+            case 2 -> NamedTextColor.GREEN;
+            case 3 -> NamedTextColor.AQUA;
+            case 4 -> NamedTextColor.LIGHT_PURPLE;
+            case 5 -> NamedTextColor.YELLOW;
+            case 6 -> NamedTextColor.GOLD; // T6 Netherite
+            default -> NamedTextColor.WHITE;
         };
     }
 
     /**
-     * Generates the current display name based on mob state
+     * Generates the current display component based on mob state
      */
-    private String generateCurrentDisplayName() {
-        if (baseDisplayName == null) return type.getId();
+    private Component generateCurrentDisplayComponent() {
+        if (baseDisplayComponent == null) return Component.text(type.getId());
 
         // Show health percentage in combat
         if(!inCombat) {
@@ -397,10 +440,14 @@ public class CustomMob {
         if (inCombat && entity != null) {
             try {
                 double healthPercent = (entity.getHealth() / entity.getMaxHealth()) * 100.0;
-                ChatColor healthColor = getHealthColor(healthPercent);
-                return String.format("%s %s(%.1f%%)", baseDisplayName, healthColor, healthPercent);
+                NamedTextColor healthColor = getHealthColor(healthPercent);
+                return Component.text()
+                        .append(baseDisplayComponent)
+                        .append(Component.text(" "))
+                        .append(Component.text(String.format("(%.1f%%)", healthPercent), healthColor))
+                        .build();
             } catch (Exception e) {
-                // Fall back to base name
+                // Fall back to base component
             }
         }
 
@@ -408,13 +455,33 @@ public class CustomMob {
         if (isInCriticalState()) {
             int countdown = getCritCountdown();
             if (countdown > 0) {
-                return baseDisplayName + " §c⚠ " + countdown + " ⚠";
+                return Component.text()
+                        .append(baseDisplayComponent)
+                        .append(Component.text(" ⚠ " + countdown + " ⚠", NamedTextColor.RED))
+                        .build();
             } else {
-                return baseDisplayName + " §5⚡ CHARGED ⚡";
+                return Component.text()
+                        .append(baseDisplayComponent)
+                        .append(Component.text(" ⚡ CHARGED ⚡", NamedTextColor.DARK_PURPLE))
+                        .build();
             }
         }
 
-        return baseDisplayName;
+        return baseDisplayComponent;
+    }
+
+    /**
+     * Generates the current display name based on mob state (backwards compatibility)
+     */
+    private String generateCurrentDisplayName() {
+        return componentToLegacyString(generateCurrentDisplayComponent());
+    }
+
+    /**
+     * Generates the base display name for the mob (backwards compatibility)
+     */
+    private String generateBaseDisplayName() {
+        return componentToLegacyString(generateBaseDisplayComponent());
     }
 
     /**
@@ -432,7 +499,7 @@ public class CustomMob {
     }
 
     /**
-     *: Updates the hologram display with world boss support
+     * Updates the hologram display with world boss support
      */
     private void updateHologram() {
         if (entity == null || !hologramActive.get()) return;
@@ -468,7 +535,7 @@ public class CustomMob {
     }
 
     /**
-     *: Creates hologram display lines with world boss support
+     * Creates hologram display lines with world boss support
      */
     private List<String> createHologramLines() {
         List<String> lines = new ArrayList<>();
@@ -482,15 +549,25 @@ public class CustomMob {
             if (maxHealth > 0) {
                 // World bosses get enhanced health bars
                 if (isWorldBoss()) {
-                    lines.add(ChatColor.GOLD + "§l▬▬▬▬ WORLD BOSS ▬▬▬▬");
+                    Component worldBossHeader = Component.text()
+                            .color(NamedTextColor.GOLD)
+                            .decorate(TextDecoration.BOLD)
+                            .append(Component.text("▬▬▬▬ WORLD BOSS ▬▬▬▬"))
+                            .build();
+                    lines.add(componentToLegacyString(worldBossHeader));
                 }
 
                 lines.add(createHealthBar(health, maxHealth));
 
                 // Add health numbers for world bosses
                 if (isWorldBoss()) {
-                    String healthText = String.format("§7%,.0f §8/ §7%,.0f HP", health, maxHealth);
-                    lines.add(healthText);
+                    Component healthText = Component.text()
+                            .color(NamedTextColor.GRAY)
+                            .append(Component.text(String.format("%,.0f", health)))
+                            .append(Component.text(" / ", NamedTextColor.DARK_GRAY))
+                            .append(Component.text(String.format("%,.0f HP", maxHealth), NamedTextColor.GRAY))
+                            .build();
+                    lines.add(componentToLegacyString(healthText));
                 }
             }
 
@@ -502,20 +579,24 @@ public class CustomMob {
     }
 
     /**
-     * Creates a visual health bar
+     * Creates a visual health bar using Adventure Components
      */
     private String createHealthBar(double health, double maxHealth) {
         double percentage = (health / maxHealth) * 100.0;
         int filled = (int) Math.round((health / maxHealth) * HEALTH_BAR_LENGTH);
         filled = Math.max(0, Math.min(HEALTH_BAR_LENGTH, filled));
 
-        ChatColor barColor = getHealthBarColor(percentage);
+        NamedTextColor barColor = getHealthBarColor(percentage);
 
-        return String.format("§8[%s%s§7%s§8]",
-                barColor,
-                "|".repeat(filled),
-                "|".repeat(HEALTH_BAR_LENGTH - filled)
-        );
+        Component healthBar = Component.text()
+                .color(NamedTextColor.DARK_GRAY)
+                .append(Component.text("["))
+                .append(Component.text("|".repeat(filled), barColor))
+                .append(Component.text("|".repeat(HEALTH_BAR_LENGTH - filled), NamedTextColor.GRAY))
+                .append(Component.text("]"))
+                .build();
+
+        return componentToLegacyString(healthBar);
     }
 
     /**
@@ -575,7 +656,7 @@ public class CustomMob {
     }
 
     /**
-     *: Initializes the mob with properties and equipment, including named elite metadata
+     * Initializes the mob with properties and equipment, including named elite metadata
      */
     private boolean initializeMob() {
         if (entity == null) return false;
@@ -586,7 +667,9 @@ public class CustomMob {
             applyEquipment();
             applyHealthAndStats();
 
-            baseDisplayName = generateBaseDisplayName();
+            baseDisplayComponent = generateBaseDisplayComponent();
+            baseDisplayName = componentToLegacyString(baseDisplayComponent);
+            originalDisplayComponent = baseDisplayComponent;
             originalDisplayName = baseDisplayName; // Store for notifications
             updateMobName();
 
@@ -599,7 +682,7 @@ public class CustomMob {
     }
 
     /**
-     *: Applies metadata to the entity with named elite support
+     * Applies metadata to the entity with named elite support
      */
     private void applyMetadata() {
         YakRealms plugin = YakRealms.getInstance();
@@ -625,7 +708,6 @@ public class CustomMob {
         // World boss metadata
         if (isWorldBoss()) {
             entity.setMetadata("worldboss", new FixedMetadataValue(plugin, true));
-
         }
 
         // Legacy compatibility
@@ -700,7 +782,7 @@ public class CustomMob {
     }
 
     /**
-     *: Applies health and stats to the entity with world boss scaling
+     * Applies health and stats to the entity with world boss scaling
      */
     private void applyHealthAndStats() {
         int health = calculateHealth();
@@ -712,7 +794,6 @@ public class CustomMob {
         // World bosses get bonus health
         if (isWorldBoss()) {
             health = (int) (health * 1.5); // 50% bonus health for world bosses
-
         }
 
         health = Math.max(1, Math.min(health, 2_000_000));
@@ -845,7 +926,7 @@ public class CustomMob {
     }
 
     /**
-     * Makes an item unbreakable
+     * Makes an item unbreakable using modern Adventure API
      */
     private void makeUnbreakable(ItemStack item) {
         if (item == null || item.getType() == Material.AIR) return;
@@ -860,7 +941,7 @@ public class CustomMob {
     // ==================== SPECIAL FEATURES ====================
 
     /**
-     * Enhances the mob as a lightning mob
+     * Enhances the mob as a lightning mob using Adventure API
      */
     public void enhanceAsLightningMob(int multiplier) {
         if (!isValid()) return;
@@ -874,8 +955,19 @@ public class CustomMob {
             entity.setHealth(newHealth);
             entity.setGlowing(true);
 
-            baseDisplayName = String.format("§6⚡ Lightning %s ⚡",
-                    ChatColor.stripColor(baseDisplayName != null ? baseDisplayName : type.getId()));
+            // Create lightning enhanced name using Adventure Components
+            Component lightningName = Component.text()
+                    .color(NamedTextColor.GOLD)
+                    .append(Component.text("⚡ Lightning "))
+                    .append(Component.text(baseDisplayComponent != null ?
+                            componentToLegacyString(baseDisplayComponent).replaceAll("§[0-9a-fk-or]", "") :
+                            type.getId()))
+                    .append(Component.text(" ⚡"))
+                    .build();
+
+            baseDisplayComponent = lightningName;
+            baseDisplayName = componentToLegacyString(lightningName);
+            originalDisplayComponent = lightningName;
             originalDisplayName = baseDisplayName; // Update original name too
 
             updateMobName();
@@ -884,7 +976,7 @@ public class CustomMob {
             entity.setMetadata("LightningMultiplier", new FixedMetadataValue(plugin, multiplier));
             entity.setMetadata("LightningMob", new FixedMetadataValue(plugin, baseDisplayName));
 
-            logInfo(" %s as lightning mob (x%d)", uniqueMobId, multiplier);
+            logInfo("%s as lightning mob (x%d)", uniqueMobId, multiplier);
 
         } catch (Exception e) {
             logError("Lightning enhancement failed", e);
@@ -1044,20 +1136,20 @@ public class CustomMob {
     }
 
     /**
-     * Gets color based on health percentage
+     * Gets color based on health percentage using Adventure API
      */
-    private ChatColor getHealthColor(double percentage) {
-        if (percentage > 75) return ChatColor.GREEN;
-        if (percentage > 50) return ChatColor.YELLOW;
-        if (percentage > 25) return ChatColor.GOLD;
-        return ChatColor.RED;
+    private NamedTextColor getHealthColor(double percentage) {
+        if (percentage > 75) return NamedTextColor.GREEN;
+        if (percentage > 50) return NamedTextColor.YELLOW;
+        if (percentage > 25) return NamedTextColor.GOLD;
+        return NamedTextColor.RED;
     }
 
     /**
-     * Gets health bar color based on percentage
+     * Gets health bar color based on percentage using Adventure API
      */
-    private ChatColor getHealthBarColor(double percentage) {
-        if (isInCriticalState()) return ChatColor.LIGHT_PURPLE;
+    private NamedTextColor getHealthBarColor(double percentage) {
+        if (isInCriticalState()) return NamedTextColor.LIGHT_PURPLE;
         return getHealthColor(percentage);
     }
 
@@ -1150,6 +1242,20 @@ public class CustomMob {
      */
     public String getOriginalName() {
         return originalDisplayName != null ? originalDisplayName : baseDisplayName;
+    }
+
+    /**
+     * ADDED: Get the original display component for modern systems
+     */
+    public Component getOriginalDisplayComponent() {
+        return originalDisplayComponent != null ? originalDisplayComponent : baseDisplayComponent;
+    }
+
+    /**
+     * ADDED: Get the current display component for modern systems
+     */
+    public Component getCurrentDisplayComponent() {
+        return generateCurrentDisplayComponent();
     }
 
     public boolean isInCombat() {

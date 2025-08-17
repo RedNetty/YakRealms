@@ -1,5 +1,8 @@
 package com.rednetty.server.utils.text;
 
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
+import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.entity.Player;
@@ -139,6 +142,55 @@ public class TextUtil {
         int messagePxSize = getMessagePixelSize(coloredMessage);
         int toCompensate = CENTER_PX - (messagePxSize / 2);
         return getPaddingSpaces(toCompensate) + coloredMessage;
+    }
+
+    /**
+     * Centers a message in the chat using Adventure API Components.
+     *
+     * @param message The Component message to center.
+     * @return The centered message as a Component.
+     */
+    public static Component getCenteredMessage(Component message) {
+        if (message == null || Component.empty().equals(message)) {
+            return Component.empty();
+        }
+
+        // Convert Component to plain text for pixel size calculation
+        String plainText = PlainTextComponentSerializer.plainText().serialize(message);
+        int messagePxSize = getMessagePixelSize(plainText);
+        int toCompensate = CENTER_PX - (messagePxSize / 2);
+
+        // Create padding spaces as a Component and prepend to the original message
+        String paddingSpaces = getPaddingSpaces(toCompensate);
+        return Component.text(paddingSpaces).append(message);
+    }
+
+
+    /**
+     * Convenience method that accepts a String and returns a centered Component.
+     * Useful for migrating from String-based code to Component-based code.
+     *
+     * @param message The string message to center and convert to Component.
+     * @return The centered message as a Component.
+     */
+    public static Component getCenteredMessageFromString(String message) {
+        if (isNullOrEmpty(message)) {
+            return Component.empty();
+        }
+
+        // Convert legacy color codes to Component, then center it
+        Component component = LegacyComponentSerializer.legacyAmpersand().deserialize(message);
+        return getCenteredMessage(component);
+    }
+
+    /**
+     * Centers and sends a message to a player using Adventure API.
+     *
+     * @param player The player to send the message to.
+     * @param message The Component message to center and send.
+     */
+    public static void sendCenteredMessage(Player player, Component message) {
+        player.sendMessage(getCenteredMessage(message));
     }
 
     /**

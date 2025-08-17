@@ -3,6 +3,9 @@ package com.rednetty.server.mechanics.item.orb;
 import com.rednetty.server.mechanics.item.enchants.Enchants;
 import com.rednetty.server.mechanics.player.stats.PlayerStatsCalculator;
 import com.rednetty.server.utils.nbt.NBTAccessor;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.NamedTextColor;
+import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 import org.bukkit.ChatColor;
 import org.bukkit.Material;
 import org.bukkit.inventory.ItemStack;
@@ -21,10 +24,15 @@ import java.util.regex.Pattern;
 public class OrbAPI {
     private static final Logger LOGGER = Logger.getLogger(OrbAPI.class.getName());
     private static OrbGenerator orbGenerator;
+    private static final LegacyComponentSerializer LEGACY_SERIALIZER = LegacyComponentSerializer.legacySection();
 
     // Orb display names
-    private static final String NORMAL_ORB_NAME = ChatColor.LIGHT_PURPLE + "Orb of Alteration";
-    private static final String LEGENDARY_ORB_NAME = ChatColor.YELLOW + "Legendary Orb of Alteration";
+    private static final String NORMAL_ORB_NAME = LEGACY_SERIALIZER.serialize(
+            Component.text("Orb of Alteration", NamedTextColor.LIGHT_PURPLE)
+    );
+    private static final String LEGENDARY_ORB_NAME = LEGACY_SERIALIZER.serialize(
+            Component.text("Legendary Orb of Alteration", NamedTextColor.YELLOW)
+    );
 
     // Element constants
     public static final int ELEM_FIRE = 1;
@@ -379,7 +387,10 @@ public class OrbAPI {
                     if (line.contains("Normal Orbs Used: ")) {
                         try {
                             int current = Integer.parseInt(line.split(": " + ChatColor.AQUA)[1]);
-                            specialLore.add(ChatColor.GOLD + "Normal Orbs Used: " + ChatColor.AQUA + (current + 1));
+                            specialLore.add(LEGACY_SERIALIZER.serialize(
+                                    Component.text("Normal Orbs Used: ", NamedTextColor.GOLD)
+                                            .append(Component.text(current + 1, NamedTextColor.AQUA))
+                            ));
                         } catch (Exception e) {
                             specialLore.add(line);
                         }
@@ -586,17 +597,17 @@ public class OrbAPI {
     public static String applyColorByTier(String name, int tier) {
         switch (tier) {
             case 1:
-                return ChatColor.WHITE + name;
+                return LEGACY_SERIALIZER.serialize(Component.text(name, NamedTextColor.WHITE));
             case 2:
-                return ChatColor.GREEN + name;
+                return LEGACY_SERIALIZER.serialize(Component.text(name, NamedTextColor.GREEN));
             case 3:
-                return ChatColor.AQUA + name;
+                return LEGACY_SERIALIZER.serialize(Component.text(name, NamedTextColor.AQUA));
             case 4:
-                return ChatColor.LIGHT_PURPLE + name;
+                return LEGACY_SERIALIZER.serialize(Component.text(name, NamedTextColor.LIGHT_PURPLE));
             case 5:
-                return ChatColor.YELLOW + name;
+                return LEGACY_SERIALIZER.serialize(Component.text(name, NamedTextColor.YELLOW));
             case 6:
-                return ChatColor.GOLD + name; // Netherite color
+                return LEGACY_SERIALIZER.serialize(Component.text(name, NamedTextColor.GOLD)); // Netherite color
             default:
                 return name;
         }
@@ -771,7 +782,7 @@ public class OrbAPI {
         // Check lore if NBT doesn't have it
         if (item.getItemMeta().hasLore()) {
             for (String line : item.getItemMeta().getLore()) {
-                if (line.contains(ChatColor.GREEN + "Protected")) {
+                if (line.contains(LEGACY_SERIALIZER.serialize(Component.text("Protected", NamedTextColor.GREEN)))) {
                     return true;
                 }
             }
@@ -845,62 +856,62 @@ public class OrbAPI {
 
         try {
             ItemMeta meta = item.getItemMeta();
-            stats.add(ChatColor.YELLOW + "Item: " + meta.getDisplayName());
+            stats.add(LEGACY_SERIALIZER.serialize(Component.text("Item: ", NamedTextColor.YELLOW)) + meta.getDisplayName());
 
             if (isWeapon(item)) {
                 int[] damage = getDamageRange(item);
-                stats.add(ChatColor.RED + "Damage: " + damage[0] + "-" + damage[1]);
+                stats.add(LEGACY_SERIALIZER.serialize(Component.text("Damage: " + damage[0] + "-" + damage[1], NamedTextColor.RED)));
 
                 // Add more weapon-specific stats
                 if (hasStatInLore(item, "PURE DMG")) {
-                    stats.add(ChatColor.RED + "Pure Damage: Yes");
+                    stats.add(LEGACY_SERIALIZER.serialize(Component.text("Pure Damage: Yes", NamedTextColor.RED)));
                 }
                 if (hasStatInLore(item, "CRITICAL HIT")) {
-                    stats.add(ChatColor.RED + "Critical Hit: Yes");
+                    stats.add(LEGACY_SERIALIZER.serialize(Component.text("Critical Hit: Yes", NamedTextColor.RED)));
                 }
                 if (hasStatInLore(item, "LIFE STEAL")) {
-                    stats.add(ChatColor.RED + "Life Steal: Yes");
+                    stats.add(LEGACY_SERIALIZER.serialize(Component.text("Life Steal: Yes", NamedTextColor.RED)));
                 }
                 if (hasStatInLore(item, "FIRE DMG")) {
-                    stats.add(ChatColor.RED + "Element: Fire");
+                    stats.add(LEGACY_SERIALIZER.serialize(Component.text("Element: Fire", NamedTextColor.RED)));
                 } else if (hasStatInLore(item, "POISON DMG")) {
-                    stats.add(ChatColor.RED + "Element: Poison");
+                    stats.add(LEGACY_SERIALIZER.serialize(Component.text("Element: Poison", NamedTextColor.RED)));
                 } else if (hasStatInLore(item, "ICE DMG")) {
-                    stats.add(ChatColor.RED + "Element: Ice");
+                    stats.add(LEGACY_SERIALIZER.serialize(Component.text("Element: Ice", NamedTextColor.RED)));
                 }
             } else if (isArmor(item)) {
                 int hp = getHP(item);
-                stats.add(ChatColor.RED + "HP: +" + hp);
+                stats.add(LEGACY_SERIALIZER.serialize(Component.text("HP: +" + hp, NamedTextColor.RED)));
 
                 if (hasHPRegen(item)) {
                     int hpRegen = getHPRegen(item);
-                    stats.add(ChatColor.RED + "HP Regen: +" + hpRegen + "/s");
+                    stats.add(LEGACY_SERIALIZER.serialize(Component.text("HP Regen: +" + hpRegen + "/s", NamedTextColor.RED)));
                 } else if (hasEnergyRegen(item)) {
                     int energyRegen = getEnergyRegen(item);
-                    stats.add(ChatColor.RED + "Energy Regen: +" + energyRegen + "%");
+                    stats.add(LEGACY_SERIALIZER.serialize(Component.text("Energy Regen: +" + energyRegen + "%", NamedTextColor.RED)));
                 }
 
                 // Add more armor-specific stats
                 if (hasStatInLore(item, "DODGE")) {
-                    stats.add(ChatColor.RED + "Dodge: Yes");
+                    stats.add(LEGACY_SERIALIZER.serialize(Component.text("Dodge: Yes", NamedTextColor.RED)));
                 }
                 if (hasStatInLore(item, "BLOCK")) {
-                    stats.add(ChatColor.RED + "Block: Yes");
+                    stats.add(LEGACY_SERIALIZER.serialize(Component.text("Block: Yes", NamedTextColor.RED)));
                 }
                 if (hasStatInLore(item, "THORNS")) {
-                    stats.add(ChatColor.RED + "Thorns: Yes");
+                    stats.add(LEGACY_SERIALIZER.serialize(Component.text("Thorns: Yes", NamedTextColor.RED)));
                 }
             }
 
             // Add enhancement level
             int plusLevel = Enchants.getPlus(item);
             if (plusLevel > 0) {
-                stats.add(ChatColor.GOLD + "Enhancement: +" + plusLevel);
+                stats.add(LEGACY_SERIALIZER.serialize(Component.text("Enhancement: +" + plusLevel, NamedTextColor.GOLD)));
             }
 
             // Add protection status
             if (isProtected(item)) {
-                stats.add(ChatColor.GREEN + "Protected: Yes");
+                stats.add(LEGACY_SERIALIZER.serialize(Component.text("Protected: Yes", NamedTextColor.GREEN)));
             }
         } catch (Exception e) {
             LOGGER.log(Level.WARNING, "Error getting item stats", e);
@@ -943,21 +954,20 @@ public class OrbAPI {
                 return "This item cannot be modified by orbs.";
             }
 
-            description.append(ChatColor.YELLOW).append("Using ");
+            description.append(LEGACY_SERIALIZER.serialize(Component.text("Using ", NamedTextColor.YELLOW)));
 
             if (isLegendary) {
                 description.append("a Legendary Orb");
 
                 int plusLevel = Enchants.getPlus(item);
                 if (plusLevel < 4) {
-                    description.append(ChatColor.YELLOW)
-                            .append(" will increase the item to at least +4");
+                    description.append(LEGACY_SERIALIZER.serialize(Component.text(" will increase the item to at least +4", NamedTextColor.YELLOW)));
                 }
             } else {
                 description.append("an Orb");
             }
 
-            description.append(ChatColor.YELLOW).append(" will randomize this item's stats.");
+            description.append(LEGACY_SERIALIZER.serialize(Component.text(" will randomize this item's stats.", NamedTextColor.YELLOW)));
 
             if (isWeapon(item)) {
                 description.append("\nPossible weapon stats: damage, accuracy, life steal, critical hit, elemental damage.");
@@ -966,7 +976,7 @@ public class OrbAPI {
             }
 
             if (isProtected(item)) {
-                description.append("\n").append(ChatColor.GREEN).append("Item is protected and won't be destroyed on failed enhancement.");
+                description.append("\n").append(LEGACY_SERIALIZER.serialize(Component.text("Item is protected and won't be destroyed on failed enhancement.", NamedTextColor.GREEN)));
             }
         } catch (Exception e) {
             LOGGER.log(Level.WARNING, "Error generating orb effect description", e);

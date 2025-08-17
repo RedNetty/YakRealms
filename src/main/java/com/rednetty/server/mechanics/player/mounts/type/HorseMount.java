@@ -5,6 +5,10 @@ import com.rednetty.server.mechanics.player.YakPlayer;
 import com.rednetty.server.mechanics.player.YakPlayerManager;
 import com.rednetty.server.mechanics.player.mounts.MountConfig;
 import com.rednetty.server.mechanics.player.mounts.MountManager;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.NamedTextColor;
+import net.kyori.adventure.text.format.Style;
+import net.kyori.adventure.text.format.TextDecoration;
 import org.bukkit.*;
 import org.bukkit.attribute.Attribute;
 import org.bukkit.entity.Horse;
@@ -20,9 +24,9 @@ import org.bukkit.scheduler.BukkitTask;
 import java.util.*;
 
 /**
- * Handler for horse mounts -  to allow Tier 1+ summoning with ROBUST mounting system
+ * Handler for horse mounts - to allow Tier 1+ summoning with ROBUST mounting system
  * Players purchase tier access through vendors, then summon through this system
- *  with anti-glitch protection, remounting capabilities, and epic visual effects
+ * with anti-glitch protection, remounting capabilities, and epic visual effects
  */
 public class HorseMount implements Mount {
     private final MountManager manager;
@@ -46,39 +50,34 @@ public class HorseMount implements Mount {
     public boolean summonMount(Player player) {
         YakPlayer yakPlayer = YakPlayerManager.getInstance().getPlayer(player);
         if (yakPlayer == null) {
-            player.sendMessage(ChatColor.RED + "Could not load your player data.");
+            player.sendMessage(Component.text("Could not load your player data.", NamedTextColor.RED));
             return false;
         }
 
-        // Check if player has ANY horse tier (>= 1, not >= 2)
         int horseTier = yakPlayer.getHorseTier();
         if (horseTier < 1) {
-            player.sendMessage(ChatColor.RED + "You don't have a horse mount.");
-            player.sendMessage(ChatColor.YELLOW + "Visit the Mount Stable to purchase tier access!");
+            player.sendMessage(Component.text("You don't have a horse mount.", NamedTextColor.RED));
+            player.sendMessage(Component.text("Visit the Mount Stable to purchase tier access!", NamedTextColor.YELLOW));
             return false;
         }
 
-        // Check if already summoning
         if (isSummoning(player)) {
-            player.sendMessage(ChatColor.RED + "You are already summoning a mount.");
+            player.sendMessage(Component.text("You are already summoning a mount.", NamedTextColor.RED));
             return false;
         }
 
-        // Check if already has active mount
         if (manager.hasActiveMount(player.getUniqueId())) {
-            player.sendMessage(ChatColor.RED + "You already have an active mount! Dismiss it first.");
+            player.sendMessage(Component.text("You already have an active mount! Dismiss it first.", NamedTextColor.RED));
             return false;
         }
 
         boolean inSafeZone = AlignmentMechanics.getInstance().isSafeZone(player.getLocation());
 
-        // If in safe zone and instant mounting is enabled, spawn immediately
         if (inSafeZone && manager.getConfig().isInstantMountInSafeZone()) {
             spawnHorse(player, horseTier);
             return true;
         }
 
-        // Otherwise, start summoning process
         int summonTime = yakPlayer.getAlignment().equalsIgnoreCase("CHAOTIC")
                 ? manager.getConfig().getChaoticHorseSummonTime()
                 : manager.getConfig().getHorseSummonTime();
@@ -86,18 +85,17 @@ public class HorseMount implements Mount {
         summonLocations.put(player.getUniqueId(), player.getLocation());
 
         MountConfig.HorseStats stats = manager.getConfig().getHorseStats(horseTier);
-        String tierColor = getTierColor(horseTier);
+        NamedTextColor tierColor = getTierColor(horseTier);
 
-        player.sendMessage(ChatColor.WHITE + "Summoning " +
-                tierColor + stats.getName() +
-                ChatColor.WHITE + " ... " + summonTime + "s");
+        player.sendMessage(Component.text("Summoning ", NamedTextColor.WHITE)
+                .append(Component.text(stats.getName(), tierColor))
+                .append(Component.text(" ... " + summonTime + "s", NamedTextColor.WHITE)));
 
         BukkitTask task = new BukkitRunnable() {
             int countdown = summonTime;
 
             @Override
             public void run() {
-                // Check if player is still online
                 if (!player.isOnline()) {
                     cancel();
                     summonTasks.remove(player.getUniqueId());
@@ -105,22 +103,17 @@ public class HorseMount implements Mount {
                     return;
                 }
 
-                // Decrement countdown
                 countdown--;
 
                 if (countdown <= 0) {
-                    // Spawn the horse
                     spawnHorse(player, horseTier);
-
-                    // Clean up
                     summonTasks.remove(player.getUniqueId());
                     summonLocations.remove(player.getUniqueId());
                     cancel();
                 } else {
-                    // Update message with tier info
-                    player.sendMessage(ChatColor.WHITE + "Summoning " +
-                            tierColor + stats.getName() +
-                            ChatColor.WHITE + " ... " + countdown + "s");
+                    player.sendMessage(Component.text("Summoning ", NamedTextColor.WHITE)
+                            .append(Component.text(stats.getName(), tierColor))
+                            .append(Component.text(" ... " + countdown + "s", NamedTextColor.WHITE)));
                     playSummonEffects(player, horseTier);
                 }
             }
@@ -133,37 +126,29 @@ public class HorseMount implements Mount {
     @Override
     public boolean dismount(Player player, boolean sendMessage) {
         UUID playerUUID = player.getUniqueId();
-
-        // Check if player has an active horse
         Horse horse = activeHorses.remove(playerUUID);
         if (horse == null || !horse.isValid()) {
             return false;
         }
 
-        // Clean up visual effects
         cleanupEffects(player);
 
-        // Remove horse and dismount player
         if (horse.getPassengers().contains(player)) {
             horse.removePassenger(player);
         }
 
-        // Play dismount effects based on tier
         int tier = getTierFromHorse(horse);
         playDismountEffects(horse.getLocation(), tier);
 
-        // Teleport player to horse location before removing (safer dismount)
         Location dismountLocation = horse.getLocation().clone();
         dismountLocation.setY(dismountLocation.getY() + 0.5);
         player.teleport(dismountLocation);
 
         horse.remove();
-
-        // Unregister from mount manager
         manager.unregisterActiveMount(playerUUID);
 
         if (sendMessage) {
-            player.sendMessage(ChatColor.RED + "Your mount has been dismissed.");
+            player.sendMessage(Component.text("Your mount has been dismissed.", NamedTextColor.RED));
         }
 
         return true;
@@ -177,137 +162,107 @@ public class HorseMount implements Mount {
     @Override
     public void cancelSummoning(Player player, String reason) {
         UUID playerUUID = player.getUniqueId();
-
         BukkitTask task = summonTasks.remove(playerUUID);
         if (task != null) {
             task.cancel();
         }
-
         summonLocations.remove(playerUUID);
 
-        player.sendMessage(ChatColor.RED + "Mount Summon - " + ChatColor.BOLD + "CANCELLED" +
-                (reason != null ? " - " + reason : ""));
+        Component reasonComponent = reason != null ? Component.text(" - " + reason) : Component.empty();
+        player.sendMessage(Component.text("Mount Summon - ", NamedTextColor.RED)
+                .append(Component.text("CANCELLED", Style.style(TextDecoration.BOLD)))
+                .append(reasonComponent));
     }
 
-    /**
-     * Checks if the player has moved from their summoning location
-     */
     public boolean hasMoved(Player player) {
         UUID playerUUID = player.getUniqueId();
-
         if (!summonLocations.containsKey(playerUUID)) {
             return false;
         }
-
         Location summonLocation = summonLocations.get(playerUUID);
         Location currentLocation = player.getLocation();
-
         return summonLocation.distanceSquared(currentLocation) > 2.0;
     }
 
-    /**
-     *  method for spawning horses with proper tier support
-     */
     private void spawnHorse(Player player, int tier) {
         MountConfig.HorseStats stats = manager.getConfig().getHorseStats(tier);
-
         if (stats == null) {
-            player.sendMessage(ChatColor.RED + "Error: Could not load Tier " + tier + " mount data.");
+            player.sendMessage(Component.text("Error: Could not load Tier " + tier + " mount data.", NamedTextColor.RED));
             return;
         }
 
-        // Create the horse
         Horse horse = player.getWorld().spawn(player.getLocation(), Horse.class);
-
-        // Set basic horse properties
         horse.setAdult();
         horse.setTamed(true);
         horse.setOwner(player);
 
-        // Set horse appearance based on tier
         setHorseAppearance(horse, tier);
 
-        // Set  attributes based on tier
         horse.getAttribute(Attribute.MOVEMENT_SPEED).setBaseValue(stats.getSpeed());
         horse.getAttribute(Attribute.JUMP_STRENGTH).setBaseValue(stats.getJump());
-        horse.getAttribute(Attribute.MAX_HEALTH).setBaseValue(20.0 + (tier * 2)); // More health per tier
+        horse.getAttribute(Attribute.MAX_HEALTH).setBaseValue(50.0 + (tier * 2));
         horse.setHealth(horse.getAttribute(Attribute.MAX_HEALTH).getValue());
 
-        // Set inventory with saddle
         horse.getInventory().setSaddle(new ItemStack(Material.SADDLE));
-
-        // Add tier-appropriate armor
         addTierArmor(horse, tier, stats);
 
-        // Set  custom name with tier
-        String tierColor = getTierColor(tier);
-        String displayName = tierColor + stats.getName();
-        horse.setCustomName(displayName);
+        NamedTextColor tierColor = getTierColor(tier);
+        Component displayName = Component.text(stats.getName(), tierColor);
+        horse.customName(displayName);
         horse.setCustomNameVisible(true);
 
-        // Store owner and tier in persistent data
         horse.getPersistentDataContainer().set(ownerKey, PersistentDataType.STRING, player.getUniqueId().toString());
         NamespacedKey tierKey = new NamespacedKey(manager.getPlugin(), "mount_tier");
         horse.getPersistentDataContainer().set(tierKey, PersistentDataType.INTEGER, tier);
 
-        // Add the player as a passenger
         horse.addPassenger(player);
 
-        // Register active horse
         activeHorses.put(player.getUniqueId(), horse);
         manager.registerActiveMount(player.getUniqueId(), this);
 
-        // Apply tier-based effects and bonuses
         applyTierEffects(horse, player, tier);
 
-        //  success message with tier effects
-        player.sendMessage(ChatColor.GRAY + "🐎 Successfully summoned " + displayName + ChatColor.GRAY + "! 🐎");
-
+        player.sendMessage(Component.text("🐎 Successfully summoned ", NamedTextColor.GRAY)
+                .append(displayName)
+                .append(Component.text("! 🐎", NamedTextColor.GRAY)));
     }
 
-    /**
-     * Set horse appearance based on tier
-     */
     private void setHorseAppearance(Horse horse, int tier) {
         switch (tier) {
-            case 1:
+            case 1 -> {
                 horse.setColor(Horse.Color.BROWN);
                 horse.setStyle(Horse.Style.NONE);
-                break;
-            case 2:
+            }
+            case 2 -> {
                 horse.setColor(Horse.Color.CHESTNUT);
                 horse.setStyle(Horse.Style.WHITE);
-                break;
-            case 3:
+            }
+            case 3 -> {
                 horse.setColor(Horse.Color.DARK_BROWN);
                 horse.setStyle(Horse.Style.WHITEFIELD);
-                break;
-            case 4:
+            }
+            case 4 -> {
                 horse.setColor(Horse.Color.BLACK);
                 horse.setStyle(Horse.Style.WHITE_DOTS);
-                break;
-            case 5:
+            }
+            case 5 -> {
                 horse.setColor(Horse.Color.GRAY);
                 horse.setStyle(Horse.Style.BLACK_DOTS);
-                break;
-            case 6:
+            }
+            case 6 -> {
                 horse.setColor(Horse.Color.WHITE);
                 horse.setStyle(Horse.Style.NONE);
-                break;
-            default:
+            }
+            default -> {
                 horse.setColor(Horse.Color.BROWN);
                 horse.setStyle(Horse.Style.NONE);
+            }
         }
     }
 
-    /**
-     * Add appropriate armor based on tier
-     */
     private void addTierArmor(Horse horse, int tier, MountConfig.HorseStats stats) {
         String armorType = stats.getArmorType();
-
         if (armorType.equals("NONE")) {
-            // Auto-assign armor based on tier if not specified
             armorType = switch (tier) {
                 case 1, 2 -> "LEATHER";
                 case 3 -> "IRON";
@@ -330,36 +285,24 @@ public class HorseMount implements Mount {
         }
     }
 
-    /**
-     * Get color for tier display
-     */
-    private String getTierColor(int tier) {
+    private NamedTextColor getTierColor(int tier) {
         return switch (tier) {
-            case 1 -> "§f"; // White
-            case 2 -> "§a"; // Green
-            case 3 -> "§b"; // Aqua
-            case 4 -> "§d"; // Light Purple
-            case 5 -> "§e"; // Yellow
-            case 6 -> "§6"; // Gold
-            default -> "§7"; // Gray
+            case 1 -> NamedTextColor.WHITE;
+            case 2 -> NamedTextColor.GREEN;
+            case 3 -> NamedTextColor.AQUA;
+            case 4 -> NamedTextColor.LIGHT_PURPLE;
+            case 5 -> NamedTextColor.YELLOW;
+            case 6 -> NamedTextColor.GOLD;
+            default -> NamedTextColor.GRAY;
         };
     }
 
-    /**
-     *  Apply tier-based visual effects and bonuses to player only (no horse potions)
-     */
     private void applyTierEffects(Horse horse, Player player, int tier) {
-        // Start continuous particle effects
         startContinuousEffects(horse, player, tier);
     }
 
-    /**
-     *  Start continuous particle and sound effects for the mount
-     */
     private void startContinuousEffects(Horse horse, Player player, int tier) {
         UUID playerUUID = player.getUniqueId();
-
-        // Cancel any existing effect task
         BukkitTask existingTask = effectTasks.get(playerUUID);
         if (existingTask != null) {
             existingTask.cancel();
@@ -370,9 +313,7 @@ public class HorseMount implements Mount {
 
             @Override
             public void run() {
-                if (!player.isOnline() || !horse.isValid() ||
-                        !activeHorses.containsKey(playerUUID) ||
-                        !player.isInsideVehicle()) {
+                if (!player.isOnline() || !horse.isValid() || !activeHorses.containsKey(playerUUID) || !player.isInsideVehicle()) {
                     cancel();
                     effectTasks.remove(playerUUID);
                     return;
@@ -381,75 +322,50 @@ public class HorseMount implements Mount {
                 tickCount++;
                 Location horseLoc = horse.getLocation();
 
-                // Apply different effects based on tier
                 switch (tier) {
                     case 1 -> {
-                        // Basic sparkle trail
-                        if (tickCount % 5 == 0) {
-                            spawnParticleTrail(horseLoc, Particle.FIREWORK, 3);
-                        }
+                        if (tickCount % 5 == 0) spawnParticleTrail(horseLoc, Particle.FIREWORK, 3);
                     }
                     case 2 -> {
-                        // Healing aura with green particles
-                        if (tickCount % 3 == 0) {
-                            spawnParticleTrail(horseLoc, Particle.HAPPY_VILLAGER, 5);
-                        }
+                        if (tickCount % 3 == 0) spawnParticleTrail(horseLoc, Particle.HAPPY_VILLAGER, 5);
                     }
                     case 3 -> {
-                        // Frost trail with speed effects
                         if (tickCount % 2 == 0) {
                             spawnParticleTrail(horseLoc, Particle.SNOWFLAKE, 8);
                             spawnParticleAura(horseLoc, Particle.DOLPHIN, 3);
                         }
-                        if (tickCount % 40 == 0) {
-                            horse.getWorld().playSound(horseLoc, Sound.BLOCK_SNOW_BREAK, 0.3f, 1.5f);
-                        }
+                        if (tickCount % 40 == 0) horse.getWorld().playSound(horseLoc, Sound.BLOCK_SNOW_BREAK, 0.3f, 1.5f);
                     }
                     case 4 -> {
-                        // Magic aura with enchantment particles
                         if (tickCount % 2 == 0) {
                             spawnParticleAura(horseLoc, Particle.ENCHANT, 10);
                             spawnParticleTrail(horseLoc, Particle.PORTAL, 6);
                         }
-                        if (tickCount % 60 == 0) {
-                            horse.getWorld().playSound(horseLoc, Sound.BLOCK_ENCHANTMENT_TABLE_USE, 0.4f, 1.2f);
-                        }
+                        if (tickCount % 60 == 0) horse.getWorld().playSound(horseLoc, Sound.BLOCK_ENCHANTMENT_TABLE_USE, 0.4f, 1.2f);
                     }
                     case 5 -> {
-                        // Golden flames with power effects
                         if (tickCount % 2 == 0) {
                             spawnParticleTrail(horseLoc, Particle.FLAME, 8);
                             spawnParticleAura(horseLoc, Particle.LAVA, 4);
                         }
-                        if (tickCount % 3 == 0) {
-                            spawnParticleCircle(horseLoc, Particle.DRIPPING_LAVA, 12, 2.0);
-                        }
-                        if (tickCount % 80 == 0) {
-                            horse.getWorld().playSound(horseLoc, Sound.ENTITY_BLAZE_AMBIENT, 0.3f, 0.8f);
-                        }
+                        if (tickCount % 3 == 0) spawnParticleCircle(horseLoc, Particle.DRIPPING_LAVA, 12, 2.0);
+                        if (tickCount % 80 == 0) horse.getWorld().playSound(horseLoc, Sound.ENTITY_BLAZE_AMBIENT, 0.3f, 0.8f);
                     }
                     case 6 -> {
-                        // Epic multi-effect storm
-                        if (0 == 0) {
-                            spawnParticleTrail(horseLoc, Particle.END_ROD, 12);
-                            spawnParticleAura(horseLoc, Particle.DRAGON_BREATH, 8);
-                        }
+                        spawnParticleTrail(horseLoc, Particle.END_ROD, 12);
+                        spawnParticleAura(horseLoc, Particle.DRAGON_BREATH, 8);
                         if (tickCount % 2 == 0) {
                             spawnParticleCircle(horseLoc, Particle.FLAME, 16, 3.0);
                             spawnParticleCircle(horseLoc, Particle.ENCHANT, 20, 2.5);
                         }
-                        if (tickCount % 3 == 0) {
-                            spawnParticleSpiral(horseLoc, Particle.FIREWORK, 15);
-                        }
+                        if (tickCount % 3 == 0) spawnParticleSpiral(horseLoc, Particle.FIREWORK, 15);
                         if (tickCount % 100 == 0) {
                             horse.getWorld().playSound(horseLoc, Sound.ENTITY_ENDER_DRAGON_AMBIENT, 0.2f, 1.5f);
-                            // Epic burst effect
                             spawnParticleBurst(horseLoc, Particle.TOTEM_OF_UNDYING, 30);
                         }
                     }
                 }
 
-                // Special jump effect for all tiers
                 if (horse.getVelocity().getY() > 0.3) {
                     switch (tier) {
                         case 1, 2 -> spawnParticleBurst(horseLoc, Particle.CLOUD, 8);
@@ -468,24 +384,15 @@ public class HorseMount implements Mount {
         effectTasks.put(playerUUID, effectTask);
     }
 
-    /**
-     *  Spawn particle trail behind the horse
-     */
     private void spawnParticleTrail(Location center, Particle particle, int count) {
         Location trailLoc = center.clone().subtract(center.getDirection().multiply(1.5));
         trailLoc.getWorld().spawnParticle(particle, trailLoc, count, 0.3, 0.1, 0.3, 0.02);
     }
 
-    /**
-     *  Spawn particle aura around the horse
-     */
     private void spawnParticleAura(Location center, Particle particle, int count) {
         center.getWorld().spawnParticle(particle, center.clone().add(0, 1, 0), count, 1.0, 0.5, 1.0, 0.02);
     }
 
-    /**
-     *  Spawn particles in a circle around the horse
-     */
     private void spawnParticleCircle(Location center, Particle particle, int count, double radius) {
         for (int i = 0; i < count; i++) {
             double angle = 2 * Math.PI * i / count;
@@ -496,9 +403,6 @@ public class HorseMount implements Mount {
         }
     }
 
-    /**
-     *  Spawn particles in a spiral pattern
-     */
     private void spawnParticleSpiral(Location center, Particle particle, int count) {
         for (int i = 0; i < count; i++) {
             double angle = 2 * Math.PI * i / 8;
@@ -511,20 +415,12 @@ public class HorseMount implements Mount {
         }
     }
 
-    /**
-     *  Spawn particle burst effect
-     */
     private void spawnParticleBurst(Location center, Particle particle, int count) {
         center.getWorld().spawnParticle(particle, center.clone().add(0, 1, 0), count, 1.5, 1.0, 1.5, 0.1);
     }
 
-    /**
-     *  Play tier-specific summoning effects
-     */
     private void playSummonEffects(Player player, int tier) {
         Location loc = player.getLocation();
-
-        // Play summoning sound
         Sound summonSound = switch (tier) {
             case 1 -> Sound.ENTITY_HORSE_BREATHE;
             case 2 -> Sound.ENTITY_HORSE_GALLOP;
@@ -534,10 +430,8 @@ public class HorseMount implements Mount {
             case 6 -> Sound.ENTITY_ENDER_DRAGON_GROWL;
             default -> Sound.ENTITY_HORSE_BREATHE;
         };
-
         player.getWorld().playSound(loc, summonSound, 1.0f, 1.0f);
 
-        // Summoning particle effects
         switch (tier) {
             case 1 -> spawnParticleBurst(loc, Particle.FIREWORK, 20);
             case 2 -> {
@@ -562,11 +456,8 @@ public class HorseMount implements Mount {
                 spawnParticleBurst(loc, Particle.DRAGON_BREATH, 40);
                 spawnParticleCircle(loc, Particle.FLAME, 24, 4.0);
                 spawnParticleSpiral(loc, Particle.TOTEM_OF_UNDYING, 30);
-
-                // Extra epic effect
                 new BukkitRunnable() {
                     int count = 0;
-
                     @Override
                     public void run() {
                         if (count >= 10) {
@@ -581,37 +472,23 @@ public class HorseMount implements Mount {
         }
     }
 
-    /**
-     *  Clean up visual effects for a player
-     */
     private void cleanupEffects(Player player) {
         UUID playerUUID = player.getUniqueId();
-
-        // Cancel effect task
         BukkitTask effectTask = effectTasks.remove(playerUUID);
         if (effectTask != null) {
             effectTask.cancel();
         }
-
-        // Remove potion effects (only mount-related ones)
         player.removePotionEffect(PotionEffectType.NIGHT_VISION);
         player.removePotionEffect(PotionEffectType.FIRE_RESISTANCE);
         player.removePotionEffect(PotionEffectType.DOLPHINS_GRACE);
     }
 
-    /**
-     *  Get tier from horse persistent data
-     */
     private int getTierFromHorse(Horse horse) {
         NamespacedKey tierKey = new NamespacedKey(manager.getPlugin(), "mount_tier");
         return horse.getPersistentDataContainer().getOrDefault(tierKey, PersistentDataType.INTEGER, 1);
     }
 
-    /**
-     *  Play dismount effects based on tier
-     */
     private void playDismountEffects(Location loc, int tier) {
-        // Play dismount sound
         Sound dismountSound = switch (tier) {
             case 1 -> Sound.ENTITY_HORSE_DEATH;
             case 2 -> Sound.ENTITY_HORSE_AMBIENT;
@@ -621,10 +498,8 @@ public class HorseMount implements Mount {
             case 6 -> Sound.ENTITY_ENDER_DRAGON_DEATH;
             default -> Sound.ENTITY_HORSE_DEATH;
         };
-
         loc.getWorld().playSound(loc, dismountSound, 0.7f, 1.0f);
 
-        // Dismount particle effects (smaller than summon effects)
         switch (tier) {
             case 1 -> spawnParticleBurst(loc, Particle.SMOKE, 10);
             case 2 -> spawnParticleBurst(loc, Particle.HAPPY_VILLAGER, 15);
@@ -638,36 +513,21 @@ public class HorseMount implements Mount {
         }
     }
 
-    /**
-     *  Attempts to remount a player to their horse if they've been dismounted accidentally
-     *
-     * @param player The player to remount
-     * @return True if remounting was successful
-     */
     public boolean attemptRemount(Player player) {
         UUID playerUUID = player.getUniqueId();
         Horse horse = activeHorses.get(playerUUID);
-
         if (horse == null || !horse.isValid()) {
             return false;
         }
-
-        // Check if player is already mounted
         if (player.isInsideVehicle()) {
             return true;
         }
-
-        // Check if horse is close enough to player
         if (horse.getLocation().distance(player.getLocation()) > 10.0) {
             return false;
         }
-
-        // Check if horse already has passengers
         if (!horse.getPassengers().isEmpty()) {
             return false;
         }
-
-        // Attempt to remount
         try {
             return horse.addPassenger(player);
         } catch (Exception e) {
@@ -676,94 +536,62 @@ public class HorseMount implements Mount {
         }
     }
 
-    /**
-     *  Forces a safe dismount and immediately removes the horse
-     * This is for emergency situations where the horse is glitching
-     *
-     * @param player The player
-     * @return True if emergency dismount was successful
-     */
     public boolean emergencyDismount(Player player) {
         UUID playerUUID = player.getUniqueId();
         Horse horse = activeHorses.get(playerUUID);
-
         if (horse == null) {
             return false;
         }
 
-        // Clean up visual effects first
         cleanupEffects(player);
 
-        // Force remove passenger
         if (horse.getPassengers().contains(player)) {
             horse.removePassenger(player);
         }
 
-        // Teleport player to a safe location near the horse
         Location safeLoc = horse.getLocation().clone();
         safeLoc.setY(safeLoc.getY() + 1);
         player.teleport(safeLoc);
 
-        // Remove the horse
         horse.remove();
         activeHorses.remove(playerUUID);
         manager.unregisterActiveMount(playerUUID);
 
-        player.sendMessage(ChatColor.YELLOW + "Your mount has been emergency dismissed due to a glitch.");
+        player.sendMessage(Component.text("Your mount has been emergency dismissed due to a glitch.", NamedTextColor.YELLOW));
         return true;
     }
 
-    /**
-     *  Check if a horse is in a valid state (not glitched)
-     *
-     * @param horse The horse to check
-     * @return True if the horse is in a valid state
-     */
     public boolean isHorseInValidState(Horse horse) {
         if (horse == null || !horse.isValid()) {
             return false;
         }
-
-        // Check if horse is in a solid block (common glitch)
         if (horse.getLocation().getBlock().getType().isSolid()) {
             return false;
         }
-
-        // Check if horse is too far underground
         if (horse.getLocation().getY() < 0) {
             return false;
         }
-
-        // Check if horse is in void
         return !(horse.getLocation().getY() < -64);
     }
 
-    /**
-     *  Perform health check on all active horses and fix issues
-     * This can be called periodically to maintain horse integrity
-     */
     public void performHealthCheck() {
         Iterator<Map.Entry<UUID, Horse>> iterator = activeHorses.entrySet().iterator();
-
         while (iterator.hasNext()) {
             Map.Entry<UUID, Horse> entry = iterator.next();
             UUID playerUUID = entry.getKey();
             Horse horse = entry.getValue();
             Player player = manager.getPlugin().getServer().getPlayer(playerUUID);
 
-            // Remove invalid horses
             if (!isHorseInValidState(horse)) {
                 iterator.remove();
                 manager.unregisterActiveMount(playerUUID);
-
                 if (player != null && player.isOnline()) {
                     cleanupEffects(player);
-                    player.sendMessage(ChatColor.YELLOW + "Your mount was automatically dismissed due to an error.");
+                    player.sendMessage(Component.text("Your mount was automatically dismissed due to an error.", NamedTextColor.YELLOW));
                 }
                 continue;
             }
 
-            // Check for disconnected players
             if (player == null || !player.isOnline()) {
                 horse.remove();
                 iterator.remove();
@@ -771,9 +599,7 @@ public class HorseMount implements Mount {
                 continue;
             }
 
-            // Check if player should be mounted but isn't
             if (!player.isInsideVehicle() && horse.getPassengers().isEmpty()) {
-                // Try to remount if player is close
                 if (horse.getLocation().distance(player.getLocation()) <= 5.0) {
                     horse.addPassenger(player);
                 }
@@ -781,70 +607,59 @@ public class HorseMount implements Mount {
         }
     }
 
-    /**
-     * Create mount items for display (now includes tier 1)
-     */
     public ItemStack createMountItem(int tier, boolean inShop) {
-        if (tier < 1) { // Allow tier 1
+        if (tier < 1) {
             return new ItemStack(Material.AIR);
         }
-
         MountConfig.HorseStats stats = manager.getConfig().getHorseStats(tier);
         if (stats == null) {
             return new ItemStack(Material.AIR);
         }
 
-        // Choose material based on tier
         Material material = switch (tier) {
             case 1 -> Material.LEATHER_HORSE_ARMOR;
             case 2 -> Material.IRON_HORSE_ARMOR;
             case 3 -> Material.GOLDEN_HORSE_ARMOR;
             case 4 -> Material.DIAMOND_HORSE_ARMOR;
-            case 6 -> Material.SADDLE; // Special for max tier
+            case 6 -> Material.SADDLE;
             default -> Material.SADDLE;
         };
 
         ItemStack itemStack = new ItemStack(material);
         ItemMeta itemMeta = itemStack.getItemMeta();
-
         if (itemMeta == null) {
             return itemStack;
         }
 
-        // Set name with tier color
-        String tierColor = getTierColor(tier);
-        String name = tierColor + stats.getName();
-        itemMeta.setDisplayName(name);
+        NamedTextColor tierColor = getTierColor(tier);
+        Component name = Component.text(stats.getName(), tierColor);
+        itemMeta.displayName(name);
 
-        List<String> lore = new ArrayList<>();
-        lore.add("§7Speed: §f" + (int) (stats.getSpeed() * 100) + "%");
-        lore.add("§7Jump: §f" + (int) (stats.getJump() * 100) + "%");
-        lore.add("§7Health: §f" + (20 + (tier * 2)) + "❤");
+        List<Component> lore = new ArrayList<>();
+        lore.add(Component.text("Speed: ", NamedTextColor.GRAY).append(Component.text((int) (stats.getSpeed() * 100) + "%", NamedTextColor.WHITE)));
+        lore.add(Component.text("Jump: ", NamedTextColor.GRAY).append(Component.text((int) (stats.getJump() * 100) + "%", NamedTextColor.WHITE)));
+        lore.add(Component.text("Health: ", NamedTextColor.GRAY).append(Component.text((20 + (tier * 2)) + "❤", NamedTextColor.WHITE)));
 
-        // Add requirement for shop items
         if (inShop && tier > 1) {
-            lore.add("§c§lREQ: §7Tier " + (tier - 1));
+            lore.add(Component.text("REQ: ", NamedTextColor.RED, TextDecoration.BOLD).append(Component.text("Tier " + (tier - 1), NamedTextColor.GRAY)));
         }
 
-        lore.add("");
-        lore.add("§7§o" + stats.getDescription());
+        lore.add(Component.empty());
+        lore.add(Component.text(stats.getDescription(), NamedTextColor.GRAY, TextDecoration.ITALIC));
 
-        // Add usage info
         if (!inShop) {
-            lore.add("");
-            lore.add("§eRight-click to summon mount");
+            lore.add(Component.empty());
+            lore.add(Component.text("Right-click to summon mount", NamedTextColor.YELLOW));
         }
 
-        // Add price for shop items
         if (inShop) {
-            lore.add("");
-            lore.add("§6Price: §f" + stats.getPrice() + " gems");
+            lore.add(Component.empty());
+            lore.add(Component.text("Price: ", NamedTextColor.GOLD).append(Component.text(stats.getPrice() + " gems", NamedTextColor.WHITE)));
         }
 
-        itemMeta.setLore(lore);
+        itemMeta.lore(lore);
         itemMeta.addItemFlags(ItemFlag.HIDE_ATTRIBUTES);
 
-        // Store tier in custom data
         NamespacedKey tierKey = new NamespacedKey(manager.getPlugin(), "mount_tier");
         itemMeta.getPersistentDataContainer().set(tierKey, PersistentDataType.INTEGER, tier);
 
@@ -852,38 +667,26 @@ public class HorseMount implements Mount {
         return itemStack;
     }
 
-    /**
-     * Gets the tier of a mount item
-     */
     public int getMountTier(ItemStack item) {
         if (item == null || !item.hasItemMeta()) {
             return 0;
         }
-
         ItemMeta meta = item.getItemMeta();
         if (meta == null) {
             return 0;
         }
-
         NamespacedKey tierKey = new NamespacedKey(manager.getPlugin(), "mount_tier");
         if (meta.getPersistentDataContainer().has(tierKey, PersistentDataType.INTEGER)) {
             return meta.getPersistentDataContainer().get(tierKey, PersistentDataType.INTEGER);
         }
-
         return 0;
     }
 
-    /**
-     *  method to check if a horse is owned by a specific player
-     */
     public boolean isHorseOwner(Horse horse, UUID playerUUID) {
         String storedUUID = horse.getPersistentDataContainer().get(ownerKey, PersistentDataType.STRING);
         return storedUUID != null && storedUUID.equals(playerUUID.toString());
     }
 
-    /**
-     * Gets the owner of a horse by its UUID
-     */
     public UUID getHorseOwner(UUID horseUUID) {
         for (Map.Entry<UUID, Horse> entry : activeHorses.entrySet()) {
             if (entry.getValue().getUniqueId().equals(horseUUID)) {
@@ -893,25 +696,15 @@ public class HorseMount implements Mount {
         return null;
     }
 
-    /**
-     * Check if player has active horse
-     */
     public boolean hasActiveHorse(Player player) {
         return activeHorses.containsKey(player.getUniqueId());
     }
 
-    /**
-     * Get player's active horse
-     */
     public Horse getActiveHorse(Player player) {
         return activeHorses.get(player.getUniqueId());
     }
 
-    /**
-     *  cleanup for plugin disable with effect cleanup
-     */
     public void cleanup() {
-        // Cancel all summoning tasks
         for (BukkitTask task : summonTasks.values()) {
             if (task != null) {
                 task.cancel();
@@ -920,14 +713,11 @@ public class HorseMount implements Mount {
         summonTasks.clear();
         summonLocations.clear();
 
-        // Cancel all effect tasks and clean up players
         for (Map.Entry<UUID, BukkitTask> entry : effectTasks.entrySet()) {
             BukkitTask task = entry.getValue();
             if (task != null) {
                 task.cancel();
             }
-
-            // Clean up player effects
             Player player = manager.getPlugin().getServer().getPlayer(entry.getKey());
             if (player != null && player.isOnline()) {
                 cleanupEffects(player);
@@ -935,7 +725,6 @@ public class HorseMount implements Mount {
         }
         effectTasks.clear();
 
-        // Remove all active horses
         for (Horse horse : activeHorses.values()) {
             if (horse != null && horse.isValid()) {
                 horse.remove();

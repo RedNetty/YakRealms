@@ -353,8 +353,6 @@ public class LimboManager {
                     player.setGameMode(GameMode.SURVIVAL);
                     player.setFlying(false);
                     player.setAllowFlight(false);
-                    player.setHealth(20.0);
-                    player.setFoodLevel(20);
 
                     player.sendMessage("");
                     player.sendMessage(TextUtil.getCenteredMessage(ChatColor.GREEN + "Emergency Recovery Activated"));

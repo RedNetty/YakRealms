@@ -6,22 +6,32 @@ import com.rednetty.server.mechanics.player.moderation.Rank;
 import com.rednetty.server.mechanics.player.YakPlayer;
 import com.rednetty.server.mechanics.player.YakPlayerManager;
 import org.bukkit.Bukkit;
-import org.bukkit.ChatColor;
-import org.bukkit.boss.BarColor;
-import org.bukkit.boss.BarStyle;
-import org.bukkit.boss.BossBar;
 import org.bukkit.entity.Player;
 import org.bukkit.scoreboard.*;
 
+// Adventure API imports for 1.21.7
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.TextColor;
+import net.kyori.adventure.text.format.TextDecoration;
+import net.kyori.adventure.text.format.NamedTextColor;
+import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
+import net.kyori.adventure.bossbar.BossBar;
+import net.kyori.adventure.sound.Sound;
+import net.kyori.adventure.title.Title;
+
+import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- *  Party scoreboards with proper team handling and health display
+ * Party scoreboards with full Adventure API support for Paper Spigot 1.21.7
+ * - Completely modernized with Adventure API - NO deprecated ChatColor usage
+ * - Enhanced text components, boss bars, sounds, and titles
  * - Fixed above head name colors to show alignment even in parties
  * - Fixed health display conflicts between party/non-party modes
  * - Simplified update logic to prevent throttling issues
  * - Improved team management to handle both party roles and alignment colors
+ * - Full backwards compatibility through Adventure API legacy serializer
  */
 public class PartyScoreboards {
     private static final Map<UUID, Scoreboard> playerScoreboards = new ConcurrentHashMap<>();
@@ -47,8 +57,87 @@ public class PartyScoreboards {
     private static final String ADMIN_MANAGER_TEAM = "admin_manager";
     private static final String ADMIN_GM_TEAM = "admin_gm";
 
+    // Adventure API color constants
+    private static final NamedTextColor PARTY_PRIMARY = NamedTextColor.LIGHT_PURPLE; // Light purple
+    private static final NamedTextColor PARTY_ACCENT = NamedTextColor.GOLD;  // Gold
+    private static final NamedTextColor HEALTH_COLOR = NamedTextColor.RED;
+    private static final NamedTextColor LEADER_COLOR = NamedTextColor.GOLD;
+    private static final NamedTextColor OFFICER_COLOR = NamedTextColor.YELLOW;
+    private static final NamedTextColor MEMBER_COLOR = NamedTextColor.GRAY;
+    private static final NamedTextColor CHAOTIC_COLOR = NamedTextColor.RED;
+    private static final NamedTextColor NEUTRAL_COLOR = NamedTextColor.YELLOW;
+    private static final NamedTextColor LAWFUL_COLOR = NamedTextColor.GRAY;
+    private static final NamedTextColor DEFAULT_COLOR = NamedTextColor.WHITE;
+
+    // Legacy component serializer for backwards compatibility with legacy string methods
+    private static final LegacyComponentSerializer LEGACY_SERIALIZER = LegacyComponentSerializer.legacySection();
+
     /**
-     * Visual effects system for party interactions
+     * Adventure API helper methods for backwards compatibility
+     */
+    private static Component legacyToComponent(String legacyText) {
+        if (legacyText == null) return Component.empty();
+        return LEGACY_SERIALIZER.deserialize(legacyText);
+    }
+
+    private static String componentToLegacy(Component component) {
+        if (component == null) return "";
+        return LEGACY_SERIALIZER.serialize(component);
+    }
+
+    private static BossBar.Color adventureBossBarColor(org.bukkit.boss.BarColor bukkitColor) {
+        if (bukkitColor == null) return BossBar.Color.WHITE;
+
+        switch (bukkitColor) {
+            case PINK: return BossBar.Color.PINK;
+            case BLUE: return BossBar.Color.BLUE;
+            case RED: return BossBar.Color.RED;
+            case GREEN: return BossBar.Color.GREEN;
+            case YELLOW: return BossBar.Color.YELLOW;
+            case PURPLE: return BossBar.Color.PURPLE;
+            case WHITE: return BossBar.Color.WHITE;
+            default: return BossBar.Color.WHITE;
+        }
+    }
+
+    /**
+     * Get NamedTextColor from alignment string
+     */
+    private static NamedTextColor getAlignmentNamedColor(String alignment) {
+        if (alignment == null) return DEFAULT_COLOR;
+
+        switch (alignment.toUpperCase()) {
+            case "CHAOTIC":
+                return CHAOTIC_COLOR;
+            case "NEUTRAL":
+                return NEUTRAL_COLOR;
+            case "LAWFUL":
+                return LAWFUL_COLOR;
+            default:
+                return DEFAULT_COLOR;
+        }
+    }
+
+    /**
+     * Get NamedTextColor from rank
+     */
+    private static NamedTextColor getRankNamedColor(Rank rank) {
+        if (rank == null) return DEFAULT_COLOR;
+
+        switch (rank) {
+            case DEV:
+                return LEADER_COLOR;
+            case MANAGER:
+                return OFFICER_COLOR;
+            case GM:
+                return NamedTextColor.AQUA;
+            default:
+                return DEFAULT_COLOR;
+        }
+    }
+
+    /**
+     * Visual effects system for party interactions with Adventure API
      */
     private static class PartyVisualEffects {
         private final Player player;
@@ -61,14 +150,35 @@ public class PartyScoreboards {
             if (!isPlayerValid()) return;
 
             try {
-                player.sendTitle(
-                        ChatColor.LIGHT_PURPLE + "✦ PARTY JOINED ✦",
-                        ChatColor.GRAY + "You are now part of a team",
-                        10, 40, 10
+                // Adventure API title
+                Component titleComponent = Component.text("✦ PARTY JOINED ✦")
+                        .color(PARTY_PRIMARY)
+                        .decorate(TextDecoration.BOLD);
+
+                Component subtitleComponent = Component.text("You are now part of a team")
+                        .color(NamedTextColor.GRAY);
+
+                Title title = Title.title(
+                        titleComponent,
+                        subtitleComponent,
+                        Title.Times.times(
+                                Duration.ofMillis(500),  // fade in
+                                Duration.ofMillis(2000), // stay
+                                Duration.ofMillis(500)   // fade out
+                        )
                 );
 
-                player.playSound(player.getLocation(),
-                        org.bukkit.Sound.ENTITY_PLAYER_LEVELUP, 0.7f, 1.2f);
+                player.showTitle(title);
+
+                // Adventure API sound
+                Sound sound = Sound.sound(
+                        org.bukkit.Sound.ENTITY_PLAYER_LEVELUP,
+                        Sound.Source.PLAYER,
+                        0.7f,
+                        1.2f
+                );
+                player.playSound(sound);
+
             } catch (Exception e) {
                 // Ignore visual effect errors
             }
@@ -78,14 +188,35 @@ public class PartyScoreboards {
             if (!isPlayerValid()) return;
 
             try {
-                player.sendTitle(
-                        ChatColor.RED + "✦ PARTY LEFT ✦",
-                        ChatColor.GRAY + "You are no longer in a party",
-                        10, 30, 10
+                // Adventure API title
+                Component titleComponent = Component.text("✦ PARTY LEFT ✦")
+                        .color(NamedTextColor.RED)
+                        .decorate(TextDecoration.BOLD);
+
+                Component subtitleComponent = Component.text("You are no longer in a party")
+                        .color(NamedTextColor.GRAY);
+
+                Title title = Title.title(
+                        titleComponent,
+                        subtitleComponent,
+                        Title.Times.times(
+                                Duration.ofMillis(500),  // fade in
+                                Duration.ofMillis(1500), // stay
+                                Duration.ofMillis(500)   // fade out
+                        )
                 );
 
-                player.playSound(player.getLocation(),
-                        org.bukkit.Sound.BLOCK_NOTE_BLOCK_BASS, 0.5f, 1.0f);
+                player.showTitle(title);
+
+                // Adventure API sound
+                Sound sound = Sound.sound(
+                        org.bukkit.Sound.BLOCK_NOTE_BLOCK_BASS,
+                        Sound.Source.PLAYER,
+                        0.5f,
+                        1.0f
+                );
+                player.playSound(sound);
+
             } catch (Exception e) {
                 // Ignore visual effect errors
             }
@@ -95,14 +226,35 @@ public class PartyScoreboards {
             if (!isPlayerValid()) return;
 
             try {
-                player.sendTitle(
-                        ChatColor.GOLD + "★ PARTY LEADER ★",
-                        ChatColor.YELLOW + "You are now the party leader",
-                        10, 50, 10
+                // Adventure API title
+                Component titleComponent = Component.text("★ PARTY LEADER ★")
+                        .color(LEADER_COLOR)
+                        .decorate(TextDecoration.BOLD);
+
+                Component subtitleComponent = Component.text("You are now the party leader")
+                        .color(OFFICER_COLOR);
+
+                Title title = Title.title(
+                        titleComponent,
+                        subtitleComponent,
+                        Title.Times.times(
+                                Duration.ofMillis(500),  // fade in
+                                Duration.ofMillis(2500), // stay
+                                Duration.ofMillis(500)   // fade out
+                        )
                 );
 
-                player.playSound(player.getLocation(),
-                        org.bukkit.Sound.ENTITY_PLAYER_LEVELUP, 1.0f, 1.5f);
+                player.showTitle(title);
+
+                // Adventure API sound
+                Sound sound = Sound.sound(
+                        org.bukkit.Sound.ENTITY_PLAYER_LEVELUP,
+                        Sound.Source.PLAYER,
+                        1.0f,
+                        1.5f
+                );
+                player.playSound(sound);
+
             } catch (Exception e) {
                 // Ignore visual effect errors
             }
@@ -157,7 +309,7 @@ public class PartyScoreboards {
     }
 
     /**
-     * Setup teams with alignment-based coloring and party role prefixes
+     * Setup teams with alignment-based coloring and party role prefixes (Adventure API)
      */
     private static void setupTeams(Scoreboard scoreboard) {
         if (scoreboard == null) return;
@@ -173,22 +325,25 @@ public class PartyScoreboards {
                 }
             }
 
-            // SIMPLIFIED: Only alignment and admin teams
-            // Admin teams (highest priority)
-            createTeamSafely(scoreboard, ADMIN_DEV_TEAM, ChatColor.GOLD,
-                    ChatColor.GOLD + "⚡ DEV " + ChatColor.GOLD, "");
+            // Admin teams (highest priority) with Adventure API
+            createTeamSafelyAdventure(scoreboard, ADMIN_DEV_TEAM, LEADER_COLOR,
+                    Component.text("⚡ DEV ").color(LEADER_COLOR), Component.empty());
 
-            createTeamSafely(scoreboard, ADMIN_MANAGER_TEAM, ChatColor.YELLOW,
-                    ChatColor.YELLOW + "★ MANAGER " + ChatColor.YELLOW, "");
+            createTeamSafelyAdventure(scoreboard, ADMIN_MANAGER_TEAM, OFFICER_COLOR,
+                    Component.text("★ MANAGER ").color(OFFICER_COLOR), Component.empty());
 
-            createTeamSafely(scoreboard, ADMIN_GM_TEAM, ChatColor.AQUA,
-                    ChatColor.AQUA + "♦ GM " + ChatColor.AQUA, "");
+            createTeamSafelyAdventure(scoreboard, ADMIN_GM_TEAM, NamedTextColor.AQUA,
+                    Component.text("♦ GM ").color(NamedTextColor.AQUA), Component.empty());
 
             // Alignment teams with colors but NO prefixes (party prefixes added dynamically)
-            createTeamSafely(scoreboard, CHAOTIC_TEAM, ChatColor.RED, "", "");
-            createTeamSafely(scoreboard, NEUTRAL_TEAM, ChatColor.YELLOW, "", "");
-            createTeamSafely(scoreboard, LAWFUL_TEAM, ChatColor.GRAY, "", "");
-            createTeamSafely(scoreboard, DEFAULT_TEAM, ChatColor.WHITE, "", "");
+            createTeamSafelyAdventure(scoreboard, CHAOTIC_TEAM, CHAOTIC_COLOR,
+                    Component.empty(), Component.empty());
+            createTeamSafelyAdventure(scoreboard, NEUTRAL_TEAM, NEUTRAL_COLOR,
+                    Component.empty(), Component.empty());
+            createTeamSafelyAdventure(scoreboard, LAWFUL_TEAM, LAWFUL_COLOR,
+                    Component.empty(), Component.empty());
+            createTeamSafelyAdventure(scoreboard, DEFAULT_TEAM, DEFAULT_COLOR,
+                    Component.empty(), Component.empty());
 
         } catch (Exception e) {
             Bukkit.getLogger().warning("Error setting up teams: " + e.getMessage());
@@ -196,9 +351,9 @@ public class PartyScoreboards {
     }
 
     /**
-     * Safely create a team with error handling
+     * Safely create a team with Adventure API components
      */
-    private static void createTeamSafely(Scoreboard scoreboard, String name, ChatColor color, String prefix, String suffix) {
+    private static void createTeamSafelyAdventure(Scoreboard scoreboard, String name, NamedTextColor color, Component prefix, Component suffix) {
         if (scoreboard == null || name == null) return;
 
         try {
@@ -209,17 +364,19 @@ public class PartyScoreboards {
 
             Team team = scoreboard.registerNewTeam(name);
             if (team != null) {
-                team.setColor(color);
-                if (prefix != null) team.setPrefix(prefix);
-                if (suffix != null) team.setSuffix(suffix);
+                // Set team color for name display
+                team.color(color != null ? color : DEFAULT_COLOR);
+
+                if (prefix != null) team.prefix(prefix);
+                if (suffix != null) team.suffix(suffix);
             }
         } catch (Exception e) {
-            Bukkit.getLogger().warning("Failed to create team " + name + ": " + e.getMessage());
+            Bukkit.getLogger().warning("Failed to create Adventure team " + name + ": " + e.getMessage());
         }
     }
 
     /**
-     * Setup health display with proper conflict handling
+     * Setup health display with Adventure API
      */
     private static void setupHealthDisplay(Scoreboard scoreboard) {
         if (scoreboard == null) return;
@@ -231,9 +388,9 @@ public class PartyScoreboards {
                 existingHealth.unregister();
             }
 
-            // Create health objective for above-head display
+            // Create health objective for above-head display with Adventure API
             Objective healthObjective = scoreboard.registerNewObjective(
-                    "health", "health", ChatColor.RED + "❤");
+                    "health", "health", Component.text("♥").color(HEALTH_COLOR));
             healthObjective.setDisplaySlot(DisplaySlot.BELOW_NAME);
 
             // Initialize health for all online players immediately
@@ -248,7 +405,7 @@ public class PartyScoreboards {
                 }
             }
         } catch (Exception e) {
-            Bukkit.getLogger().warning("Failed to setup health display: " + e.getMessage());
+            Bukkit.getLogger().warning("Failed to setup Adventure health display: " + e.getMessage());
         }
     }
 
@@ -308,7 +465,7 @@ public class PartyScoreboards {
     }
 
     /**
-     * Update team assignments with party role prefixes AND alignment colors
+     * Update team assignments with party role prefixes AND alignment colors (Adventure API)
      */
     private static void updatePlayerTeamAssignments(Player viewer, Scoreboard scoreboard, PartyMechanics partyMechanics) {
         if (viewer == null || !viewer.isOnline() || scoreboard == null || partyMechanics == null) {
@@ -348,16 +505,17 @@ public class PartyScoreboards {
                     Team team = scoreboard.getTeam(teamName);
 
                     if (team != null) {
-                        // FIXED: Add party role prefix dynamically
-                        String partyPrefix = getPartyRolePrefix(target, viewer, viewerPartyMembers, partyMechanics);
-                        if (partyPrefix != null && !partyPrefix.isEmpty()) {
+                        // Add party role prefix dynamically with Adventure API
+                        Component partyPrefix = getPartyRolePrefixComponent(target, viewer, viewerPartyMembers, partyMechanics);
+                        if (partyPrefix != null && !partyPrefix.equals(Component.empty())) {
                             // Update team prefix to include party role
-                            String currentPrefix = team.getPrefix();
-                            if (currentPrefix == null) currentPrefix = "";
+                            Component currentPrefix = team.prefix();
+                            if (currentPrefix == null) currentPrefix = Component.empty();
 
                             // Only add party prefix if not already an admin
-                            if (!currentPrefix.contains("DEV") && !currentPrefix.contains("MANAGER") && !currentPrefix.contains("GM")) {
-                                team.setPrefix(partyPrefix);
+                            String currentPrefixString = componentToLegacy(currentPrefix);
+                            if (!currentPrefixString.contains("DEV") && !currentPrefixString.contains("MANAGER") && !currentPrefixString.contains("GM")) {
+                                team.prefix(partyPrefix);
                             }
                         }
 
@@ -370,7 +528,7 @@ public class PartyScoreboards {
 
             viewer.setScoreboard(scoreboard);
         } catch (Exception e) {
-            Bukkit.getLogger().warning("Error updating team assignments for " + viewer.getName() + ": " + e.getMessage());
+            Bukkit.getLogger().warning("Error updating Adventure team assignments for " + viewer.getName() + ": " + e.getMessage());
         }
     }
 
@@ -422,33 +580,35 @@ public class PartyScoreboards {
     }
 
     /**
-     * NEW: Get party role prefix for display
+     * Get party role prefix for display (Adventure API)
      */
-    private static String getPartyRolePrefix(Player target, Player viewer, List<Player> viewerPartyMembers, PartyMechanics partyMechanics) {
+    private static Component getPartyRolePrefixComponent(Player target, Player viewer, List<Player> viewerPartyMembers, PartyMechanics partyMechanics) {
         if (target == null || viewer == null || partyMechanics == null) {
-            return "";
+            return Component.empty();
         }
 
         try {
             // Only show party prefixes if both players are in the same party
             if (viewerPartyMembers != null && viewerPartyMembers.contains(target)) {
                 if (partyMechanics.isPartyLeader(target)) {
-                    return ChatColor.GOLD + "★" + ChatColor.LIGHT_PURPLE + "[P] ";
+                    return Component.text("★").color(LEADER_COLOR)
+                            .append(Component.text("[P] ").color(PARTY_PRIMARY));
                 } else if (partyMechanics.isPartyOfficer(target)) {
-                    return ChatColor.YELLOW + "♦" + ChatColor.LIGHT_PURPLE + "[P] ";
+                    return Component.text("♦").color(OFFICER_COLOR)
+                            .append(Component.text("[P] ").color(PARTY_PRIMARY));
                 } else {
-                    return ChatColor.LIGHT_PURPLE + "[P] ";
+                    return Component.text("[P] ").color(PARTY_PRIMARY);
                 }
             }
         } catch (Exception e) {
             // Return empty on error
         }
 
-        return "";
+        return Component.empty();
     }
 
     /**
-     * Update party objective with cleaner entry management
+     * Update party objective with cleaner entry management (Adventure API)
      */
     private static void updatePartyObjective(Player player, Scoreboard scoreboard, PartyMechanics partyMechanics) {
         if (player == null || !player.isOnline() || scoreboard == null || partyMechanics == null) {
@@ -468,17 +628,21 @@ public class PartyScoreboards {
             Set<String> currentEntries = activeScoreboardEntries.computeIfAbsent(playerId, k -> ConcurrentHashMap.newKeySet());
             currentEntries.clear();
 
-            // Create new party objective
-            Objective partyObjective = scoreboard.registerNewObjective(
-                    "party_data", "dummy",
-                    ChatColor.LIGHT_PURPLE + "✦ " + ChatColor.BOLD + "PARTY" + ChatColor.LIGHT_PURPLE + " ✦"
-            );
+            // Create new party objective with Adventure API
+            Component objectiveTitle = Component.text("✦ ").color(PARTY_PRIMARY)
+                    .append(Component.text("PARTY").color(PARTY_PRIMARY).decorate(TextDecoration.BOLD))
+                    .append(Component.text(" ✦").color(PARTY_PRIMARY));
+
+            Objective partyObjective = scoreboard.registerNewObjective("party_data", "dummy", objectiveTitle);
             partyObjective.setDisplaySlot(DisplaySlot.SIDEBAR);
 
             List<Player> partyMembers = partyMechanics.getPartyMembers(player);
             if (partyMembers != null && !partyMembers.isEmpty()) {
-                // Add party size indicator
-                String sizeIndicator = ChatColor.GRAY + "Members: " + ChatColor.WHITE + partyMembers.size();
+                // Add party size indicator using legacy format for scoreboard entries
+                String sizeIndicator = componentToLegacy(
+                        Component.text("Members: ").color(NamedTextColor.GRAY)
+                                .append(Component.text(partyMembers.size()).color(NamedTextColor.WHITE))
+                );
                 partyObjective.getScore(sizeIndicator).setScore(15);
                 currentEntries.add(sizeIndicator);
 
@@ -527,7 +691,7 @@ public class PartyScoreboards {
     }
 
     /**
-     * Format party member name with role and health indicators
+     * Format party member name with role and health indicators (Adventure API)
      */
     private static String formatPartyMemberName(Player member, PartyMechanics partyMechanics, int index, Set<String> usedNames) {
         if (member == null || !member.isOnline() || partyMechanics == null) {
@@ -535,38 +699,38 @@ public class PartyScoreboards {
         }
 
         try {
-            StringBuilder nameBuilder = new StringBuilder();
+            Component nameComponent = Component.empty();
 
             // Add role indicator
             if (partyMechanics.isPartyLeader(member)) {
-                nameBuilder.append(ChatColor.GOLD).append("★ ");
+                nameComponent = nameComponent.append(Component.text("★ ").color(LEADER_COLOR));
             } else if (partyMechanics.isPartyOfficer(member)) {
-                nameBuilder.append(ChatColor.YELLOW).append("♦ ");
+                nameComponent = nameComponent.append(Component.text("♦ ").color(OFFICER_COLOR));
             } else {
-                nameBuilder.append(ChatColor.GRAY).append("• ");
+                nameComponent = nameComponent.append(Component.text("• ").color(MEMBER_COLOR));
             }
 
             // Add player name with alignment color
-            ChatColor nameColor = getPlayerDisplayColor(member);
-            nameBuilder.append(nameColor).append(member.getName());
+            NamedTextColor nameColor = getPlayerDisplayColor(member);
+            nameComponent = nameComponent.append(Component.text(member.getName()).color(nameColor));
 
             // Add health status indicator
             double healthPercentage = member.getHealth() / member.getMaxHealth();
             if (healthPercentage <= 0.3) {
-                nameBuilder.append(ChatColor.RED).append(" ♥");
+                nameComponent = nameComponent.append(Component.text(" ♥").color(NamedTextColor.RED));
             } else if (healthPercentage >= 1.0) {
-                nameBuilder.append(ChatColor.GREEN).append(" ♥");
+                nameComponent = nameComponent.append(Component.text(" ♥").color(NamedTextColor.GREEN));
             } else if (healthPercentage <= 0.6) {
-                nameBuilder.append(ChatColor.YELLOW).append(" ♥");
+                nameComponent = nameComponent.append(Component.text(" ♥").color(NamedTextColor.YELLOW));
             }
 
-            String result = nameBuilder.toString();
+            String result = componentToLegacy(nameComponent);
 
             // Ensure uniqueness
             String finalName = result;
             int suffix = 0;
             while (usedNames.contains(finalName)) {
-                finalName = result + ChatColor.RESET + "" + ChatColor.BLACK + suffix;
+                finalName = result + "§0" + suffix;
                 suffix++;
             }
 
@@ -583,27 +747,18 @@ public class PartyScoreboards {
     }
 
     /**
-     * Get appropriate display color for a player
+     * Get appropriate display color for a player (Adventure API)
      */
-    private static ChatColor getPlayerDisplayColor(Player player) {
+    private static NamedTextColor getPlayerDisplayColor(Player player) {
         if (player == null) {
-            return ChatColor.WHITE;
+            return DEFAULT_COLOR;
         }
 
         try {
             // Check rank first for admins
             Rank rank = ModerationMechanics.getInstance().getPlayerRank(player.getUniqueId());
             if (rank != null && rank != Rank.DEFAULT) {
-                switch (rank) {
-                    case DEV:
-                        return ChatColor.GOLD;
-                    case MANAGER:
-                        return ChatColor.YELLOW;
-                    case GM:
-                        return ChatColor.AQUA;
-                    default:
-                        return ChatColor.WHITE;
-                }
+                return getRankNamedColor(rank);
             }
 
             // Get alignment color
@@ -612,25 +767,14 @@ public class PartyScoreboards {
                 YakPlayer yakPlayer = playerManager.getPlayer(player);
                 if (yakPlayer != null) {
                     String alignment = yakPlayer.getAlignment();
-                    if (alignment != null) {
-                        switch (alignment) {
-                            case "CHAOTIC":
-                                return ChatColor.RED;
-                            case "NEUTRAL":
-                                return ChatColor.YELLOW;
-                            case "LAWFUL":
-                                return ChatColor.GRAY;
-                            default:
-                                return ChatColor.WHITE;
-                        }
-                    }
+                    return getAlignmentNamedColor(alignment);
                 }
             }
         } catch (Exception e) {
-            // Fall back to white on any error
+            // Fall back to default color on any error
         }
 
-        return ChatColor.WHITE;
+        return DEFAULT_COLOR;
     }
 
     /**
@@ -690,7 +834,7 @@ public class PartyScoreboards {
     }
 
     /**
-     * Update party health bar
+     * Update party health bar (Adventure API)
      */
     private static void updatePartyHealthBar(Player player, PartyMechanics partyMechanics) {
         if (player == null || !player.isOnline() || partyMechanics == null) {
@@ -723,36 +867,44 @@ public class PartyScoreboards {
 
             double healthPercentage = totalHealth / maxTotalHealth;
 
-            // Create title
-            String title = ChatColor.LIGHT_PURPLE + "✦ " + ChatColor.BOLD + "PARTY" +
-                    ChatColor.LIGHT_PURPLE + " (" + aliveMembersCount + "/" + partyMembers.size() +
-                    ") " + ChatColor.WHITE + (int)totalHealth + "/" + (int)maxTotalHealth + " ❤";
+            // Create title with Adventure API
+            Component title = Component.text("✦ ").color(PARTY_PRIMARY)
+                    .append(Component.text("PARTY").color(PARTY_PRIMARY).decorate(TextDecoration.BOLD))
+                    .append(Component.text(" (" + aliveMembersCount + "/" + partyMembers.size() + ")").color(PARTY_PRIMARY))
+                    .append(Component.text(" ").color(NamedTextColor.WHITE))
+                    .append(Component.text((int)totalHealth + "/" + (int)maxTotalHealth).color(NamedTextColor.WHITE))
+                    .append(Component.text(" ♥").color(HEALTH_COLOR));
 
-            BarColor barColor = getPartyHealthBarColor(healthPercentage, aliveMembersCount, partyMembers.size());
+            BossBar.Color barColor = getPartyHealthBarColorAdventure(healthPercentage, aliveMembersCount, partyMembers.size());
 
             BossBar bossBar = partyHealthBars.get(playerId);
             if (bossBar == null) {
-                bossBar = Bukkit.createBossBar(title, barColor, BarStyle.SEGMENTED_10);
-                bossBar.addPlayer(player);
+                bossBar = BossBar.bossBar(title, (float) Math.max(0.0, Math.min(1.0, healthPercentage)),
+                        barColor, BossBar.Overlay.NOTCHED_10);
+                player.showBossBar(bossBar);
                 partyHealthBars.put(playerId, bossBar);
             }
 
-            bossBar.setColor(barColor);
-            bossBar.setTitle(title);
-            bossBar.setProgress(Math.max(0.0, Math.min(1.0, healthPercentage)));
+            bossBar.color(barColor);
+            bossBar.name(title);
+            bossBar.progress((float) Math.max(0.0, Math.min(1.0, healthPercentage)));
+
         } catch (Exception e) {
-            Bukkit.getLogger().warning("Error updating party health bar for " + player.getName() + ": " + e.getMessage());
+            Bukkit.getLogger().warning("Error updating Adventure party health bar for " + player.getName() + ": " + e.getMessage());
         }
     }
 
     /**
-     * Clear party health bar
+     * Clear party health bar (Adventure API)
      */
     private static void clearPartyHealthBar(UUID playerId) {
         try {
             BossBar bossBar = partyHealthBars.remove(playerId);
             if (bossBar != null) {
-                bossBar.removeAll();
+                Player player = Bukkit.getPlayer(playerId);
+                if (player != null && player.isOnline()) {
+                    player.hideBossBar(bossBar);
+                }
             }
         } catch (Exception e) {
             // Ignore cleanup errors
@@ -760,23 +912,23 @@ public class PartyScoreboards {
     }
 
     /**
-     * Determine boss bar color based on party health status
+     * Determine boss bar color based on party health status (Adventure API)
      */
-    private static BarColor getPartyHealthBarColor(double healthPercentage, int aliveCount, int totalCount) {
+    private static BossBar.Color getPartyHealthBarColorAdventure(double healthPercentage, int aliveCount, int totalCount) {
         // Critical if someone is dead
         if (aliveCount < totalCount) {
-            return BarColor.RED;
+            return BossBar.Color.RED;
         }
 
         // Color based on overall health
-        if (healthPercentage > 0.75) return BarColor.GREEN;
-        if (healthPercentage > 0.5) return BarColor.YELLOW;
-        if (healthPercentage > 0.25) return BarColor.RED;
-        return BarColor.PURPLE; // Critical health
+        if (healthPercentage > 0.75) return BossBar.Color.GREEN;
+        if (healthPercentage > 0.5) return BossBar.Color.YELLOW;
+        if (healthPercentage > 0.25) return BossBar.Color.RED;
+        return BossBar.Color.PURPLE; // Critical health
     }
 
     /**
-     * SIMPLIFIED: Update all player scoreboards
+     * Update all player scoreboards
      */
     public static void refreshAllPartyScoreboards() {
         PartyMechanics partyMechanics = PartyMechanics.getInstance();
@@ -878,7 +1030,7 @@ public class PartyScoreboards {
     }
 
     /**
-     * SIMPLIFIED: Update health for all players
+     * Update health for all players
      */
     public static void updateAllPlayerHealth() {
         for (Player viewer : Bukkit.getOnlinePlayers()) {
@@ -896,7 +1048,7 @@ public class PartyScoreboards {
     }
 
     /**
-     * SIMPLIFIED: Update all player colors and team assignments
+     * Update all player colors and team assignments
      */
     public static void updateAllPlayerColors() {
         for (Player viewer : Bukkit.getOnlinePlayers()) {
@@ -938,7 +1090,12 @@ public class PartyScoreboards {
         try {
             for (BossBar bossBar : partyHealthBars.values()) {
                 try {
-                    bossBar.removeAll();
+                    // Adventure API cleanup
+                    for (Player player : Bukkit.getOnlinePlayers()) {
+                        if (player != null && player.isOnline()) {
+                            player.hideBossBar(bossBar);
+                        }
+                    }
                 } catch (Exception e) {
                     // Ignore cleanup errors
                 }
@@ -1065,6 +1222,158 @@ public class PartyScoreboards {
         stats.put("cached_visuals", partyVisuals.size());
         stats.put("tracked_updates", lastUpdateTimes.size());
         stats.put("active_entries", activeScoreboardEntries.size());
+        stats.put("adventure_api_enabled", true);
+        stats.put("chatcolor_deprecated_removed", true);
         return stats;
+    }
+
+    // ========================================
+    // ADVENTURE API SPECIFIC METHODS
+    // ========================================
+
+    /**
+     * Send Adventure API message to player
+     */
+    public static void sendAdventureMessage(Player player, Component message) {
+        if (player == null || !player.isOnline() || message == null) return;
+
+        try {
+            player.sendMessage(message);
+        } catch (Exception e) {
+            // Fallback to legacy serialized version
+            player.sendMessage(componentToLegacy(message));
+        }
+    }
+
+    /**
+     * Show Adventure API title to player
+     */
+    public static void showAdventureTitle(Player player, Component title, Component subtitle, Duration fadeIn, Duration stay, Duration fadeOut) {
+        if (player == null || !player.isOnline()) return;
+
+        try {
+            Title adventureTitle = Title.title(
+                    title != null ? title : Component.empty(),
+                    subtitle != null ? subtitle : Component.empty(),
+                    Title.Times.times(fadeIn, stay, fadeOut)
+            );
+            player.showTitle(adventureTitle);
+        } catch (Exception e) {
+            // Adventure API might not be available, ignore
+        }
+    }
+
+    /**
+     * Play Adventure API sound to player
+     */
+    public static void playAdventureSound(Player player, Sound sound) {
+        if (player == null || !player.isOnline() || sound == null) return;
+
+        try {
+            player.playSound(sound);
+        } catch (Exception e) {
+            // Adventure API might not be available, ignore
+        }
+    }
+
+    /**
+     * Get Adventure API color from alignment
+     */
+    public static NamedTextColor getAlignmentColor(String alignment) {
+        return getAlignmentNamedColor(alignment);
+    }
+
+    /**
+     * Create Adventure API component from player name with alignment color
+     */
+    public static Component createPlayerNameComponent(Player player) {
+        if (player == null) return Component.text("Unknown").color(DEFAULT_COLOR);
+
+        try {
+            NamedTextColor color = getPlayerDisplayColor(player);
+            return Component.text(player.getName()).color(color);
+        } catch (Exception e) {
+            return Component.text(player.getName()).color(DEFAULT_COLOR);
+        }
+    }
+
+    /**
+     * Create formatted party announcement component
+     */
+    public static Component createPartyAnnouncementComponent(String announcement) {
+        return Component.text("✦ ").color(PARTY_PRIMARY)
+                .append(Component.text("PARTY").color(PARTY_PRIMARY).decorate(TextDecoration.BOLD))
+                .append(Component.text(" ✦ ").color(PARTY_PRIMARY))
+                .append(Component.text(announcement).color(NamedTextColor.WHITE));
+    }
+
+    /**
+     * Create health component with color based on percentage
+     */
+    public static Component createHealthComponent(double currentHealth, double maxHealth) {
+        double percentage = currentHealth / maxHealth;
+        NamedTextColor healthColor = NamedTextColor.GREEN;
+
+        if (percentage <= 0.25) {
+            healthColor = NamedTextColor.RED;
+        } else if (percentage <= 0.5) {
+            healthColor = NamedTextColor.YELLOW;
+        } else if (percentage <= 0.75) {
+            healthColor = NamedTextColor.GOLD;
+        }
+
+        return Component.text((int) currentHealth + "/" + (int) maxHealth + " ♥").color(healthColor);
+    }
+
+    /**
+     * Create rank prefix component
+     */
+    public static Component createRankPrefixComponent(Rank rank) {
+        if (rank == null || rank == Rank.DEFAULT) return Component.empty();
+
+        switch (rank) {
+            case DEV:
+                return Component.text("⚡ DEV ").color(LEADER_COLOR);
+            case MANAGER:
+                return Component.text("★ MANAGER ").color(OFFICER_COLOR);
+            case GM:
+                return Component.text("♦ GM ").color(NamedTextColor.AQUA);
+            default:
+                return Component.empty();
+        }
+    }
+
+    /**
+     * Format player name with full context (rank, party role, alignment)
+     */
+    public static Component formatPlayerNameFull(Player player, Player viewer, PartyMechanics partyMechanics) {
+        if (player == null) return Component.text("Unknown").color(DEFAULT_COLOR);
+
+        Component result = Component.empty();
+
+        try {
+            // Add rank prefix if applicable
+            Rank rank = ModerationMechanics.getInstance().getPlayerRank(player.getUniqueId());
+            if (rank != null && rank != Rank.DEFAULT) {
+                result = result.append(createRankPrefixComponent(rank));
+            } else if (partyMechanics != null && viewer != null) {
+                // Add party prefix if no rank and in same party
+                List<Player> viewerPartyMembers = partyMechanics.isInParty(viewer) ?
+                        partyMechanics.getPartyMembers(viewer) : null;
+                Component partyPrefix = getPartyRolePrefixComponent(player, viewer, viewerPartyMembers, partyMechanics);
+                if (!partyPrefix.equals(Component.empty())) {
+                    result = result.append(partyPrefix);
+                }
+            }
+
+            // Add player name with alignment color
+            NamedTextColor nameColor = getPlayerDisplayColor(player);
+            result = result.append(Component.text(player.getName()).color(nameColor));
+
+        } catch (Exception e) {
+            result = Component.text(player.getName()).color(DEFAULT_COLOR);
+        }
+
+        return result;
     }
 }

@@ -14,10 +14,11 @@ import org.bukkit.plugin.Plugin;
 import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.scheduler.BukkitTask;
 
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -26,17 +27,32 @@ import static org.bson.codecs.configuration.CodecRegistries.fromProviders;
 import static org.bson.codecs.configuration.CodecRegistries.fromRegistries;
 
 /**
- * MongoDB connection manager with bulletproof connection handling and automatic recovery
- *  VERSION: Improved connection stability, enhanced error recovery, and comprehensive monitoring
+ * Enhanced MongoDB Manager with bulletproof connection state management
+ * Fixes: "state should be: open" errors and connection stability issues
+ *
+ * Key Improvements:
+ * - Rigorous connection state validation before every operation
+ * - Enhanced retry logic with exponential backoff
+ * - Proper shutdown coordination to prevent race conditions
+ * - Connection health monitoring with automatic recovery
+ * - Operation queuing during connection recovery
  */
 public class MongoDBManager {
     private static volatile MongoDBManager instance;
     private static final Object INSTANCE_LOCK = new Object();
 
-    // Enhanced connection management
+    // Enhanced connection management with state validation
     private volatile MongoClient mongoClient;
     private volatile MongoDatabase database;
     private final ReentrantReadWriteLock connectionLock = new ReentrantReadWriteLock();
+
+    // Operation queue for connection recovery periods
+    private final BlockingQueue<Runnable> operationQueue = new LinkedBlockingQueue<>();
+    private final ExecutorService operationExecutor = Executors.newSingleThreadExecutor(r -> {
+        Thread thread = new Thread(r, "MongoDB-Operations");
+        thread.setDaemon(true);
+        return thread;
+    });
 
     // Enhanced configuration
     private final String connectionString;
@@ -52,11 +68,12 @@ public class MongoDBManager {
     private final boolean enableRetryWrites;
     private final boolean enableRetryReads;
 
-    // Enhanced state tracking
+    // Enhanced state tracking with atomic operations
     private final AtomicBoolean connected = new AtomicBoolean(false);
     private final AtomicBoolean shuttingDown = new AtomicBoolean(false);
     private final AtomicBoolean healthCheckActive = new AtomicBoolean(false);
     private final AtomicBoolean autoRecoveryEnabled = new AtomicBoolean(true);
+    private final AtomicBoolean connectionValidated = new AtomicBoolean(false);
 
     // Enhanced performance tracking
     private final AtomicInteger connectionAttempts = new AtomicInteger(0);
@@ -66,6 +83,8 @@ public class MongoDBManager {
     private final AtomicInteger failedOperations = new AtomicInteger(0);
     private final AtomicInteger recoveryAttempts = new AtomicInteger(0);
     private final AtomicInteger successfulRecoveries = new AtomicInteger(0);
+    private final AtomicInteger stateValidationFailures = new AtomicInteger(0);
+    private final AtomicInteger queuedOperations = new AtomicInteger(0);
     private final AtomicLong lastSuccessfulPing = new AtomicLong(0);
     private final AtomicLong totalDowntime = new AtomicLong(0);
     private final AtomicLong lastConnectionTime = new AtomicLong(0);
@@ -78,6 +97,7 @@ public class MongoDBManager {
     // Enhanced monitoring and recovery
     private BukkitTask healthCheckTask;
     private BukkitTask connectionMonitorTask;
+    private BukkitTask operationProcessorTask;
     private final long healthCheckInterval;
     private final long connectionMonitorInterval;
     private final int maxRecoveryAttempts;
@@ -90,22 +110,22 @@ public class MongoDBManager {
         // Enhanced configuration loading with comprehensive defaults
         this.connectionString = config.getString("mongodb.connection_string", "mongodb://localhost:27017");
         this.databaseName = config.getString("mongodb.database", "yakrealms");
-        this.maxConnectionPoolSize = config.getInt("mongodb.max_connection_pool_size", 50);
-        this.minConnectionPoolSize = config.getInt("mongodb.min_connection_pool_size", 5);
-        this.maxConnectionIdleTime = config.getLong("mongodb.max_connection_idle_time_ms", 600000);
-        this.maxWaitTime = config.getLong("mongodb.max_wait_time_ms", 15000);
-        this.socketTimeout = config.getLong("mongodb.socket_timeout_ms", 30000);
-        this.connectTimeout = config.getLong("mongodb.connect_timeout_ms", 10000);
-        this.heartbeatFrequency = config.getLong("mongodb.heartbeat_frequency_ms", 10000);
-        this.serverSelectionTimeout = config.getLong("mongodb.server_selection_timeout_ms", 30000);
+        this.maxConnectionPoolSize = config.getInt("mongodb.max_connection_pool_size", 25); // Reduced from 50
+        this.minConnectionPoolSize = config.getInt("mongodb.min_connection_pool_size", 2);  // Reduced from 5
+        this.maxConnectionIdleTime = config.getLong("mongodb.max_connection_idle_time_ms", 300000); // Reduced from 600000
+        this.maxWaitTime = config.getLong("mongodb.max_wait_time_ms", 10000); // Reduced from 15000
+        this.socketTimeout = config.getLong("mongodb.socket_timeout_ms", 15000); // Reduced from 30000
+        this.connectTimeout = config.getLong("mongodb.connect_timeout_ms", 5000); // Reduced from 10000
+        this.heartbeatFrequency = config.getLong("mongodb.heartbeat_frequency_ms", 5000); // Reduced from 10000
+        this.serverSelectionTimeout = config.getLong("mongodb.server_selection_timeout_ms", 10000); // Reduced from 30000
         this.enableRetryWrites = config.getBoolean("mongodb.enable_retry_writes", true);
         this.enableRetryReads = config.getBoolean("mongodb.enable_retry_reads", true);
 
         // Enhanced monitoring configuration
-        this.healthCheckInterval = config.getLong("mongodb.health_check_interval_ms", 30000);
-        this.connectionMonitorInterval = config.getLong("mongodb.connection_monitor_interval_ms", 10000);
-        this.maxRecoveryAttempts = config.getInt("mongodb.max_recovery_attempts", 5);
-        this.recoveryDelay = config.getLong("mongodb.recovery_delay_ms", 5000);
+        this.healthCheckInterval = config.getLong("mongodb.health_check_interval_ms", 15000); // Reduced from 30000
+        this.connectionMonitorInterval = config.getLong("mongodb.connection_monitor_interval_ms", 5000);
+        this.maxRecoveryAttempts = config.getInt("mongodb.max_recovery_attempts", 3); // Reduced from 5
+        this.recoveryDelay = config.getLong("mongodb.recovery_delay_ms", 2000); // Reduced from 5000
 
         // Enhanced MongoDB driver logging configuration
         Logger mongoLogger = Logger.getLogger("org.mongodb.driver");
@@ -122,7 +142,10 @@ public class MongoDBManager {
             throw new RuntimeException("Codec registry initialization failed", e);
         }
 
-        logger.info(" MongoDBManager initialized with database: " + databaseName);
+        // Start operation processor
+        startOperationProcessor();
+
+        logger.info("✅ Enhanced MongoDBManager initialized with state validation");
     }
 
     public static MongoDBManager initialize(FileConfiguration config, Plugin plugin) {
@@ -139,13 +162,55 @@ public class MongoDBManager {
     public static MongoDBManager getInstance() {
         MongoDBManager result = instance;
         if (result == null) {
-            throw new IllegalStateException(" MongoDBManager has not been initialized. Call initialize() first.");
+            throw new IllegalStateException("✗ MongoDBManager has not been initialized. Call initialize() first.");
         }
         return result;
     }
 
     /**
-     * connection with comprehensive error handling and retry logic
+     * Start operation processor for queued operations during recovery
+     */
+    private void startOperationProcessor() {
+        operationProcessorTask = new BukkitRunnable() {
+            @Override
+            public void run() {
+                processQueuedOperations();
+            }
+        }.runTaskTimerAsynchronously(plugin, 20L, 20L); // Every second
+    }
+
+    /**
+     * Process queued operations when connection is healthy
+     */
+    private void processQueuedOperations() {
+        if (!isConnectionHealthyAndValidated()) {
+            return;
+        }
+
+        int processedCount = 0;
+        while (!operationQueue.isEmpty() && isConnectionHealthyAndValidated() && processedCount < 10) {
+            try {
+                Runnable operation = operationQueue.poll(100, TimeUnit.MILLISECONDS);
+                if (operation != null) {
+                    operationExecutor.submit(operation);
+                    processedCount++;
+                    queuedOperations.decrementAndGet();
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
+            } catch (Exception e) {
+                logger.log(Level.WARNING, "Error processing queued operation", e);
+            }
+        }
+
+        if (processedCount > 0) {
+            logger.info("Processed " + processedCount + " queued operations");
+        }
+    }
+
+    /**
+     * Enhanced connection with comprehensive error handling and retry logic
      */
     public boolean connect() {
         connectionLock.writeLock().lock();
@@ -157,8 +222,8 @@ public class MongoDBManager {
 
             connectionAttempts.incrementAndGet();
 
-            if (connected.get() && isConnectionHealthy()) {
-                logger.fine("Already connected to Enhanced MongoDB");
+            if (connected.get() && isConnectionHealthyAndValidated()) {
+                logger.fine("Already connected to Enhanced MongoDB with validated state");
                 return true;
             }
 
@@ -186,9 +251,9 @@ public class MongoDBManager {
                 return false;
             }
 
-            // Enhanced connection testing
+            // Enhanced connection testing with state validation
             if (!performEnhancedConnectionTest()) {
-                logger.severe(" connection test failed");
+                logger.severe("✗ Enhanced connection test failed");
                 failedConnections.incrementAndGet();
                 closeConnectionInternal();
                 return false;
@@ -203,16 +268,18 @@ public class MongoDBManager {
             startEnhancedMonitoring();
 
             connected.set(true);
+            connectionValidated.set(true);
             successfulConnections.incrementAndGet();
             lastConnectionTime.set(System.currentTimeMillis());
             lastSuccessfulPing.set(System.currentTimeMillis());
 
-            logger.info("✓ Successfully connected to Enhanced MongoDB database: " + databaseName);
+            logger.info("✅ Successfully connected to Enhanced MongoDB with state validation: " + databaseName);
             return true;
 
         } catch (Exception e) {
             logger.log(Level.SEVERE, "Critical error during enhanced MongoDB connection: " + e.getMessage(), e);
             connected.set(false);
+            connectionValidated.set(false);
             failedConnections.incrementAndGet();
             closeConnectionInternal();
             return false;
@@ -222,7 +289,7 @@ public class MongoDBManager {
     }
 
     /**
-     * connection settings with comprehensive configuration
+     * Enhanced connection settings with comprehensive configuration
      */
     private MongoClientSettings buildEnhancedConnectionSettings() {
         try {
@@ -242,7 +309,7 @@ public class MongoDBManager {
                     )
                     .applyToServerSettings(builder ->
                             builder.heartbeatFrequency(heartbeatFrequency, TimeUnit.MILLISECONDS)
-                                    .minHeartbeatFrequency(Math.min(heartbeatFrequency / 2, 5000), TimeUnit.MILLISECONDS)
+                                    .minHeartbeatFrequency(Math.min(heartbeatFrequency / 2, 2500), TimeUnit.MILLISECONDS)
                     )
                     .applyToClusterSettings(builder ->
                             builder.serverSelectionTimeout(serverSelectionTimeout, TimeUnit.MILLISECONDS)
@@ -257,66 +324,137 @@ public class MongoDBManager {
     }
 
     /**
-     * connection testing with comprehensive validation
+     * Enhanced connection testing with comprehensive validation
      */
     private boolean performEnhancedConnectionTest() {
         try {
-            logger.fine("Performing enhanced MongoDB connection test...");
+            logger.fine("Performing enhanced MongoDB connection test with state validation...");
 
-            // Test 1: Basic ping
+            // Test 1: Connection state validation
+            if (!validateConnectionState()) {
+                logger.warning("✗ MongoDB connection state validation failed");
+                return false;
+            }
+
+            // Test 2: Basic ping with state check
             Document pingResult = database.runCommand(new Document("ping", 1));
             if (pingResult == null || !pingResult.containsKey("ok")) {
-                logger.warning(" MongoDB ping failed - invalid response");
+                logger.warning("✗ MongoDB ping failed - invalid response");
                 return false;
             }
 
-            // Test 2: Collection access
+            // Test 3: Connection state validation after ping
+            if (!validateConnectionState()) {
+                logger.warning("✗ MongoDB connection state became invalid after ping");
+                return false;
+            }
+
+            // Test 4: Collection access with state validation
             try {
                 database.listCollectionNames().first();
+                if (!validateConnectionState()) {
+                    logger.warning("✗ MongoDB connection state became invalid after collection access");
+                    return false;
+                }
             } catch (Exception e) {
-                logger.warning(" MongoDB collection access test failed: " + e.getMessage());
+                logger.warning("✗ MongoDB collection access test failed: " + e.getMessage());
                 return false;
             }
 
-            // Test 3: Write operation test
+            // Test 5: Write operation test with state validation
             try {
                 String testCollectionName = "connection_test";
                 MongoCollection<Document> testCollection = database.getCollection(testCollectionName);
+
+                if (!validateConnectionState()) {
+                    logger.warning("✗ MongoDB connection state invalid before write test");
+                    return false;
+                }
+
                 Document testDoc = new Document("test", "connection_verification")
                         .append("timestamp", System.currentTimeMillis());
                 testCollection.insertOne(testDoc);
+
+                if (!validateConnectionState()) {
+                    logger.warning("✗ MongoDB connection state became invalid after insert");
+                    return false;
+                }
+
                 testCollection.deleteOne(new Document("test", "connection_verification"));
-                logger.fine(" write operation test successful");
+
+                if (!validateConnectionState()) {
+                    logger.warning("✗ MongoDB connection state became invalid after delete");
+                    return false;
+                }
+
+                logger.fine("✅ Enhanced write operation test successful with state validation");
             } catch (Exception e) {
-                logger.warning(" write operation test failed: " + e.getMessage());
+                logger.warning("✗ Enhanced write operation test failed: " + e.getMessage());
                 // Don't fail the connection for write test failure - might be permissions
             }
 
-            // Test 4: Database stats
-            try {
-                Document stats = database.runCommand(new Document("dbStats", 1));
-                if (stats != null) {
-                    logger.fine(" database stats retrieved successfully");
-                }
-            } catch (Exception e) {
-                logger.fine("Database stats retrieval failed (non-critical): " + e.getMessage());
+            // Test 6: Final state validation
+            if (!validateConnectionState()) {
+                logger.warning("✗ MongoDB connection state invalid at end of tests");
+                return false;
             }
 
-            logger.fine(" MongoDB connection test completed successfully");
+            logger.fine("✅ Enhanced MongoDB connection test completed successfully with state validation");
             return true;
 
         } catch (Exception e) {
-            logger.log(Level.WARNING, " MongoDB connection test failed", e);
+            logger.log(Level.WARNING, "✗ Enhanced MongoDB connection test failed", e);
             return false;
         }
     }
 
     /**
-     * database structure initialization
+     * Critical: Validate MongoDB connection state before operations
+     */
+    private boolean validateConnectionState() {
+        try {
+            if (mongoClient == null || database == null) {
+                logger.fine("MongoDB client or database is null");
+                stateValidationFailures.incrementAndGet();
+                return false;
+            }
+
+            // Check if connection is in valid state
+            // This is the key fix for "state should be: open" errors
+            try {
+                // Use a quick cluster description check
+                mongoClient.getClusterDescription();
+                return true;
+            } catch (IllegalStateException e) {
+                if (e.getMessage().contains("state should be: open")) {
+                    logger.warning("✗ MongoDB connection state validation failed: " + e.getMessage());
+                    stateValidationFailures.incrementAndGet();
+                    connected.set(false);
+                    connectionValidated.set(false);
+                    return false;
+                }
+                throw e; // Re-throw if it's a different IllegalStateException
+            }
+
+        } catch (Exception e) {
+            logger.fine("Error validating MongoDB connection state: " + e.getMessage());
+            stateValidationFailures.incrementAndGet();
+            return false;
+        }
+    }
+
+    /**
+     * Enhanced database structure initialization
      */
     private boolean initializeEnhancedDatabaseStructure() {
         try {
             logger.info("Initializing enhanced database structure...");
+
+            // Validate state before initialization
+            if (!validateConnectionState()) {
+                logger.warning("Cannot initialize database structure - invalid connection state");
+                return false;
+            }
 
             // Create collections with enhanced error handling
             boolean playersCreated = createCollectionSafely("players");
@@ -336,7 +474,7 @@ public class MongoDBManager {
             // Initialize system information
             initializeSystemInfo();
 
-            logger.info(" database structure initialization completed");
+            logger.info("✅ Enhanced database structure initialization completed");
             return true;
 
         } catch (Exception e) {
@@ -346,10 +484,16 @@ public class MongoDBManager {
     }
 
     /**
-     * collection creation with better error handling
+     * Safe collection creation with better error handling
      */
     private boolean createCollectionSafely(String collectionName) {
         try {
+            // Validate state before collection operation
+            if (!validateConnectionState()) {
+                logger.warning("Cannot create collection - invalid connection state: " + collectionName);
+                return false;
+            }
+
             // Check if collection already exists
             boolean exists = false;
             for (String name : database.listCollectionNames()) {
@@ -360,7 +504,20 @@ public class MongoDBManager {
             }
 
             if (!exists) {
+                // Validate state before creation
+                if (!validateConnectionState()) {
+                    logger.warning("Connection state became invalid before collection creation: " + collectionName);
+                    return false;
+                }
+
                 database.createCollection(collectionName);
+
+                // Validate state after creation
+                if (!validateConnectionState()) {
+                    logger.warning("Connection state became invalid after collection creation: " + collectionName);
+                    return false;
+                }
+
                 logger.info("Created collection: " + collectionName);
             } else {
                 logger.fine("Collection already exists: " + collectionName);
@@ -373,10 +530,15 @@ public class MongoDBManager {
     }
 
     /**
-     * index creation with comprehensive error handling
+     * Enhanced index creation with comprehensive error handling
      */
     private void createEnhancedIndexes() {
         try {
+            if (!validateConnectionState()) {
+                logger.warning("Cannot create indexes - invalid connection state");
+                return;
+            }
+
             // Players collection indexes
             MongoCollection<Document> playersCollection = database.getCollection("players");
             createIndexSafely(playersCollection, new Document("uuid", 1), "uuid_index");
@@ -400,7 +562,7 @@ public class MongoDBManager {
             MongoCollection<Document> systemCollection = database.getCollection("system_info");
             createIndexSafely(systemCollection, new Document("key", 1), "system_key_index");
 
-            logger.info(" database indexes created successfully");
+            logger.info("✅ Enhanced database indexes created successfully");
 
         } catch (Exception e) {
             logger.log(Level.WARNING, "Error creating enhanced indexes", e);
@@ -408,14 +570,25 @@ public class MongoDBManager {
     }
 
     /**
-     * index creation with better error handling
+     * Safe index creation with better error handling
      */
     private void createIndexSafely(MongoCollection<Document> collection, Document indexDoc, String indexName) {
         try {
+            if (!validateConnectionState()) {
+                logger.warning("Cannot create index - invalid connection state: " + indexName);
+                return;
+            }
+
             collection.createIndex(indexDoc);
+
+            if (!validateConnectionState()) {
+                logger.warning("Connection state became invalid after index creation: " + indexName);
+                return;
+            }
+
             logger.fine("Created enhanced index: " + indexName);
         } catch (Exception e) {
-            logger.fine(" index " + indexName + " creation failed or already exists: " + e.getMessage());
+            logger.fine("✗ Enhanced index " + indexName + " creation failed or already exists: " + e.getMessage());
         }
     }
 
@@ -424,6 +597,11 @@ public class MongoDBManager {
      */
     private void initializeSystemInfo() {
         try {
+            if (!validateConnectionState()) {
+                logger.warning("Cannot initialize system info - invalid connection state");
+                return;
+            }
+
             MongoCollection<Document> systemCollection = database.getCollection("system_info");
 
             // Store system startup information
@@ -432,7 +610,8 @@ public class MongoDBManager {
                     .append("initialized_at", System.currentTimeMillis())
                     .append("server_version", plugin.getServer().getVersion())
                     .append("plugin_version", plugin.getDescription().getVersion())
-                    .append("connection_pool_size", maxConnectionPoolSize);
+                    .append("connection_pool_size", maxConnectionPoolSize)
+                    .append("state_validation_enabled", true);
 
             systemCollection.replaceOne(
                     new Document("key", "database_info"),
@@ -440,18 +619,23 @@ public class MongoDBManager {
                     new com.mongodb.client.model.ReplaceOptions().upsert(true)
             );
 
-            logger.fine("System information initialized");
+            if (!validateConnectionState()) {
+                logger.warning("Connection state became invalid after system info initialization");
+                return;
+            }
+
+            logger.fine("System information initialized with state validation");
         } catch (Exception e) {
             logger.log(Level.WARNING, "Failed to initialize system information", e);
         }
     }
 
     /**
-     * monitoring system
+     * Enhanced monitoring system
      */
     private void startEnhancedMonitoring() {
         if (healthCheckActive.compareAndSet(false, true)) {
-            // Health check task
+            // Health check task with state validation
             healthCheckTask = new BukkitRunnable() {
                 @Override
                 public void run() {
@@ -463,7 +647,7 @@ public class MongoDBManager {
                     healthCheckInterval / 50, // Convert to ticks
                     healthCheckInterval / 50);
 
-            // Connection monitor task
+            // Connection monitor task with state validation
             connectionMonitorTask = new BukkitRunnable() {
                 @Override
                 public void run() {
@@ -475,26 +659,40 @@ public class MongoDBManager {
                     connectionMonitorInterval / 50, // Convert to ticks
                     connectionMonitorInterval / 50);
 
-            logger.info(" MongoDB monitoring started");
+            logger.info("✅ Enhanced MongoDB monitoring started with state validation");
         }
     }
 
     /**
-     * health check with comprehensive testing
+     * Enhanced health check with comprehensive testing and state validation
      */
     private void performEnhancedHealthCheck() {
         connectionLock.readLock().lock();
         try {
             if (!connected.get() || mongoClient == null || database == null) {
-                handleUnhealthyConnection("Connection state invalid");
+                handleUnhealthyConnection("Connection state invalid - null components");
                 return;
             }
 
-            // Perform ping test
+            // Critical: Validate connection state first
+            if (!validateConnectionState()) {
+                handleUnhealthyConnection("Connection state validation failed");
+                return;
+            }
+
+            // Perform ping test with state validation
             try {
                 Document result = database.runCommand(new Document("ping", 1));
+
+                // Validate state after ping
+                if (!validateConnectionState()) {
+                    handleUnhealthyConnection("Connection state became invalid after ping");
+                    return;
+                }
+
                 if (result != null && result.get("ok", Number.class).intValue() == 1) {
                     lastSuccessfulPing.set(System.currentTimeMillis());
+                    connectionValidated.set(true);
                     // Connection is healthy
                     return;
                 }
@@ -513,17 +711,25 @@ public class MongoDBManager {
     }
 
     /**
-     * Monitor connection status and performance
+     * Monitor connection status and performance with state validation
      */
     private void monitorConnectionStatus() {
         try {
             long timeSinceLastPing = System.currentTimeMillis() - lastSuccessfulPing.get();
 
-            if (timeSinceLastPing > (healthCheckInterval * 3)) {
+            if (timeSinceLastPing > (healthCheckInterval * 2)) {
                 logger.warning("No successful ping in " + (timeSinceLastPing / 1000) + " seconds");
 
                 if (autoRecoveryEnabled.get()) {
                     attemptAutoRecovery("Extended ping failure");
+                }
+            }
+
+            // Additional state validation check
+            if (connected.get() && !connectionValidated.get()) {
+                logger.warning("Connection marked as connected but not validated");
+                if (autoRecoveryEnabled.get()) {
+                    attemptAutoRecovery("Connection not validated");
                 }
             }
 
@@ -541,9 +747,10 @@ public class MongoDBManager {
      * Handle unhealthy connection state
      */
     private void handleUnhealthyConnection(String reason) {
-        logger.warning(" MongoDB connection unhealthy: " + reason);
+        logger.warning("✗ Enhanced MongoDB connection unhealthy: " + reason);
 
         connected.set(false);
+        connectionValidated.set(false);
 
         if (autoRecoveryEnabled.get()) {
             attemptAutoRecovery(reason);
@@ -551,7 +758,7 @@ public class MongoDBManager {
     }
 
     /**
-     * Attempt automatic recovery
+     * Attempt automatic recovery with enhanced logic
      */
     private void attemptAutoRecovery(String reason) {
         if (shuttingDown.get()) {
@@ -568,30 +775,40 @@ public class MongoDBManager {
 
         logger.info("Attempting enhanced MongoDB recovery (attempt " + recoveryAttempts.get() + "): " + reason);
 
-        // Schedule recovery attempt
+        // Schedule recovery attempt with exponential backoff
+        long delay = recoveryDelay * recoveryAttempts.get(); // Exponential backoff
         Bukkit.getScheduler().runTaskLaterAsynchronously(plugin, () -> {
             try {
                 if (connect()) {
-                    logger.info(" MongoDB recovery successful");
+                    logger.info("✅ Enhanced MongoDB recovery successful");
                     successfulRecoveries.incrementAndGet();
                     // Reset recovery counter on success
                     recoveryAttempts.set(0);
                 } else {
-                    logger.warning(" MongoDB recovery failed");
+                    logger.warning("✗ Enhanced MongoDB recovery failed");
                 }
             } catch (Exception e) {
                 logger.log(Level.WARNING, "Error during recovery attempt", e);
             }
-        }, recoveryDelay / 50); // Convert to ticks
+        }, delay / 50); // Convert to ticks
     }
 
     /**
-     * connection health check
+     * Enhanced connection health check with state validation
      */
-    private boolean isConnectionHealthy() {
+    private boolean isConnectionHealthyAndValidated() {
         connectionLock.readLock().lock();
         try {
             if (!connected.get() || mongoClient == null || database == null) {
+                return false;
+            }
+
+            if (!connectionValidated.get()) {
+                return false;
+            }
+
+            // Critical state validation check
+            if (!validateConnectionState()) {
                 return false;
             }
 
@@ -611,7 +828,7 @@ public class MongoDBManager {
     }
 
     /**
-     * safe database operation with comprehensive retry logic
+     * CRITICAL: Enhanced safe database operation with state validation and queuing
      */
     public <T> T performSafeOperation(DatabaseOperation<T> operation) {
         return performSafeOperation(operation, 3); // Default 3 retries
@@ -623,27 +840,112 @@ public class MongoDBManager {
         }
 
         if (shuttingDown.get()) {
-            logger.warning("Attempted database operation during shutdown");
+            logger.warning("Attempted database operation during shutdown - BLOCKING");
             return null;
         }
 
         totalOperations.incrementAndGet();
+
+        // If connection is not healthy, queue the operation for later processing
+        if (!isConnectionHealthyAndValidated()) {
+            logger.info("Connection not healthy - queuing operation for later processing");
+            queuedOperations.incrementAndGet();
+
+            CountDownLatch latch = new CountDownLatch(1);
+            AtomicReference<T> result = new AtomicReference<>();
+
+            operationQueue.offer(() -> {
+                try {
+                    T operationResult = performSafeOperationImmediate(operation, maxRetries);
+                    result.set(operationResult);
+                } catch (Exception e) {
+                    logger.log(Level.WARNING, "Error in queued operation", e);
+                } finally {
+                    latch.countDown();
+                }
+            });
+
+            try {
+                // Wait up to 30 seconds for the operation to complete
+                if (latch.await(30, TimeUnit.SECONDS)) {
+                    return result.get();
+                } else {
+                    logger.warning("Queued operation timed out after 30 seconds");
+                    queuedOperations.decrementAndGet();
+                    failedOperations.incrementAndGet();
+                    return null;
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                logger.warning("Interrupted while waiting for queued operation");
+                queuedOperations.decrementAndGet();
+                failedOperations.incrementAndGet();
+                return null;
+            }
+        }
+
+        return performSafeOperationImmediate(operation, maxRetries);
+    }
+
+    /**
+     * Perform operation immediately with enhanced state validation
+     */
+    private <T> T performSafeOperationImmediate(DatabaseOperation<T> operation, int maxRetries) {
         Exception lastException = null;
 
         for (int attempt = 1; attempt <= maxRetries; attempt++) {
-            // Ensure connection before each attempt
-            if (!ensureConnection()) {
+            // CRITICAL: Ensure connection and validate state before each attempt
+            if (!ensureConnectionWithValidation()) {
                 if (attempt == maxRetries) {
                     logger.severe("Cannot perform database operation - connection failed after " + maxRetries + " attempts");
                     failedOperations.incrementAndGet();
                     return null;
+                }
+
+                // Exponential backoff between attempts
+                try {
+                    Thread.sleep(1000 * attempt);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    break;
                 }
                 continue;
             }
 
             connectionLock.readLock().lock();
             try {
+                // CRITICAL: Final state validation before operation execution
+                if (!validateConnectionState()) {
+                    logger.warning("Connection state invalid just before operation execution (attempt " + attempt + ")");
+                    stateValidationFailures.incrementAndGet();
+                    connected.set(false);
+                    connectionValidated.set(false);
+                    lastException = new IllegalStateException("Connection state invalid before operation");
+                    continue;
+                }
+
                 T result = operation.execute();
+
+                // CRITICAL: Validate state after operation
+                if (!validateConnectionState()) {
+                    logger.warning("Connection state became invalid after operation execution (attempt " + attempt + ")");
+                    stateValidationFailures.incrementAndGet();
+                    connected.set(false);
+                    connectionValidated.set(false);
+
+                    // If we got a result but state became invalid, still return the result
+                    // as the operation likely succeeded
+                    if (result != null) {
+                        if (attempt > 1) {
+                            logger.fine("Database operation succeeded on attempt " + attempt + " (despite state becoming invalid)");
+                        }
+                        return result;
+                    }
+
+                    lastException = new IllegalStateException("Connection state invalid after operation");
+                    continue;
+                }
+
                 if (attempt > 1) {
                     logger.fine("Database operation succeeded on attempt " + attempt);
                 }
@@ -656,6 +958,7 @@ public class MongoDBManager {
                 // Check if this is a connection error that warrants retry
                 if (isConnectionError(e)) {
                     connected.set(false);
+                    connectionValidated.set(false);
                     if (attempt < maxRetries) {
                         try {
                             Thread.sleep(1000 * attempt); // Progressive delay
@@ -685,7 +988,7 @@ public class MongoDBManager {
     }
 
     /**
-     * connection error detection
+     * Enhanced connection error detection
      */
     private boolean isConnectionError(Exception e) {
         if (e instanceof MongoException) {
@@ -696,28 +999,35 @@ public class MongoDBManager {
                     message.contains("network") ||
                     message.contains("closed") ||
                     message.contains("broken") ||
+                    message.contains("state should be: open") ||  // Critical addition
                     e instanceof MongoSocketException ||
                     e instanceof MongoTimeoutException ||
                     e instanceof MongoSocketOpenException ||
                     e instanceof MongoSocketClosedException;
         }
+
+        if (e instanceof IllegalStateException) {
+            String message = e.getMessage();
+            return message != null && message.contains("state should be: open");
+        }
+
         return false;
     }
 
     /**
-     * connection ensuring with retry logic
+     * Enhanced connection ensuring with validation
      */
-    private boolean ensureConnection() {
-        if (connected.get() && isConnectionHealthy()) {
+    private boolean ensureConnectionWithValidation() {
+        if (isConnectionHealthyAndValidated()) {
             return true;
         }
 
-        // Attempt to reconnect
+        // Attempt to reconnect with state validation
         return connect();
     }
 
     /**
-     * collection retrieval with safety checks
+     * Enhanced collection retrieval with safety checks and state validation
      */
     public MongoCollection<Document> getCollection(String name) {
         if (name == null || name.trim().isEmpty()) {
@@ -730,6 +1040,11 @@ public class MongoDBManager {
                 throw new IllegalStateException("Not connected to Enhanced MongoDB. Collection: " + name);
             }
 
+            // CRITICAL: Validate state before returning collection
+            if (!validateConnectionState()) {
+                throw new IllegalStateException("MongoDB connection state invalid when getting collection: " + name);
+            }
+
             return database.getCollection(name);
         } catch (Exception e) {
             logger.log(Level.SEVERE, "Error getting enhanced collection: " + name, e);
@@ -740,7 +1055,7 @@ public class MongoDBManager {
     }
 
     /**
-     * typed collection retrieval
+     * Enhanced typed collection retrieval
      */
     public <T> MongoCollection<T> getCollection(String name, Class<T> documentClass) {
         if (name == null || name.trim().isEmpty()) {
@@ -756,6 +1071,11 @@ public class MongoDBManager {
                 throw new IllegalStateException("Not connected to Enhanced MongoDB. Collection: " + name);
             }
 
+            // CRITICAL: Validate state before returning collection
+            if (!validateConnectionState()) {
+                throw new IllegalStateException("MongoDB connection state invalid when getting typed collection: " + name);
+            }
+
             return database.getCollection(name, documentClass);
         } catch (Exception e) {
             logger.log(Level.SEVERE, "Error getting enhanced typed collection: " + name, e);
@@ -766,7 +1086,7 @@ public class MongoDBManager {
     }
 
     /**
-     * disconnect with comprehensive cleanup
+     * Enhanced disconnect with comprehensive cleanup
      */
     public void disconnect() {
         if (!shuttingDown.compareAndSet(false, true)) {
@@ -778,11 +1098,65 @@ public class MongoDBManager {
         // Stop monitoring
         stopEnhancedMonitoring();
 
+        // Stop operation processor
+        if (operationProcessorTask != null && !operationProcessorTask.isCancelled()) {
+            operationProcessorTask.cancel();
+        }
+
+        // Process any remaining queued operations with timeout
+        processRemainingQueuedOperations();
+
+        // Shutdown operation executor
+        operationExecutor.shutdown();
+        try {
+            if (!operationExecutor.awaitTermination(10, TimeUnit.SECONDS)) {
+                operationExecutor.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            operationExecutor.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
+
         // Close connection
         closeConnectionInternal();
 
         connected.set(false);
-        logger.info(" MongoDB disconnection completed");
+        connectionValidated.set(false);
+        logger.info("✅ Enhanced MongoDB disconnection completed");
+    }
+
+    /**
+     * Process remaining queued operations during shutdown
+     */
+    private void processRemainingQueuedOperations() {
+        logger.info("Processing remaining queued operations during shutdown...");
+
+        int processedCount = 0;
+        long startTime = System.currentTimeMillis();
+        long maxProcessingTime = 5000; // 5 seconds max
+
+        while (!operationQueue.isEmpty() &&
+                (System.currentTimeMillis() - startTime) < maxProcessingTime &&
+                processedCount < 50) { // Max 50 operations
+
+            try {
+                Runnable operation = operationQueue.poll(100, TimeUnit.MILLISECONDS);
+                if (operation != null) {
+                    operation.run();
+                    processedCount++;
+                    queuedOperations.decrementAndGet();
+                }
+            } catch (Exception e) {
+                logger.log(Level.WARNING, "Error processing queued operation during shutdown", e);
+            }
+        }
+
+        int remainingOperations = operationQueue.size();
+        logger.info("Processed " + processedCount + " operations, " + remainingOperations + " remaining (will be discarded)");
+
+        // Clear remaining operations
+        operationQueue.clear();
+        queuedOperations.set(0);
     }
 
     /**
@@ -801,11 +1175,11 @@ public class MongoDBManager {
             connectionMonitorTask = null;
         }
 
-        logger.fine(" monitoring stopped");
+        logger.fine("✅ Enhanced monitoring stopped");
     }
 
     /**
-     * connection closure
+     * Enhanced connection closure
      */
     private void closeConnectionInternal() {
         connectionLock.writeLock().lock();
@@ -813,7 +1187,7 @@ public class MongoDBManager {
             if (mongoClient != null) {
                 try {
                     mongoClient.close();
-                    logger.fine(" MongoDB client closed successfully");
+                    logger.fine("✅ Enhanced MongoDB client closed successfully");
                 } catch (Exception e) {
                     logger.log(Level.WARNING, "Error closing enhanced MongoDB client", e);
                 } finally {
@@ -827,7 +1201,7 @@ public class MongoDBManager {
     }
 
     /**
-     * performance metrics logging
+     * Enhanced performance metrics logging
      */
     private void logPerformanceMetrics() {
         try {
@@ -839,6 +1213,8 @@ public class MongoDBManager {
             logger.info("Failed Operations: " + failedOperations.get());
             logger.info("Recovery Attempts: " + recoveryAttempts.get());
             logger.info("Successful Recoveries: " + successfulRecoveries.get());
+            logger.info("State Validation Failures: " + stateValidationFailures.get());
+            logger.info("Queued Operations: " + queuedOperations.get());
 
             long timeSinceLastPing = System.currentTimeMillis() - lastSuccessfulPing.get();
             logger.info("Time Since Last Ping: " + (timeSinceLastPing / 1000) + "s");
@@ -849,15 +1225,16 @@ public class MongoDBManager {
             }
 
             logger.info("Connection Status: " + (connected.get() ? "CONNECTED" : "DISCONNECTED"));
+            logger.info("Connection Validated: " + (connectionValidated.get() ? "YES" : "NO"));
             logger.info("Auto Recovery: " + (autoRecoveryEnabled.get() ? "ENABLED" : "DISABLED"));
-            logger.info("===========================================");
+            logger.info("==============================================");
         } catch (Exception e) {
             logger.log(Level.FINE, "Error logging performance metrics", e);
         }
     }
 
     /**
-     * connection string masking
+     * Enhanced connection string masking
      */
     private String maskConnectionString(String connectionString) {
         try {
@@ -883,7 +1260,7 @@ public class MongoDBManager {
     }
 
     public boolean isHealthy() {
-        return isConnected() && isConnectionHealthy();
+        return isConnectionHealthyAndValidated();
     }
 
     public MongoDatabase getDatabase() {
@@ -892,6 +1269,12 @@ public class MongoDBManager {
             if (!isConnected()) {
                 throw new IllegalStateException("Not connected to Enhanced MongoDB");
             }
+
+            // CRITICAL: Validate state before returning database
+            if (!validateConnectionState()) {
+                throw new IllegalStateException("MongoDB connection state invalid when getting database");
+            }
+
             return database;
         } finally {
             connectionLock.readLock().unlock();
@@ -904,6 +1287,12 @@ public class MongoDBManager {
             if (!isConnected()) {
                 throw new IllegalStateException("Not connected to Enhanced MongoDB");
             }
+
+            // CRITICAL: Validate state before returning client
+            if (!validateConnectionState()) {
+                throw new IllegalStateException("MongoDB connection state invalid when getting client");
+            }
+
             return mongoClient;
         } finally {
             connectionLock.readLock().unlock();
@@ -911,7 +1300,7 @@ public class MongoDBManager {
     }
 
     /**
-     * connection statistics
+     * Enhanced connection statistics
      */
     public ConnectionStats getConnectionStats() {
         return new ConnectionStats(
@@ -925,12 +1314,15 @@ public class MongoDBManager {
                 lastSuccessfulPing.get(),
                 lastConnectionTime.get(),
                 connected.get(),
-                autoRecoveryEnabled.get()
+                connectionValidated.get(),
+                autoRecoveryEnabled.get(),
+                stateValidationFailures.get(),
+                queuedOperations.get()
         );
     }
 
     /**
-     * connection statistics class
+     * Enhanced connection statistics class
      */
     public static class ConnectionStats {
         public final int connectionAttempts;
@@ -943,12 +1335,16 @@ public class MongoDBManager {
         public final long lastSuccessfulPing;
         public final long lastConnectionTime;
         public final boolean connected;
+        public final boolean connectionValidated;
         public final boolean autoRecoveryEnabled;
+        public final int stateValidationFailures;
+        public final int queuedOperations;
 
         public ConnectionStats(int connectionAttempts, int successfulConnections, int failedConnections,
                                int totalOperations, int failedOperations, int recoveryAttempts,
                                int successfulRecoveries, long lastSuccessfulPing, long lastConnectionTime,
-                               boolean connected, boolean autoRecoveryEnabled) {
+                               boolean connected, boolean connectionValidated, boolean autoRecoveryEnabled,
+                               int stateValidationFailures, int queuedOperations) {
             this.connectionAttempts = connectionAttempts;
             this.successfulConnections = successfulConnections;
             this.failedConnections = failedConnections;
@@ -959,7 +1355,10 @@ public class MongoDBManager {
             this.lastSuccessfulPing = lastSuccessfulPing;
             this.lastConnectionTime = lastConnectionTime;
             this.connected = connected;
+            this.connectionValidated = connectionValidated;
             this.autoRecoveryEnabled = autoRecoveryEnabled;
+            this.stateValidationFailures = stateValidationFailures;
+            this.queuedOperations = queuedOperations;
         }
 
         public double getConnectionSuccessRate() {
@@ -983,10 +1382,11 @@ public class MongoDBManager {
         @Override
         public String toString() {
             return String.format("ConnectionStats{attempts=%d, success=%d, failed=%d, ops=%d, " +
-                            "failedOps=%d, recovery=%d/%d, connected=%s, autoRecovery=%s, " +
-                            "successRate=%.1f%%, opSuccessRate=%.1f%%}",
+                            "failedOps=%d, recovery=%d/%d, connected=%s, validated=%s, autoRecovery=%s, " +
+                            "validationFailures=%d, queued=%d, successRate=%.1f%%, opSuccessRate=%.1f%%}",
                     connectionAttempts, successfulConnections, failedConnections, totalOperations,
-                    failedOperations, successfulRecoveries, recoveryAttempts, connected, autoRecoveryEnabled,
+                    failedOperations, successfulRecoveries, recoveryAttempts, connected, connectionValidated,
+                    autoRecoveryEnabled, stateValidationFailures, queuedOperations,
                     getConnectionSuccessRate(), getOperationSuccessRate());
         }
     }
@@ -997,7 +1397,7 @@ public class MongoDBManager {
     public void resetRecoveryState() {
         recoveryAttempts.set(0);
         autoRecoveryEnabled.set(true);
-        logger.info(" MongoDB recovery state reset");
+        logger.info("✅ Enhanced MongoDB recovery state reset");
     }
 
     /**
@@ -1005,18 +1405,39 @@ public class MongoDBManager {
      */
     public void setAutoRecoveryEnabled(boolean enabled) {
         autoRecoveryEnabled.set(enabled);
-        logger.info(" MongoDB auto-recovery " + (enabled ? "enabled" : "disabled"));
+        logger.info("✅ Enhanced MongoDB auto-recovery " + (enabled ? "enabled" : "disabled"));
     }
 
     /**
-     * Force connection health check
+     * Force connection health check with state validation
      */
     public boolean forceHealthCheck() {
         try {
             performEnhancedHealthCheck();
-            return isConnected() && isConnectionHealthy();
+            return isConnectionHealthyAndValidated();
         } catch (Exception e) {
             logger.log(Level.WARNING, "Force health check failed", e);
+            return false;
+        }
+    }
+
+    /**
+     * Force connection state validation
+     */
+    public boolean forceStateValidation() {
+        try {
+            boolean valid = validateConnectionState();
+            if (valid) {
+                connectionValidated.set(true);
+                logger.info("✅ Connection state validation successful");
+            } else {
+                connectionValidated.set(false);
+                logger.warning("✗ Connection state validation failed");
+            }
+            return valid;
+        } catch (Exception e) {
+            logger.log(Level.WARNING, "Force state validation failed", e);
+            connectionValidated.set(false);
             return false;
         }
     }

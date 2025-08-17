@@ -8,10 +8,14 @@ import com.rednetty.server.mechanics.item.orb.OrbManager;
 import com.rednetty.server.mechanics.item.scroll.ScrollManager;
 import com.rednetty.server.utils.menu.Menu;
 import com.rednetty.server.utils.menu.MenuItem;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.NamedTextColor;
+import net.kyori.adventure.text.format.TextDecoration;
+import net.kyori.adventure.sound.Sound;
 import org.bukkit.ChatColor;
 import org.bukkit.Material;
-import org.bukkit.Sound;
 import org.bukkit.entity.Player;
+import org.bukkit.inventory.ItemFlag;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 
@@ -20,8 +24,9 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
 
 /**
- *  ItemVendorMenu that stores original clean items separately from display items
- * Players receive the exact same items that the original item classes generate
+ * ItemVendorMenu that stores original clean items separately from display items.
+ * Players receive the exact same items that the original item classes generate.
+ * Updated to use Adventure API and modern Paper features.
  */
 public class ItemVendorMenu extends Menu {
 
@@ -37,7 +42,6 @@ public class ItemVendorMenu extends Menu {
 
     // Layout configuration
     private static final int[] CATEGORY_SLOTS = {0, 9, 18, 27, 36, 45}; // Left column
-    //  Store original clean items separately from display items
     private final Map<Integer, ItemStack> originalItems = new HashMap<>(); // slot -> original clean item
 
     // Configuration
@@ -48,7 +52,7 @@ public class ItemVendorMenu extends Menu {
     private final Map<Integer, Long> lastClickTime = new ConcurrentHashMap<>();
     private static final long CLICK_COOLDOWN_MS = 250;
 
-    //  pricing system
+    // Pricing system
     private static final int NORMAL_ORB_BASE_PRICE = 1500;
     private static final int LEGENDARY_ORB_BASE_PRICE = 20000;
     private static final int PROTECTION_SCROLL_BASE_PRICE = 1000;
@@ -81,6 +85,7 @@ public class ItemVendorMenu extends Menu {
             initializeBasicMenu();
         }
     }
+
     private static final int[] DISPLAY_SLOTS = {
             11, 12, 13, 14, 15, 16,     // Row 1 of display area
             20, 21, 22, 23, 24, 25,     // Row 2 of display area
@@ -174,27 +179,29 @@ public class ItemVendorMenu extends Menu {
             ItemStack categoryItem = new ItemStack(category.icon);
             ItemMeta meta = categoryItem.getItemMeta();
             if (meta != null) {
-                meta.setDisplayName(category.color + "" + ChatColor.BOLD + "▶ " + category.name);
+                meta.displayName(Component.text("▶ " + category.name)
+                        .color(category.color));
 
-                List<String> lore = new ArrayList<>();
-                lore.add("");
-                lore.add(ChatColor.GRAY + category.description);
-                lore.add("");
+                List<Component> lore = new ArrayList<>();
+                lore.add(Component.empty());
+                lore.add(Component.text(category.description, NamedTextColor.GRAY));
+                lore.add(Component.empty());
 
                 // Add item count preview
                 int itemCount = getItemCountForCategory(category);
-                lore.add(ChatColor.YELLOW + "📦 Available items: " + ChatColor.WHITE + itemCount);
+                lore.add(Component.text("📦 Available items: ", NamedTextColor.YELLOW)
+                        .append(Component.text(itemCount, NamedTextColor.WHITE)));
 
-                lore.add("");
+                lore.add(Component.empty());
                 if (currentCategory == category) {
-                    lore.add(ChatColor.GREEN + "✅ Currently Selected");
+                    lore.add(Component.text("✅ Currently Selected", NamedTextColor.GREEN));
                     meta.addEnchant(org.bukkit.enchantments.Enchantment.UNBREAKING, 1, true);
-                    meta.addItemFlags(org.bukkit.inventory.ItemFlag.HIDE_ENCHANTS);
+                    meta.addItemFlags(ItemFlag.HIDE_ENCHANTS);
                 } else {
-                    lore.add(ChatColor.YELLOW + "👆 Click to view items!");
+                    lore.add(Component.text("👆 Click to view items!", NamedTextColor.YELLOW));
                 }
 
-                meta.setLore(lore);
+                meta.lore(lore);
                 categoryItem.setItemMeta(meta);
             }
 
@@ -205,7 +212,7 @@ public class ItemVendorMenu extends Menu {
                             updateClickCooldown(s);
                             if (currentCategory != cat) {
                                 currentCategory = cat;
-                                p.playSound(p.getLocation(), Sound.UI_BUTTON_CLICK, 0.7f, 1.2f);
+                                p.playSound(Sound.sound(org.bukkit.Sound.UI_BUTTON_CLICK, Sound.Source.PLAYER, 0.7f, 1.2f));
                                 initializeCategoryMenu();
                             }
                         }
@@ -255,13 +262,16 @@ public class ItemVendorMenu extends Menu {
         ItemStack header = new ItemStack(currentCategory.icon);
         ItemMeta meta = header.getItemMeta();
         if (meta != null) {
-            meta.setDisplayName(currentCategory.color + "" + ChatColor.BOLD + "🛍 " + currentCategory.name + " Shop");
-            meta.setLore(Arrays.asList(
-                    "",
-                    ChatColor.GRAY + currentCategory.description,
-                    "",
-                    ChatColor.YELLOW + "Browse and purchase items below"
-            ));
+            meta.displayName(Component.text("🛒 " + currentCategory.name + " Shop")
+                    .color(currentCategory.color));
+
+            List<Component> lore = Arrays.asList(
+                    Component.empty(),
+                    Component.text(currentCategory.description, NamedTextColor.GRAY),
+                    Component.empty(),
+                    Component.text("Browse and purchase items below", NamedTextColor.YELLOW)
+            );
+            meta.lore(lore);
             header.setItemMeta(meta);
         }
         setItem(4, header);
@@ -302,7 +312,7 @@ public class ItemVendorMenu extends Menu {
     }
 
     /**
-     *  Display pouches with original item storage
+     * Display pouches with original item storage
      */
     private void displayPouches() {
         try {
@@ -336,7 +346,7 @@ public class ItemVendorMenu extends Menu {
     }
 
     /**
-     *  Display protection scrolls with original item storage
+     * Display protection scrolls with original item storage
      */
     private void displayProtectionScrolls() {
         try {
@@ -367,7 +377,7 @@ public class ItemVendorMenu extends Menu {
     }
 
     /**
-     *  Display weapon scrolls with original item storage
+     * Display weapon scrolls with original item storage
      */
     private void displayWeaponScrolls() {
         try {
@@ -399,7 +409,7 @@ public class ItemVendorMenu extends Menu {
     }
 
     /**
-     *  Display armor scrolls with original item storage
+     * Display armor scrolls with original item storage
      */
     private void displayArmorScrolls() {
         try {
@@ -468,8 +478,10 @@ public class ItemVendorMenu extends Menu {
             updateClickCooldown(slot);
 
             if (purchaseManager.isInPurchaseProcess(player.getUniqueId())) {
-                player.sendMessage(ChatColor.RED + "⚠ You already have an active purchase. Complete it first or type " +
-                        ChatColor.BOLD + "'cancel'" + ChatColor.RED + ".");
+                player.sendMessage(Component.text("⚠ You already have an active purchase. Complete it first or type ")
+                        .color(NamedTextColor.RED)
+                        .append(Component.text("'cancel'", NamedTextColor.RED, TextDecoration.BOLD))
+                        .append(Component.text(".", NamedTextColor.RED)));
                 return;
             }
 
@@ -478,7 +490,7 @@ public class ItemVendorMenu extends Menu {
             Integer price = itemPrices.get(slot);
 
             if (originalItem == null || price == null) {
-                player.sendMessage(ChatColor.RED + "❌ This item is not available for purchase.");
+                player.sendMessage(Component.text("❌ This item is not available for purchase.", NamedTextColor.RED));
                 return;
             }
 
@@ -489,61 +501,74 @@ public class ItemVendorMenu extends Menu {
                     ChatColor.stripColor(originalItem.getItemMeta().getDisplayName()) :
                     VendorUtils.formatVendorTypeName(originalItem.getType().name());
 
-            player.sendMessage("");
-            player.sendMessage(ChatColor.GREEN + "🛒 Starting purchase for " + ChatColor.WHITE + itemName + ChatColor.GREEN + "...");
-            player.sendMessage("");
+            player.sendMessage(Component.empty());
+            player.sendMessage(Component.text("🛒 Starting purchase for ", NamedTextColor.GREEN)
+                    .append(Component.text(itemName, NamedTextColor.WHITE))
+                    .append(Component.text("...", NamedTextColor.GREEN)));
+            player.sendMessage(Component.empty());
 
             // Use the original clean item directly (no need to clean since it's already clean)
             purchaseManager.startPurchase(player, originalItem.clone(), price);
-            player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_PLING, 1.0f, 1.2f);
+            player.playSound(Sound.sound(org.bukkit.Sound.BLOCK_NOTE_BLOCK_PLING, Sound.Source.PLAYER, 1.0f, 1.2f));
 
         } catch (Exception e) {
             plugin.getLogger().log(Level.WARNING, "Error handling item purchase for player " + player.getName(), e);
-            player.sendMessage(ChatColor.RED + "❌ An error occurred while starting your purchase. Please try again.");
+            player.sendMessage(Component.text("❌ An error occurred while starting your purchase. Please try again.", NamedTextColor.RED));
         }
     }
 
-    // Create info panels and navigation elements
+    /**
+     * Create orb information panel
+     */
     private void createOrbInfoPanel() {
         ItemStack orbInfo = new ItemStack(Material.ENCHANTED_BOOK);
         ItemMeta meta = orbInfo.getItemMeta();
         if (meta != null) {
-            meta.setDisplayName(ChatColor.LIGHT_PURPLE + "" + ChatColor.BOLD + "📚 Orb Guide");
-            meta.setLore(Arrays.asList(
-                    "",
-                    ChatColor.GOLD + "How Orbs Work:",
-                    ChatColor.GRAY + "• Right-click on an item to use",
-                    ChatColor.GRAY + "• Rerolls all item statistics",
-                    ChatColor.GRAY + "• Normal: Random tier result",
-                    ChatColor.GRAY + "• Legendary: High-tier guaranteed",
-                    "",
-                    ChatColor.YELLOW + "💡 Pro Tips:",
-                    ChatColor.GRAY + "• Use on gear you plan to keep",
-                    ChatColor.GRAY + "• Save legendary orbs for best items",
-                    ChatColor.GRAY + "• Check item value before using"
-            ));
+            meta.displayName(Component.text("📚 Orb Guide")
+                    .color(NamedTextColor.LIGHT_PURPLE)
+                    .decoration(TextDecoration.BOLD, true));
+
+            List<Component> lore = Arrays.asList(
+                    Component.empty(),
+                    Component.text("How Orbs Work:", NamedTextColor.GOLD),
+                    Component.text("• Right-click on an item to use", NamedTextColor.GRAY),
+                    Component.text("• Rerolls all item statistics", NamedTextColor.GRAY),
+                    Component.text("• Normal: Random tier result", NamedTextColor.GRAY),
+                    Component.text("• Legendary: High-tier guaranteed", NamedTextColor.GRAY),
+                    Component.empty(),
+                    Component.text("💡 Pro Tips:", NamedTextColor.YELLOW),
+                    Component.text("• Use on gear you plan to keep", NamedTextColor.GRAY),
+                    Component.text("• Save legendary orbs for best items", NamedTextColor.GRAY),
+                    Component.text("• Check item value before using", NamedTextColor.GRAY)
+            );
+            meta.lore(lore);
             orbInfo.setItemMeta(meta);
         }
         setItem(DISPLAY_SLOTS[5], orbInfo);
     }
 
+    /**
+     * Create pouch comparison chart
+     */
     private void createPouchComparisonChart() {
         ItemStack pouchInfo = new ItemStack(Material.BOOK);
         ItemMeta meta = pouchInfo.getItemMeta();
         if (meta != null) {
-            meta.setDisplayName(ChatColor.GREEN + "" + ChatColor.BOLD + "📊 Pouch Comparison");
-            meta.setLore(Arrays.asList(
-                    "",
-                    ChatColor.GOLD + "Pouch Capacities:",
-                    ChatColor.GRAY + "• Tier 1: " + ChatColor.WHITE + "1,000 gems",
-                    ChatColor.GRAY + "• Tier 2: " + ChatColor.WHITE + "2,000 gems",
-                    ChatColor.GRAY + "• Tier 3: " + ChatColor.WHITE + "3,000 gems",
-                    "",
-                    ChatColor.YELLOW + "💡 Why Use Pouches:",
-                    ChatColor.GRAY + "• Prevent gem loss on death",
-                    ChatColor.GRAY + "• Organize your wealth",
-                    ChatColor.GRAY + "• Essential for risky adventures"
-            ));
+            meta.displayName(Component.text("📊 Pouch Comparison")
+                    .color(NamedTextColor.GREEN)
+                    .decoration(TextDecoration.BOLD, true));
+
+            List<Component> lore = Arrays.asList(
+                    Component.empty(),
+                    Component.text("Pouch Capacities:", NamedTextColor.GOLD),
+                    Component.text("• Tier 1: ", NamedTextColor.GRAY)
+                            .append(Component.text("200 gems", NamedTextColor.WHITE)),
+                    Component.text("• Tier 2: ", NamedTextColor.GRAY)
+                            .append(Component.text("350 gems", NamedTextColor.WHITE)),
+                    Component.text("• Tier 3: ", NamedTextColor.GRAY)
+                            .append(Component.text("500 gems", NamedTextColor.WHITE))
+            );
+            meta.lore(lore);
             pouchInfo.setItemMeta(meta);
         }
         setItem(DISPLAY_SLOTS[5], pouchInfo);
@@ -557,15 +582,19 @@ public class ItemVendorMenu extends Menu {
         ItemStack help = new ItemStack(Material.KNOWLEDGE_BOOK);
         ItemMeta meta = help.getItemMeta();
         if (meta != null) {
-            meta.setDisplayName(ChatColor.YELLOW + "" + ChatColor.BOLD + "📖 Help & Guide");
-            meta.setLore(Arrays.asList(
-                    "",
-                    ChatColor.GREEN + "How to Use This Shop:",
-                    ChatColor.GRAY + "1. Click categories on the left",
-                    ChatColor.GRAY + "2. Browse items in each category",
-                    ChatColor.GRAY + "3. Click items to purchase them",
-                    ChatColor.GRAY + "4. Follow the purchase prompts"
-            ));
+            meta.displayName(Component.text("📖 Help & Guide")
+                    .color(NamedTextColor.YELLOW)
+                    .decoration(TextDecoration.BOLD, true));
+
+            List<Component> lore = Arrays.asList(
+                    Component.empty(),
+                    Component.text("How to Use This Shop:", NamedTextColor.GREEN),
+                    Component.text("1. Click categories on the left", NamedTextColor.GRAY),
+                    Component.text("2. Browse items in each category", NamedTextColor.GRAY),
+                    Component.text("3. Click items to purchase them", NamedTextColor.GRAY),
+                    Component.text("4. Follow the purchase prompts", NamedTextColor.GRAY)
+            );
+            meta.lore(lore);
             help.setItemMeta(meta);
         }
         setItem(49, help);
@@ -574,12 +603,16 @@ public class ItemVendorMenu extends Menu {
         ItemStack refresh = new ItemStack(Material.CLOCK);
         meta = refresh.getItemMeta();
         if (meta != null) {
-            meta.setDisplayName(ChatColor.AQUA + "" + ChatColor.BOLD + "🔄 Refresh Prices");
-            meta.setLore(Arrays.asList(
-                    "",
-                    ChatColor.GRAY + "Click to refresh item prices",
-                    ChatColor.GRAY + "Prices may change based on market conditions"
-            ));
+            meta.displayName(Component.text("🔄 Refresh Prices")
+                    .color(NamedTextColor.AQUA)
+                    .decoration(TextDecoration.BOLD, true));
+
+            List<Component> lore = Arrays.asList(
+                    Component.empty(),
+                    Component.text("Click to refresh item prices", NamedTextColor.GRAY),
+                    Component.text("Prices may change based on market conditions", NamedTextColor.GRAY)
+            );
+            meta.lore(lore);
             refresh.setItemMeta(meta);
         }
 
@@ -588,8 +621,8 @@ public class ItemVendorMenu extends Menu {
                     if (isClickCooldownExpired(s)) {
                         updateClickCooldown(s);
                         initializeCategoryMenu();
-                        p.sendMessage(ChatColor.GREEN + "💰 Item prices refreshed!");
-                        p.playSound(p.getLocation(), Sound.BLOCK_NOTE_BLOCK_BELL, 1.0f, 1.0f);
+                        p.sendMessage(Component.text("💰 Item prices refreshed!", NamedTextColor.GREEN));
+                        p.playSound(Sound.sound(org.bukkit.Sound.BLOCK_NOTE_BLOCK_BELL, Sound.Source.PLAYER, 1.0f, 1.0f));
                     }
                 });
         setItem(51, refreshItem);
@@ -598,20 +631,24 @@ public class ItemVendorMenu extends Menu {
         ItemStack close = new ItemStack(Material.BARRIER);
         meta = close.getItemMeta();
         if (meta != null) {
-            meta.setDisplayName(ChatColor.RED + "" + ChatColor.BOLD + "❌ Close Shop");
-            meta.setLore(Arrays.asList(
-                    "",
-                    ChatColor.GRAY + "Close the vendor menu",
-                    "",
-                    ChatColor.YELLOW + "Thanks for shopping!"
-            ));
+            meta.displayName(Component.text("❌ Close Shop")
+                    .color(NamedTextColor.RED)
+                    .decoration(TextDecoration.BOLD, true));
+
+            List<Component> lore = Arrays.asList(
+                    Component.empty(),
+                    Component.text("Close the vendor menu", NamedTextColor.GRAY),
+                    Component.empty(),
+                    Component.text("Thanks for shopping!", NamedTextColor.YELLOW)
+            );
+            meta.lore(lore);
             close.setItemMeta(meta);
         }
 
         MenuItem closeItem = new MenuItem(close)
                 .setClickHandler((p, s) -> {
                     p.closeInventory();
-                    p.sendMessage(ChatColor.GREEN + "👋 Thanks for visiting the Item Vendor!");
+                    p.sendMessage(Component.text("👋 Thanks for visiting the Item Vendor!", NamedTextColor.GREEN));
                 });
         setItem(53, closeItem);
     }
@@ -623,12 +660,14 @@ public class ItemVendorMenu extends Menu {
         ItemStack errorItem = new ItemStack(Material.BARRIER);
         ItemMeta meta = errorItem.getItemMeta();
         if (meta != null) {
-            meta.setDisplayName(ChatColor.RED + "⚠ " + errorMsg);
-            meta.setLore(Arrays.asList(
-                    "",
-                    ChatColor.GRAY + "This item failed to load properly",
-                    ChatColor.GRAY + "Please contact an administrator"
-            ));
+            meta.displayName(Component.text("⚠ " + errorMsg, NamedTextColor.RED));
+
+            List<Component> lore = Arrays.asList(
+                    Component.empty(),
+                    Component.text("This item failed to load properly", NamedTextColor.GRAY),
+                    Component.text("Please contact an administrator", NamedTextColor.GRAY)
+            );
+            meta.lore(lore);
             errorItem.setItemMeta(meta);
         }
         setItem(slot, errorItem);
@@ -674,7 +713,9 @@ public class ItemVendorMenu extends Menu {
         return false;
     }
 
-    // Keep all original price calculation methods unchanged
+    /**
+     * Calculate dynamic price with market variations
+     */
     private int calculateDynamicPrice(int basePrice, String itemKey) {
         if (!(Boolean) menuConfig.get("enableDynamicPricing")) {
             return basePrice;
@@ -696,15 +737,24 @@ public class ItemVendorMenu extends Menu {
         }
     }
 
+    /**
+     * Calculate protection scroll price based on tier
+     */
     private int calculateProtectionScrollPrice(int tier) {
         if (tier == 0) return calculateDynamicPrice(PROTECTION_SCROLL_BASE_PRICE, "protection_0");
         return calculateDynamicPrice((int) (PROTECTION_SCROLL_BASE_PRICE * Math.pow(TIER_MULTIPLIER, tier)), "protection_" + tier);
     }
 
+    /**
+     * Calculate weapon scroll price based on tier
+     */
     private int calculateWeaponScrollPrice(int tier) {
         return calculateDynamicPrice((int) (WEAPON_SCROLL_BASE_PRICE * Math.pow(TIER_MULTIPLIER, tier - 1)), "weapon_" + tier);
     }
 
+    /**
+     * Calculate armor scroll price based on tier
+     */
     private int calculateArmorScrollPrice(int tier) {
         return calculateDynamicPrice((int) (ARMOR_SCROLL_BASE_PRICE * Math.pow(TIER_MULTIPLIER, tier - 1)), "armor_" + tier);
     }
@@ -717,7 +767,9 @@ public class ItemVendorMenu extends Menu {
         setItem(49, createBasicCloseButton());
     }
 
-    // Keep original cooldown management
+    /**
+     * Check if click cooldown has expired for a slot
+     */
     private boolean isClickCooldownExpired(int slot) {
         Long lastClick = lastClickTime.get(slot);
         if (lastClick == null) {
@@ -726,52 +778,73 @@ public class ItemVendorMenu extends Menu {
         return System.currentTimeMillis() - lastClick >= CLICK_COOLDOWN_MS;
     }
 
+    /**
+     * Update click cooldown for a slot
+     */
     private void updateClickCooldown(int slot) {
         lastClickTime.put(slot, System.currentTimeMillis());
     }
 
+    /**
+     * Create basic error notice item
+     */
     private ItemStack createBasicErrorNotice() {
         ItemStack item = new ItemStack(Material.REDSTONE_BLOCK);
         ItemMeta meta = item.getItemMeta();
         if (meta != null) {
-            meta.setDisplayName(ChatColor.RED + "" + ChatColor.BOLD + "⚠ Menu Error");
-            meta.setLore(Arrays.asList(
-                    "",
-                    ChatColor.GRAY + "The vendor menu encountered an error",
-                    ChatColor.GRAY + "Running in basic mode",
-                    "",
-                    ChatColor.YELLOW + "Please contact an administrator"
-            ));
+            meta.displayName(Component.text("⚠ Menu Error")
+                    .color(NamedTextColor.RED)
+                    .decoration(TextDecoration.BOLD, true));
+
+            List<Component> lore = Arrays.asList(
+                    Component.empty(),
+                    Component.text("The vendor menu encountered an error", NamedTextColor.GRAY),
+                    Component.text("Running in basic mode", NamedTextColor.GRAY),
+                    Component.empty(),
+                    Component.text("Please contact an administrator", NamedTextColor.YELLOW)
+            );
+            meta.lore(lore);
             item.setItemMeta(meta);
         }
         return item;
     }
 
+    /**
+     * Create basic close button
+     */
     private ItemStack createBasicCloseButton() {
         ItemStack item = new ItemStack(Material.BARRIER);
         ItemMeta meta = item.getItemMeta();
         if (meta != null) {
-            meta.setDisplayName(ChatColor.RED + "" + ChatColor.BOLD + "❌ Close");
-            meta.setLore(Arrays.asList(ChatColor.GRAY + "Close this vendor menu"));
+            meta.displayName(Component.text("❌ Close")
+                    .color(NamedTextColor.RED)
+                    .decoration(TextDecoration.BOLD, true));
+
+            List<Component> lore = Arrays.asList(
+                    Component.text("Close this vendor menu", NamedTextColor.GRAY)
+            );
+            meta.lore(lore);
             item.setItemMeta(meta);
         }
         return item;
     }
 
-    //  categories
+    /**
+     * Category enumeration for menu organization
+     */
     private enum Category {
-        ORBS("Mystical Orbs", Material.MAGMA_CREAM, ChatColor.GOLD, "Magical orbs that reroll item statistics"),
-        POUCHES("Gem Pouches", Material.BUNDLE, ChatColor.GREEN, "Store your gems safely in portable pouches"),
-        PROTECTION("Protection Scrolls", Material.SHIELD, ChatColor.BLUE, "Protect items from enchantment failures"),
-        WEAPON("Weapon Scrolls", Material.IRON_SWORD, ChatColor.RED, "Enhance your weapons with powerful scrolls"),
-        ARMOR("Armor Scrolls", Material.IRON_CHESTPLATE, ChatColor.AQUA, "Strengthen your armor with defensive scrolls");
+        ORBS("Mystical Orbs", Material.MAGMA_CREAM, NamedTextColor.GOLD, "Magical orbs that reroll item statistics"),
+        POUCHES("Gem Pouches", Material.BUNDLE, NamedTextColor.GREEN, "Store your gems safely in portable pouches"),
+        PROTECTION("Protection Scrolls", Material.SHIELD, NamedTextColor.BLUE, "Protect items from enchantment failures"),
+        WEAPON("Weapon Scrolls", Material.IRON_SWORD, NamedTextColor.RED, "Enhance your weapons with powerful scrolls"),
+        ARMOR("Armor Scrolls", Material.IRON_CHESTPLATE, NamedTextColor.AQUA, "Strengthen your armor with defensive scrolls");
 
         private final String name;
         private final Material icon;
-        private final ChatColor color;
+        private final NamedTextColor color;
         private final String description;
 
-        Category(String name, Material icon, ChatColor color, String description) {
+        Category(String name, Material icon, NamedTextColor color, String description) {
             this.name = name;
             this.icon = icon;
             this.color = color;

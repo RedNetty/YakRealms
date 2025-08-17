@@ -24,8 +24,8 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
- * FULLY INTEGRATED PlayerMechanics - Complete coordination with death/combat systems
- * ENSURES: Full integration with YakPlayerManager, DeathMechanics, and CombatLogoutMechanics
+ * PlayerMechanics - Coordination with death/combat systems
+ * Compatible with Paper 1.21.7+
  */
 public class PlayerMechanics implements Listener {
     private static PlayerMechanics instance;
@@ -38,7 +38,7 @@ public class PlayerMechanics implements Listener {
     private DashMechanics dashMechanics;
     private PlayerListenerManager listenerManager;
 
-    // INTEGRATED: Death and combat systems
+    // Death and combat systems
     private DeathMechanics deathMechanics;
     private CombatLogoutMechanics combatLogoutMechanics;
 
@@ -57,7 +57,7 @@ public class PlayerMechanics implements Listener {
     private final AtomicInteger successfulCoordinations = new AtomicInteger(0);
     private final AtomicLong totalCoordinationTime = new AtomicLong(0);
 
-    // INTEGRATED: Death and combat coordination metrics
+    // Death and combat coordination metrics
     private final AtomicInteger deathCoordinations = new AtomicInteger(0);
     private final AtomicInteger combatLogoutCoordinations = new AtomicInteger(0);
     private final AtomicInteger systemConflictsPrevented = new AtomicInteger(0);
@@ -73,7 +73,7 @@ public class PlayerMechanics implements Listener {
     private final long healthCheckInterval;
     private final long performanceLogInterval;
 
-    // ENHANCED YakPlayerManager integration
+    // YakPlayerManager integration
     private YakPlayerManager playerManager;
 
     private PlayerMechanics() {
@@ -102,7 +102,7 @@ public class PlayerMechanics implements Listener {
     }
 
     /**
-     * FULLY INTEGRATED initialization with all combat systems
+     * Initialize all systems with proper coordination
      */
     public void onEnable() {
         if (!initialized.compareAndSet(false, true)) {
@@ -111,14 +111,14 @@ public class PlayerMechanics implements Listener {
         }
 
         try {
-            logger.info("Starting FULLY INTEGRATED PlayerMechanics initialization...");
+            logger.info("Starting PlayerMechanics initialization...");
 
-            // Initialize YakPlayerManager integration FIRST
+            // Initialize YakPlayerManager integration first
             if (!initializePlayerManagerIntegration()) {
                 throw new RuntimeException("YakPlayerManager integration failed");
             }
 
-            // INTEGRATED: Initialize death and combat systems BEFORE other subsystems
+            // Initialize death and combat systems before other subsystems
             if (!initializeDeathAndCombatSystems()) {
                 throw new RuntimeException("Death and combat systems initialization failed");
             }
@@ -135,24 +135,24 @@ public class PlayerMechanics implements Listener {
                 throw new RuntimeException("Subsystem validation failed");
             }
 
-            // INTEGRATED: Final coordination setup
+            // Final coordination setup
             establishSystemCoordination();
 
             systemsReady.set(true);
-            logger.info("FULLY INTEGRATED PlayerMechanics initialization completed successfully");
+            logger.info("PlayerMechanics initialization completed successfully");
 
         } catch (Exception e) {
-            logger.log(Level.SEVERE, "Failed to initialize FULLY INTEGRATED PlayerMechanics", e);
+            logger.log(Level.SEVERE, "Failed to initialize PlayerMechanics", e);
             performEmergencyCleanup();
-            throw new RuntimeException("FULLY INTEGRATED PlayerMechanics initialization failed", e);
+            throw new RuntimeException("PlayerMechanics initialization failed", e);
         }
     }
 
     /**
-     * INTEGRATED: Initialize death and combat systems with proper coordination
+     * Initialize death and combat systems with proper coordination
      */
     private boolean initializeDeathAndCombatSystems() {
-        logger.info("Initializing death and combat systems with coordination...");
+        logger.info("Initializing death and combat systems...");
 
         try {
             // Initialize DeathMechanics
@@ -175,13 +175,13 @@ public class PlayerMechanics implements Listener {
                 return false;
             }
 
-            // CRITICAL: Ensure systems can coordinate with each other
+            // Ensure systems can coordinate with each other
             if (!verifySystemCoordination()) {
                 logger.severe("✗ System coordination verification failed");
                 return false;
             }
 
-            logger.info("✓ Death and combat systems initialized with coordination");
+            logger.info("✓ Death and combat systems initialized");
             return true;
 
         } catch (Exception e) {
@@ -191,7 +191,7 @@ public class PlayerMechanics implements Listener {
     }
 
     /**
-     * INTEGRATED: Verify that all systems can coordinate properly
+     * Verify that all systems can coordinate properly
      */
     private boolean verifySystemCoordination() {
         try {
@@ -217,7 +217,7 @@ public class PlayerMechanics implements Listener {
     }
 
     /**
-     * INTEGRATED: Establish ongoing coordination between systems
+     * Establish ongoing coordination between systems
      */
     private void establishSystemCoordination() {
         try {
@@ -241,7 +241,7 @@ public class PlayerMechanics implements Listener {
     }
 
     /**
-     * INTEGRATED: Monitor coordination between systems
+     * Monitor coordination between systems
      */
     private void monitorSystemCoordination() {
         try {
@@ -280,7 +280,7 @@ public class PlayerMechanics implements Listener {
      * YakPlayerManager integration with death system coordination
      */
     private boolean initializePlayerManagerIntegration() {
-        logger.info("Initializing ENHANCED YakPlayerManager integration...");
+        logger.info("Initializing YakPlayerManager integration...");
 
         try {
             this.playerManager = YakPlayerManager.getInstance();
@@ -302,17 +302,17 @@ public class PlayerMechanics implements Listener {
                 return false;
             }
 
-            logger.info("✓ Enhanced YakPlayerManager integration successful");
+            logger.info("✓ YakPlayerManager integration successful");
             return true;
 
         } catch (Exception e) {
-            logger.log(Level.SEVERE, " YakPlayerManager integration failed", e);
+            logger.log(Level.SEVERE, "YakPlayerManager integration failed", e);
             return false;
         }
     }
 
     /**
-     * system readiness verification including death system checks
+     * System readiness verification including death system checks
      */
     private boolean verifySystemReady() {
         try {
@@ -342,7 +342,7 @@ public class PlayerMechanics implements Listener {
             return true;
 
         } catch (Exception e) {
-            logger.log(Level.WARNING, "Error during enhanced system verification", e);
+            logger.log(Level.WARNING, "Error during system verification", e);
             return false;
         }
     }
@@ -353,7 +353,7 @@ public class PlayerMechanics implements Listener {
     private void registerEventListeners() {
         try {
             Bukkit.getServer().getPluginManager().registerEvents(this, YakRealms.getInstance());
-            logger.info("✓ Event listeners registered with coordination support");
+            logger.info("✓ Event listeners registered");
         } catch (Exception e) {
             logger.log(Level.SEVERE, "Failed to register event listeners", e);
             throw new RuntimeException("Event listener registration failed", e);
@@ -361,10 +361,10 @@ public class PlayerMechanics implements Listener {
     }
 
     /**
-     * subsystem initialization with death system coordination
+     * Subsystem initialization with death system coordination
      */
     private boolean initializeSubsystems() {
-        logger.info("Initializing INTEGRATED PlayerMechanics subsystems...");
+        logger.info("Initializing PlayerMechanics subsystems...");
         boolean allSuccessful = true;
 
         try {
@@ -380,12 +380,11 @@ public class PlayerMechanics implements Listener {
                 allSuccessful = false;
             }
 
-            // Toggle System - ENHANCED with coordination support
+            // Toggle System
             if (!initializeSubsystem("Toggle System", () -> {
                 this.toggleSystem = Toggles.getInstance();
                 if (this.toggleSystem != null) {
                     this.toggleSystem.onEnable();
-                    // INTEGRATED: Ensure toggle system can coordinate with player manager
                     return true;
                 }
                 return false;
@@ -417,7 +416,7 @@ public class PlayerMechanics implements Listener {
                 allSuccessful = false;
             }
 
-            // Listener Manager - ENHANCED with coordination support
+            // Listener Manager
             if (!initializeSubsystem("Listener Manager", () -> {
                 this.listenerManager = PlayerListenerManager.getInstance();
                 if (this.listenerManager != null) {
@@ -430,7 +429,7 @@ public class PlayerMechanics implements Listener {
             }
 
             if (allSuccessful) {
-                logger.info("✓ All INTEGRATED PlayerMechanics subsystems initialized successfully");
+                logger.info("✓ All PlayerMechanics subsystems initialized successfully");
             } else {
                 logger.warning("Some subsystems failed to initialize");
             }
@@ -438,13 +437,13 @@ public class PlayerMechanics implements Listener {
             return allSuccessful;
 
         } catch (Exception e) {
-            logger.log(Level.SEVERE, "Error initializing INTEGRATED subsystems", e);
+            logger.log(Level.SEVERE, "Error initializing subsystems", e);
             return false;
         }
     }
 
     /**
-     * INTEGRATED subsystem initialization helper
+     * Subsystem initialization helper
      */
     private boolean initializeSubsystem(String name, SubsystemInitializer initializer) {
         try {
@@ -469,7 +468,7 @@ public class PlayerMechanics implements Listener {
     }
 
     /**
-     * INTEGRATED: Player join event with death/combat coordination
+     * Player join event with death/combat coordination
      */
     @EventHandler(priority = EventPriority.MONITOR)
     public void onPlayerJoin(PlayerJoinEvent event) {
@@ -482,7 +481,7 @@ public class PlayerMechanics implements Listener {
             long startTime = System.currentTimeMillis();
 
             if (playerManager != null) {
-                // INTEGRATED: Check for combat logout completion during join
+                // Check for combat logout completion during join
                 if (playerManager.isPlayerReady(player)) {
                     // Player is ready, check if they're completing a combat logout
                     YakPlayer yakPlayer = playerManager.getPlayer(uuid);
@@ -490,20 +489,20 @@ public class PlayerMechanics implements Listener {
                         YakPlayer.CombatLogoutState logoutState = yakPlayer.getCombatLogoutState();
 
                         if (logoutState == YakPlayer.CombatLogoutState.PROCESSED) {
-                            logger.info("INTEGRATED: Combat logout completion detected for " + player.getName());
+                            logger.info("Combat logout completion detected for " + player.getName());
                             combatLogoutCoordinations.incrementAndGet();
                             // Let YakPlayerManager handle the completion
                         } else {
-                            logger.info("INTEGRATED: Normal player join for " + player.getName());
+                            logger.info("Normal player join for " + player.getName());
                         }
                     }
 
-                    initializePlayerSubsystemsIntegrated(player);
+                    initializePlayerSubsystems(player);
                     coordinationEvents.incrementAndGet();
                     successfulCoordinations.incrementAndGet();
                 } else {
-                    // Schedule enhanced delayed check with coordination
-                    scheduleIntegratedDelayedSubsystemInitialization(player);
+                    // Schedule delayed check with coordination
+                    scheduleDelayedSubsystemInitialization(player);
                 }
             } else {
                 logger.warning("PlayerManager is null during join event for " + player.getName());
@@ -515,14 +514,14 @@ public class PlayerMechanics implements Listener {
 
         } catch (Exception e) {
             coordinationFailures.incrementAndGet();
-            logger.log(Level.WARNING, "Error in INTEGRATED player join coordination for " + event.getPlayer().getName(), e);
+            logger.log(Level.WARNING, "Error in player join coordination for " + event.getPlayer().getName(), e);
         }
     }
 
     /**
-     * INTEGRATED: Enhanced delayed subsystem initialization with death/combat coordination
+     * Delayed subsystem initialization with death/combat coordination
      */
-    private void scheduleIntegratedDelayedSubsystemInitialization(org.bukkit.entity.Player player) {
+    private void scheduleDelayedSubsystemInitialization(org.bukkit.entity.Player player) {
         java.util.UUID uuid = player.getUniqueId();
 
         new BukkitRunnable() {
@@ -541,13 +540,13 @@ public class PlayerMechanics implements Listener {
                     }
 
                     if (attempts >= maxAttempts) {
-                        logger.warning("Max attempts reached for INTEGRATED delayed initialization: " + player.getName());
+                        logger.warning("Max attempts reached for delayed initialization: " + player.getName());
                         coordinationFailures.incrementAndGet();
                         this.cancel();
                         return;
                     }
 
-                    // INTEGRATED: Enhanced readiness check with death/combat coordination
+                    // Enhanced readiness check with death/combat coordination
                     if (playerManager != null && playerManager.isPlayerReady(player)) {
                         try {
                             // Additional check: ensure no death/combat processing conflicts
@@ -555,44 +554,44 @@ public class PlayerMechanics implements Listener {
                             if (yakPlayer != null) {
                                 // Check for inventory being applied
                                 if (yakPlayer.isInventoryBeingApplied()) {
-                                    logger.fine("INTEGRATED: Waiting for inventory application to complete for " + player.getName() + " (attempt " + attempts + ")");
+                                    logger.fine("Waiting for inventory application to complete for " + player.getName() + " (attempt " + attempts + ")");
                                     coordinationActive = true;
                                     return; // Continue waiting
                                 }
 
-                                // INTEGRATED: Check for death processing coordination
+                                // Check for death processing coordination
                                 if (deathMechanics != null && deathMechanics.isProcessingDeath(uuid)) {
-                                    logger.fine("INTEGRATED: Waiting for death processing to complete for " + player.getName() + " (attempt " + attempts + ")");
+                                    logger.fine("Waiting for death processing to complete for " + player.getName() + " (attempt " + attempts + ")");
                                     deathCoordinations.incrementAndGet();
                                     return; // Continue waiting
                                 }
 
-                                // INTEGRATED: Check for combat logout processing coordination
+                                // Check for combat logout processing coordination
                                 if (combatLogoutMechanics != null && combatLogoutMechanics.isCombatLoggingOut(player)) {
-                                    logger.fine("INTEGRATED: Waiting for combat logout processing to complete for " + player.getName() + " (attempt " + attempts + ")");
+                                    logger.fine("Waiting for combat logout processing to complete for " + player.getName() + " (attempt " + attempts + ")");
                                     combatLogoutCoordinations.incrementAndGet();
                                     return; // Continue waiting
                                 }
                             }
 
                             if (coordinationActive) {
-                                logger.info("INTEGRATED: All coordination checks passed, proceeding with subsystem initialization for " + player.getName());
+                                logger.info("All coordination checks passed, proceeding with subsystem initialization for " + player.getName());
                             }
 
-                            initializePlayerSubsystemsIntegrated(player);
+                            initializePlayerSubsystems(player);
                             coordinationEvents.incrementAndGet();
                             successfulCoordinations.incrementAndGet();
-                            logger.fine("INTEGRATED: Delayed subsystem initialization completed for " + player.getName() + " after " + attempts + " attempts");
+                            logger.fine("Delayed subsystem initialization completed for " + player.getName() + " after " + attempts + " attempts");
                         } catch (Exception e) {
                             coordinationFailures.incrementAndGet();
-                            logger.log(Level.WARNING, "Error in INTEGRATED delayed subsystem initialization for " + player.getName(), e);
+                            logger.log(Level.WARNING, "Error in delayed subsystem initialization for " + player.getName(), e);
                         }
                         this.cancel();
                     }
                     // Continue waiting if not ready
 
                 } catch (Exception e) {
-                    logger.log(Level.WARNING, "Error in INTEGRATED delayed initialization scheduler for " + player.getName(), e);
+                    logger.log(Level.WARNING, "Error in delayed initialization scheduler for " + player.getName(), e);
                     coordinationFailures.incrementAndGet();
                     this.cancel();
                 }
@@ -601,34 +600,34 @@ public class PlayerMechanics implements Listener {
     }
 
     /**
-     * INTEGRATED: Player subsystem initialization with death/combat coordination
+     * Player subsystem initialization with death/combat coordination
      */
-    private void initializePlayerSubsystemsIntegrated(org.bukkit.entity.Player player) {
+    private void initializePlayerSubsystems(org.bukkit.entity.Player player) {
         try {
-            // INTEGRATED: Verify player is still ready and no conflicts exist
+            // Verify player is still ready and no conflicts exist
             if (playerManager != null && !playerManager.isPlayerReady(player)) {
-                logger.warning("INTEGRATED: Player no longer ready during subsystem initialization: " + player.getName());
+                logger.warning("Player no longer ready during subsystem initialization: " + player.getName());
                 return;
             }
 
             YakPlayer yakPlayer = playerManager != null ? playerManager.getPlayer(player.getUniqueId()) : null;
             if (yakPlayer != null) {
-                // INTEGRATED: Final conflict checks before initialization
+                // Final conflict checks before initialization
                 if (yakPlayer.isInventoryBeingApplied()) {
-                    logger.warning("INTEGRATED: Inventory still being applied during subsystem initialization: " + player.getName());
+                    logger.warning("Inventory still being applied during subsystem initialization: " + player.getName());
                     return;
                 }
 
                 // Check for death processing conflicts
                 if (deathMechanics != null && deathMechanics.isProcessingDeath(player.getUniqueId())) {
-                    logger.warning("INTEGRATED: Death processing active during subsystem initialization: " + player.getName());
+                    logger.warning("Death processing active during subsystem initialization: " + player.getName());
                     systemConflictsPrevented.incrementAndGet();
                     return;
                 }
 
                 // Check for combat logout conflicts
                 if (combatLogoutMechanics != null && combatLogoutMechanics.isCombatLoggingOut(player)) {
-                    logger.warning("INTEGRATED: Combat logout processing active during subsystem initialization: " + player.getName());
+                    logger.warning("Combat logout processing active during subsystem initialization: " + player.getName());
                     systemConflictsPrevented.incrementAndGet();
                     return;
                 }
@@ -637,53 +636,53 @@ public class PlayerMechanics implements Listener {
             // Initialize all subsystems for the player
             if (energySystem != null) {
                 try {
-                    logger.fine("INTEGRATED: Initialized energy system for " + player.getName());
+                    logger.fine("Initialized energy system for " + player.getName());
                 } catch (Exception e) {
-                    logger.warning("INTEGRATED: Energy system initialization failed for " + player.getName() + ": " + e.getMessage());
+                    logger.warning("Energy system initialization failed for " + player.getName() + ": " + e.getMessage());
                 }
             }
 
             if (toggleSystem != null) {
                 try {
-                    logger.fine("INTEGRATED: Initialized toggle system for " + player.getName());
+                    logger.fine("Initialized toggle system for " + player.getName());
                 } catch (Exception e) {
-                    logger.warning("INTEGRATED: Toggle system initialization failed for " + player.getName() + ": " + e.getMessage());
+                    logger.warning("Toggle system initialization failed for " + player.getName() + ": " + e.getMessage());
                 }
             }
 
             if (buddySystem != null) {
                 try {
-                    logger.fine("INTEGRATED: Initialized buddy system for " + player.getName());
+                    logger.fine("Initialized buddy system for " + player.getName());
                 } catch (Exception e) {
-                    logger.warning("INTEGRATED: Buddy system initialization failed for " + player.getName() + ": " + e.getMessage());
+                    logger.warning("Buddy system initialization failed for " + player.getName() + ": " + e.getMessage());
                 }
             }
 
             if (dashMechanics != null) {
                 try {
-                    logger.fine("INTEGRATED: Initialized dash mechanics for " + player.getName());
+                    logger.fine("Initialized dash mechanics for " + player.getName());
                 } catch (Exception e) {
-                    logger.warning("INTEGRATED: Dash mechanics initialization failed for " + player.getName() + ": " + e.getMessage());
+                    logger.warning("Dash mechanics initialization failed for " + player.getName() + ": " + e.getMessage());
                 }
             }
 
             if (listenerManager != null) {
                 try {
-                    logger.fine("INTEGRATED: Initialized listener manager for " + player.getName());
+                    logger.fine("Initialized listener manager for " + player.getName());
                 } catch (Exception e) {
-                    logger.warning("INTEGRATED: Listener manager initialization failed for " + player.getName() + ": " + e.getMessage());
+                    logger.warning("Listener manager initialization failed for " + player.getName() + ": " + e.getMessage());
                 }
             }
 
-            logger.fine("INTEGRATED: All subsystems initialized for " + player.getName());
+            logger.fine("All subsystems initialized for " + player.getName());
 
         } catch (Exception e) {
-            logger.log(Level.WARNING, "Error in INTEGRATED player subsystem initialization for " + player.getName(), e);
+            logger.log(Level.WARNING, "Error in player subsystem initialization for " + player.getName(), e);
         }
     }
 
     /**
-     * INTEGRATED: Player quit event with death/combat coordination
+     * Player quit event with death/combat coordination
      */
     @EventHandler(priority = EventPriority.MONITOR)
     public void onPlayerQuit(PlayerQuitEvent event) {
@@ -692,41 +691,41 @@ public class PlayerMechanics implements Listener {
         org.bukkit.entity.Player player = event.getPlayer();
 
         try {
-            // INTEGRATED: Enhanced cleanup with death/combat coordination
-            cleanupPlayerSubsystemsIntegrated(player);
+            // Enhanced cleanup with death/combat coordination
+            cleanupPlayerSubsystems(player);
         } catch (Exception e) {
-            logger.log(Level.WARNING, "Error cleaning up INTEGRATED subsystems for " + player.getName(), e);
+            logger.log(Level.WARNING, "Error cleaning up subsystems for " + player.getName(), e);
         }
     }
 
     /**
-     * INTEGRATED: Player subsystem cleanup with death/combat coordination
+     * Player subsystem cleanup with death/combat coordination
      */
-    private void cleanupPlayerSubsystemsIntegrated(org.bukkit.entity.Player player) {
+    private void cleanupPlayerSubsystems(org.bukkit.entity.Player player) {
         try {
             java.util.UUID uuid = player.getUniqueId();
 
-            // INTEGRATED: Coordination check - don't interfere with death/combat processing
+            // Coordination check - don't interfere with death/combat processing
             if (playerManager != null) {
                 YakPlayer yakPlayer = playerManager.getPlayer(uuid);
                 if (yakPlayer != null) {
                     // Don't interfere if death processing is active
                     if (deathMechanics != null && deathMechanics.isProcessingDeath(uuid)) {
-                        logger.fine("INTEGRATED: Skipping subsystem cleanup during death processing for " + player.getName());
+                        logger.fine("Skipping subsystem cleanup during death processing for " + player.getName());
                         deathCoordinations.incrementAndGet();
                         return;
                     }
 
                     // Don't interfere if combat logout is active
                     if (combatLogoutMechanics != null && combatLogoutMechanics.isCombatLoggingOut(player)) {
-                        logger.fine("INTEGRATED: Skipping subsystem cleanup during combat logout processing for " + player.getName());
+                        logger.fine("Skipping subsystem cleanup during combat logout processing for " + player.getName());
                         combatLogoutCoordinations.incrementAndGet();
                         return;
                     }
 
                     // Don't interfere if inventory is being updated during quit
                     if (yakPlayer.isInventoryBeingApplied()) {
-                        logger.fine("INTEGRATED: Skipping subsystem cleanup during inventory update for " + player.getName());
+                        logger.fine("Skipping subsystem cleanup during inventory update for " + player.getName());
                         return;
                     }
                 }
@@ -736,57 +735,57 @@ public class PlayerMechanics implements Listener {
             performSafeSubsystemCleanup(player);
 
         } catch (Exception e) {
-            logger.log(Level.WARNING, "Error in INTEGRATED subsystem cleanup for " + player.getName(), e);
+            logger.log(Level.WARNING, "Error in subsystem cleanup for " + player.getName(), e);
         }
     }
 
     /**
-     * INTEGRATED: Perform safe subsystem cleanup when no conflicts exist
+     * Perform safe subsystem cleanup when no conflicts exist
      */
     private void performSafeSubsystemCleanup(org.bukkit.entity.Player player) {
         try {
             // Cleanup all subsystems for the player
             if (energySystem != null) {
                 try {
-                    logger.fine("INTEGRATED: Energy cleanup for " + player.getName());
+                    logger.fine("Energy cleanup for " + player.getName());
                 } catch (Exception e) {
-                    logger.warning("INTEGRATED: Energy cleanup failed for " + player.getName() + ": " + e.getMessage());
+                    logger.warning("Energy cleanup failed for " + player.getName() + ": " + e.getMessage());
                 }
             }
 
             if (toggleSystem != null) {
                 try {
-                    logger.fine("INTEGRATED: Toggle cleanup for " + player.getName());
+                    logger.fine("Toggle cleanup for " + player.getName());
                 } catch (Exception e) {
-                    logger.warning("INTEGRATED: Toggle cleanup failed for " + player.getName() + ": " + e.getMessage());
+                    logger.warning("Toggle cleanup failed for " + player.getName() + ": " + e.getMessage());
                 }
             }
 
             if (buddySystem != null) {
                 try {
-                    logger.fine("INTEGRATED: Buddy cleanup for " + player.getName());
+                    logger.fine("Buddy cleanup for " + player.getName());
                 } catch (Exception e) {
-                    logger.warning("INTEGRATED: Buddy cleanup failed for " + player.getName() + ": " + e.getMessage());
+                    logger.warning("Buddy cleanup failed for " + player.getName() + ": " + e.getMessage());
                 }
             }
 
             if (dashMechanics != null) {
                 try {
-                    logger.fine("INTEGRATED: Dash mechanics cleanup for " + player.getName());
+                    logger.fine("Dash mechanics cleanup for " + player.getName());
                 } catch (Exception e) {
-                    logger.warning("INTEGRATED: Dash mechanics cleanup failed for " + player.getName() + ": " + e.getMessage());
+                    logger.warning("Dash mechanics cleanup failed for " + player.getName() + ": " + e.getMessage());
                 }
             }
 
             if (listenerManager != null) {
                 try {
-                    logger.fine("INTEGRATED: Listener manager cleanup for " + player.getName());
+                    logger.fine("Listener manager cleanup for " + player.getName());
                 } catch (Exception e) {
-                    logger.warning("INTEGRATED: Listener manager cleanup failed for " + player.getName() + ": " + e.getMessage());
+                    logger.warning("Listener manager cleanup failed for " + player.getName() + ": " + e.getMessage());
                 }
             }
 
-            logger.fine("INTEGRATED: Safe cleanup completed for " + player.getName());
+            logger.fine("Safe cleanup completed for " + player.getName());
 
         } catch (Exception e) {
             logger.log(Level.WARNING, "Error in safe subsystem cleanup for " + player.getName(), e);
@@ -794,7 +793,7 @@ public class PlayerMechanics implements Listener {
     }
 
     /**
-     * INTEGRATED monitoring tasks with death/combat coordination metrics
+     * Monitoring tasks with death/combat coordination metrics
      */
     private void startMonitoringTasks() {
         if (enablePerformanceMonitoring) {
@@ -802,9 +801,9 @@ public class PlayerMechanics implements Listener {
                 @Override
                 public void run() {
                     try {
-                        logIntegratedPerformanceMetrics();
+                        logPerformanceMetrics();
                     } catch (Exception e) {
-                        logger.log(Level.WARNING, "Error in INTEGRATED performance monitoring", e);
+                        logger.log(Level.WARNING, "Error in performance monitoring", e);
                     }
                 }
             }.runTaskTimerAsynchronously(
@@ -819,9 +818,9 @@ public class PlayerMechanics implements Listener {
                 @Override
                 public void run() {
                     try {
-                        performIntegratedHealthChecks();
+                        performHealthChecks();
                     } catch (Exception e) {
-                        logger.log(Level.WARNING, "Error in INTEGRATED health checks", e);
+                        logger.log(Level.WARNING, "Error in health checks", e);
                     }
                 }
             }.runTaskTimerAsynchronously(
@@ -833,7 +832,7 @@ public class PlayerMechanics implements Listener {
     }
 
     /**
-     * INTEGRATED subsystem validation with death/combat system checks
+     * Subsystem validation with death/combat system checks
      */
     private boolean validateAllSubsystems() {
         StringBuilder issues = new StringBuilder();
@@ -865,7 +864,7 @@ public class PlayerMechanics implements Listener {
             allValid = false;
         }
 
-        // INTEGRATED: Death and combat system validation
+        // Death and combat system validation
         if (deathMechanics == null) {
             issues.append("Death mechanics not initialized; ");
             allValid = false;
@@ -876,7 +875,7 @@ public class PlayerMechanics implements Listener {
             allValid = false;
         }
 
-        // Enhanced YakPlayerManager integration validation
+        // YakPlayerManager integration validation
         try {
             if (playerManager != null && !playerManager.isSystemHealthy()) {
                 issues.append("YakPlayerManager unhealthy; ");
@@ -895,7 +894,7 @@ public class PlayerMechanics implements Listener {
             allValid = false;
         }
 
-        // INTEGRATED: Combat system health validation
+        // Combat system health validation
         try {
             if (combatLogoutMechanics != null && !combatLogoutMechanics.isSystemHealthy()) {
                 issues.append("Combat logout system unhealthy; ");
@@ -907,32 +906,32 @@ public class PlayerMechanics implements Listener {
         }
 
         if (!allValid) {
-            throw new RuntimeException("INTEGRATED subsystem validation failed: " + issues.toString());
+            throw new RuntimeException("Subsystem validation failed: " + issues.toString());
         }
 
-        logger.info("✓ All INTEGRATED subsystems validated successfully");
+        logger.info("✓ All subsystems validated successfully");
         return true;
     }
 
     /**
-     * INTEGRATED shutdown process with death/combat coordination
+     * Shutdown process with death/combat coordination
      */
     public void onDisable() {
         if (!shutdownInProgress.compareAndSet(false, true)) {
-            logger.warning("INTEGRATED PlayerMechanics shutdown already in progress!");
+            logger.warning("PlayerMechanics shutdown already in progress!");
             return;
         }
 
-        logger.info("Starting INTEGRATED PlayerMechanics shutdown...");
+        logger.info("Starting PlayerMechanics shutdown...");
 
         try {
             stopAllMonitoringTasks();
-            shutdownAllSubsystemsIntegrated();
+            shutdownAllSubsystems();
 
-            logger.info("INTEGRATED PlayerMechanics shutdown completed successfully");
+            logger.info("PlayerMechanics shutdown completed successfully");
 
         } catch (Exception e) {
-            logger.log(Level.SEVERE, "Error during INTEGRATED PlayerMechanics shutdown", e);
+            logger.log(Level.SEVERE, "Error during PlayerMechanics shutdown", e);
         } finally {
             initialized.set(false);
             systemsReady.set(false);
@@ -941,7 +940,7 @@ public class PlayerMechanics implements Listener {
     }
 
     /**
-     * INTEGRATED monitoring task cleanup
+     * Stop all monitoring tasks
      */
     private void stopAllMonitoringTasks() {
         try {
@@ -957,17 +956,17 @@ public class PlayerMechanics implements Listener {
                 systemCoordinationTask.cancel();
             }
 
-            logger.info("✓ All INTEGRATED monitoring tasks stopped");
+            logger.info("✓ All monitoring tasks stopped");
         } catch (Exception e) {
-            logger.log(Level.WARNING, "Error stopping INTEGRATED monitoring tasks", e);
+            logger.log(Level.WARNING, "Error stopping monitoring tasks", e);
         }
     }
 
     /**
-     * INTEGRATED subsystem shutdown with death/combat coordination
+     * Shutdown all subsystems with death/combat coordination
      */
-    private void shutdownAllSubsystemsIntegrated() {
-        logger.info("Shutting down INTEGRATED subsystems...");
+    private void shutdownAllSubsystems() {
+        logger.info("Shutting down subsystems...");
 
         // Shutdown death and combat systems first to prevent conflicts
         shutdownSubsystem("Death Mechanics", () -> {
@@ -1013,11 +1012,11 @@ public class PlayerMechanics implements Listener {
             }
         });
 
-        logger.info("✓ INTEGRATED subsystem shutdown completed");
+        logger.info("✓ Subsystem shutdown completed");
     }
 
     /**
-     * INTEGRATED subsystem shutdown helper
+     * Subsystem shutdown helper
      */
     private void shutdownSubsystem(String name, Runnable shutdownAction) {
         try {
@@ -1029,17 +1028,17 @@ public class PlayerMechanics implements Listener {
     }
 
     /**
-     * INTEGRATED emergency cleanup
+     * Emergency cleanup
      */
     private void performEmergencyCleanup() {
-        logger.warning("Performing INTEGRATED emergency cleanup...");
+        logger.warning("Performing emergency cleanup...");
 
         try {
             stopAllMonitoringTasks();
-            shutdownAllSubsystemsIntegrated();
+            shutdownAllSubsystems();
 
         } catch (Exception e) {
-            logger.log(Level.SEVERE, "Error during INTEGRATED emergency cleanup", e);
+            logger.log(Level.SEVERE, "Error during emergency cleanup", e);
         } finally {
             initialized.set(false);
             systemsReady.set(false);
@@ -1048,9 +1047,9 @@ public class PlayerMechanics implements Listener {
     }
 
     /**
-     * INTEGRATED performance metrics logging with death/combat coordination stats
+     * Performance metrics logging with death/combat coordination stats
      */
-    private void logIntegratedPerformanceMetrics() {
+    private void logPerformanceMetrics() {
         try {
             int onlinePlayers = Bukkit.getOnlinePlayers().size();
             Runtime runtime = Runtime.getRuntime();
@@ -1058,7 +1057,7 @@ public class PlayerMechanics implements Listener {
             long freeMemory = runtime.freeMemory();
             long usedMemory = totalMemory - freeMemory;
 
-            logger.info("=== INTEGRATED PlayerMechanics Performance ===");
+            logger.info("=== PlayerMechanics Performance ===");
             logger.info("Online Players: " + onlinePlayers);
             logger.info("Total Joins: " + totalPlayerJoins.get());
             logger.info("Total Quits: " + totalPlayerQuits.get());
@@ -1068,7 +1067,7 @@ public class PlayerMechanics implements Listener {
             logger.info("Successful Coordinations: " + successfulCoordinations.get());
             logger.info("Coordination Failures: " + coordinationFailures.get());
 
-            // INTEGRATED: Death and combat coordination metrics
+            // Death and combat coordination metrics
             logger.info("Death Coordinations: " + deathCoordinations.get());
             logger.info("Combat Logout Coordinations: " + combatLogoutCoordinations.get());
             logger.info("System Conflicts Prevented: " + systemConflictsPrevented.get());
@@ -1095,11 +1094,11 @@ public class PlayerMechanics implements Listener {
                         logger.info("Repository Ready: " + (stats.yakPlayerManagerIntegrated ? "YES" : "NO"));
                     }
                 } catch (Exception e) {
-                    logger.warning("Error getting INTEGRATED YakPlayerManager stats: " + e.getMessage());
+                    logger.warning("Error getting YakPlayerManager stats: " + e.getMessage());
                 }
             }
 
-            // INTEGRATED: Death and combat system stats
+            // Death and combat system stats
             if (deathMechanics != null) {
                 try {
                     String deathStats = deathMechanics.getPerformanceStats();
@@ -1118,17 +1117,17 @@ public class PlayerMechanics implements Listener {
                 }
             }
 
-            logger.info("===============================================");
+            logger.info("===================================");
 
         } catch (Exception e) {
-            logger.log(Level.WARNING, "Error logging INTEGRATED performance metrics", e);
+            logger.log(Level.WARNING, "Error logging performance metrics", e);
         }
     }
 
     /**
-     * INTEGRATED health checks with death/combat coordination monitoring
+     * Health checks with death/combat coordination monitoring
      */
-    private void performIntegratedHealthChecks() {
+    private void performHealthChecks() {
         try {
             boolean allHealthy = true;
 
@@ -1138,76 +1137,76 @@ public class PlayerMechanics implements Listener {
             allHealthy &= checkSubsystemHealth("Dash Mechanics", dashMechanics != null);
             allHealthy &= checkSubsystemHealth("Listener Manager", listenerManager != null);
 
-            // INTEGRATED: Death and combat system health checks
+            // Death and combat system health checks
             allHealthy &= checkSubsystemHealth("Death Mechanics", deathMechanics != null);
             allHealthy &= checkSubsystemHealth("Combat Logout Mechanics", combatLogoutMechanics != null);
 
             boolean yakPlayerManagerHealthy = playerManager != null && playerManager.isSystemHealthy();
             allHealthy &= checkSubsystemHealth("YakPlayerManager Integration", yakPlayerManagerHealthy);
 
-            // INTEGRATED: Combat system specific health checks
+            // Combat system specific health checks
             if (combatLogoutMechanics != null) {
                 boolean combatHealthy = combatLogoutMechanics.isSystemHealthy();
                 allHealthy &= checkSubsystemHealth("Combat System Health", combatHealthy);
 
                 if (!combatHealthy) {
-                    logger.warning("INTEGRATED: Combat logout system reporting unhealthy");
+                    logger.warning("Combat logout system reporting unhealthy");
                 }
             }
 
-            // INTEGRATED memory check
+            // Memory check
             Runtime runtime = Runtime.getRuntime();
             long usedMemory = runtime.totalMemory() - runtime.freeMemory();
             long maxMemory = runtime.maxMemory();
             double memoryUsagePercent = (double) usedMemory / maxMemory * 100;
 
             if (memoryUsagePercent > 85) {
-                logger.warning("INTEGRATED: High memory usage detected: " + String.format("%.1f%%", memoryUsagePercent));
+                logger.warning("High memory usage detected: " + String.format("%.1f%%", memoryUsagePercent));
                 allHealthy = false;
             }
 
-            // INTEGRATED coordination health
+            // Coordination health
             if (coordinationFailures.get() > 10) {
-                logger.warning("INTEGRATED: High coordination failure count: " + coordinationFailures.get());
+                logger.warning("High coordination failure count: " + coordinationFailures.get());
                 allHealthy = false;
             }
 
-            // INTEGRATED: System conflict monitoring
+            // System conflict monitoring
             if (systemConflictsPrevented.get() > 5) {
-                logger.warning("INTEGRATED: High system conflict count: " + systemConflictsPrevented.get());
+                logger.warning("High system conflict count: " + systemConflictsPrevented.get());
                 // Don't fail health check, but log the warning
             }
 
-            // Enhanced success rate check
+            // Success rate check
             long totalCoordinations = coordinationEvents.get();
             if (totalCoordinations > 0) {
                 double successRate = (successfulCoordinations.get() * 100.0) / totalCoordinations;
                 if (successRate < 90.0) {
-                    logger.warning("INTEGRATED: Low coordination success rate: " + String.format("%.1f%%", successRate));
+                    logger.warning("Low coordination success rate: " + String.format("%.1f%%", successRate));
                     allHealthy = false;
                 }
             }
 
             if (!allHealthy) {
-                logger.warning("INTEGRATED: Health check detected issues");
+                logger.warning("Health check detected issues");
             }
 
         } catch (Exception e) {
-            logger.log(Level.WARNING, "Error performing INTEGRATED health checks", e);
+            logger.log(Level.WARNING, "Error performing health checks", e);
         }
     }
 
     /**
-     * INTEGRATED health check helper
+     * Health check helper
      */
     private boolean checkSubsystemHealth(String systemName, boolean isHealthy) {
         if (!isHealthy) {
-            logger.warning("INTEGRATED: Health check FAILED for: " + systemName);
+            logger.warning("Health check FAILED for: " + systemName);
         }
         return isHealthy;
     }
 
-    // Enhanced API methods
+    // API methods
     public boolean isInitialized() {
         return initialized.get() && systemsReady.get() && !shutdownInProgress.get();
     }
@@ -1240,7 +1239,7 @@ public class PlayerMechanics implements Listener {
         return playerManager;
     }
 
-    // INTEGRATED: Access to death and combat systems
+    // Access to death and combat systems
     public DeathMechanics getDeathMechanics() {
         return deathMechanics;
     }
@@ -1250,9 +1249,9 @@ public class PlayerMechanics implements Listener {
     }
 
     /**
-     * INTEGRATED system statistics with death/combat coordination metrics
+     * System statistics with death/combat coordination metrics
      */
-    public IntegratedSystemStats getIntegratedSystemStats() {
+    public IntegratedSystemStats getSystemStats() {
         boolean yakPlayerManagerIntegrated = playerManager != null && playerManager.isSystemHealthy();
 
         YakPlayerManager.SystemStats pmStats = null;
@@ -1307,7 +1306,7 @@ public class PlayerMechanics implements Listener {
     }
 
     /**
-     * INTEGRATED system statistics class with death/combat coordination metrics
+     * System statistics class with death/combat coordination metrics
      */
     public static class IntegratedSystemStats {
         public final int totalJoins;
@@ -1323,7 +1322,7 @@ public class PlayerMechanics implements Listener {
         public final int coordinationFailures;
         public final long totalCoordinationTime;
 
-        // INTEGRATED: Death and combat coordination metrics
+        // Death and combat coordination metrics
         public final int deathCoordinations;
         public final int combatLogoutCoordinations;
         public final int systemConflictsPrevented;

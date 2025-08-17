@@ -11,7 +11,11 @@ import com.rednetty.server.mechanics.player.moderation.Rank;
 import com.rednetty.server.mechanics.player.listeners.PlayerListenerManager;
 import com.rednetty.server.mechanics.player.limbo.LimboManager;
 import lombok.Getter;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.NamedTextColor;
+import net.kyori.adventure.text.format.TextDecoration;
 import org.bukkit.*;
+import org.bukkit.attribute.Attribute;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
@@ -37,8 +41,8 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
- * FULLY INTEGRATED YakPlayerManager - Complete coordination with death/combat systems
- * ENSURES: All player loading/saving coordinates with DeathMechanics and CombatLogoutMechanics
+ * YakPlayerManager - Complete coordination with death/combat systems
+ * Ensures all player loading/saving coordinates with DeathMechanics and CombatLogoutMechanics
  */
 public class YakPlayerManager implements Listener, CommandExecutor {
 
@@ -89,7 +93,7 @@ public class YakPlayerManager implements Listener, CommandExecutor {
     private final Plugin plugin;
     private final LimboManager limboManager;
 
-    // INTEGRATED: Death and combat system references
+    // Death and combat system references
     private DeathMechanics deathMechanics;
     private CombatLogoutMechanics combatLogoutMechanics;
 
@@ -99,13 +103,13 @@ public class YakPlayerManager implements Listener, CommandExecutor {
     private final Map<UUID, PlayerState> playerStates = new ConcurrentHashMap<>();
     private final Set<UUID> playersInRecovery = ConcurrentHashMap.newKeySet();
 
-    // INTEGRATED: Death and combat coordination tracking
+    // Death and combat coordination tracking
     private final Set<UUID> playersInDeathProcessing = ConcurrentHashMap.newKeySet();
     private final Set<UUID> playersInCombatLogoutProcessing = ConcurrentHashMap.newKeySet();
     private final Map<UUID, Long> deathProcessingStartTimes = new ConcurrentHashMap<>();
     private final Map<UUID, Long> combatLogoutProcessingStartTimes = new ConcurrentHashMap<>();
 
-    // ENHANCED settings protection with guaranteed persistence
+    // Settings protection with guaranteed persistence
     private final Map<UUID, Map<String, Boolean>> pendingSettingsChanges = new ConcurrentHashMap<>();
     private final Map<UUID, Long> settingsChangeTimestamps = new ConcurrentHashMap<>();
 
@@ -115,10 +119,10 @@ public class YakPlayerManager implements Listener, CommandExecutor {
     // Thread management
     private final ExecutorService ioExecutor;
     private final ExecutorService saveExecutor;
-    private final ExecutorService coordinationExecutor; // NEW: For death/combat coordination
+    private final ExecutorService coordinationExecutor; // For death/combat coordination
     private final Semaphore operationSemaphore = new Semaphore(MAX_CONCURRENT_OPERATIONS);
 
-    // INTEGRATED: Performance tracking with death/combat metrics
+    // Performance tracking with death/combat metrics
     private final AtomicInteger totalPlayerJoins = new AtomicInteger(0);
     private final AtomicInteger totalPlayerQuits = new AtomicInteger(0);
     private final AtomicInteger successfulLoads = new AtomicInteger(0);
@@ -129,7 +133,7 @@ public class YakPlayerManager implements Listener, CommandExecutor {
     private final AtomicInteger forcedInventorySaves = new AtomicInteger(0);
     private final AtomicInteger saveFailures = new AtomicInteger(0);
 
-    // INTEGRATED: Death and combat coordination metrics
+    // Death and combat coordination metrics
     private final AtomicInteger deathCoordinations = new AtomicInteger(0);
     private final AtomicInteger combatLogoutCoordinations = new AtomicInteger(0);
     private final AtomicInteger systemConflictsDetected = new AtomicInteger(0);
@@ -152,7 +156,7 @@ public class YakPlayerManager implements Listener, CommandExecutor {
     private BukkitTask loadingMonitorTask;
     private BukkitTask emergencyRecoveryTask;
     private BukkitTask guaranteedSaveTask;
-    private BukkitTask coordinationMonitorTask; // NEW: Monitor death/combat coordination
+    private BukkitTask coordinationMonitorTask; // Monitor death/combat coordination
 
     private YakPlayerManager() {
         this.plugin = YakRealms.getInstance();
@@ -169,19 +173,19 @@ public class YakPlayerManager implements Listener, CommandExecutor {
         });
 
         this.saveExecutor = Executors.newFixedThreadPool(2, r -> {
-            Thread thread = new Thread(r, "YakPlayerManager-GuaranteedSave");
+            Thread thread = new Thread(r, "YakPlayerManager-Save");
             thread.setDaemon(true);
             return thread;
         });
 
-        // NEW: Coordination executor for death/combat system coordination
+        // Coordination executor for death/combat system coordination
         this.coordinationExecutor = Executors.newFixedThreadPool(2, r -> {
             Thread thread = new Thread(r, "YakPlayerManager-Coordination");
             thread.setDaemon(true);
             return thread;
         });
 
-        logger.info("FULLY INTEGRATED YakPlayerManager initialized with death/combat coordination");
+        logger.info("YakPlayerManager initialized with death/combat coordination");
     }
 
     // Initialization methods
@@ -192,7 +196,7 @@ public class YakPlayerManager implements Listener, CommandExecutor {
         }
 
         try {
-            logger.info("Starting FULLY INTEGRATED YakPlayerManager with death/combat coordination...");
+            logger.info("Starting YakPlayerManager with death/combat coordination...");
 
             if (!initializeRepository()) {
                 logger.severe("Failed to initialize repository!");
@@ -200,7 +204,7 @@ public class YakPlayerManager implements Listener, CommandExecutor {
                 return;
             }
 
-            // INTEGRATED: Initialize death and combat system references
+            // Initialize death and combat system references
             if (!initializeDeathAndCombatIntegration()) {
                 logger.severe("Failed to initialize death/combat integration!");
                 systemHealthy = false;
@@ -214,16 +218,16 @@ public class YakPlayerManager implements Listener, CommandExecutor {
             systemHealthy = true;
             initialized = true;
 
-            logger.info("FULLY INTEGRATED YakPlayerManager enabled with complete death/combat coordination");
+            logger.info("YakPlayerManager enabled with complete death/combat coordination");
 
         } catch (Exception e) {
-            logger.log(Level.SEVERE, "Failed to initialize FULLY INTEGRATED YakPlayerManager", e);
+            logger.log(Level.SEVERE, "Failed to initialize YakPlayerManager", e);
             systemHealthy = false;
         }
     }
 
     /**
-     * INTEGRATED: Initialize death and combat system integration
+     * Initialize death and combat system integration
      */
     private boolean initializeDeathAndCombatIntegration() {
         try {
@@ -292,12 +296,12 @@ public class YakPlayerManager implements Listener, CommandExecutor {
     }
 
     private void startBackgroundTasks() {
-        // Enhanced auto-save with death/combat coordination
+        // Auto-save with death/combat coordination
         autoSaveTask = new BukkitRunnable() {
             @Override
             public void run() {
                 if (!shutdownInProgress) {
-                    performIntegratedAutoSave();
+                    performAutoSave();
                 }
             }
         }.runTaskTimerAsynchronously(plugin, autoSaveInterval, autoSaveInterval);
@@ -306,7 +310,7 @@ public class YakPlayerManager implements Listener, CommandExecutor {
         loadingMonitorTask = new BukkitRunnable() {
             @Override
             public void run() {
-                monitorLoadingPlayersWithCoordination();
+                monitorLoadingPlayers();
             }
         }.runTaskTimerAsynchronously(plugin, 100L, 100L);
 
@@ -314,7 +318,7 @@ public class YakPlayerManager implements Listener, CommandExecutor {
         emergencyRecoveryTask = new BukkitRunnable() {
             @Override
             public void run() {
-                performIntegratedEmergencyRecovery();
+                performEmergencyRecovery();
             }
         }.runTaskTimer(plugin, 1200L, 1200L);
 
@@ -322,11 +326,11 @@ public class YakPlayerManager implements Listener, CommandExecutor {
         guaranteedSaveTask = new BukkitRunnable() {
             @Override
             public void run() {
-                performCoordinatedGuaranteedInventorySaves();
+                performGuaranteedInventorySaves();
             }
         }.runTaskTimerAsynchronously(plugin, 300L, 300L);
 
-        // NEW: Coordination monitoring task
+        // Coordination monitoring task
         coordinationMonitorTask = new BukkitRunnable() {
             @Override
             public void run() {
@@ -334,7 +338,7 @@ public class YakPlayerManager implements Listener, CommandExecutor {
             }
         }.runTaskTimerAsynchronously(plugin, 100L, 100L); // Every 5 seconds
 
-        logger.info("INTEGRATED background tasks started with death/combat coordination monitoring");
+        logger.info("Background tasks started with death/combat coordination monitoring");
     }
 
     // Event handlers with integrated coordination
@@ -342,7 +346,8 @@ public class YakPlayerManager implements Listener, CommandExecutor {
     public void onPlayerPreLogin(AsyncPlayerPreLoginEvent event) {
         if (shutdownInProgress || !systemHealthy) {
             event.disallow(AsyncPlayerPreLoginEvent.Result.KICK_OTHER,
-                    ChatColor.RED + "Server is starting up. Please try again in a moment.");
+                    Component.text("Server is starting up. Please try again in a moment.")
+                            .color(NamedTextColor.RED));
             return;
         }
 
@@ -357,7 +362,7 @@ public class YakPlayerManager implements Listener, CommandExecutor {
                 YakPlayer player = playerOpt.get();
 
                 if (player.isBanned()) {
-                    String banMessage = formatBanMessage(player);
+                    Component banMessage = formatBanMessage(player);
                     if (banMessage != null) {
                         event.disallow(AsyncPlayerPreLoginEvent.Result.KICK_BANNED, banMessage);
                         logger.info("Denied login for banned player: " + playerName);
@@ -383,7 +388,7 @@ public class YakPlayerManager implements Listener, CommandExecutor {
         String playerName = player.getName();
 
         totalPlayerJoins.incrementAndGet();
-        logger.info("INTEGRATED: Player joining: " + playerName + " (" + uuid + ")");
+        logger.info("Player joining: " + playerName + " (" + uuid + ")");
 
         cleanupPlayerState(uuid, "new_join");
 
@@ -407,7 +412,7 @@ public class YakPlayerManager implements Listener, CommandExecutor {
                 YakPlayer.CombatLogoutState logoutState = yakPlayer.getCombatLogoutState();
 
                 if (logoutState == YakPlayer.CombatLogoutState.PROCESSED) {
-                    logger.info("INTEGRATED: Combat logout rejoin detected for " + playerName);
+                    logger.info("Combat logout rejoin detected for " + playerName);
                     combatLogoutCoordinations.incrementAndGet();
                     event.setJoinMessage(null);
                     handleCombatLogoutRejoin(player, yakPlayer);
@@ -415,13 +420,13 @@ public class YakPlayerManager implements Listener, CommandExecutor {
                 }
 
                 if (logoutState != YakPlayer.CombatLogoutState.NONE) {
-                    logger.info("INTEGRATED: Resetting stale combat logout state for " + playerName + ": " + logoutState);
+                    logger.info("Resetting stale combat logout state for " + playerName + ": " + logoutState);
                     yakPlayer.setCombatLogoutState(YakPlayer.CombatLogoutState.NONE);
                     repository.saveSync(yakPlayer);
                 }
             }
         } catch (Exception e) {
-            logger.log(Level.WARNING, "INTEGRATED: Error checking combat logout state for " + playerName, e);
+            logger.log(Level.WARNING, "Error checking combat logout state for " + playerName, e);
         }
 
         return false;
@@ -431,7 +436,7 @@ public class YakPlayerManager implements Listener, CommandExecutor {
         UUID uuid = player.getUniqueId();
         String playerName = player.getName();
 
-        logger.info("INTEGRATED: Starting coordinated loading for " + playerName);
+        logger.info("Starting coordinated loading for " + playerName);
 
         setPlayerState(uuid, PlayerState.LOADING, "join_start");
 
@@ -442,7 +447,7 @@ public class YakPlayerManager implements Listener, CommandExecutor {
     }
 
     /**
-     * INTEGRATED: Coordinated loading process with death/combat awareness
+     * Coordinated loading process with death/combat awareness
      */
     private void startCoordinatedLoading(Player player, PlayerLoadingState loadingState) {
         UUID uuid = player.getUniqueId();
@@ -468,7 +473,7 @@ public class YakPlayerManager implements Listener, CommandExecutor {
 
         Bukkit.getScheduler().runTaskLater(plugin, () -> {
             if (loadingStates.containsKey(uuid) && getPlayerState(uuid) == PlayerState.LOADING) {
-                logger.warning("INTEGRATED: Loading timeout for " + player.getName());
+                logger.warning("Loading timeout for " + player.getName());
                 handleLoadingFailure(player, loadingState, new RuntimeException("Loading timeout"));
             }
         }, LOADING_TIMEOUT_TICKS);
@@ -484,20 +489,23 @@ public class YakPlayerManager implements Listener, CommandExecutor {
             player.getInventory().clear();
             player.updateInventory();
 
-            player.sendMessage("");
-            player.sendMessage(ChatColor.AQUA + "" + ChatColor.BOLD + "Loading your character...");
-            player.sendMessage(ChatColor.GRAY + "Coordinating with game systems...");
-            player.sendMessage("");
+            player.sendMessage(Component.empty());
+            player.sendMessage(Component.text("Loading your character...")
+                    .color(NamedTextColor.AQUA)
+                    .decorate(TextDecoration.BOLD));
+            player.sendMessage(Component.text("Coordinating with game systems...")
+                    .color(NamedTextColor.GRAY));
+            player.sendMessage(Component.empty());
 
-            logger.fine("INTEGRATED: Applied safe loading state for " + player.getName());
+            logger.fine("Applied safe loading state for " + player.getName());
 
         } catch (Exception e) {
-            logger.log(Level.WARNING, "INTEGRATED: Error applying safe loading state for " + player.getName(), e);
+            logger.log(Level.WARNING, "Error applying safe loading state for " + player.getName(), e);
         }
     }
 
     /**
-     * INTEGRATED: Load player data with death/combat coordination
+     * Load player data with death/combat coordination
      */
     private YakPlayer loadPlayerDataWithCoordination(Player player) {
         try {
@@ -506,17 +514,17 @@ public class YakPlayerManager implements Listener, CommandExecutor {
             }
 
             try {
-                logger.info("INTEGRATED: Loading player data with coordination: " + player.getName());
+                logger.info("Loading player data with coordination: " + player.getName());
 
-                // INTEGRATED: Check for any ongoing death/combat processing before loading
+                // Check for any ongoing death/combat processing before loading
                 UUID uuid = player.getUniqueId();
                 if (isPlayerInDeathProcessing(uuid)) {
-                    logger.info("INTEGRATED: Player has ongoing death processing, coordinating: " + player.getName());
+                    logger.info("Player has ongoing death processing, coordinating: " + player.getName());
                     waitForDeathProcessingCompletion(uuid);
                 }
 
                 if (isPlayerInCombatLogoutProcessing(uuid)) {
-                    logger.info("INTEGRATED: Player has ongoing combat logout processing, coordinating: " + player.getName());
+                    logger.info("Player has ongoing combat logout processing, coordinating: " + player.getName());
                     waitForCombatLogoutProcessingCompletion(uuid);
                 }
 
@@ -527,10 +535,10 @@ public class YakPlayerManager implements Listener, CommandExecutor {
                 if (existingPlayer.isPresent()) {
                     yakPlayer = existingPlayer.get();
                     yakPlayer.connect(player);
-                    logger.info("INTEGRATED: Loaded existing player with coordination: " + player.getName());
+                    logger.info("Loaded existing player with coordination: " + player.getName());
                 } else {
                     yakPlayer = new YakPlayer(player);
-                    logger.info("INTEGRATED: Created new player: " + player.getName());
+                    logger.info("Created new player: " + player.getName());
                     repository.saveSync(yakPlayer);
                 }
 
@@ -543,13 +551,13 @@ public class YakPlayerManager implements Listener, CommandExecutor {
 
         } catch (Exception e) {
             failedLoads.incrementAndGet();
-            logger.log(Level.SEVERE, "INTEGRATED: Failed to load player data with coordination: " + player.getName(), e);
+            logger.log(Level.SEVERE, "Failed to load player data with coordination: " + player.getName(), e);
             throw new RuntimeException("Player data load failed with coordination", e);
         }
     }
 
     /**
-     * INTEGRATED: Wait for death processing to complete
+     * Wait for death processing to complete
      */
     private void waitForDeathProcessingCompletion(UUID uuid) {
         try {
@@ -560,24 +568,24 @@ public class YakPlayerManager implements Listener, CommandExecutor {
             }
 
             if (attempts >= 30) {
-                logger.warning("INTEGRATED: Timeout waiting for death processing completion: " + uuid);
+                logger.warning("Timeout waiting for death processing completion: " + uuid);
                 coordinationTimeouts.incrementAndGet();
                 // Force clear the death processing state
                 playersInDeathProcessing.remove(uuid);
                 deathProcessingStartTimes.remove(uuid);
             } else {
-                logger.info("INTEGRATED: Death processing completed, proceeding with load: " + uuid);
+                logger.info("Death processing completed, proceeding with load: " + uuid);
                 deathCoordinations.incrementAndGet();
             }
 
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            logger.warning("INTEGRATED: Interrupted while waiting for death processing completion: " + uuid);
+            logger.warning("Interrupted while waiting for death processing completion: " + uuid);
         }
     }
 
     /**
-     * INTEGRATED: Wait for combat logout processing to complete
+     * Wait for combat logout processing to complete
      */
     private void waitForCombatLogoutProcessingCompletion(UUID uuid) {
         try {
@@ -588,30 +596,30 @@ public class YakPlayerManager implements Listener, CommandExecutor {
             }
 
             if (attempts >= 30) {
-                logger.warning("INTEGRATED: Timeout waiting for combat logout processing completion: " + uuid);
+                logger.warning("Timeout waiting for combat logout processing completion: " + uuid);
                 coordinationTimeouts.incrementAndGet();
                 // Force clear the combat logout processing state
                 playersInCombatLogoutProcessing.remove(uuid);
                 combatLogoutProcessingStartTimes.remove(uuid);
             } else {
-                logger.info("INTEGRATED: Combat logout processing completed, proceeding with load: " + uuid);
+                logger.info("Combat logout processing completed, proceeding with load: " + uuid);
                 combatLogoutCoordinations.incrementAndGet();
             }
 
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            logger.warning("INTEGRATED: Interrupted while waiting for combat logout processing completion: " + uuid);
+            logger.warning("Interrupted while waiting for combat logout processing completion: " + uuid);
         }
     }
 
     /**
-     * INTEGRATED: Complete player loading with death/combat coordination
+     * Complete player loading with death/combat coordination
      */
     private void completePlayerLoadingWithCoordination(Player player, PlayerLoadingState loadingState, YakPlayer yakPlayer) {
         UUID uuid = player.getUniqueId();
 
         try {
-            logger.info("INTEGRATED: Completing coordinated loading for " + player.getName());
+            logger.info("Completing coordinated loading for " + player.getName());
 
             if (!player.isOnline()) {
                 cleanupLoadingState(uuid);
@@ -620,7 +628,7 @@ public class YakPlayerManager implements Listener, CommandExecutor {
 
             loadingState.setPhase(LoadingPhase.APPLYING_DATA);
 
-            // INTEGRATED: Check for death/combat coordination before applying data
+            // Check for death/combat coordination before applying data
             if (checkForCoordinationNeeds(player, yakPlayer, loadingState)) {
                 return; // Coordination in progress, will be completed later
             }
@@ -632,7 +640,7 @@ public class YakPlayerManager implements Listener, CommandExecutor {
 
             if (yakPlayer.getCombatLogoutState() != YakPlayer.CombatLogoutState.NONE) {
                 yakPlayer.setCombatLogoutState(YakPlayer.CombatLogoutState.NONE);
-                logger.info("INTEGRATED: Reset combat logout state for " + player.getName());
+                logger.info("Reset combat logout state for " + player.getName());
             }
 
             Bukkit.getScheduler().runTask(plugin, () -> {
@@ -640,19 +648,19 @@ public class YakPlayerManager implements Listener, CommandExecutor {
                     applyPlayerDataSafely(player, yakPlayer);
                     finalizePlayerLoadingWithCoordination(player, loadingState, yakPlayer);
                 } catch (Exception e) {
-                    logger.log(Level.SEVERE, "INTEGRATED: Error applying player data for " + player.getName(), e);
+                    logger.log(Level.SEVERE, "Error applying player data for " + player.getName(), e);
                     handleLoadingFailure(player, loadingState, e);
                 }
             });
 
         } catch (Exception e) {
-            logger.log(Level.SEVERE, "INTEGRATED: Error completing coordinated player loading for " + player.getName(), e);
+            logger.log(Level.SEVERE, "Error completing coordinated player loading for " + player.getName(), e);
             handleLoadingFailure(player, loadingState, e);
         }
     }
 
     /**
-     * INTEGRATED: Check for death/combat coordination needs during loading
+     * Check for death/combat coordination needs during loading
      */
     private boolean checkForCoordinationNeeds(Player player, YakPlayer yakPlayer, PlayerLoadingState loadingState) {
         UUID uuid = player.getUniqueId();
@@ -660,7 +668,7 @@ public class YakPlayerManager implements Listener, CommandExecutor {
         try {
             // Check if death coordination is needed
             if (yakPlayer.hasRespawnItems() && deathMechanics != null) {
-                logger.info("INTEGRATED: Death coordination needed for " + player.getName());
+                logger.info("Death coordination needed for " + player.getName());
                 loadingState.setPhase(LoadingPhase.DEATH_COORDINATION);
 
                 CompletableFuture.runAsync(() -> {
@@ -673,7 +681,7 @@ public class YakPlayerManager implements Listener, CommandExecutor {
             // Check if combat logout coordination is needed
             YakPlayer.CombatLogoutState logoutState = yakPlayer.getCombatLogoutState();
             if (logoutState == YakPlayer.CombatLogoutState.PROCESSED && combatLogoutMechanics != null) {
-                logger.info("INTEGRATED: Combat logout coordination needed for " + player.getName());
+                logger.info("Combat logout coordination needed for " + player.getName());
                 loadingState.setPhase(LoadingPhase.COMBAT_COORDINATION);
 
                 CompletableFuture.runAsync(() -> {
@@ -686,18 +694,18 @@ public class YakPlayerManager implements Listener, CommandExecutor {
             return false; // No coordination needed
 
         } catch (Exception e) {
-            logger.log(Level.WARNING, "INTEGRATED: Error checking coordination needs for " + player.getName(), e);
+            logger.log(Level.WARNING, "Error checking coordination needs for " + player.getName(), e);
             return false;
         }
     }
 
     /**
-     * INTEGRATED: Coordinate with death system during loading
+     * Coordinate with death system during loading
      */
     private void coordinateWithDeathSystem(Player player, YakPlayer yakPlayer, PlayerLoadingState loadingState) {
         try {
             UUID uuid = player.getUniqueId();
-            logger.info("INTEGRATED: Coordinating with death system for " + player.getName());
+            logger.info("Coordinating with death system for " + player.getName());
 
             // Mark as in death coordination
             markPlayerInDeathProcessing(uuid);
@@ -711,7 +719,7 @@ public class YakPlayerManager implements Listener, CommandExecutor {
                     applyPlayerDataSafely(player, yakPlayer);
                     finalizePlayerLoadingWithCoordination(player, loadingState, yakPlayer);
                 } catch (Exception e) {
-                    logger.log(Level.SEVERE, "INTEGRATED: Error in death coordination completion for " + player.getName(), e);
+                    logger.log(Level.SEVERE, "Error in death coordination completion for " + player.getName(), e);
                     handleLoadingFailure(player, loadingState, e);
                 } finally {
                     unmarkPlayerInDeathProcessing(uuid);
@@ -719,18 +727,18 @@ public class YakPlayerManager implements Listener, CommandExecutor {
             });
 
         } catch (Exception e) {
-            logger.log(Level.SEVERE, "INTEGRATED: Error in death system coordination for " + player.getName(), e);
+            logger.log(Level.SEVERE, "Error in death system coordination for " + player.getName(), e);
             handleLoadingFailure(player, loadingState, e);
         }
     }
 
     /**
-     * INTEGRATED: Coordinate with combat logout system during loading
+     * Coordinate with combat logout system during loading
      */
     private void coordinateWithCombatLogoutSystem(Player player, YakPlayer yakPlayer, PlayerLoadingState loadingState) {
         try {
             UUID uuid = player.getUniqueId();
-            logger.info("INTEGRATED: Coordinating with combat logout system for " + player.getName());
+            logger.info("Coordinating with combat logout system for " + player.getName());
 
             // Mark as in combat logout coordination
             markPlayerInCombatLogoutProcessing(uuid);
@@ -746,7 +754,7 @@ public class YakPlayerManager implements Listener, CommandExecutor {
                     applyPlayerDataSafely(player, yakPlayer);
                     finalizePlayerLoadingWithCoordination(player, loadingState, yakPlayer);
                 } catch (Exception e) {
-                    logger.log(Level.SEVERE, "INTEGRATED: Error in combat logout coordination completion for " + player.getName(), e);
+                    logger.log(Level.SEVERE, "Error in combat logout coordination completion for " + player.getName(), e);
                     handleLoadingFailure(player, loadingState, e);
                 } finally {
                     unmarkPlayerInCombatLogoutProcessing(uuid);
@@ -754,14 +762,14 @@ public class YakPlayerManager implements Listener, CommandExecutor {
             });
 
         } catch (Exception e) {
-            logger.log(Level.SEVERE, "INTEGRATED: Error in combat logout system coordination for " + player.getName(), e);
+            logger.log(Level.SEVERE, "Error in combat logout system coordination for " + player.getName(), e);
             handleLoadingFailure(player, loadingState, e);
         }
     }
 
     private void applyPlayerDataSafely(Player player, YakPlayer yakPlayer) {
         try {
-            logger.info("INTEGRATED: Applying player data with coordination for " + player.getName());
+            logger.info("Applying player data with coordination for " + player.getName());
 
             if (!yakPlayer.hasTemporaryData("energy")) {
                 yakPlayer.setTemporaryData("energy", 100);
@@ -769,24 +777,24 @@ public class YakPlayerManager implements Listener, CommandExecutor {
 
             try {
                 yakPlayer.applyInventory(player);
-                logger.fine("INTEGRATED: Applied inventory for " + player.getName());
+                logger.fine("Applied inventory for " + player.getName());
             } catch (Exception e) {
-                logger.log(Level.WARNING, "INTEGRATED: Error applying inventory for " + player.getName() + ", using defaults", e);
+                logger.log(Level.WARNING, "Error applying inventory for " + player.getName() + ", using defaults", e);
                 applyDefaultInventory(player);
             }
 
             try {
                 applyPlayerStatsSafely(player, yakPlayer);
-                logger.fine("INTEGRATED: Applied stats for " + player.getName());
+                logger.fine("Applied stats for " + player.getName());
             } catch (Exception e) {
-                logger.log(Level.WARNING, "INTEGRATED: Error applying stats for " + player.getName() + ", using defaults", e);
+                logger.log(Level.WARNING, "Error applying stats for " + player.getName() + ", using defaults", e);
                 applyDefaultStats(player);
             }
 
             initializePlayerSystems(player, yakPlayer);
 
         } catch (Exception e) {
-            logger.log(Level.SEVERE, "INTEGRATED: Critical error applying player data for " + player.getName(), e);
+            logger.log(Level.SEVERE, "Critical error applying player data for " + player.getName(), e);
             throw e;
         }
     }
@@ -796,7 +804,7 @@ public class YakPlayerManager implements Listener, CommandExecutor {
             double savedHealth = yakPlayer.getHealth();
             double savedMaxHealth = yakPlayer.getMaxHealth();
 
-            if (savedMaxHealth <= 0 || savedMaxHealth > 2048) {
+            if (savedMaxHealth <= 0) {
                 savedMaxHealth = 20.0;
                 yakPlayer.setMaxHealth(savedMaxHealth);
             }
@@ -813,7 +821,7 @@ public class YakPlayerManager implements Listener, CommandExecutor {
                 if (player.isOnline()) {
                     double finalHealth = Math.min(finalSavedHealth, player.getMaxHealth());
                     player.setHealth(finalHealth);
-                    logger.fine("INTEGRATED: Set health for " + player.getName() + ": " + finalHealth + "/" + player.getMaxHealth());
+                    logger.fine("Set health for " + player.getName() + ": " + finalHealth + "/" + player.getMaxHealth());
                 }
             }, 1L);
 
@@ -827,7 +835,7 @@ public class YakPlayerManager implements Listener, CommandExecutor {
                 GameMode mode = GameMode.valueOf(yakPlayer.getGameMode());
                 player.setGameMode(mode);
             } catch (Exception e) {
-                logger.warning("INTEGRATED: Invalid game mode for " + player.getName() + ": " + yakPlayer.getGameMode());
+                logger.warning("Invalid game mode for " + player.getName() + ": " + yakPlayer.getGameMode());
                 player.setGameMode(GameMode.SURVIVAL);
                 yakPlayer.setGameMode("SURVIVAL");
             }
@@ -839,12 +847,12 @@ public class YakPlayerManager implements Listener, CommandExecutor {
                         player.setBedSpawnLocation(bedLoc, true);
                     }
                 } catch (Exception e) {
-                    logger.fine("INTEGRATED: Failed to apply bed spawn location: " + e.getMessage());
+                    logger.fine("Failed to apply bed spawn location: " + e.getMessage());
                 }
             }
 
         } catch (Exception e) {
-            logger.log(Level.WARNING, "INTEGRATED: Error in stat application for " + player.getName(), e);
+            logger.log(Level.WARNING, "Error in stat application for " + player.getName(), e);
             throw e;
         }
     }
@@ -864,7 +872,7 @@ public class YakPlayerManager implements Listener, CommandExecutor {
                 }
             }
         } catch (Exception e) {
-            logger.fine("INTEGRATED: Error parsing bed spawn location: " + locationStr);
+            logger.fine("Error parsing bed spawn location: " + locationStr);
         }
         return null;
     }
@@ -875,25 +883,24 @@ public class YakPlayerManager implements Listener, CommandExecutor {
             player.getInventory().setArmorContents(new org.bukkit.inventory.ItemStack[4]);
             player.getEnderChest().clear();
             player.updateInventory();
-            logger.info("INTEGRATED: Applied default inventory for " + player.getName());
+            logger.info("Applied default inventory for " + player.getName());
         } catch (Exception e) {
-            logger.log(Level.WARNING, "INTEGRATED: Error applying default inventory", e);
+            logger.log(Level.WARNING, "Error applying default inventory", e);
         }
     }
 
     private void applyDefaultStats(Player player) {
         try {
             player.setMaxHealth(20.0);
-            player.setHealth(20.0);
             player.setFoodLevel(20);
             player.setSaturation(5.0f);
             player.setLevel(0);
             player.setExp(0.0f);
             player.setTotalExperience(0);
             player.setGameMode(GameMode.SURVIVAL);
-            logger.info("INTEGRATED: Applied default stats for " + player.getName());
+            logger.info("Applied default stats for " + player.getName());
         } catch (Exception e) {
-            logger.log(Level.WARNING, "INTEGRATED: Error applying default stats", e);
+            logger.log(Level.WARNING, "Error applying default stats", e);
         }
     }
 
@@ -909,7 +916,7 @@ public class YakPlayerManager implements Listener, CommandExecutor {
                 Rank rank = Rank.fromString(rankString);
                 ModerationMechanics.rankMap.put(player.getUniqueId(), rank);
             } catch (Exception e) {
-                logger.warning("INTEGRATED: Invalid rank for " + player.getName() + ": " + rankString);
+                logger.warning("Invalid rank for " + player.getName() + ": " + rankString);
                 ModerationMechanics.rankMap.put(player.getUniqueId(), Rank.DEFAULT);
                 yakPlayer.setRank("DEFAULT");
             }
@@ -924,18 +931,18 @@ public class YakPlayerManager implements Listener, CommandExecutor {
                 ChatTag tag = ChatTag.valueOf(chatTagString);
                 ChatMechanics.getPlayerTags().put(player.getUniqueId(), tag);
             } catch (Exception e) {
-                logger.warning("INTEGRATED: Invalid chat tag for " + player.getName() + ": " + chatTagString);
+                logger.warning("Invalid chat tag for " + player.getName() + ": " + chatTagString);
                 ChatMechanics.getPlayerTags().put(player.getUniqueId(), ChatTag.DEFAULT);
                 yakPlayer.setChatTag("DEFAULT");
             }
 
         } catch (Exception e) {
-            logger.log(Level.WARNING, "INTEGRATED: Error initializing player systems for " + player.getName(), e);
+            logger.log(Level.WARNING, "Error initializing player systems for " + player.getName(), e);
         }
     }
 
     /**
-     * INTEGRATED: Finalize player loading with coordination
+     * Finalize player loading with coordination
      */
     private void finalizePlayerLoadingWithCoordination(Player player, PlayerLoadingState loadingState, YakPlayer yakPlayer) {
         UUID uuid = player.getUniqueId();
@@ -953,10 +960,13 @@ public class YakPlayerManager implements Listener, CommandExecutor {
                 player.setFlying(false);
             }
 
+            player.setHealth(yakPlayer.getHealth());
+            player.getAttribute(Attribute.MAX_HEALTH).setBaseValue(yakPlayer.getMaxHealth());
+
             Location targetLocation = determineFinalLocation(yakPlayer);
             if (targetLocation != null) {
                 player.teleport(targetLocation);
-                logger.fine("INTEGRATED: Teleported " + player.getName() + " to final location");
+                logger.fine("Teleported " + player.getName() + " to final location");
             }
 
             setPlayerState(uuid, PlayerState.READY, "coordinated_loading_completed");
@@ -973,10 +983,10 @@ public class YakPlayerManager implements Listener, CommandExecutor {
                 }
             }, 40L);
 
-            logger.info("INTEGRATED: Successfully loaded player with coordination: " + player.getName());
+            logger.info("Successfully loaded player with coordination: " + player.getName());
 
         } catch (Exception e) {
-            logger.log(Level.SEVERE, "INTEGRATED: Error finalizing coordinated player loading for " + player.getName(), e);
+            logger.log(Level.SEVERE, "Error finalizing coordinated player loading for " + player.getName(), e);
             handleLoadingFailure(player, loadingState, e);
         }
     }
@@ -996,7 +1006,7 @@ public class YakPlayerManager implements Listener, CommandExecutor {
                 return savedLocation;
             }
         } catch (Exception e) {
-            logger.log(Level.WARNING, "INTEGRATED: Error determining final location for " + yakPlayer.getUsername(), e);
+            logger.log(Level.WARNING, "Error determining final location for " + yakPlayer.getUsername(), e);
         }
 
         if (defaultWorld != null) {
@@ -1022,7 +1032,7 @@ public class YakPlayerManager implements Listener, CommandExecutor {
         try {
             setPlayerState(uuid, PlayerState.FAILED, "coordinated_loading_failure");
             loadingState.setPhase(LoadingPhase.FAILED);
-            logger.log(Level.SEVERE, "INTEGRATED: Loading failed for: " + player.getName(), error);
+            logger.log(Level.SEVERE, "Loading failed for: " + player.getName(), error);
 
             if (player.isOnline()) {
                 performEmergencyPlayerRecovery(player);
@@ -1031,13 +1041,13 @@ public class YakPlayerManager implements Listener, CommandExecutor {
             cleanupLoadingState(uuid);
 
         } catch (Exception e) {
-            logger.log(Level.SEVERE, "INTEGRATED: Error handling loading failure: " + player.getName(), e);
+            logger.log(Level.SEVERE, "Error handling loading failure: " + player.getName(), e);
         }
     }
 
     private void performEmergencyPlayerRecovery(Player player) {
         try {
-            logger.warning("INTEGRATED: Performing emergency recovery for " + player.getName());
+            logger.warning("Performing emergency recovery for " + player.getName());
             emergencyRecoveries.incrementAndGet();
 
             player.setInvulnerable(false);
@@ -1045,8 +1055,7 @@ public class YakPlayerManager implements Listener, CommandExecutor {
             player.setAllowFlight(false);
             player.setFlying(false);
 
-            player.setMaxHealth(20.0);
-            player.setHealth(20.0);
+            player.setMaxHealth(50.0);
             player.setFoodLevel(20);
             player.setSaturation(5.0f);
 
@@ -1057,11 +1066,14 @@ public class YakPlayerManager implements Listener, CommandExecutor {
             player.getInventory().clear();
             player.updateInventory();
 
-            player.sendMessage("");
-            player.sendMessage(ChatColor.GREEN + "Emergency recovery completed!");
-            player.sendMessage(ChatColor.YELLOW + "Your character has been restored to a safe state.");
-            player.sendMessage(ChatColor.GRAY + "If you continue having issues, please contact an admin.");
-            player.sendMessage("");
+            player.sendMessage(Component.empty());
+            player.sendMessage(Component.text("Emergency recovery completed!")
+                    .color(NamedTextColor.GREEN));
+            player.sendMessage(Component.text("Your character has been restored to a safe state.")
+                    .color(NamedTextColor.YELLOW));
+            player.sendMessage(Component.text("If you continue having issues, please contact an admin.")
+                    .color(NamedTextColor.GRAY));
+            player.sendMessage(Component.empty());
 
             UUID uuid = player.getUniqueId();
             YakPlayer yakPlayer = new YakPlayer(player);
@@ -1073,10 +1085,10 @@ public class YakPlayerManager implements Listener, CommandExecutor {
 
             repository.saveSync(yakPlayer);
 
-            logger.info("INTEGRATED: Emergency recovery completed for " + player.getName());
+            logger.info("Emergency recovery completed for " + player.getName());
 
         } catch (Exception e) {
-            logger.log(Level.SEVERE, "INTEGRATED: Emergency recovery failed for " + player.getName(), e);
+            logger.log(Level.SEVERE, "Emergency recovery failed for " + player.getName(), e);
         }
     }
 
@@ -1085,7 +1097,7 @@ public class YakPlayerManager implements Listener, CommandExecutor {
         UUID uuid = player.getUniqueId();
 
         try {
-            logger.info("INTEGRATED: Processing combat logout rejoin for: " + player.getName());
+            logger.info("Processing combat logout rejoin for: " + player.getName());
 
             setPlayerState(uuid, PlayerState.READY, "combat_logout_rejoin");
             yakPlayer.connect(player);
@@ -1105,10 +1117,10 @@ public class YakPlayerManager implements Listener, CommandExecutor {
 
             sendCombatLogoutRejoinMessages(player, yakPlayer);
 
-            logger.info("INTEGRATED: Combat logout rejoin completed for: " + player.getName());
+            logger.info("Combat logout rejoin completed for: " + player.getName());
 
         } catch (Exception e) {
-            logger.log(Level.SEVERE, "INTEGRATED: Error handling combat logout rejoin for " + player.getName(), e);
+            logger.log(Level.SEVERE, "Error handling combat logout rejoin for " + player.getName(), e);
             handleNormalPlayerJoin(player);
         }
     }
@@ -1121,26 +1133,34 @@ public class YakPlayerManager implements Listener, CommandExecutor {
 
             yakPlayer.setCombatLogoutState(YakPlayer.CombatLogoutState.NONE);
             repository.saveSync(yakPlayer);
-            logger.info("INTEGRATED: Cleared combat logout data for " + yakPlayer.getUsername());
+            logger.info("Cleared combat logout data for " + yakPlayer.getUsername());
         } catch (Exception e) {
-            logger.log(Level.WARNING, "INTEGRATED: Error clearing combat logout data", e);
+            logger.log(Level.WARNING, "Error clearing combat logout data", e);
         }
     }
 
     private void sendCombatLogoutRejoinMessages(Player player, YakPlayer yakPlayer) {
         try {
-            Bukkit.broadcastMessage(ChatColor.GRAY + "⟨" + ChatColor.DARK_GRAY + "✧" + ChatColor.GRAY + "⟩ " +
-                    yakPlayer.getFormattedDisplayName() + ChatColor.DARK_GRAY + " returned from combat logout");
+            Bukkit.broadcast(Component.text("⟨✧⟩ ")
+                    .color(NamedTextColor.DARK_GRAY)
+                    .append(Component.text(yakPlayer.getFormattedDisplayName()))
+                    .append(Component.text(" returned from combat logout")
+                            .color(NamedTextColor.DARK_GRAY)));
 
             Bukkit.getScheduler().runTaskLater(plugin, () -> {
                 if (player.isOnline()) {
-                    player.sendMessage("");
-                    player.sendMessage(ChatColor.RED + "" + ChatColor.BOLD + "COMBAT LOGOUT CONSEQUENCES COMPLETED");
-                    player.sendMessage(ChatColor.GRAY + "Your items were processed according to your " +
-                            yakPlayer.getAlignment().toLowerCase() + " alignment.");
-                    player.sendMessage(ChatColor.GRAY + "You have respawned at the spawn location.");
-                    player.sendMessage(ChatColor.YELLOW + "You may now continue playing normally.");
-                    player.sendMessage("");
+                    player.sendMessage(Component.empty());
+                    player.sendMessage(Component.text("COMBAT LOGOUT CONSEQUENCES COMPLETED")
+                            .color(NamedTextColor.RED)
+                            .decorate(TextDecoration.BOLD));
+                    player.sendMessage(Component.text("Your items were processed according to your " +
+                                    yakPlayer.getAlignment().toLowerCase() + " alignment.")
+                            .color(NamedTextColor.GRAY));
+                    player.sendMessage(Component.text("You have respawned at the spawn location.")
+                            .color(NamedTextColor.GRAY));
+                    player.sendMessage(Component.text("You may now continue playing normally.")
+                            .color(NamedTextColor.YELLOW));
+                    player.sendMessage(Component.empty());
                     player.playSound(player.getLocation(), Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 1.0f, 1.0f);
                 }
             }, 20L);
@@ -1153,11 +1173,11 @@ public class YakPlayerManager implements Listener, CommandExecutor {
                 }
             }, 40L);
         } catch (Exception e) {
-            logger.log(Level.WARNING, "INTEGRATED: Error sending combat logout rejoin messages", e);
+            logger.log(Level.WARNING, "Error sending combat logout rejoin messages", e);
         }
     }
 
-    // ENHANCED PLAYER QUIT HANDLING WITH DEATH/COMBAT COORDINATION
+    // Player quit handling with death/combat coordination
     @EventHandler(priority = EventPriority.MONITOR)
     public void onPlayerQuit(PlayerQuitEvent event) {
         Player player = event.getPlayer();
@@ -1165,10 +1185,10 @@ public class YakPlayerManager implements Listener, CommandExecutor {
         String playerName = player.getName();
 
         totalPlayerQuits.incrementAndGet();
-        logger.info("INTEGRATED: Player quitting: " + playerName + " - Starting coordinated save process");
+        logger.info("Player quitting: " + playerName + " - Starting coordinated save process");
 
         try {
-            // INTEGRATED: Check for death/combat processing conflicts before quit handling
+            // Check for death/combat processing conflicts before quit handling
             if (handleDeathProcessingQuit(player, uuid, playerName, event)) {
                 return; // Death processing handled the quit
             }
@@ -1180,25 +1200,29 @@ public class YakPlayerManager implements Listener, CommandExecutor {
             handleNormalPlayerQuitWithCoordination(player, uuid, playerName, event);
 
         } catch (Exception e) {
-            logger.log(Level.SEVERE, "INTEGRATED: Error in coordinated player quit for " + playerName, e);
+            logger.log(Level.SEVERE, "Error in coordinated player quit for " + playerName, e);
             performEmergencyQuitSave(uuid, playerName);
         }
     }
 
     /**
-     * INTEGRATED: Handle quit during death processing
+     * Handle quit during death processing
      */
     private boolean handleDeathProcessingQuit(Player player, UUID uuid, String playerName, PlayerQuitEvent event) {
         if (isPlayerInDeathProcessing(uuid)) {
-            logger.info("INTEGRATED: Player quitting during death processing: " + playerName);
+            logger.info("Player quitting during death processing: " + playerName);
             deathCoordinations.incrementAndGet();
 
             // Let death mechanics handle the quit
             setPlayerState(uuid, PlayerState.DEATH_PROCESSING, "death_processing_quit");
 
             // Don't perform normal quit processing
-            event.setQuitMessage(ChatColor.RED + "⟨" + ChatColor.DARK_RED + "✧" + ChatColor.RED + "⟩ " +
-                    ChatColor.GRAY + playerName + ChatColor.DARK_GRAY + " (processing death)");
+            event.setQuitMessage(String.valueOf(Component.text("⟨✧⟩ ")
+                    .color(NamedTextColor.DARK_RED)
+                    .append(Component.text(playerName)
+                            .color(NamedTextColor.GRAY))
+                    .append(Component.text(" (processing death)")
+                            .color(NamedTextColor.DARK_GRAY))));
 
             return true;
         }
@@ -1206,13 +1230,13 @@ public class YakPlayerManager implements Listener, CommandExecutor {
     }
 
     /**
-     * INTEGRATED: Handle quit during combat logout processing
+     * Handle quit during combat logout processing
      */
     private boolean handleCombatLogoutProcessingQuit(Player player, UUID uuid, String playerName, PlayerQuitEvent event) {
         if (isPlayerInCombatLogoutProcessing(uuid) ||
                 (combatLogoutMechanics != null && combatLogoutMechanics.isCombatLoggingOut(player))) {
 
-            logger.info("INTEGRATED: Player quitting during combat logout processing: " + playerName);
+            logger.info("Player quitting during combat logout processing: " + playerName);
             combatLogoutCoordinations.incrementAndGet();
 
             // Let combat logout mechanics handle the quit
@@ -1225,43 +1249,43 @@ public class YakPlayerManager implements Listener, CommandExecutor {
     }
 
     /**
-     * INTEGRATED: Handle normal quit with coordination
+     * Handle normal quit with coordination
      */
     private void handleNormalPlayerQuitWithCoordination(Player player, UUID uuid, String playerName, PlayerQuitEvent event) {
         try {
-            logger.info("INTEGRATED: Starting coordinated save process for: " + playerName);
+            logger.info("Starting coordinated save process for: " + playerName);
 
             // Get player data BEFORE any cleanup
             YakPlayer yakPlayer = onlinePlayers.get(uuid);
             if (yakPlayer == null) {
-                logger.warning("INTEGRATED: No player data found for quitting player: " + playerName);
+                logger.warning("No player data found for quitting player: " + playerName);
                 cleanupPlayerState(uuid, "normal_player_quit_no_data");
                 return;
             }
 
-            // INTEGRATED: Check for any death/combat conflicts before saving
+            // Check for any death/combat conflicts before saving
             if (checkForQuitTimeConflicts(uuid, playerName)) {
                 performEmergencyQuitSave(uuid, playerName);
                 return;
             }
 
             // FORCE INVENTORY UPDATE - This bypasses all state checks
-            logger.info("INTEGRATED: FORCE updating inventory for " + playerName + " on quit (coordinated)");
+            logger.info("FORCE updating inventory for " + playerName + " on quit");
             try {
                 yakPlayer.forceUpdateInventory(player);
                 forcedInventorySaves.incrementAndGet();
-                logger.info("INTEGRATED: ✓ Forced inventory update completed for " + playerName);
+                logger.info("✓ Forced inventory update completed for " + playerName);
             } catch (Exception e) {
-                logger.log(Level.SEVERE, "INTEGRATED: CRITICAL: Forced inventory update failed for " + playerName, e);
+                logger.log(Level.SEVERE, "CRITICAL: Forced inventory update failed for " + playerName, e);
                 saveFailures.incrementAndGet();
             }
 
             // FORCE STATS UPDATE
             try {
                 yakPlayer.updateStats(player);
-                logger.fine("INTEGRATED: ✓ Stats update completed for " + playerName);
+                logger.fine("✓ Stats update completed for " + playerName);
             } catch (Exception e) {
-                logger.log(Level.WARNING, "INTEGRATED: Stats update failed for " + playerName, e);
+                logger.log(Level.WARNING, "Stats update failed for " + playerName, e);
             }
 
             // Apply pending settings changes BEFORE final save
@@ -1270,7 +1294,7 @@ public class YakPlayerManager implements Listener, CommandExecutor {
             // Reset combat logout state
             if (yakPlayer.getCombatLogoutState() != YakPlayer.CombatLogoutState.NONE) {
                 yakPlayer.setCombatLogoutState(YakPlayer.CombatLogoutState.NONE);
-                logger.info("INTEGRATED: Reset combat logout state on normal quit for " + playerName);
+                logger.info("Reset combat logout state on normal quit for " + playerName);
             }
 
             // GUARANTEED SYNCHRONOUS SAVE with coordination
@@ -1284,27 +1308,27 @@ public class YakPlayerManager implements Listener, CommandExecutor {
             // Set quit message
             setQuitMessage(event, player, yakPlayer);
 
-            logger.info("INTEGRATED: ✓ Coordinated save process completed successfully for: " + playerName);
+            logger.info("✓ Coordinated save process completed successfully for: " + playerName);
 
         } catch (Exception e) {
-            logger.log(Level.SEVERE, "INTEGRATED: CRITICAL: Coordinated save process failed for " + playerName, e);
+            logger.log(Level.SEVERE, "CRITICAL: Coordinated save process failed for " + playerName, e);
             performEmergencyQuitSave(uuid, playerName);
         }
     }
 
     /**
-     * INTEGRATED: Check for conflicts during quit time
+     * Check for conflicts during quit time
      */
     private boolean checkForQuitTimeConflicts(UUID uuid, String playerName) {
         try {
             if (isPlayerInDeathProcessing(uuid)) {
-                logger.warning("INTEGRATED: Death processing conflict detected during quit for: " + playerName);
+                logger.warning("Death processing conflict detected during quit for: " + playerName);
                 systemConflictsDetected.incrementAndGet();
                 return true;
             }
 
             if (isPlayerInCombatLogoutProcessing(uuid)) {
-                logger.warning("INTEGRATED: Combat logout processing conflict detected during quit for: " + playerName);
+                logger.warning("Combat logout processing conflict detected during quit for: " + playerName);
                 systemConflictsDetected.incrementAndGet();
                 return true;
             }
@@ -1312,7 +1336,7 @@ public class YakPlayerManager implements Listener, CommandExecutor {
             return false;
 
         } catch (Exception e) {
-            logger.log(Level.WARNING, "INTEGRATED: Error checking quit time conflicts for: " + playerName, e);
+            logger.log(Level.WARNING, "Error checking quit time conflicts for: " + playerName, e);
             return true; // Assume conflict on error
         }
     }
@@ -1323,7 +1347,7 @@ public class YakPlayerManager implements Listener, CommandExecutor {
             settingsChangeTimestamps.remove(uuid);
 
             if (pendingSettings != null && !pendingSettings.isEmpty()) {
-                logger.info("INTEGRATED: Applying " + pendingSettings.size() + " pending settings on quit for " + playerName);
+                logger.info("Applying " + pendingSettings.size() + " pending settings on quit for " + playerName);
                 for (Map.Entry<String, Boolean> entry : pendingSettings.entrySet()) {
                     String toggleName = entry.getKey();
                     boolean desiredState = entry.getValue();
@@ -1333,15 +1357,15 @@ public class YakPlayerManager implements Listener, CommandExecutor {
                         yakPlayer.toggleSetting(toggleName);
                     }
                 }
-                logger.fine("INTEGRATED: ✓ Pending settings applied for " + playerName);
+                logger.fine("✓ Pending settings applied for " + playerName);
             }
         } catch (Exception e) {
-            logger.log(Level.WARNING, "INTEGRATED: Error applying pending settings for " + playerName, e);
+            logger.log(Level.WARNING, "Error applying pending settings for " + playerName, e);
         }
     }
 
     /**
-     * INTEGRATED: Perform guaranteed save with coordination
+     * Perform guaranteed save with coordination
      */
     private void performCoordinatedGuaranteedSave(YakPlayer yakPlayer, String playerName) {
         int maxAttempts = 3;
@@ -1349,19 +1373,19 @@ public class YakPlayerManager implements Listener, CommandExecutor {
 
         for (int attempt = 1; attempt <= maxAttempts && !saved; attempt++) {
             try {
-                logger.info("INTEGRATED: Coordinated guaranteed save attempt " + attempt + "/" + maxAttempts + " for " + playerName);
+                logger.info("Coordinated guaranteed save attempt " + attempt + "/" + maxAttempts + " for " + playerName);
 
                 YakPlayer result = repository.saveSync(yakPlayer);
                 if (result != null) {
                     saved = true;
                     guaranteedSaves.incrementAndGet();
-                    logger.info("INTEGRATED: ✓ Coordinated guaranteed save successful on attempt " + attempt + " for " + playerName);
+                    logger.info("✓ Coordinated guaranteed save successful on attempt " + attempt + " for " + playerName);
                 } else {
-                    logger.warning("INTEGRATED: ✗ Save returned null on attempt " + attempt + " for " + playerName);
+                    logger.warning("✗ Save returned null on attempt " + attempt + " for " + playerName);
                 }
 
             } catch (Exception e) {
-                logger.log(Level.SEVERE, "INTEGRATED: ✗ Coordinated guaranteed save attempt " + attempt + " failed for " + playerName, e);
+                logger.log(Level.SEVERE, "✗ Coordinated guaranteed save attempt " + attempt + " failed for " + playerName, e);
                 if (attempt < maxAttempts) {
                     try {
                         Thread.sleep(100 * attempt); // Exponential backoff
@@ -1375,16 +1399,16 @@ public class YakPlayerManager implements Listener, CommandExecutor {
 
         if (!saved) {
             saveFailures.incrementAndGet();
-            logger.log(Level.SEVERE, "INTEGRATED: CRITICAL: All " + maxAttempts + " coordinated save attempts failed for " + playerName);
+            logger.log(Level.SEVERE, "CRITICAL: All " + maxAttempts + " coordinated save attempts failed for " + playerName);
 
             // Last resort - async save attempt
             CompletableFuture.runAsync(() -> {
                 try {
-                    logger.warning("INTEGRATED: Last resort async save attempt for " + playerName);
+                    logger.warning("Last resort async save attempt for " + playerName);
                     repository.saveSync(yakPlayer);
-                    logger.info("INTEGRATED: ✓ Last resort save successful for " + playerName);
+                    logger.info("✓ Last resort save successful for " + playerName);
                 } catch (Exception e) {
-                    logger.log(Level.SEVERE, "INTEGRATED: ✗ Last resort save failed for " + playerName, e);
+                    logger.log(Level.SEVERE, "✗ Last resort save failed for " + playerName, e);
                 }
             }, saveExecutor);
         }
@@ -1392,7 +1416,7 @@ public class YakPlayerManager implements Listener, CommandExecutor {
 
     private void performEmergencyQuitSave(UUID uuid, String playerName) {
         try {
-            logger.warning("INTEGRATED: Performing emergency quit save for " + playerName);
+            logger.warning("Performing emergency quit save for " + playerName);
 
             YakPlayer yakPlayer = onlinePlayers.remove(uuid);
             if (yakPlayer != null) {
@@ -1400,9 +1424,9 @@ public class YakPlayerManager implements Listener, CommandExecutor {
                 CompletableFuture.runAsync(() -> {
                     try {
                         repository.saveSync(yakPlayer);
-                        logger.info("INTEGRATED: Emergency save successful for " + playerName);
+                        logger.info("Emergency save successful for " + playerName);
                     } catch (Exception e) {
-                        logger.log(Level.SEVERE, "INTEGRATED: Emergency save failed for " + playerName, e);
+                        logger.log(Level.SEVERE, "Emergency save failed for " + playerName, e);
                     }
                 }, saveExecutor);
             }
@@ -1412,14 +1436,14 @@ public class YakPlayerManager implements Listener, CommandExecutor {
             settingsChangeTimestamps.remove(uuid);
             playersInRecovery.remove(uuid);
 
-            // INTEGRATED: Clean up coordination state
+            // Clean up coordination state
             unmarkPlayerInDeathProcessing(uuid);
             unmarkPlayerInCombatLogoutProcessing(uuid);
 
-            logger.info("INTEGRATED: Emergency quit cleanup completed for " + playerName);
+            logger.info("Emergency quit cleanup completed for " + playerName);
 
         } catch (Exception e) {
-            logger.log(Level.SEVERE, "INTEGRATED: Emergency cleanup failed for " + playerName, e);
+            logger.log(Level.SEVERE, "Emergency cleanup failed for " + playerName, e);
         }
     }
 
@@ -1443,8 +1467,8 @@ public class YakPlayerManager implements Listener, CommandExecutor {
         }
     }
 
-    // INTEGRATED AUTO-SAVE WITH COORDINATION
-    private void performIntegratedAutoSave() {
+    // Auto-save with coordination
+    private void performAutoSave() {
         try {
             int savedCount = 0;
             int inventoryUpdatesCount = 0;
@@ -1456,9 +1480,9 @@ public class YakPlayerManager implements Listener, CommandExecutor {
                     if (bukkitPlayer != null && bukkitPlayer.isOnline()) {
                         UUID uuid = bukkitPlayer.getUniqueId();
 
-                        // INTEGRATED: Check for coordination conflicts before auto-save
+                        // Check for coordination conflicts before auto-save
                         if (isPlayerInDeathProcessing(uuid) || isPlayerInCombatLogoutProcessing(uuid)) {
-                            logger.fine("INTEGRATED: Skipping auto-save for player in death/combat processing: " + yakPlayer.getUsername());
+                            logger.fine("Skipping auto-save for player in death/combat processing: " + yakPlayer.getUsername());
                             coordinationSkips++;
                             continue;
                         }
@@ -1468,14 +1492,14 @@ public class YakPlayerManager implements Listener, CommandExecutor {
                             yakPlayer.forceUpdateInventory(bukkitPlayer);
                             inventoryUpdatesCount++;
                         } catch (Exception e) {
-                            logger.log(Level.WARNING, "INTEGRATED: Auto-save inventory update failed for: " + yakPlayer.getUsername(), e);
+                            logger.log(Level.WARNING, "Auto-save inventory update failed for: " + yakPlayer.getUsername(), e);
                         }
 
                         // Update stats
                         try {
                             yakPlayer.updateStats(bukkitPlayer);
                         } catch (Exception e) {
-                            logger.log(Level.WARNING, "INTEGRATED: Auto-save stats update failed for: " + yakPlayer.getUsername(), e);
+                            logger.log(Level.WARNING, "Auto-save stats update failed for: " + yakPlayer.getUsername(), e);
                         }
 
                         // Save to database
@@ -1483,25 +1507,25 @@ public class YakPlayerManager implements Listener, CommandExecutor {
                             repository.saveSync(yakPlayer);
                             savedCount++;
                         } catch (Exception e) {
-                            logger.log(Level.WARNING, "INTEGRATED: Auto-save database save failed for: " + yakPlayer.getUsername(), e);
+                            logger.log(Level.WARNING, "Auto-save database save failed for: " + yakPlayer.getUsername(), e);
                         }
                     }
                 } catch (Exception e) {
-                    logger.log(Level.WARNING, "INTEGRATED: Auto-save failed for player: " + yakPlayer.getUsername(), e);
+                    logger.log(Level.WARNING, "Auto-save failed for player: " + yakPlayer.getUsername(), e);
                 }
             }
 
             if (savedCount > 0) {
-                logger.fine("INTEGRATED: Auto-save completed: " + savedCount + " players saved, " +
+                logger.fine("Auto-save completed: " + savedCount + " players saved, " +
                         inventoryUpdatesCount + " inventories updated, " + coordinationSkips + " skipped for coordination");
             }
         } catch (Exception e) {
-            logger.log(Level.WARNING, "INTEGRATED: Error in coordinated auto-save", e);
+            logger.log(Level.WARNING, "Error in coordinated auto-save", e);
         }
     }
 
-    // INTEGRATED: Coordinated guaranteed inventory saves background task
-    private void performCoordinatedGuaranteedInventorySaves() {
+    // Coordinated guaranteed inventory saves background task
+    private void performGuaranteedInventorySaves() {
         try {
             for (YakPlayer yakPlayer : onlinePlayers.values()) {
                 try {
@@ -1509,7 +1533,7 @@ public class YakPlayerManager implements Listener, CommandExecutor {
                     if (bukkitPlayer != null && bukkitPlayer.isOnline()) {
                         UUID uuid = bukkitPlayer.getUniqueId();
 
-                        // INTEGRATED: Skip if in death/combat coordination
+                        // Skip if in death/combat coordination
                         if (isPlayerInDeathProcessing(uuid) || isPlayerInCombatLogoutProcessing(uuid)) {
                             continue;
                         }
@@ -1526,27 +1550,27 @@ public class YakPlayerManager implements Listener, CommandExecutor {
                                     if (!isPlayerInDeathProcessing(uuid) && !isPlayerInCombatLogoutProcessing(uuid)) {
                                         yakPlayer.forceUpdateInventory(bukkitPlayer);
                                         repository.saveSync(yakPlayer);
-                                        logger.fine("INTEGRATED: Coordinated background inventory save for " + yakPlayer.getUsername());
+                                        logger.fine("Coordinated background inventory save for " + yakPlayer.getUsername());
                                     }
                                 } catch (Exception e) {
-                                    logger.log(Level.WARNING, "INTEGRATED: Coordinated background save failed for " + yakPlayer.getUsername(), e);
+                                    logger.log(Level.WARNING, "Coordinated background save failed for " + yakPlayer.getUsername(), e);
                                 }
                             }, saveExecutor);
                         }
                     }
                 } catch (Exception e) {
-                    logger.log(Level.WARNING, "INTEGRATED: Error in coordinated guaranteed inventory save for " + yakPlayer.getUsername(), e);
+                    logger.log(Level.WARNING, "Error in coordinated guaranteed inventory save for " + yakPlayer.getUsername(), e);
                 }
             }
         } catch (Exception e) {
-            logger.log(Level.WARNING, "INTEGRATED: Error in coordinated guaranteed inventory saves task", e);
+            logger.log(Level.WARNING, "Error in coordinated guaranteed inventory saves task", e);
         }
     }
 
     /**
-     * INTEGRATED: Monitor loading players with coordination awareness
+     * Monitor loading players with coordination awareness
      */
-    private void monitorLoadingPlayersWithCoordination() {
+    private void monitorLoadingPlayers() {
         try {
             long currentTime = System.currentTimeMillis();
             Iterator<Map.Entry<UUID, PlayerLoadingState>> iterator = loadingStates.entrySet().iterator();
@@ -1565,7 +1589,7 @@ public class YakPlayerManager implements Listener, CommandExecutor {
 
                 long loadingTime = currentTime - state.getStartTime();
 
-                // INTEGRATED: Extended timeout for coordination phases
+                // Extended timeout for coordination phases
                 long timeoutThreshold = 30000; // Base 30 seconds
                 LoadingPhase phase = state.getPhase();
                 if (phase == LoadingPhase.DEATH_COORDINATION || phase == LoadingPhase.COMBAT_COORDINATION) {
@@ -1573,18 +1597,18 @@ public class YakPlayerManager implements Listener, CommandExecutor {
                 }
 
                 if (loadingTime > timeoutThreshold) {
-                    logger.warning("INTEGRATED: Player stuck in loading for " + loadingTime + "ms (phase: " + phase + "): " + state.getPlayerName());
+                    logger.warning("Player stuck in loading for " + loadingTime + "ms (phase: " + phase + "): " + state.getPlayerName());
                     iterator.remove();
                     handleLoadingFailure(player, state, new RuntimeException("Coordinated loading monitor timeout"));
                 }
             }
         } catch (Exception e) {
-            logger.log(Level.WARNING, "INTEGRATED: Error in coordinated loading monitor", e);
+            logger.log(Level.WARNING, "Error in coordinated loading monitor", e);
         }
     }
 
     /**
-     * INTEGRATED: Monitor death and combat coordination
+     * Monitor death and combat coordination
      */
     private void monitorDeathAndCombatCoordination() {
         try {
@@ -1598,7 +1622,7 @@ public class YakPlayerManager implements Listener, CommandExecutor {
                 long startTime = entry.getValue();
 
                 if (currentTime - startTime > 60000) { // 60 second timeout
-                    logger.warning("INTEGRATED: Death processing timeout for player: " + uuid);
+                    logger.warning("Death processing timeout for player: " + uuid);
                     unmarkPlayerInDeathProcessing(uuid);
                     coordinationTimeouts.incrementAndGet();
                 }
@@ -1612,21 +1636,21 @@ public class YakPlayerManager implements Listener, CommandExecutor {
                 long startTime = entry.getValue();
 
                 if (currentTime - startTime > 60000) { // 60 second timeout
-                    logger.warning("INTEGRATED: Combat logout processing timeout for player: " + uuid);
+                    logger.warning("Combat logout processing timeout for player: " + uuid);
                     unmarkPlayerInCombatLogoutProcessing(uuid);
                     coordinationTimeouts.incrementAndGet();
                 }
             }
 
         } catch (Exception e) {
-            logger.log(Level.WARNING, "INTEGRATED: Error in death/combat coordination monitoring", e);
+            logger.log(Level.WARNING, "Error in death/combat coordination monitoring", e);
         }
     }
 
     /**
-     * INTEGRATED: Emergency recovery with coordination awareness
+     * Emergency recovery with coordination awareness
      */
-    private void performIntegratedEmergencyRecovery() {
+    private void performEmergencyRecovery() {
         try {
             // Check for players stuck in bad states
             for (Player player : Bukkit.getOnlinePlayers()) {
@@ -1642,44 +1666,30 @@ public class YakPlayerManager implements Listener, CommandExecutor {
                 if (player.getGameMode() == GameMode.SPECTATOR && state == PlayerState.READY) {
                     YakPlayer yakPlayer = getPlayer(uuid);
                     if (yakPlayer != null && !playersInRecovery.contains(uuid)) {
-                        logger.warning("INTEGRATED: Found player stuck in spectator mode: " + player.getName());
+                        logger.warning("Found player stuck in spectator mode: " + player.getName());
                         playersInRecovery.add(uuid);
 
                         Bukkit.getScheduler().runTaskLater(plugin, () -> {
                             if (player.isOnline() && player.getGameMode() == GameMode.SPECTATOR) {
-                                logger.info("INTEGRATED: Performing spectator mode recovery for " + player.getName());
+                                logger.info("Performing spectator mode recovery for " + player.getName());
                                 performEmergencyPlayerRecovery(player);
                             }
                             playersInRecovery.remove(uuid);
                         }, EMERGENCY_RECOVERY_DELAY);
                     }
                 }
-
-                // Check for players with invalid health
-                if (state == PlayerState.READY && (player.getHealth() <= 0 || player.getMaxHealth() <= 0)) {
-                    logger.warning("INTEGRATED: Found player with invalid health: " + player.getName() +
-                            " (Health: " + player.getHealth() + "/" + player.getMaxHealth() + ")");
-
-                    try {
-                        player.setMaxHealth(20.0);
-                        player.setHealth(20.0);
-                        logger.info("INTEGRATED: Fixed health for " + player.getName());
-                    } catch (Exception e) {
-                        logger.log(Level.WARNING, "INTEGRATED: Failed to fix health for " + player.getName(), e);
-                    }
-                }
             }
         } catch (Exception e) {
-            logger.log(Level.WARNING, "INTEGRATED: Error in coordinated emergency recovery", e);
+            logger.log(Level.WARNING, "Error in coordinated emergency recovery", e);
         }
     }
 
-    // INTEGRATED: Death and combat coordination methods
+    // Death and combat coordination methods
     public void markPlayerInDeathProcessing(UUID playerId) {
         if (playerId != null) {
             playersInDeathProcessing.add(playerId);
             deathProcessingStartTimes.put(playerId, System.currentTimeMillis());
-            logger.info("INTEGRATED: Marked player as in death processing: " + playerId);
+            logger.info("Marked player as in death processing: " + playerId);
         }
     }
 
@@ -1687,7 +1697,7 @@ public class YakPlayerManager implements Listener, CommandExecutor {
         if (playerId != null) {
             playersInDeathProcessing.remove(playerId);
             deathProcessingStartTimes.remove(playerId);
-            logger.info("INTEGRATED: Unmarked player from death processing: " + playerId);
+            logger.info("Unmarked player from death processing: " + playerId);
         }
     }
 
@@ -1699,7 +1709,7 @@ public class YakPlayerManager implements Listener, CommandExecutor {
         if (playerId != null) {
             playersInCombatLogoutProcessing.add(playerId);
             combatLogoutProcessingStartTimes.put(playerId, System.currentTimeMillis());
-            logger.info("INTEGRATED: Marked player as in combat logout processing: " + playerId);
+            logger.info("Marked player as in combat logout processing: " + playerId);
         }
     }
 
@@ -1707,7 +1717,7 @@ public class YakPlayerManager implements Listener, CommandExecutor {
         if (playerId != null) {
             playersInCombatLogoutProcessing.remove(playerId);
             combatLogoutProcessingStartTimes.remove(playerId);
-            logger.info("INTEGRATED: Unmarked player from combat logout processing: " + playerId);
+            logger.info("Unmarked player from combat logout processing: " + playerId);
         }
     }
 
@@ -1719,14 +1729,14 @@ public class YakPlayerManager implements Listener, CommandExecutor {
     public void markPlayerEnteringCombatLogout(UUID playerId) {
         if (playerId != null) {
             markPlayerInCombatLogoutProcessing(playerId);
-            logger.info("INTEGRATED: Marked player as entering combat logout processing: " + playerId);
+            logger.info("Marked player as entering combat logout processing: " + playerId);
         }
     }
 
     public void markPlayerFinishedCombatLogout(UUID playerId) {
         if (playerId != null) {
             unmarkPlayerInCombatLogoutProcessing(playerId);
-            logger.info("INTEGRATED: Completed combat logout processing for: " + playerId);
+            logger.info("Completed combat logout processing for: " + playerId);
         }
     }
 
@@ -1761,7 +1771,7 @@ public class YakPlayerManager implements Listener, CommandExecutor {
         try {
             PlayerState currentState = playerStates.get(playerId);
             playerStates.put(playerId, newState);
-            logger.fine("INTEGRATED: State transition for " + playerId + ": " + currentState + " -> " + newState + " (" + reason + ")");
+            logger.fine("State transition for " + playerId + ": " + currentState + " -> " + newState + " (" + reason + ")");
             return true;
         } finally {
             lock.writeLock().unlock();
@@ -1774,7 +1784,7 @@ public class YakPlayerManager implements Listener, CommandExecutor {
             playersInRecovery.remove(uuid);
             setPlayerState(uuid, PlayerState.OFFLINE, reason);
 
-            // INTEGRATED: Clean up coordination state
+            // Clean up coordination state
             unmarkPlayerInDeathProcessing(uuid);
             unmarkPlayerInCombatLogoutProcessing(uuid);
 
@@ -1782,9 +1792,9 @@ public class YakPlayerManager implements Listener, CommandExecutor {
             ModerationMechanics.rankMap.remove(uuid);
             ChatMechanics.getPlayerTags().remove(uuid);
 
-            logger.fine("INTEGRATED: Cleaned up player state for " + uuid + " (reason: " + reason + ")");
+            logger.fine("Cleaned up player state for " + uuid + " (reason: " + reason + ")");
         } catch (Exception e) {
-            logger.log(Level.WARNING, "INTEGRATED: Error cleaning up player state for " + uuid, e);
+            logger.log(Level.WARNING, "Error cleaning up player state for " + uuid, e);
         }
     }
 
@@ -1795,9 +1805,9 @@ public class YakPlayerManager implements Listener, CommandExecutor {
 
         return CompletableFuture.supplyAsync(() -> {
             try {
-                // INTEGRATED: Check coordination state before operation
+                // Check coordination state before operation
                 if (isPlayerInDeathProcessing(uuid) || isPlayerInCombatLogoutProcessing(uuid)) {
-                    logger.warning("INTEGRATED: Skipping withPlayer operation due to coordination state: " + uuid);
+                    logger.warning("Skipping withPlayer operation due to coordination state: " + uuid);
                     return false;
                 }
 
@@ -1810,7 +1820,7 @@ public class YakPlayerManager implements Listener, CommandExecutor {
                 return true;
 
             } catch (Exception e) {
-                logger.log(Level.SEVERE, "INTEGRATED: Error in withPlayer operation for " + uuid, e);
+                logger.log(Level.SEVERE, "Error in withPlayer operation for " + uuid, e);
                 return false;
             }
         }, ioExecutor).thenCompose(success -> {
@@ -1839,9 +1849,9 @@ public class YakPlayerManager implements Listener, CommandExecutor {
         }
 
         try {
-            // INTEGRATED: Check coordination state before settings save
+            // Check coordination state before settings save
             if (isPlayerInDeathProcessing(playerId) || isPlayerInCombatLogoutProcessing(playerId)) {
-                logger.info("INTEGRATED: Deferring settings save due to coordination state: " + playerId);
+                logger.info("Deferring settings save due to coordination state: " + playerId);
                 // Store as pending change
                 Map<String, Boolean> playerSettings = pendingSettingsChanges.computeIfAbsent(playerId,
                         k -> new ConcurrentHashMap<>());
@@ -1868,10 +1878,10 @@ public class YakPlayerManager implements Listener, CommandExecutor {
                                 if (result != null) {
                                     saved = true;
                                     settingsProtectionSaves.incrementAndGet();
-                                    logger.fine("INTEGRATED: ✓ Settings save successful for " + toggleName + " (attempt " + attempts + ")");
+                                    logger.fine("✓ Settings save successful for " + toggleName + " (attempt " + attempts + ")");
                                 }
                             } catch (Exception e) {
-                                logger.log(Level.SEVERE, "INTEGRATED: Settings save attempt " + attempts + " failed for " + toggleName, e);
+                                logger.log(Level.SEVERE, "Settings save attempt " + attempts + " failed for " + toggleName, e);
                                 if (attempts < 3) {
                                     try {
                                         Thread.sleep(50 * attempts);
@@ -1883,7 +1893,7 @@ public class YakPlayerManager implements Listener, CommandExecutor {
                             }
                         }
                         if (!saved) {
-                            logger.log(Level.SEVERE, "INTEGRATED: CRITICAL: All settings save attempts failed for " + toggleName);
+                            logger.log(Level.SEVERE, "CRITICAL: All settings save attempts failed for " + toggleName);
                         }
                     }, saveExecutor);
 
@@ -1905,7 +1915,7 @@ public class YakPlayerManager implements Listener, CommandExecutor {
             return false;
 
         } catch (Exception e) {
-            logger.log(Level.SEVERE, "INTEGRATED: Error in immediate save for " + playerId, e);
+            logger.log(Level.SEVERE, "Error in immediate save for " + playerId, e);
             return false;
         }
     }
@@ -1918,7 +1928,7 @@ public class YakPlayerManager implements Listener, CommandExecutor {
             return;
         }
 
-        logger.info("INTEGRATED: Applying " + pendingChanges.size() + " pending settings for " + yakPlayer.getUsername());
+        logger.info("Applying " + pendingChanges.size() + " pending settings for " + yakPlayer.getUsername());
 
         boolean hasChanges = false;
         for (Map.Entry<String, Boolean> entry : pendingChanges.entrySet()) {
@@ -1935,25 +1945,36 @@ public class YakPlayerManager implements Listener, CommandExecutor {
         if (hasChanges) {
             try {
                 repository.saveSync(yakPlayer);
-                logger.info("INTEGRATED: Saved pending settings changes for " + yakPlayer.getUsername());
+                logger.info("Saved pending settings changes for " + yakPlayer.getUsername());
             } catch (Exception e) {
-                logger.log(Level.SEVERE, "INTEGRATED: Failed to save pending changes", e);
+                logger.log(Level.SEVERE, "Failed to save pending changes", e);
             }
         }
     }
 
-    // Message formatting
-    private String formatBanMessage(YakPlayer player) {
+    // Message formatting - Updated to use Paper's Adventure API
+    private Component formatBanMessage(YakPlayer player) {
         if (!player.isBanned()) return null;
 
-        StringBuilder message = new StringBuilder();
-        message.append(ChatColor.RED).append(ChatColor.BOLD).append("You are banned from this server!\n\n");
-        message.append(ChatColor.GRAY).append("Reason: ").append(ChatColor.WHITE).append(player.getBanReason()).append("\n");
+        Component message = Component.text("You are banned from this server!")
+                .color(NamedTextColor.RED)
+                .decorate(TextDecoration.BOLD)
+                .append(Component.newline())
+                .append(Component.newline());
+
+        message = message.append(Component.text("Reason: ")
+                        .color(NamedTextColor.GRAY))
+                .append(Component.text(player.getBanReason())
+                        .color(NamedTextColor.WHITE))
+                .append(Component.newline());
 
         if (player.getBanExpiry() > 0) {
             long remaining = player.getBanExpiry() - Instant.now().getEpochSecond();
             if (remaining > 0) {
-                message.append(ChatColor.GRAY).append("Expires in: ").append(ChatColor.WHITE).append(formatDuration(remaining));
+                message = message.append(Component.text("Expires in: ")
+                                .color(NamedTextColor.GRAY))
+                        .append(Component.text(formatDuration(remaining))
+                                .color(NamedTextColor.WHITE));
             } else {
                 player.setBanned(false);
                 player.setBanReason("");
@@ -1962,11 +1983,18 @@ public class YakPlayerManager implements Listener, CommandExecutor {
                 return null;
             }
         } else {
-            message.append(ChatColor.GRAY).append("This ban does not expire.");
+            message = message.append(Component.text("This ban does not expire.")
+                    .color(NamedTextColor.GRAY));
         }
 
-        message.append("\n\n").append(ChatColor.GRAY).append("Appeal at: ").append(ChatColor.BLUE).append("discord.gg/yakrealms");
-        return message.toString();
+        message = message.append(Component.newline())
+                .append(Component.newline())
+                .append(Component.text("Appeal at: ")
+                        .color(NamedTextColor.GRAY))
+                .append(Component.text("discord.gg/yakrealms")
+                        .color(NamedTextColor.BLUE));
+
+        return message;
     }
 
     private String formatDuration(long seconds) {
@@ -1986,24 +2014,33 @@ public class YakPlayerManager implements Listener, CommandExecutor {
             String formattedName = yakPlayer.getFormattedDisplayName();
             int onlineCount = Bukkit.getOnlinePlayers().size();
 
-            String joinMessage = createJoinMessage(formattedName, onlineCount);
+            Component joinMessage = createJoinMessage(formattedName, onlineCount);
             if (joinMessage != null) {
-                Bukkit.broadcastMessage(joinMessage);
+                Bukkit.broadcast(joinMessage);
             }
         } catch (Exception e) {
-            logger.log(Level.WARNING, "INTEGRATED: Error updating join message", e);
+            logger.log(Level.WARNING, "Error updating join message", e);
         }
     }
 
-    private String createJoinMessage(String formattedName, int onlineCount) {
+    private Component createJoinMessage(String formattedName, int onlineCount) {
         if (onlineCount == 1) {
-            return ChatColor.GOLD + "✦ " + ChatColor.BOLD + formattedName +
-                    ChatColor.GOLD + " has entered the realm! ✦";
+            return Component.text("✦ ")
+                    .color(NamedTextColor.GOLD)
+                    .append(Component.text(formattedName)
+                            .decorate(TextDecoration.BOLD))
+                    .append(Component.text(" has entered the realm! ✦")
+                            .color(NamedTextColor.GOLD));
         } else if (onlineCount <= 5) {
-            return ChatColor.AQUA + "⟨" + ChatColor.LIGHT_PURPLE + "✦" + ChatColor.AQUA + "⟩ " + formattedName +
-                    ChatColor.GRAY + " (" + onlineCount + " online)";
+            return Component.text("⟨✦⟩ ")
+                    .color(NamedTextColor.AQUA)
+                    .append(Component.text(formattedName))
+                    .append(Component.text(" (" + onlineCount + " online)")
+                            .color(NamedTextColor.GRAY));
         } else if (onlineCount <= 20) {
-            return ChatColor.AQUA + "⟨" + ChatColor.LIGHT_PURPLE + "✦" + ChatColor.AQUA + "⟩ " + formattedName;
+            return Component.text("⟨✦⟩ ")
+                    .color(NamedTextColor.AQUA)
+                    .append(Component.text(formattedName));
         } else {
             return null;
         }
@@ -2013,22 +2050,26 @@ public class YakPlayerManager implements Listener, CommandExecutor {
         try {
             if (yakPlayer != null) {
                 String formattedName = yakPlayer.getFormattedDisplayName();
-                event.setQuitMessage(ChatColor.RED + "⟨" + ChatColor.DARK_RED + "✧" + ChatColor.RED + "⟩ " + formattedName);
+                event.setQuitMessage(String.valueOf(Component.text("⟨✧⟩ ")
+                        .color(NamedTextColor.DARK_RED)
+                        .append(Component.text(formattedName))));
             } else {
-                event.setQuitMessage(ChatColor.RED + "⟨" + ChatColor.DARK_RED + "✧" + ChatColor.RED + "⟩ " +
-                        ChatColor.GRAY + player.getName());
+                event.setQuitMessage(String.valueOf(Component.text("⟨✧⟩ ")
+                        .color(NamedTextColor.DARK_RED)
+                        .append(Component.text(player.getName())
+                                .color(NamedTextColor.GRAY))));
             }
         } catch (Exception e) {
-            logger.log(Level.WARNING, "INTEGRATED: Error setting quit message", e);
+            logger.log(Level.WARNING, "Error setting quit message", e);
         }
     }
 
-    // INTEGRATED Shutdown with coordination
+    // Shutdown with coordination
     public void onDisable() {
         if (shutdownInProgress) return;
 
         shutdownInProgress = true;
-        logger.info("INTEGRATED: Starting YakPlayerManager shutdown with coordinated save process...");
+        logger.info("Starting YakPlayerManager shutdown with coordinated save process...");
 
         try {
             // Cancel background tasks
@@ -2038,7 +2079,7 @@ public class YakPlayerManager implements Listener, CommandExecutor {
             if (guaranteedSaveTask != null) guaranteedSaveTask.cancel();
             if (coordinationMonitorTask != null) coordinationMonitorTask.cancel();
 
-            // INTEGRATED: Save all players with coordination
+            // Save all players with coordination
             saveAllPlayersOnShutdownWithCoordination();
 
             // Shutdown executors
@@ -2080,10 +2121,10 @@ public class YakPlayerManager implements Listener, CommandExecutor {
             settingsChangeTimestamps.clear();
             playerStateLocks.clear();
 
-            logger.info("INTEGRATED: YakPlayerManager shutdown completed with coordinated saves");
+            logger.info("YakPlayerManager shutdown completed with coordinated saves");
 
         } catch (Exception e) {
-            logger.log(Level.SEVERE, "INTEGRATED: Error during shutdown", e);
+            logger.log(Level.SEVERE, "Error during shutdown", e);
         } finally {
             initialized = false;
             systemHealthy = false;
@@ -2091,10 +2132,10 @@ public class YakPlayerManager implements Listener, CommandExecutor {
     }
 
     /**
-     * INTEGRATED: Save all players on shutdown with coordination
+     * Save all players on shutdown with coordination
      */
     private void saveAllPlayersOnShutdownWithCoordination() {
-        logger.info("INTEGRATED: Starting coordinated save for " + onlinePlayers.size() + " players on shutdown...");
+        logger.info("Starting coordinated save for " + onlinePlayers.size() + " players on shutdown...");
 
         int savedCount = 0;
         int forcedInventoryUpdates = 0;
@@ -2105,9 +2146,9 @@ public class YakPlayerManager implements Listener, CommandExecutor {
                 Player player = yakPlayer.getBukkitPlayer();
                 UUID uuid = yakPlayer.getUUID();
 
-                // INTEGRATED: Check coordination state during shutdown
+                // Check coordination state during shutdown
                 if (isPlayerInDeathProcessing(uuid) || isPlayerInCombatLogoutProcessing(uuid)) {
-                    logger.info("INTEGRATED: Skipping shutdown save for player in coordination: " + yakPlayer.getUsername());
+                    logger.info("Skipping shutdown save for player in coordination: " + yakPlayer.getUsername());
                     coordinationSkips++;
                     continue;
                 }
@@ -2117,16 +2158,16 @@ public class YakPlayerManager implements Listener, CommandExecutor {
                     try {
                         yakPlayer.forceUpdateInventory(player);
                         forcedInventoryUpdates++;
-                        logger.fine("INTEGRATED: ✓ Forced inventory update on shutdown for " + yakPlayer.getUsername());
+                        logger.fine("✓ Forced inventory update on shutdown for " + yakPlayer.getUsername());
                     } catch (Exception e) {
-                        logger.log(Level.SEVERE, "INTEGRATED: Failed to force inventory update on shutdown for " + yakPlayer.getUsername(), e);
+                        logger.log(Level.SEVERE, "Failed to force inventory update on shutdown for " + yakPlayer.getUsername(), e);
                     }
 
                     // Force stats update
                     try {
                         yakPlayer.updateStats(player);
                     } catch (Exception e) {
-                        logger.log(Level.WARNING, "INTEGRATED: Failed to update stats on shutdown for " + yakPlayer.getUsername(), e);
+                        logger.log(Level.WARNING, "Failed to update stats on shutdown for " + yakPlayer.getUsername(), e);
                     }
                 }
 
@@ -2140,10 +2181,10 @@ public class YakPlayerManager implements Listener, CommandExecutor {
                         if (result != null) {
                             saved = true;
                             savedCount++;
-                            logger.fine("INTEGRATED: ✓ Shutdown save successful (attempt " + attempt + ") for " + yakPlayer.getUsername());
+                            logger.fine("✓ Shutdown save successful (attempt " + attempt + ") for " + yakPlayer.getUsername());
                         }
                     } catch (Exception e) {
-                        logger.log(Level.SEVERE, "INTEGRATED: ✗ Shutdown save attempt " + attempt + " failed for " + yakPlayer.getUsername(), e);
+                        logger.log(Level.SEVERE, "✗ Shutdown save attempt " + attempt + " failed for " + yakPlayer.getUsername(), e);
                         if (attempt < 3) {
                             try {
                                 Thread.sleep(100 * attempt);
@@ -2156,15 +2197,15 @@ public class YakPlayerManager implements Listener, CommandExecutor {
                 }
 
                 if (!saved) {
-                    logger.log(Level.SEVERE, "INTEGRATED: CRITICAL: All shutdown save attempts failed for " + yakPlayer.getUsername());
+                    logger.log(Level.SEVERE, "CRITICAL: All shutdown save attempts failed for " + yakPlayer.getUsername());
                 }
 
             } catch (Exception e) {
-                logger.log(Level.SEVERE, "INTEGRATED: Failed to save player on shutdown: " + yakPlayer.getUsername(), e);
+                logger.log(Level.SEVERE, "Failed to save player on shutdown: " + yakPlayer.getUsername(), e);
             }
         }
 
-        logger.info("INTEGRATED: Coordinated shutdown save completed: " + savedCount + "/" + onlinePlayers.size() +
+        logger.info("Coordinated shutdown save completed: " + savedCount + "/" + onlinePlayers.size() +
                 " players saved, " + forcedInventoryUpdates + " forced inventory updates, " + coordinationSkips + " coordination skips");
     }
 
@@ -2240,9 +2281,9 @@ public class YakPlayerManager implements Listener, CommandExecutor {
                 Player bukkitPlayer = yakPlayer.getBukkitPlayer();
                 UUID uuid = yakPlayer.getUUID();
 
-                // INTEGRATED: Check coordination state before save
+                // Check coordination state before save
                 if (isPlayerInDeathProcessing(uuid) || isPlayerInCombatLogoutProcessing(uuid)) {
-                    logger.info("INTEGRATED: Deferring save due to coordination state: " + yakPlayer.getUsername());
+                    logger.info("Deferring save due to coordination state: " + yakPlayer.getUsername());
                     return false;
                 }
 
@@ -2254,7 +2295,7 @@ public class YakPlayerManager implements Listener, CommandExecutor {
                         yakPlayer.forceUpdateInventory(bukkitPlayer);
                         yakPlayer.updateStats(bukkitPlayer);
                     } catch (Exception e) {
-                        logger.log(Level.WARNING, "INTEGRATED: Error updating player data before save for " + yakPlayer.getUsername(), e);
+                        logger.log(Level.WARNING, "Error updating player data before save for " + yakPlayer.getUsername(), e);
                     }
                 }
 
@@ -2262,13 +2303,13 @@ public class YakPlayerManager implements Listener, CommandExecutor {
                 return result != null;
 
             } catch (Exception e) {
-                logger.log(Level.SEVERE, "INTEGRATED: Failed to save player: " + yakPlayer.getUsername(), e);
+                logger.log(Level.SEVERE, "Failed to save player: " + yakPlayer.getUsername(), e);
                 return false;
             }
         }, saveExecutor);
     }
 
-    // INTEGRATED Command handling with diagnostic tools
+    // Command handling with diagnostic tools
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         if (!(sender instanceof Player)) {
@@ -2280,7 +2321,7 @@ public class YakPlayerManager implements Listener, CommandExecutor {
 
         if (command.getName().equalsIgnoreCase("playerstate")) {
             if (!player.hasPermission("yakrealms.admin")) {
-                player.sendMessage(ChatColor.RED + "No permission");
+                player.sendMessage(Component.text("No permission").color(NamedTextColor.RED));
                 return true;
             }
 
@@ -2293,30 +2334,30 @@ public class YakPlayerManager implements Listener, CommandExecutor {
                 phase = loadingState.getPhase();
             }
 
-            player.sendMessage(ChatColor.YELLOW + "=== INTEGRATED PLAYER STATE DEBUG ===");
-            player.sendMessage(ChatColor.YELLOW + "State: " + state);
-            player.sendMessage(ChatColor.YELLOW + "Loading Phase: " + phase);
-            player.sendMessage(ChatColor.YELLOW + "In Recovery: " + playersInRecovery.contains(uuid));
-            player.sendMessage(ChatColor.YELLOW + "Death Processing: " + isPlayerInDeathProcessing(uuid));
-            player.sendMessage(ChatColor.YELLOW + "Combat Logout Processing: " + isPlayerInCombatLogoutProcessing(uuid));
-            player.sendMessage(ChatColor.YELLOW + "Settings Protection Saves: " + settingsProtectionSaves.get());
-            player.sendMessage(ChatColor.YELLOW + "Emergency Recoveries: " + emergencyRecoveries.get());
-            player.sendMessage(ChatColor.YELLOW + "Guaranteed Saves: " + guaranteedSaves.get());
-            player.sendMessage(ChatColor.YELLOW + "Forced Inventory Saves: " + forcedInventorySaves.get());
-            player.sendMessage(ChatColor.YELLOW + "Save Failures: " + saveFailures.get());
-            player.sendMessage(ChatColor.YELLOW + "Death Coordinations: " + deathCoordinations.get());
-            player.sendMessage(ChatColor.YELLOW + "Combat Logout Coordinations: " + combatLogoutCoordinations.get());
-            player.sendMessage(ChatColor.YELLOW + "System Conflicts Detected: " + systemConflictsDetected.get());
-            player.sendMessage(ChatColor.YELLOW + "Coordination Timeouts: " + coordinationTimeouts.get());
+            player.sendMessage(Component.text("=== PLAYER STATE DEBUG ===").color(NamedTextColor.YELLOW));
+            player.sendMessage(Component.text("State: " + state).color(NamedTextColor.YELLOW));
+            player.sendMessage(Component.text("Loading Phase: " + phase).color(NamedTextColor.YELLOW));
+            player.sendMessage(Component.text("In Recovery: " + playersInRecovery.contains(uuid)).color(NamedTextColor.YELLOW));
+            player.sendMessage(Component.text("Death Processing: " + isPlayerInDeathProcessing(uuid)).color(NamedTextColor.YELLOW));
+            player.sendMessage(Component.text("Combat Logout Processing: " + isPlayerInCombatLogoutProcessing(uuid)).color(NamedTextColor.YELLOW));
+            player.sendMessage(Component.text("Settings Protection Saves: " + settingsProtectionSaves.get()).color(NamedTextColor.YELLOW));
+            player.sendMessage(Component.text("Emergency Recoveries: " + emergencyRecoveries.get()).color(NamedTextColor.YELLOW));
+            player.sendMessage(Component.text("Guaranteed Saves: " + guaranteedSaves.get()).color(NamedTextColor.YELLOW));
+            player.sendMessage(Component.text("Forced Inventory Saves: " + forcedInventorySaves.get()).color(NamedTextColor.YELLOW));
+            player.sendMessage(Component.text("Save Failures: " + saveFailures.get()).color(NamedTextColor.YELLOW));
+            player.sendMessage(Component.text("Death Coordinations: " + deathCoordinations.get()).color(NamedTextColor.YELLOW));
+            player.sendMessage(Component.text("Combat Logout Coordinations: " + combatLogoutCoordinations.get()).color(NamedTextColor.YELLOW));
+            player.sendMessage(Component.text("System Conflicts Detected: " + systemConflictsDetected.get()).color(NamedTextColor.YELLOW));
+            player.sendMessage(Component.text("Coordination Timeouts: " + coordinationTimeouts.get()).color(NamedTextColor.YELLOW));
 
             YakPlayer yakPlayer = getPlayer(uuid);
             if (yakPlayer != null) {
-                player.sendMessage(ChatColor.YELLOW + "Combat Logout State: " + yakPlayer.getCombatLogoutState());
-                player.sendMessage(ChatColor.YELLOW + "Health: " + player.getHealth() + "/" + player.getMaxHealth());
-                player.sendMessage(ChatColor.YELLOW + "Game Mode: " + player.getGameMode());
-                player.sendMessage(ChatColor.YELLOW + "Inventory Save Timestamp: " + yakPlayer.getInventorySaveTimestamp());
-                player.sendMessage(ChatColor.YELLOW + "Has Serialized Inventory: " + (yakPlayer.getSerializedInventory() != null && !yakPlayer.getSerializedInventory().isEmpty()));
-                player.sendMessage(ChatColor.YELLOW + "Has Respawn Items: " + yakPlayer.hasRespawnItems());
+                player.sendMessage(Component.text("Combat Logout State: " + yakPlayer.getCombatLogoutState()).color(NamedTextColor.YELLOW));
+                player.sendMessage(Component.text("Health: " + player.getHealth() + "/" + player.getMaxHealth()).color(NamedTextColor.YELLOW));
+                player.sendMessage(Component.text("Game Mode: " + player.getGameMode()).color(NamedTextColor.YELLOW));
+                player.sendMessage(Component.text("Inventory Save Timestamp: " + yakPlayer.getInventorySaveTimestamp()).color(NamedTextColor.YELLOW));
+                player.sendMessage(Component.text("Has Serialized Inventory: " + (yakPlayer.getSerializedInventory() != null && !yakPlayer.getSerializedInventory().isEmpty())).color(NamedTextColor.YELLOW));
+                player.sendMessage(Component.text("Has Respawn Items: " + yakPlayer.hasRespawnItems()).color(NamedTextColor.YELLOW));
             }
 
             return true;
@@ -2324,7 +2365,7 @@ public class YakPlayerManager implements Listener, CommandExecutor {
 
         if (command.getName().equalsIgnoreCase("inventorydiag")) {
             if (!player.hasPermission("yakrealms.admin")) {
-                player.sendMessage(ChatColor.RED + "No permission");
+                player.sendMessage(Component.text("No permission").color(NamedTextColor.RED));
                 return true;
             }
 
@@ -2332,32 +2373,32 @@ public class YakPlayerManager implements Listener, CommandExecutor {
             YakPlayer yakPlayer = getPlayer(uuid);
             PlayerState state = getPlayerState(uuid);
 
-            player.sendMessage(ChatColor.YELLOW + "=== INTEGRATED INVENTORY DIAGNOSTIC ===");
-            player.sendMessage(ChatColor.YELLOW + "Player State: " + state);
-            player.sendMessage(ChatColor.YELLOW + "Death Processing: " + isPlayerInDeathProcessing(uuid));
-            player.sendMessage(ChatColor.YELLOW + "Combat Logout Processing: " + isPlayerInCombatLogoutProcessing(uuid));
-            player.sendMessage(ChatColor.YELLOW + "YakPlayer Found: " + (yakPlayer != null));
+            player.sendMessage(Component.text("=== INVENTORY DIAGNOSTIC ===").color(NamedTextColor.YELLOW));
+            player.sendMessage(Component.text("Player State: " + state).color(NamedTextColor.YELLOW));
+            player.sendMessage(Component.text("Death Processing: " + isPlayerInDeathProcessing(uuid)).color(NamedTextColor.YELLOW));
+            player.sendMessage(Component.text("Combat Logout Processing: " + isPlayerInCombatLogoutProcessing(uuid)).color(NamedTextColor.YELLOW));
+            player.sendMessage(Component.text("YakPlayer Found: " + (yakPlayer != null)).color(NamedTextColor.YELLOW));
 
             if (yakPlayer != null) {
-                player.sendMessage(ChatColor.YELLOW + "Combat Logout State: " + yakPlayer.getCombatLogoutState());
-                player.sendMessage(ChatColor.YELLOW + "Has Serialized Inventory: " + (yakPlayer.getSerializedInventory() != null && !yakPlayer.getSerializedInventory().isEmpty()));
-                player.sendMessage(ChatColor.YELLOW + "Inventory Being Applied: " + yakPlayer.isInventoryBeingApplied());
-                player.sendMessage(ChatColor.YELLOW + "Inventory Save Timestamp: " + yakPlayer.getInventorySaveTimestamp());
-                player.sendMessage(ChatColor.YELLOW + "Has Respawn Items: " + yakPlayer.hasRespawnItems());
+                player.sendMessage(Component.text("Combat Logout State: " + yakPlayer.getCombatLogoutState()).color(NamedTextColor.YELLOW));
+                player.sendMessage(Component.text("Has Serialized Inventory: " + (yakPlayer.getSerializedInventory() != null && !yakPlayer.getSerializedInventory().isEmpty())).color(NamedTextColor.YELLOW));
+                player.sendMessage(Component.text("Inventory Being Applied: " + yakPlayer.isInventoryBeingApplied()).color(NamedTextColor.YELLOW));
+                player.sendMessage(Component.text("Inventory Save Timestamp: " + yakPlayer.getInventorySaveTimestamp()).color(NamedTextColor.YELLOW));
+                player.sendMessage(Component.text("Has Respawn Items: " + yakPlayer.hasRespawnItems()).color(NamedTextColor.YELLOW));
 
                 // Test FORCE save with coordination check
                 if (!isPlayerInDeathProcessing(uuid) && !isPlayerInCombatLogoutProcessing(uuid)) {
                     try {
-                        player.sendMessage(ChatColor.GREEN + "Performing coordinated FORCE inventory update...");
+                        player.sendMessage(Component.text("Performing coordinated FORCE inventory update...").color(NamedTextColor.GREEN));
                         yakPlayer.forceUpdateInventory(player);
                         repository.saveSync(yakPlayer);
-                        player.sendMessage(ChatColor.GREEN + "✓ Coordinated FORCE save completed successfully");
+                        player.sendMessage(Component.text("✓ Coordinated FORCE save completed successfully").color(NamedTextColor.GREEN));
                     } catch (Exception e) {
-                        player.sendMessage(ChatColor.RED + "✗ Coordinated FORCE save failed: " + e.getMessage());
-                        logger.log(Level.SEVERE, "INTEGRATED: Test force save failed for " + player.getName(), e);
+                        player.sendMessage(Component.text("✗ Coordinated FORCE save failed: " + e.getMessage()).color(NamedTextColor.RED));
+                        logger.log(Level.SEVERE, "Test force save failed for " + player.getName(), e);
                     }
                 } else {
-                    player.sendMessage(ChatColor.YELLOW + "Skipping FORCE save test - player in coordination state");
+                    player.sendMessage(Component.text("Skipping FORCE save test - player in coordination state").color(NamedTextColor.YELLOW));
                 }
             }
 
@@ -2366,36 +2407,36 @@ public class YakPlayerManager implements Listener, CommandExecutor {
 
         if (command.getName().equalsIgnoreCase("coordinationdiag")) {
             if (!player.hasPermission("yakrealms.admin")) {
-                player.sendMessage(ChatColor.RED + "No permission");
+                player.sendMessage(Component.text("No permission").color(NamedTextColor.RED));
                 return true;
             }
 
-            player.sendMessage(ChatColor.YELLOW + "=== COORDINATION DIAGNOSTIC ===");
-            player.sendMessage(ChatColor.YELLOW + "Death Mechanics Available: " + (deathMechanics != null));
-            player.sendMessage(ChatColor.YELLOW + "Combat Logout Mechanics Available: " + (combatLogoutMechanics != null));
-            player.sendMessage(ChatColor.YELLOW + "Players in Death Processing: " + playersInDeathProcessing.size());
-            player.sendMessage(ChatColor.YELLOW + "Players in Combat Logout Processing: " + playersInCombatLogoutProcessing.size());
-            player.sendMessage(ChatColor.YELLOW + "Total Death Coordinations: " + deathCoordinations.get());
-            player.sendMessage(ChatColor.YELLOW + "Total Combat Logout Coordinations: " + combatLogoutCoordinations.get());
-            player.sendMessage(ChatColor.YELLOW + "System Conflicts Detected: " + systemConflictsDetected.get());
-            player.sendMessage(ChatColor.YELLOW + "System Conflicts Resolved: " + systemConflictsResolved.get());
-            player.sendMessage(ChatColor.YELLOW + "Coordination Timeouts: " + coordinationTimeouts.get());
+            player.sendMessage(Component.text("=== COORDINATION DIAGNOSTIC ===").color(NamedTextColor.YELLOW));
+            player.sendMessage(Component.text("Death Mechanics Available: " + (deathMechanics != null)).color(NamedTextColor.YELLOW));
+            player.sendMessage(Component.text("Combat Logout Mechanics Available: " + (combatLogoutMechanics != null)).color(NamedTextColor.YELLOW));
+            player.sendMessage(Component.text("Players in Death Processing: " + playersInDeathProcessing.size()).color(NamedTextColor.YELLOW));
+            player.sendMessage(Component.text("Players in Combat Logout Processing: " + playersInCombatLogoutProcessing.size()).color(NamedTextColor.YELLOW));
+            player.sendMessage(Component.text("Total Death Coordinations: " + deathCoordinations.get()).color(NamedTextColor.YELLOW));
+            player.sendMessage(Component.text("Total Combat Logout Coordinations: " + combatLogoutCoordinations.get()).color(NamedTextColor.YELLOW));
+            player.sendMessage(Component.text("System Conflicts Detected: " + systemConflictsDetected.get()).color(NamedTextColor.YELLOW));
+            player.sendMessage(Component.text("System Conflicts Resolved: " + systemConflictsResolved.get()).color(NamedTextColor.YELLOW));
+            player.sendMessage(Component.text("Coordination Timeouts: " + coordinationTimeouts.get()).color(NamedTextColor.YELLOW));
 
             if (deathMechanics != null) {
                 try {
                     String deathStats = deathMechanics.getPerformanceStats();
-                    player.sendMessage(ChatColor.YELLOW + "Death System: " + deathStats);
+                    player.sendMessage(Component.text("Death System: " + deathStats).color(NamedTextColor.YELLOW));
                 } catch (Exception e) {
-                    player.sendMessage(ChatColor.RED + "Error getting death system stats: " + e.getMessage());
+                    player.sendMessage(Component.text("Error getting death system stats: " + e.getMessage()).color(NamedTextColor.RED));
                 }
             }
 
             if (combatLogoutMechanics != null) {
                 try {
                     String combatStats = combatLogoutMechanics.getPerformanceStats();
-                    player.sendMessage(ChatColor.YELLOW + "Combat System: " + combatStats);
+                    player.sendMessage(Component.text("Combat System: " + combatStats).color(NamedTextColor.YELLOW));
                 } catch (Exception e) {
-                    player.sendMessage(ChatColor.RED + "Error getting combat system stats: " + e.getMessage());
+                    player.sendMessage(Component.text("Error getting combat system stats: " + e.getMessage()).color(NamedTextColor.RED));
                 }
             }
 
@@ -2405,7 +2446,7 @@ public class YakPlayerManager implements Listener, CommandExecutor {
         return false;
     }
 
-    // INTEGRATED System statistics
+    // System statistics
     public SystemStats getSystemStats() {
         return new SystemStats(
                 totalPlayerJoins.get(),
