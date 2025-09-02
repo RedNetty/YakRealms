@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "WebFetch(domain:www.sportskeeda.com)",
+      "Bash(grep:*)",
+      "Bash(mvn compile:*)",
+      "Bash(javac:*)",
+      "Bash(mvn:*)",
+      "Bash(find:*)",
+      "Bash(sed:*)",
+      "Bash(rg:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
