@@ -1,12 +1,13 @@
-package com.rednetty.server.mechanics.dungeons.rooms;
+package com.rednetty.server.core.mechanics.dungeons.rooms;
 
 import com.rednetty.server.YakRealms;
-import com.rednetty.server.mechanics.dungeons.config.DungeonTemplate;
-import com.rednetty.server.mechanics.dungeons.instance.DungeonInstance;
-import com.rednetty.server.mechanics.world.mobs.MobManager;
-import com.rednetty.server.mechanics.world.mobs.spawners.MobSpawner;
+import com.rednetty.server.core.mechanics.dungeons.config.DungeonTemplate;
+import com.rednetty.server.core.mechanics.dungeons.instance.DungeonInstance;
+import com.rednetty.server.core.mechanics.world.mobs.MobManager;
+import com.rednetty.server.core.mechanics.world.mobs.spawners.MobSpawner;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
+import com.rednetty.server.utils.messaging.MessageUtil;
 import org.bukkit.Location;
 import org.bukkit.World;
 import org.bukkit.entity.Entity;
@@ -607,7 +608,7 @@ public class DungeonRoom {
         // Start room-specific mechanics
         startRoomMechanics();
 
-        broadcastToRoom(ChatColor.YELLOW + "Room activated: " + getDisplayName());
+        broadcastToRoom(ChatColor.GOLD + "[DUNGEON] " + ChatColor.YELLOW + "Room activated: " + getDisplayName());
     }
 
     /**
@@ -629,7 +630,7 @@ public class DungeonRoom {
         // Notify dungeon instance
         dungeonInstance.onRoomComplete(roomId);
 
-        broadcastToRoom(ChatColor.GREEN + "Room completed: " + getDisplayName());
+        broadcastToRoom(ChatColor.GOLD + "[DUNGEON] " + ChatColor.GREEN + "✓ Room completed: " + getDisplayName());
 
         if (isDebugMode()) {
             long duration = completionTime - activationTime;
@@ -650,7 +651,7 @@ public class DungeonRoom {
         // Deactivate spawners
         deactivateSpawners();
 
-        broadcastToRoom(ChatColor.RED + "Room failed: " + getDisplayName() + " (" + reason + ")");
+        broadcastToRoom(ChatColor.GOLD + "[DUNGEON] " + ChatColor.RED + "❌ Room failed: " + getDisplayName() + " (" + reason + ")");
 
         if (isDebugMode()) {
             logger.info("§c[DungeonRoom] §7Room " + roomId + " failed: " + reason);
@@ -694,7 +695,7 @@ public class DungeonRoom {
         wavesActive = true;
         currentWave = 0;
         scheduleNextWave();
-        broadcastToRoom(ChatColor.YELLOW + "Survive the waves! Wave 1 starting...");
+        broadcastToRoom(ChatColor.GOLD + "[DUNGEON] " + ChatColor.YELLOW + "Survive the waves! Wave 1 starting...");
     }
 
     private void scheduleNextWave() {
@@ -704,17 +705,17 @@ public class DungeonRoom {
 
         queuedEvents.add(new RoomEvent("spawn_wave", delay, Map.of("wave_number", currentWave)));
 
-        broadcastToRoom(ChatColor.YELLOW + "Wave " + currentWave + "/" + totalWaves + " incoming in " + (delay / 1000) + " seconds!");
+        broadcastToRoom(ChatColor.GOLD + "[DUNGEON] " + ChatColor.YELLOW + "Wave " + currentWave + "/" + totalWaves + " incoming in " + (delay / 1000) + " seconds!");
     }
 
     private void startPuzzle() {
         String puzzleType = (String) roomData.getOrDefault("puzzle_type", "button_sequence");
-        broadcastToRoom(ChatColor.AQUA + "Puzzle room activated! Solve the " + puzzleType + " to proceed.");
+        broadcastToRoom(ChatColor.GOLD + "[DUNGEON] " + ChatColor.AQUA + "Puzzle room activated! Solve the " + puzzleType + " to proceed.");
     }
 
     private void activateTraps() {
         roomData.put("traps_active", true);
-        broadcastToRoom(ChatColor.RED + "Warning: This room contains active traps!");
+        broadcastToRoom(ChatColor.GOLD + "[DUNGEON] " + ChatColor.RED + "⚠ Warning: This room contains active traps!");
     }
 
     private void spawnTreasureGuardian() {
@@ -722,14 +723,14 @@ public class DungeonRoom {
         Location center = getCenterLocation();
         if (center != null) {
             // This would spawn a special guardian mob
-            broadcastToRoom(ChatColor.GOLD + "A guardian protects the treasure!");
+            broadcastToRoom(ChatColor.GOLD + "[DUNGEON] " + ChatColor.YELLOW + "A guardian protects the treasure!");
         }
     }
 
     private void scheduleBossSpawn() {
         long delay = 3000L; // 3 second delay
         queuedEvents.add(new RoomEvent("spawn_boss", delay, Map.of()));
-        broadcastToRoom(ChatColor.DARK_RED + "The boss approaches...");
+        broadcastToRoom(ChatColor.GOLD + "[DUNGEON] " + ChatColor.DARK_RED + "The boss approaches...");
     }
 
     // ================ EVENT EXECUTION ================
@@ -768,7 +769,7 @@ public class DungeonRoom {
             mobSpawner.resetSpawner(spawnerLoc);
         }
 
-        broadcastToRoom(ChatColor.RED + "Wave " + waveNumber + " has begun!");
+        broadcastToRoom(ChatColor.GOLD + "[DUNGEON] " + ChatColor.RED + "Wave " + waveNumber + " has begun!");
     }
 
     private void executeSpawnBoss(RoomEvent event) {
@@ -783,17 +784,17 @@ public class DungeonRoom {
             }
         }
 
-        broadcastToRoom(ChatColor.DARK_RED + "The boss has arrived!");
+        broadcastToRoom(ChatColor.GOLD + "[DUNGEON] " + ChatColor.DARK_RED + "The boss has arrived!");
     }
 
     private void executeActivateTrap(RoomEvent event) {
         // Activate specific trap
-        broadcastToRoom(ChatColor.RED + "A trap has been triggered!");
+        broadcastToRoom(ChatColor.GOLD + "[DUNGEON] " + ChatColor.RED + "⚠ A trap has been triggered!");
     }
 
     private void executeSpawnTreasure(RoomEvent event) {
         roomData.put("treasure_spawned", true);
-        broadcastToRoom(ChatColor.GOLD + "Treasure has appeared!");
+        broadcastToRoom(ChatColor.GOLD + "[DUNGEON] " + ChatColor.YELLOW + "✦ Treasure has appeared!");
     }
 
     // ================ SPAWNER MANAGEMENT ================
@@ -905,7 +906,7 @@ public class DungeonRoom {
 
         // Apply trap damage
         player.damage(4.0);
-        player.sendMessage(ChatColor.RED + "You triggered a trap!");
+        MessageUtil.sendError(player, "You triggered a trap!");
 
         // Visual effect
         player.getWorld().spawnParticle(org.bukkit.Particle.EXPLOSION,
@@ -1052,22 +1053,22 @@ public class DungeonRoom {
      */
     private void sendRoomWelcomeMessage(Player player) {
         String displayName = getDisplayName();
-        player.sendMessage(ChatColor.GOLD + "Entered: " + displayName);
+        MessageUtil.sendInfo(player, "Entered: " + displayName);
 
         // Send room-specific instructions
         String roomType = roomDefinition.getType();
         switch (roomType.toLowerCase()) {
             case "puzzle_room":
-                player.sendMessage(ChatColor.AQUA + "Solve the puzzle to proceed!");
+                MessageUtil.sendInfo(player, "Solve the puzzle to proceed!");
                 break;
             case "wave_room":
-                player.sendMessage(ChatColor.YELLOW + "Survive all waves to complete this room!");
+                MessageUtil.sendWarning(player, "Survive all waves to complete this room!");
                 break;
             case "boss_room":
-                player.sendMessage(ChatColor.RED + "Prepare for a challenging boss fight!");
+                MessageUtil.sendError(player, "Prepare for a challenging boss fight!");
                 break;
             case "treasure_room":
-                player.sendMessage(ChatColor.GOLD + "Defeat the guardian to claim the treasure!");
+                MessageUtil.sendInfo(player, "Defeat the guardian to claim the treasure!");
                 break;
         }
     }

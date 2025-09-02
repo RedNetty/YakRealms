@@ -107,6 +107,10 @@ commands:
     description: Spawn a boss
     usage: /boss <type> [location]
     permission: yakrealms.admin.boss
+  elitetest:
+    description: Test and validate elite behavior system
+    usage: /elitetest <validate|test|spawn|stats|demo|info|reload> [args]
+    permission: yakrealms.admin.elitetest
 
   # Drop Commands
   droprate:
@@ -271,6 +275,33 @@ commands:
     description: Set a player's rank
     usage: /setrank <player> <rank>
     permission: yakrealms.staff.setrank
+  warn:
+    description: Issue a warning to a player
+    usage: /warn <player> [reason]
+    permission: yakrealms.staff.warn
+  moderationdashboard:
+    description: Access the moderation dashboard
+    usage: /moderationdashboard [player]
+    aliases: [ moddash, dashboard ]
+    permission: yakrealms.staff.moderationdashboard
+  moddash:
+    description: Access the moderation dashboard (shorthand)
+    usage: /moddash [start|stop|summary|live|staff|risk|help]
+    permission: yakrealms.staff.dashboard
+  moderationhistory:
+    description: View moderation history for a player
+    usage: /moderationhistory <player> [page]
+    aliases: [ modhistory, punishhistory ]
+    permission: yakrealms.staff.moderationhistory
+  modmenu:
+    description: Open the moderation control panel GUI
+    usage: /modmenu [open|help|status]
+    aliases: [ moderation, moderationmenu ]
+    permission: yakrealms.staff.menu
+  wipe:
+    description: Wipe player data with safety confirmations
+    usage: /wipe <player> <type> [--confirm]
+    permission: yakrealms.admin.wipe
 
   # Navigation Commands
   trail:
@@ -291,6 +322,11 @@ commands:
     usage: /shutdown [seconds] [reason] | /shutdown now [reason]
     aliases: [restart, stop]
     permission: yakrealms.admin.shutdown
+  systemreport:
+    description: Generate comprehensive system status report
+    usage: /systemreport [file]
+    aliases: [sysreport, status, diagnostics]
+    permission: yakrealms.admin.systemreport
 
   # Debug Commands (from YakPlayerManager)
   playerstate:
@@ -334,6 +370,7 @@ permissions:
       yakrealms.admin.spawnmob: true
       yakrealms.admin.togglespawners: true
       yakrealms.admin.boss: true
+      yakrealms.admin.elitetest: true
       yakrealms.admin.droprate: true
       yakrealms.admin.elitedrop: true
       yakrealms.admin.invsee: true
@@ -341,6 +378,8 @@ permissions:
       yakrealms.admin.item: true
       yakrealms.admin.lootchest: true
       yakrealms.crate.admin: true
+      yakrealms.admin.wipe: true
+      yakrealms.admin.systemreport: true
 
   yakrealms.admin.*:
     description: All admin permissions
@@ -357,6 +396,7 @@ permissions:
       yakrealms.admin.spawnmob: true
       yakrealms.admin.togglespawners: true
       yakrealms.admin.boss: true
+      yakrealms.admin.elitetest: true
       yakrealms.admin.droprate: true
       yakrealms.admin.elitedrop: true
       yakrealms.admin.invsee: true
@@ -364,6 +404,8 @@ permissions:
       yakrealms.admin.item: true
       yakrealms.admin.lootchest: true
       yakrealms.crate.admin: true
+      yakrealms.admin.wipe: true
+      yakrealms.admin.systemreport: true
 
   yakrealms.admin.economy:
     description: Grants access to economy admin commands
@@ -392,6 +434,14 @@ permissions:
   yakrealms.admin.lootchest:
     description: Grants access to loot chest admin commands
     default: op
+    
+  yakrealms.admin.elitetest:
+    description: Grants access to elite behavior testing commands
+    default: op
+
+  yakrealms.admin.wipe:
+    description: Grants access to the player data wipe command
+    default: op
 
   # Staff Permissions
   yakrealms.staff:
@@ -406,6 +456,12 @@ permissions:
       yakrealms.staff.chat: true
       yakrealms.staff.vanish: true
       yakrealms.staff.setrank: true
+      yakrealms.staff.warn: true
+      yakrealms.staff.moderationdashboard: true
+      yakrealms.staff.dashboard: true
+      yakrealms.staff.moderationhistory: true
+      yakrealms.staff.menu: true
+      yakrealms.staff.advanced: true
 
   yakrealms.staff.*:
     description: All staff permissions
@@ -419,6 +475,20 @@ permissions:
       yakrealms.staff.chat: true
       yakrealms.staff.vanish: true
       yakrealms.staff.setrank: true
+      yakrealms.staff.warn: true
+      yakrealms.staff.moderationdashboard: true
+      yakrealms.staff.dashboard: true
+      yakrealms.staff.moderationhistory: true
+      yakrealms.staff.menu: true
+      yakrealms.staff.advanced: true
+
+  yakrealms.staff.menu:
+    description: Grants access to the moderation menu GUI
+    default: op
+
+  yakrealms.staff.advanced:
+    description: Grants access to advanced moderation tools and IP searching
+    default: op
 
   yakrealms.staff.setrank:
     description: Grants access to set player ranks

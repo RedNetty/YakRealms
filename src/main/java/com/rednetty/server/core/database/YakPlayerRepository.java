@@ -6,7 +6,7 @@ import com.mongodb.client.model.Filters;
 import com.mongodb.client.model.ReplaceOptions;
 import com.mongodb.client.result.DeleteResult;
 import com.rednetty.server.YakRealms;
-import com.rednetty.server.mechanics.player.YakPlayer;
+import com.rednetty.server.core.mechanics.player.YakPlayer;
 import org.bson.Document;
 import org.bukkit.attribute.Attribute;
 import org.bukkit.entity.Player;
@@ -17,7 +17,6 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Level;
@@ -92,7 +91,7 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
      */
     private void initializeRepository() {
         try {
-            logger.info("Initializing Enhanced YakPlayerRepository with bank and health persistence fixes...");
+            // Initializing Enhanced YakPlayerRepository
 
             // Get MongoDB manager and verify connection
             MongoDBManager mongoDBManager = MongoDBManager.getInstance();
@@ -115,7 +114,7 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
             testConnectionWithStateValidation();
 
             repositoryInitialized.set(true);
-            logger.info("✅ Enhanced YakPlayerRepository initialized successfully with bank and health persistence fixes");
+            logger.info("YakPlayerRepository initialized successfully");
 
         } catch (Exception e) {
             logger.log(Level.SEVERE, "Failed to initialize Enhanced YakPlayerRepository", e);
@@ -144,7 +143,7 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
                 throw new RuntimeException("Failed to perform test count operation");
             }
 
-            logger.info("Repository connection test successful. Document count: " + count);
+            // Repository connection test successful
 
             // Test document conversion with bank and health data
             Document testDoc = new Document("uuid", "test-uuid")
@@ -157,9 +156,7 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
 
             // Test that our converter can handle bank and health data
             YakPlayer testPlayer = documentConverter.documentToPlayer(testDoc);
-            if (testPlayer != null) {
-                logger.info("✅ Document converter test with bank and health data successful");
-            } else {
+            if (testPlayer == null) {
                 logger.warning("Document converter test failed with bank and health data");
             }
 
@@ -847,7 +844,7 @@ public class YakPlayerRepository implements Repository<YakPlayer, UUID> {
     public void shutdown() {
         logger.info("Shutting down Enhanced YakPlayerRepository...");
         repositoryInitialized.set(false);
-        logger.info("✅ Enhanced Repository shutdown completed");
+        logger.info("Repository shutdown completed");
     }
 
     /**

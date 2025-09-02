@@ -16,17 +16,9 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * The ItemUtils class provides utility methods for creating and manipulating ItemStacks.
- * It includes methods for customizing items, adding enchantments, managing NBT data,
- * and more, tailored for Minecraft 1.20.2.
+ * Utility methods for creating and manipulating ItemStacks.
  */
 public class ItemUtils {
-    /**
-     * Creates a player head item with the player's skin and display name.
-     *
-     * @param player The player whose head to create.
-     * @return An ItemStack representing the player's head.
-     */
     public ItemStack createPlayerHead(Player player) {
         ItemStack head = new ItemStack(Material.PLAYER_HEAD);
         SkullMeta meta = (SkullMeta) head.getItemMeta();
@@ -38,14 +30,6 @@ public class ItemUtils {
         return head;
     }
 
-    /**
-     * Creates an ItemStack with a custom name and lore.
-     *
-     * @param material The material of the item.
-     * @param name     The display name of the item (supports color codes).
-     * @param lore     The lore lines of the item (supports color codes).
-     * @return The customized ItemStack.
-     */
     public ItemStack createItem(Material material, String name, List<String> lore) {
         ItemStack item = new ItemStack(material);
         ItemMeta meta = item.getItemMeta();

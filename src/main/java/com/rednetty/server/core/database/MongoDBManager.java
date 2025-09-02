@@ -6,6 +6,7 @@ import com.mongodb.client.MongoClients;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
 import org.bson.Document;
+import org.bson.UuidRepresentation;
 import org.bson.codecs.configuration.CodecRegistry;
 import org.bson.codecs.pojo.PojoCodecProvider;
 import org.bukkit.Bukkit;
@@ -27,26 +28,19 @@ import static org.bson.codecs.configuration.CodecRegistries.fromProviders;
 import static org.bson.codecs.configuration.CodecRegistries.fromRegistries;
 
 /**
- * Enhanced MongoDB Manager with bulletproof connection state management
- * Fixes: "state should be: open" errors and connection stability issues
- *
- * Key Improvements:
- * - Rigorous connection state validation before every operation
- * - Enhanced retry logic with exponential backoff
- * - Proper shutdown coordination to prevent race conditions
- * - Connection health monitoring with automatic recovery
- * - Operation queuing during connection recovery
+ * MongoDB Manager with robust connection handling and automatic recovery.
+ * Provides connection pooling, health monitoring, and operation queuing.
  */
 public class MongoDBManager {
     private static volatile MongoDBManager instance;
     private static final Object INSTANCE_LOCK = new Object();
 
-    // Enhanced connection management with state validation
+    // Connection Management
     private volatile MongoClient mongoClient;
     private volatile MongoDatabase database;
     private final ReentrantReadWriteLock connectionLock = new ReentrantReadWriteLock();
 
-    // Operation queue for connection recovery periods
+    // Operation Queue
     private final BlockingQueue<Runnable> operationQueue = new LinkedBlockingQueue<>();
     private final ExecutorService operationExecutor = Executors.newSingleThreadExecutor(r -> {
         Thread thread = new Thread(r, "MongoDB-Operations");
@@ -54,7 +48,7 @@ public class MongoDBManager {
         return thread;
     });
 
-    // Enhanced configuration
+    // Configuration
     private final String connectionString;
     private final String databaseName;
     private final int maxConnectionPoolSize;
@@ -68,14 +62,14 @@ public class MongoDBManager {
     private final boolean enableRetryWrites;
     private final boolean enableRetryReads;
 
-    // Enhanced state tracking with atomic operations
+    // State Tracking
     private final AtomicBoolean connected = new AtomicBoolean(false);
     private final AtomicBoolean shuttingDown = new AtomicBoolean(false);
     private final AtomicBoolean healthCheckActive = new AtomicBoolean(false);
     private final AtomicBoolean autoRecoveryEnabled = new AtomicBoolean(true);
     private final AtomicBoolean connectionValidated = new AtomicBoolean(false);
 
-    // Enhanced performance tracking
+    // Performance Tracking
     private final AtomicInteger connectionAttempts = new AtomicInteger(0);
     private final AtomicInteger successfulConnections = new AtomicInteger(0);
     private final AtomicInteger failedConnections = new AtomicInteger(0);
@@ -89,12 +83,12 @@ public class MongoDBManager {
     private final AtomicLong totalDowntime = new AtomicLong(0);
     private final AtomicLong lastConnectionTime = new AtomicLong(0);
 
-    // Core dependencies
+    // Dependencies
     private final Plugin plugin;
     private final Logger logger;
     private final CodecRegistry codecRegistry;
 
-    // Enhanced monitoring and recovery
+    // Monitoring and Recovery
     private BukkitTask healthCheckTask;
     private BukkitTask connectionMonitorTask;
     private BukkitTask operationProcessorTask;
@@ -131,7 +125,7 @@ public class MongoDBManager {
         Logger mongoLogger = Logger.getLogger("org.mongodb.driver");
         mongoLogger.setLevel(Level.WARNING);
 
-        // Enhanced codec registry with error handling
+        // Enhanced codec registry with UUID representation and error handling
         try {
             this.codecRegistry = fromRegistries(
                     MongoClientSettings.getDefaultCodecRegistry(),
@@ -145,7 +139,7 @@ public class MongoDBManager {
         // Start operation processor
         startOperationProcessor();
 
-        logger.info("✅ Enhanced MongoDBManager initialized with state validation");
+        logger.info("MongoDBManager initialized successfully");
     }
 
     public static MongoDBManager initialize(FileConfiguration config, Plugin plugin) {
@@ -273,7 +267,7 @@ public class MongoDBManager {
             lastConnectionTime.set(System.currentTimeMillis());
             lastSuccessfulPing.set(System.currentTimeMillis());
 
-            logger.info("✅ Successfully connected to Enhanced MongoDB with state validation: " + databaseName);
+            logger.info("Successfully connected to MongoDB: " + databaseName);
             return true;
 
         } catch (Exception e) {
@@ -296,6 +290,7 @@ public class MongoDBManager {
             return MongoClientSettings.builder()
                     .applyConnectionString(new ConnectionString(connectionString))
                     .codecRegistry(codecRegistry)
+                    .uuidRepresentation(UuidRepresentation.STANDARD)
                     .applyToConnectionPoolSettings(builder ->
                             builder.maxSize(maxConnectionPoolSize)
                                     .minSize(minConnectionPoolSize)
@@ -387,7 +382,7 @@ public class MongoDBManager {
                     return false;
                 }
 
-                logger.fine("✅ Enhanced write operation test successful with state validation");
+                logger.fine("Write operation test successful");
             } catch (Exception e) {
                 logger.warning("✗ Enhanced write operation test failed: " + e.getMessage());
                 // Don't fail the connection for write test failure - might be permissions
@@ -399,7 +394,7 @@ public class MongoDBManager {
                 return false;
             }
 
-            logger.fine("✅ Enhanced MongoDB connection test completed successfully with state validation");
+            logger.fine("MongoDB connection test completed successfully");
             return true;
 
         } catch (Exception e) {
@@ -474,7 +469,7 @@ public class MongoDBManager {
             // Initialize system information
             initializeSystemInfo();
 
-            logger.info("✅ Enhanced database structure initialization completed");
+            // Database structure initialization completed
             return true;
 
         } catch (Exception e) {
@@ -562,7 +557,7 @@ public class MongoDBManager {
             MongoCollection<Document> systemCollection = database.getCollection("system_info");
             createIndexSafely(systemCollection, new Document("key", 1), "system_key_index");
 
-            logger.info("✅ Enhanced database indexes created successfully");
+            // Database indexes created successfully
 
         } catch (Exception e) {
             logger.log(Level.WARNING, "Error creating enhanced indexes", e);
@@ -659,7 +654,7 @@ public class MongoDBManager {
                     connectionMonitorInterval / 50, // Convert to ticks
                     connectionMonitorInterval / 50);
 
-            logger.info("✅ Enhanced MongoDB monitoring started with state validation");
+            logger.info("MongoDB monitoring started");
         }
     }
 
@@ -780,7 +775,7 @@ public class MongoDBManager {
         Bukkit.getScheduler().runTaskLaterAsynchronously(plugin, () -> {
             try {
                 if (connect()) {
-                    logger.info("✅ Enhanced MongoDB recovery successful");
+                    logger.info("MongoDB recovery successful");
                     successfulRecoveries.incrementAndGet();
                     // Reset recovery counter on success
                     recoveryAttempts.set(0);
@@ -1122,7 +1117,7 @@ public class MongoDBManager {
 
         connected.set(false);
         connectionValidated.set(false);
-        logger.info("✅ Enhanced MongoDB disconnection completed");
+        logger.info("MongoDB disconnection completed");
     }
 
     /**
@@ -1175,7 +1170,7 @@ public class MongoDBManager {
             connectionMonitorTask = null;
         }
 
-        logger.fine("✅ Enhanced monitoring stopped");
+        logger.fine("MongoDB monitoring stopped");
     }
 
     /**
@@ -1187,7 +1182,7 @@ public class MongoDBManager {
             if (mongoClient != null) {
                 try {
                     mongoClient.close();
-                    logger.fine("✅ Enhanced MongoDB client closed successfully");
+                    logger.fine("MongoDB client closed successfully");
                 } catch (Exception e) {
                     logger.log(Level.WARNING, "Error closing enhanced MongoDB client", e);
                 } finally {
@@ -1397,7 +1392,7 @@ public class MongoDBManager {
     public void resetRecoveryState() {
         recoveryAttempts.set(0);
         autoRecoveryEnabled.set(true);
-        logger.info("✅ Enhanced MongoDB recovery state reset");
+        logger.info("MongoDB recovery state reset");
     }
 
     /**
@@ -1405,7 +1400,7 @@ public class MongoDBManager {
      */
     public void setAutoRecoveryEnabled(boolean enabled) {
         autoRecoveryEnabled.set(enabled);
-        logger.info("✅ Enhanced MongoDB auto-recovery " + (enabled ? "enabled" : "disabled"));
+        logger.info("MongoDB auto-recovery " + (enabled ? "enabled" : "disabled"));
     }
 
     /**

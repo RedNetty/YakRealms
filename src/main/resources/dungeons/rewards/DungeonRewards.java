@@ -1,10 +1,10 @@
-package com.rednetty.server.mechanics.dungeons.rewards;
+package com.rednetty.server.core.mechanics.dungeons.rewards;
 
 import com.rednetty.server.YakRealms;
-import com.rednetty.server.mechanics.item.drops.DropsManager;
-import com.rednetty.server.mechanics.dungeons.config.DungeonTemplate;
-import com.rednetty.server.mechanics.dungeons.instance.DungeonInstance;
-import com.rednetty.server.mechanics.world.mobs.MobManager;
+import com.rednetty.server.core.mechanics.item.drops.DropsManager;
+import com.rednetty.server.core.mechanics.dungeons.config.DungeonTemplate;
+import com.rednetty.server.core.mechanics.dungeons.instance.DungeonInstance;
+import com.rednetty.server.core.mechanics.world.mobs.MobManager;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.Location;
@@ -12,6 +12,7 @@ import org.bukkit.Material;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.metadata.FixedMetadataValue;
 import org.bukkit.scheduler.BukkitRunnable;
 
 import java.util.*;
@@ -419,8 +420,8 @@ public class DungeonRewards {
                         data.addMobReward(mobData);
 
                         // Add special marking for reward mobs
-                        spawnedMob.setMetadata("rewardMob", new org.bukkit.metadata.MetadataValue(YakRealms.getInstance(), true));
-                        spawnedMob.setMetadata("rewardPlayer", new org.bukkit.metadata.MetadataValue(YakRealms.getInstance(), player.getUniqueId().toString()));
+                        spawnedMob.setMetadata("rewardMob", new FixedMetadataValue(YakRealms.getInstance(), true));
+                        spawnedMob.setMetadata("rewardPlayer", new FixedMetadataValue(YakRealms.getInstance(), player.getUniqueId().toString()));
                     }
 
                 } catch (Exception e) {

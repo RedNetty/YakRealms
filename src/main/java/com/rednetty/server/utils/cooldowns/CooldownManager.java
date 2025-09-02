@@ -9,15 +9,12 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Unified Cooldown Management System for YakRealms
- * Provides consistent cooldown handling across all systems
- * Replaces scattered cooldown implementations with standardized approach
+ * Unified cooldown management system providing consistent cooldown handling
+ * across all YakRealms systems with confirmation support.
  */
 public class CooldownManager {
 
-    // ========================================
-    // STORAGE AND CONSTANTS
-    // ========================================
+    // Storage and Constants
 
     // Thread-safe storage for cooldowns
     private static final Map<UUID, Map<String, Long>> playerCooldowns = new ConcurrentHashMap<>();
@@ -47,16 +44,8 @@ public class CooldownManager {
     public static final String VENDOR_INTERACTION = "vendor_interaction";
     public static final String PRIVATE_MESSAGE = "private_message";
 
-    // ========================================
-    // BASIC COOLDOWN OPERATIONS
-    // ========================================
+    // Basic Cooldown Operations
 
-    /**
-     * Check if a player has an active cooldown for a specific type
-     * @param player The player to check
-     * @param type The cooldown type
-     * @return true if player has active cooldown
-     */
     public static boolean hasCooldown(Player player, String type) {
         if (player == null || type == null) {
             return false;
@@ -65,12 +54,6 @@ public class CooldownManager {
         return hasCooldown(player.getUniqueId(), type);
     }
 
-    /**
-     * Check if a player UUID has an active cooldown for a specific type
-     * @param playerId The player UUID to check
-     * @param type The cooldown type
-     * @return true if player has active cooldown
-     */
     public static boolean hasCooldown(UUID playerId, String type) {
         if (playerId == null || type == null) {
             return false;
@@ -99,12 +82,6 @@ public class CooldownManager {
         return isActive;
     }
 
-    /**
-     * Apply a cooldown to a player
-     * @param player The player to apply cooldown to
-     * @param type The cooldown type
-     * @param duration The cooldown duration in milliseconds
-     */
     public static void applyCooldown(Player player, String type, long duration) {
         if (player == null || type == null || duration <= 0) {
             return;
@@ -113,12 +90,6 @@ public class CooldownManager {
         applyCooldown(player.getUniqueId(), type, duration);
     }
 
-    /**
-     * Apply a cooldown to a player UUID
-     * @param playerId The player UUID to apply cooldown to
-     * @param type The cooldown type
-     * @param duration The cooldown duration in milliseconds
-     */
     public static void applyCooldown(UUID playerId, String type, long duration) {
         if (playerId == null || type == null || duration <= 0) {
             return;
@@ -130,12 +101,6 @@ public class CooldownManager {
                 .put(type, expireTime);
     }
 
-    /**
-     * Get remaining cooldown time in milliseconds
-     * @param player The player to check
-     * @param type The cooldown type
-     * @return Remaining cooldown time in milliseconds, 0 if no cooldown
-     */
     public static long getRemainingCooldown(Player player, String type) {
         if (player == null || type == null) {
             return 0;
@@ -144,12 +109,6 @@ public class CooldownManager {
         return getRemainingCooldown(player.getUniqueId(), type);
     }
 
-    /**
-     * Get remaining cooldown time in milliseconds for UUID
-     * @param playerId The player UUID to check
-     * @param type The cooldown type
-     * @return Remaining cooldown time in milliseconds, 0 if no cooldown
-     */
     public static long getRemainingCooldown(UUID playerId, String type) {
         if (playerId == null || type == null) {
             return 0;
@@ -169,11 +128,6 @@ public class CooldownManager {
         return Math.max(0, remaining);
     }
 
-    /**
-     * Remove a specific cooldown from a player
-     * @param player The player to remove cooldown from
-     * @param type The cooldown type to remove
-     */
     public static void removeCooldown(Player player, String type) {
         if (player == null || type == null) {
             return;
@@ -182,11 +136,6 @@ public class CooldownManager {
         removeCooldown(player.getUniqueId(), type);
     }
 
-    /**
-     * Remove a specific cooldown from a player UUID
-     * @param playerId The player UUID to remove cooldown from
-     * @param type The cooldown type to remove
-     */
     public static void removeCooldown(UUID playerId, String type) {
         if (playerId == null || type == null) {
             return;
@@ -201,9 +150,7 @@ public class CooldownManager {
         }
     }
 
-    // ========================================
-    // COOLDOWN WITH MESSAGING
-    // ========================================
+    // Cooldown with Messaging
 
     /**
      * Check cooldown and send message if active
@@ -266,9 +213,7 @@ public class CooldownManager {
         return true;
     }
 
-    // ========================================
-    // CONFIRMATION SYSTEM
-    // ========================================
+    // Confirmation System
 
     /**
      * Check if player has a recent confirmation for destructive actions
@@ -344,9 +289,7 @@ public class CooldownManager {
         return expireTime != null && System.currentTimeMillis() < expireTime;
     }
 
-    // ========================================
-    // PRESET COOLDOWN METHODS
-    // ========================================
+    // Preset Cooldown Methods
 
     /**
      * Apply chat message cooldown
@@ -422,9 +365,7 @@ public class CooldownManager {
         return checkCooldownWithMessage(player, "economy_" + action, action + " items");
     }
 
-    // ========================================
-    // UTILITY METHODS
-    // ========================================
+    // Utility Methods
 
     /**
      * Format cooldown time into human-readable string

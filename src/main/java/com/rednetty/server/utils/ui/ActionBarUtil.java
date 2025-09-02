@@ -46,8 +46,16 @@ public class ActionBarUtil {
         player.spigot().sendMessage(ChatMessageType.ACTION_BAR, new TextComponent(""));
     }
 
-    // **New Method**: Adds a temporary message that removes itself after a specified duration.
+    // **Enhanced Method**: Adds a temporary message with better management
     public static void addTemporaryMessage(Player player, String message, long ticks) {
+        // Limit action bar messages to prevent overflow
+        List<ActionBarMessage> playerMessages = messages.get(player.getUniqueId());
+        if (playerMessages != null && playerMessages.size() >= 3) {
+            // Remove oldest message if we have too many
+            ActionBarMessage oldest = playerMessages.get(0);
+            removeActionBarMessage(player, oldest);
+        }
+        
         ActionBarMessage abMessage = new ActionBarMessage(message, false, 0);
         addActionBarMessage(player, abMessage);
         Bukkit.getScheduler().runTaskLater(plugin, () -> {
@@ -55,6 +63,28 @@ public class ActionBarUtil {
                 removeActionBarMessage(player, abMessage);
             }
         }, ticks);
+    }
+    
+    // **New Method**: Adds a unique temporary message (prevents duplicates)
+    public static void addUniqueTemporaryMessage(Player player, String message, long ticks) {
+        // Check if we already have this message
+        List<ActionBarMessage> playerMessages = messages.get(player.getUniqueId());
+        if (playerMessages != null) {
+            for (ActionBarMessage existing : playerMessages) {
+                if (existing.message.equals(message)) {
+                    return; // Don't add duplicate
+                }
+            }
+        }
+        
+        addTemporaryMessage(player, message, ticks);
+    }
+    
+    // Send a simple action bar message (for EliteActionBarManager)
+    public static void sendActionBar(Player player, String message) {
+        if (player != null && player.isOnline()) {
+            player.spigot().sendMessage(ChatMessageType.ACTION_BAR, new TextComponent(message));
+        }
     }
 
     // Internal: Adds a message and updates the display.

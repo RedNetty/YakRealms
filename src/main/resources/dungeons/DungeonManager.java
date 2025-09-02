@@ -1,12 +1,12 @@
-package com.rednetty.server.mechanics.dungeons;
+package com.rednetty.server.core.mechanics.dungeons;
 
 import com.rednetty.server.YakRealms;
-import com.rednetty.server.mechanics.dungeons.bosses.DungeonBoss;
-import com.rednetty.server.mechanics.dungeons.config.DungeonTemplate;
-import com.rednetty.server.mechanics.dungeons.instance.DungeonInstance;
-import com.rednetty.server.mechanics.dungeons.instance.InstanceManager;
-import com.rednetty.server.mechanics.dungeons.rewards.DungeonRewards;
-import com.rednetty.server.mechanics.player.social.party.PartyMechanics;
+import com.rednetty.server.core.mechanics.dungeons.bosses.DungeonBoss;
+import com.rednetty.server.core.mechanics.dungeons.config.DungeonTemplate;
+import com.rednetty.server.core.mechanics.dungeons.instance.DungeonInstance;
+import com.rednetty.server.core.mechanics.dungeons.instance.InstanceManager;
+import com.rednetty.server.core.mechanics.dungeons.rewards.DungeonRewards;
+import com.rednetty.server.core.mechanics.player.social.party.PartyMechanics;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.entity.Player;
@@ -166,7 +166,7 @@ public class DungeonManager implements Listener {
      */
     public void initialize() {
         try {
-            logger.info("§6[DungeonManager] §7Initializing dungeon system...");
+            // Initializing dungeon system
 
             // Register events
             Bukkit.getPluginManager().registerEvents(this, plugin);
@@ -180,11 +180,11 @@ public class DungeonManager implements Listener {
             // Start processing tasks
             startTasks();
 
-            logger.info("§a[DungeonManager] §7Dungeon system initialized successfully!");
-            logger.info("§a[DungeonManager] §7Loaded " + dungeonTemplates.size() + " dungeon templates");
+            logger.info("Dungeon system enabled successfully");
+            logger.info("Loaded " + dungeonTemplates.size() + " dungeon templates");
 
         } catch (Exception e) {
-            logger.severe("§c[DungeonManager] Failed to initialize: " + e.getMessage());
+            logger.severe("Failed to initialize dungeon system: " + e.getMessage());
             e.printStackTrace();
         }
     }

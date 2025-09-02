@@ -1,65 +1,71 @@
 package com.rednetty.server;
 
-import com.rednetty.server.commands.economy.*;
-import com.rednetty.server.commands.party.*;
-import com.rednetty.server.commands.player.*;
-import com.rednetty.server.commands.staff.*;
-import com.rednetty.server.commands.staff.admin.*;
-import com.rednetty.server.commands.utility.InvseeCommand;
-import com.rednetty.server.commands.utility.ItemCommand;
-import com.rednetty.server.commands.utility.OrbCommand;
-import com.rednetty.server.commands.utility.TeleportCommand;
-import com.rednetty.server.commands.world.NodeMapCommand;
-import com.rednetty.server.commands.world.TrailCommand;
+import com.rednetty.server.core.commands.economy.*;
+import com.rednetty.server.core.commands.party.*;
+import com.rednetty.server.core.commands.player.*;
+import com.rednetty.server.core.commands.staff.*;
+import com.rednetty.server.core.commands.staff.admin.*;
+import com.rednetty.server.core.commands.utility.InvseeCommand;
+import com.rednetty.server.core.commands.utility.ItemCommand;
+import com.rednetty.server.core.commands.utility.OrbCommand;
+import com.rednetty.server.core.commands.utility.TeleportCommand;
+import com.rednetty.server.core.commands.world.NodeMapCommand;
+import com.rednetty.server.core.commands.world.TrailCommand;
 import com.rednetty.server.core.database.MongoDBManager;
-import com.rednetty.server.mechanics.chat.ChatMechanics;
-import com.rednetty.server.mechanics.combat.CombatMechanics;
-import com.rednetty.server.mechanics.combat.MagicStaff;
-import com.rednetty.server.mechanics.combat.death.DeathMechanics;
-import com.rednetty.server.mechanics.combat.death.remnant.DeathRemnantManager;
-import com.rednetty.server.mechanics.combat.logout.CombatLogoutMechanics;
-import com.rednetty.server.mechanics.combat.pvp.AlignmentMechanics;
-import com.rednetty.server.mechanics.economy.BankManager;
-import com.rednetty.server.mechanics.economy.EconomyManager;
-import com.rednetty.server.mechanics.economy.GemPouchManager;
-import com.rednetty.server.mechanics.economy.market.MarketManager;
-import com.rednetty.server.mechanics.economy.merchant.MerchantSystem;
-import com.rednetty.server.mechanics.economy.vendors.VendorManager;
-import com.rednetty.server.mechanics.economy.vendors.VendorSystemInitializer;
-import com.rednetty.server.mechanics.item.Journal;
-import com.rednetty.server.mechanics.item.MenuItemManager;
-import com.rednetty.server.mechanics.item.MenuSystemInitializer;
-import com.rednetty.server.mechanics.item.crates.CrateManager;
-import com.rednetty.server.mechanics.item.drops.DropsHandler;
-import com.rednetty.server.mechanics.item.drops.DropsManager;
-import com.rednetty.server.mechanics.item.drops.buff.LootBuffManager;
-import com.rednetty.server.mechanics.item.drops.glowing.GlowingDropsInitializer;
-import com.rednetty.server.mechanics.item.orb.OrbManager;
-import com.rednetty.server.mechanics.item.scroll.ScrollManager;
-import com.rednetty.server.mechanics.player.moderation.ModerationMechanics;
-import com.rednetty.server.mechanics.player.PlayerMechanics;
-import com.rednetty.server.mechanics.player.YakPlayerManager;
-import com.rednetty.server.mechanics.player.items.SpeedfishMechanics;
-import com.rednetty.server.mechanics.player.listeners.TradeListener;
-import com.rednetty.server.mechanics.player.mounts.MountManager;
-import com.rednetty.server.mechanics.player.movement.DashMechanics;
-import com.rednetty.server.mechanics.player.social.party.PartyMechanics;
-import com.rednetty.server.mechanics.player.social.trade.TradeManager;
-import com.rednetty.server.mechanics.ui.TabPluginIntegration;
-import com.rednetty.server.mechanics.world.holograms.HologramManager;
-import com.rednetty.server.mechanics.world.lootchests.LootChestManager;
-import com.rednetty.server.mechanics.world.mobs.MobManager;
-import com.rednetty.server.mechanics.world.mobs.tasks.SpawnerHologramUpdater;
-import com.rednetty.server.mechanics.world.teleport.HearthstoneSystem;
-import com.rednetty.server.mechanics.world.teleport.PortalSystem;
-import com.rednetty.server.mechanics.world.teleport.TeleportBookSystem;
-import com.rednetty.server.mechanics.world.teleport.TeleportManager;
-import com.rednetty.server.mechanics.world.trail.TrailSystem;
-import com.rednetty.server.mechanics.world.trail.pathing.ParticleSystem;
-import com.rednetty.server.mechanics.world.trail.pathing.PathManager;
-import com.rednetty.server.mechanics.world.trail.pathing.nodes.AdvancedNodeMapGenerator;
-import com.rednetty.server.mechanics.world.trail.pathing.nodes.NavNode;
+import com.rednetty.server.core.mechanics.chat.ChatMechanics;
+import com.rednetty.server.core.mechanics.combat.CombatMechanics;
+import com.rednetty.server.core.mechanics.combat.MagicStaff;
+import com.rednetty.server.core.mechanics.combat.death.DeathMechanics;
+import com.rednetty.server.core.mechanics.combat.death.remnant.DeathRemnantManager;
+import com.rednetty.server.core.mechanics.combat.logout.CombatLogoutMechanics;
+import com.rednetty.server.core.mechanics.combat.pvp.AlignmentMechanics;
+import com.rednetty.server.core.mechanics.economy.BankManager;
+import com.rednetty.server.core.mechanics.economy.EconomyManager;
+import com.rednetty.server.core.mechanics.economy.GemPouchManager;
+import com.rednetty.server.core.mechanics.economy.market.MarketManager;
+import com.rednetty.server.core.mechanics.economy.merchant.MerchantSystem;
+import com.rednetty.server.core.mechanics.economy.vendors.VendorManager;
+import com.rednetty.server.core.mechanics.economy.vendors.VendorSystemManager;
+import com.rednetty.server.core.mechanics.item.Journal;
+import com.rednetty.server.core.mechanics.item.MenuItemManager;
+import com.rednetty.server.core.mechanics.item.MenuSystemInitializer;
+import com.rednetty.server.core.mechanics.item.crates.CrateManager;
+import com.rednetty.server.core.mechanics.item.drops.DropsHandler;
+import com.rednetty.server.core.mechanics.item.drops.DropsManager;
+import com.rednetty.server.core.mechanics.item.drops.buff.LootBuffManager;
+import com.rednetty.server.core.mechanics.item.drops.glowing.GlowingDropsInitializer;
+import com.rednetty.server.core.mechanics.item.orb.OrbManager;
+import com.rednetty.server.core.mechanics.item.scroll.ScrollManager;
+import com.rednetty.server.core.mechanics.player.moderation.ModerationMechanics;
+import com.rednetty.server.core.mechanics.player.moderation.ModerationSystemManager;
+import com.rednetty.server.core.mechanics.player.limbo.PlayerLimboSystem;
+import com.rednetty.server.core.mechanics.player.PlayerMechanics;
+import com.rednetty.server.core.mechanics.player.YakPlayerManager;
+import com.rednetty.server.core.mechanics.player.items.SpeedfishMechanics;
+import com.rednetty.server.core.mechanics.player.listeners.TradeListener;
+import com.rednetty.server.core.mechanics.player.mounts.MountManager;
+import com.rednetty.server.core.mechanics.player.movement.DashMechanics;
+import com.rednetty.server.core.mechanics.player.social.party.PartyMechanics;
+import com.rednetty.server.core.mechanics.player.social.trade.TradeManager;
+import com.rednetty.server.core.mechanics.ui.TabPluginIntegration;
+import com.rednetty.server.core.mechanics.world.holograms.HologramManager;
+import com.rednetty.server.core.mechanics.world.lootchests.LootChestManager;
+import com.rednetty.server.core.mechanics.world.mobs.MobManager;
+import com.rednetty.server.core.mechanics.world.mobs.tasks.SpawnerHologramUpdater;
+import com.rednetty.server.core.mechanics.world.teleport.HearthstoneSystem;
+import com.rednetty.server.core.mechanics.world.teleport.PortalSystem;
+import com.rednetty.server.core.mechanics.world.teleport.TeleportBookSystem;
+import com.rednetty.server.core.mechanics.world.teleport.TeleportManager;
+import com.rednetty.server.core.mechanics.world.trail.TrailSystem;
+import com.rednetty.server.core.mechanics.world.trail.pathing.ParticleSystem;
+import com.rednetty.server.core.mechanics.world.trail.pathing.PathManager;
+import com.rednetty.server.core.mechanics.world.trail.pathing.nodes.AdvancedNodeMapGenerator;
+import com.rednetty.server.core.mechanics.world.trail.pathing.nodes.NavNode;
+import com.rednetty.server.utils.input.ChatInputHandler;
 import com.rednetty.server.utils.ui.ActionBarUtil;
+import com.rednetty.server.utils.monitoring.PerformanceMonitor;
+import com.rednetty.server.utils.monitoring.SystemHealthChecker;
+import com.rednetty.server.utils.recovery.ErrorRecoveryManager;
 import org.bukkit.Bukkit;
 import org.bukkit.World;
 import org.bukkit.configuration.file.FileConfiguration;
@@ -83,49 +89,31 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.logging.Level;
 
 /**
- * YakRealms Main Plugin Class - Complete System Overhaul
- *
- * MAJOR ENHANCEMENTS:
- * - Advanced rotating file logging system with multiple log levels
- * - Robust initialization with retry mechanisms and dependency validation
- * - Performance monitoring and health check systems
- * - Memory management and resource cleanup improvements
- * - Configuration validation and hot-reloading capabilities
- * - Enhanced error handling with graceful degradation
- * - Modular system architecture with proper dependency management
- * - Comprehensive metrics collection and reporting
- * - Advanced shutdown procedures with data integrity preservation
- * - Plugin compatibility checks and version validation
- * - System recovery and self-healing capabilities
- * - Real-time performance diagnostics
- * - Enhanced debugging and troubleshooting tools
- * - Player-based Vault System with JSON persistence
- *
- * @version 2.0.0 - Enhanced Architecture with Player Vault System
+ * YakRealms Main Plugin Class
+ * 
+ * Core system initialization and management for the YakRealms server plugin.
+ * Features modular architecture, enhanced logging, and comprehensive system monitoring.
+ * 
+ * @version 2.0.0
  * @author YakRealms Development Team
  */
 public class YakRealms extends JavaPlugin {
 
     private static YakRealms instance;
 
-    // ========================================
-    // ENHANCED LOGGING SYSTEM
-    // ========================================
+    // Logging and Monitoring
     private EnhancedLogger enhancedLogger;
     private PerformanceMonitor performanceMonitor;
     private SystemHealthChecker healthChecker;
+    private ErrorRecoveryManager errorRecoveryManager;
 
-    // ========================================
-    // GAME SETTINGS AND STATE
-    // ========================================
+    // Game Settings
     private static boolean patchLockdown = false;
     private static int sessionID = 0;
     private static boolean t6Enabled = false;
     private static final String PLUGIN_VERSION = "2.0.0";
 
-    // ========================================
-    // INITIALIZATION AND STATE TRACKING
-    // ========================================
+    // Initialization Tracking
     private final AtomicBoolean initializationInProgress = new AtomicBoolean(false);
     private final AtomicBoolean fullyInitialized = new AtomicBoolean(false);
     private final AtomicBoolean shutdownInProgress = new AtomicBoolean(false);
@@ -137,7 +125,8 @@ public class YakRealms extends JavaPlugin {
     private final Map<String, SystemStatus> systemStatuses = new ConcurrentHashMap<>();
     private final Map<String, Long> systemInitTimes = new ConcurrentHashMap<>();
     private final Set<String> criticalSystems = Set.of(
-            "Database", "Player Manager", "Moderation Mechanics", "Combat Logout Mechanics"
+            "Database", "Player Manager", "Player Limbo System", "Moderation Mechanics", 
+            "Modern Moderation System", "Combat Logout Mechanics"
     );
 
     // Health monitoring
@@ -145,17 +134,17 @@ public class YakRealms extends JavaPlugin {
     private BukkitTask performanceMonitorTask;
     private BukkitTask memoryMonitorTask;
 
-    // ========================================
-    // CORE SYSTEMS (Phase 1 - Critical Dependencies)
-    // ========================================
+    // Core Systems
     private MongoDBManager mongoDBManager;
     private YakPlayerManager playerManager;
     private PlayerMechanics playerMechanics;
     private ModerationMechanics moderationMechanics;
+    
+    // Modern Moderation System
+    private ModerationSystemManager moderationSystemManager;
+    private PlayerLimboSystem playerLimboSystem;
 
-    // ========================================
-    // COMBAT SYSTEMS (Phase 2 - Early Dependencies)
-    // ========================================
+    // Combat Systems
     private CombatLogoutMechanics combatLogoutMechanics;
     private AlignmentMechanics alignmentMechanics;
     private DeathMechanics deathMechanics;
@@ -163,32 +152,24 @@ public class YakRealms extends JavaPlugin {
     private MagicStaff magicStaff;
     private DeathRemnantManager deathRemnantManager;
 
-    // ========================================
-    // SOCIAL SYSTEMS (Phase 3)
-    // ========================================
+    // Social Systems
     private ChatMechanics chatMechanics;
     private PartyMechanics partyMechanics;
     private TradeManager tradeManager;
     private TradeListener tradeListener;
 
-    // ========================================
-    // MOVEMENT SYSTEMS (Phase 4)
-    // ========================================
+    // Movement Systems
     private DashMechanics dashMechanics;
     private SpeedfishMechanics speedfishMechanics;
     private MountManager mountManager;
 
-    // ========================================
-    // ITEM SYSTEMS (Phase 5)
-    // ========================================
+    // Item Systems
     private ScrollManager scrollManager;
     private OrbManager orbManager;
     private Journal journalSystem;
     private MenuItemManager menuItemManager;
 
-    // ========================================
-    // ECONOMY SYSTEMS (Phase 6)
-    // ========================================
+    // Economy Systems
     private EconomyManager economyManager;
     private BankManager bankManager;
     private GemPouchManager gemPouchManager;
@@ -196,9 +177,7 @@ public class YakRealms extends JavaPlugin {
     private MarketManager marketManager;
     private MerchantSystem merchantSystem;
 
-    // ========================================
-    // WORLD SYSTEMS (Phase 7)
-    // ========================================
+    // World Systems
     private MobManager mobManager;
     private DropsManager dropsManager;
     private DropsHandler dropsHandler;
@@ -213,21 +192,15 @@ public class YakRealms extends JavaPlugin {
     private CrateManager crateManager;
     private LootChestManager lootChestManager;
 
-    // ========================================
-    // INTEGRATION SYSTEMS (Phase 8 - Final)
-    // ========================================
+    // Integration Systems
     private TabPluginIntegration tabPluginIntegration;
 
-    // ========================================
-    // COMMANDS AND UTILITIES
-    // ========================================
+    // Commands and Utilities
     private SpawnerCommand spawnerCommand;
     private boolean mobsEnabled = true;
     private boolean spawnerVisibilityDefault = false;
 
-    // ========================================
-    // SYSTEM STATUS ENUM
-    // ========================================
+    // System Status
     public enum SystemStatus {
         NOT_INITIALIZED, INITIALIZING, INITIALIZED, FAILED, RECOVERING, DISABLED
     }
@@ -239,7 +212,6 @@ public class YakRealms extends JavaPlugin {
         // Initialize enhanced logging system first
         try {
             enhancedLogger = new EnhancedLogger(this);
-            enhancedLogger.info("YakRealms v" + PLUGIN_VERSION + " loaded");
         } catch (Exception e) {
             getLogger().severe("Failed to initialize enhanced logging: " + e.getMessage());
         }
@@ -259,12 +231,7 @@ public class YakRealms extends JavaPlugin {
         try {
             startupTime.set(System.currentTimeMillis());
 
-            enhancedLogger.info("========================================");
-            enhancedLogger.info("    YakRealms v" + PLUGIN_VERSION + " Starting Up");
-            enhancedLogger.info("    Build: " + getBuildInfo());
-            enhancedLogger.info("    Server: " + getServer().getVersion());
-            enhancedLogger.info("    Java: " + System.getProperty("java.version"));
-            enhancedLogger.info("========================================");
+            enhancedLogger.info("YakRealms v" + PLUGIN_VERSION + " - Starting initialization...");
 
             // Initialize monitoring systems
             if (!initializeMonitoringSystems()) {
@@ -330,19 +297,19 @@ public class YakRealms extends JavaPlugin {
             long totalTime = System.currentTimeMillis() - startupTime.get();
             fullyInitialized.set(true);
 
-            enhancedLogger.info("========================================");
-            enhancedLogger.info("✓ YakRealms ENABLED Successfully!");
-            enhancedLogger.info("✓ Systems Initialized: " + systemsInitialized.get());
+            // Professional startup completion message
+            String status = systemsFailed.get() > 0 ? 
+                String.format("YakRealms v%s enabled (%dms) - %d/%d systems initialized", 
+                    PLUGIN_VERSION, totalTime, systemsInitialized.get(), 
+                    systemsInitialized.get() + systemsFailed.get()) :
+                String.format("YakRealms v%s enabled (%dms) - All systems operational", 
+                    PLUGIN_VERSION, totalTime);
+            
             if (systemsFailed.get() > 0) {
-                enhancedLogger.warn("⚠ Systems Failed: " + systemsFailed.get());
+                enhancedLogger.warn(status);
+            } else {
+                enhancedLogger.info(status);
             }
-            enhancedLogger.info("✓ Startup Time: " + totalTime + "ms");
-            enhancedLogger.info("✓ Session ID: " + sessionID);
-            enhancedLogger.info("✓ Memory Usage: " + getMemoryUsage());
-            enhancedLogger.info("========================================");
-
-            // Log system status summary
-            logSystemStatusSummary();
 
         } catch (Exception e) {
             enhancedLogger.error("CRITICAL: YakRealms startup failed!", e);
@@ -360,24 +327,19 @@ public class YakRealms extends JavaPlugin {
         }
     }
 
-    // ========================================
-    // ENHANCED MONITORING SYSTEMS
-    // ========================================
+    // Monitoring Implementation
 
-    /**
-     * Initialize monitoring systems first
-     */
     private boolean initializeMonitoringSystems() {
         try {
-            enhancedLogger.info("Initializing monitoring systems...");
-
             // Performance monitor
             performanceMonitor = new PerformanceMonitor();
 
             // Health checker
-            healthChecker = new SystemHealthChecker();
-
-            enhancedLogger.info("✓ Monitoring systems initialized");
+            healthChecker = new SystemHealthChecker(performanceMonitor);
+            
+            // Error recovery manager
+            errorRecoveryManager = new ErrorRecoveryManager();
+            
             return true;
         } catch (Exception e) {
             enhancedLogger.error("Failed to initialize monitoring systems", e);
@@ -385,9 +347,6 @@ public class YakRealms extends JavaPlugin {
         }
     }
 
-    /**
-     * Start monitoring tasks
-     */
     private void startMonitoringTasks() {
         try {
             // Health check task - every 30 seconds
@@ -435,24 +394,37 @@ public class YakRealms extends JavaPlugin {
         }
     }
 
-    /**
-     * Perform comprehensive health check
-     */
     private void performHealthCheck() {
-        healthChecker.performHealthCheck();
-
-        // Check for failed systems that might be recoverable
-        for (Map.Entry<String, SystemStatus> entry : systemStatuses.entrySet()) {
-            if (entry.getValue() == SystemStatus.FAILED && criticalSystems.contains(entry.getKey())) {
-                enhancedLogger.warn("Critical system " + entry.getKey() + " is in failed state - attempting recovery");
-                attemptSystemRecovery(entry.getKey());
+        try {
+            // Perform comprehensive health check using enhanced SystemHealthChecker
+            SystemHealthChecker.HealthReport healthReport = healthChecker.performCompleteHealthCheck();
+            
+            // Log health status based on overall score
+            double healthScore = healthReport.getOverallScore();
+            if (healthScore < 50.0) {
+                enhancedLogger.error("System health critical: " + String.format("%.1f", healthScore) + "/100");
+                enhancedLogger.debug("Health report: " + healthReport.getCriticalIssues().size() + " critical issues found");
+            } else if (healthScore < 80.0) {
+                enhancedLogger.warn("System health degraded: " + String.format("%.1f", healthScore) + "/100");
+            } else {
+                if (isDebugMode()) {
+                    enhancedLogger.debug("System health good: " + String.format("%.1f", healthScore) + "/100");
+                }
             }
+            
+            // Check for failed systems that might be recoverable
+            for (Map.Entry<String, SystemStatus> entry : systemStatuses.entrySet()) {
+                if (entry.getValue() == SystemStatus.FAILED && criticalSystems.contains(entry.getKey())) {
+                    enhancedLogger.warn("Critical system " + entry.getKey() + " is in failed state - attempting recovery");
+                    attemptSystemRecovery(entry.getKey());
+                }
+            }
+            
+        } catch (Exception e) {
+            enhancedLogger.error("Health check execution failed", e);
         }
     }
 
-    /**
-     * Check memory usage and trigger cleanup if needed
-     */
     private void checkMemoryUsage() {
         Runtime runtime = Runtime.getRuntime();
         long totalMemory = runtime.totalMemory();
@@ -476,9 +448,6 @@ public class YakRealms extends JavaPlugin {
         }
     }
 
-    /**
-     * Attempt to recover a failed system
-     */
     private void attemptSystemRecovery(String systemName) {
         try {
             systemStatuses.put(systemName, SystemStatus.RECOVERING);
@@ -515,17 +484,30 @@ public class YakRealms extends JavaPlugin {
         }
     }
 
-    // ========================================
-    // SYSTEM RECOVERY METHODS
-    // ========================================
+    // System Recovery
 
     private boolean recoverDatabaseConnection() {
         try {
+            enhancedLogger.info("Attempting database reconnection...");
+            
             if (mongoDBManager != null) {
-                mongoDBManager.disconnect();
+                try {
+                    mongoDBManager.disconnect();
+                } catch (Exception e) {
+                    enhancedLogger.warn("Error during database disconnect: " + e.getMessage());
+                }
             }
+            
             mongoDBManager = MongoDBManager.initialize(getConfig(), this);
-            return mongoDBManager.connect();
+            boolean connected = mongoDBManager.connect();
+            
+            if (connected) {
+                enhancedLogger.info("Database connection restored successfully");
+            } else {
+                enhancedLogger.error("Database connection failed - invalid credentials or server unavailable");
+            }
+            
+            return connected;
         } catch (Exception e) {
             enhancedLogger.error("Database recovery failed", e);
             return false;
@@ -534,11 +516,20 @@ public class YakRealms extends JavaPlugin {
 
     private boolean recoverPlayerManager() {
         try {
+            enhancedLogger.info("Attempting Player Manager recovery...");
+            
             if (playerManager != null) {
-                playerManager.onDisable();
+                try {
+                    playerManager.onDisable();
+                } catch (Exception e) {
+                    enhancedLogger.warn("Error during Player Manager shutdown: " + e.getMessage());
+                }
             }
+            
             playerManager = YakPlayerManager.getInstance();
             playerManager.onEnable();
+            
+            enhancedLogger.info("Player Manager recovered successfully");
             return true;
         } catch (Exception e) {
             enhancedLogger.error("Player Manager recovery failed", e);
@@ -548,10 +539,18 @@ public class YakRealms extends JavaPlugin {
 
     private boolean recoverModerationMechanics() {
         try {
+            enhancedLogger.info("Attempting Moderation Mechanics recovery...");
+            
             if (moderationMechanics != null) {
-                moderationMechanics.onDisable();
+                try {
+                    moderationMechanics.onDisable();
+                } catch (Exception e) {
+                    enhancedLogger.warn("Error during Moderation Mechanics shutdown: " + e.getMessage());
+                }
             }
+            
             moderationMechanics = ModerationMechanics.getInstance();
+            enhancedLogger.info("Moderation Mechanics recovered successfully");
             return true;
         } catch (Exception e) {
             enhancedLogger.error("Moderation Mechanics recovery failed", e);
@@ -559,15 +558,30 @@ public class YakRealms extends JavaPlugin {
         }
     }
 
-    //TODO:REMOVE
     private boolean recoverCombatLogoutMechanics() {
-        return true;
-
+        try {
+            enhancedLogger.info("Attempting Combat Logout Mechanics recovery...");
+            
+            if (combatLogoutMechanics != null) {
+                try {
+                    combatLogoutMechanics.onDisable();
+                } catch (Exception e) {
+                    enhancedLogger.warn("Error during Combat Logout shutdown: " + e.getMessage());
+                }
+            }
+            
+            combatLogoutMechanics = CombatLogoutMechanics.getInstance();
+            combatLogoutMechanics.onEnable();
+            getServer().getPluginManager().registerEvents(combatLogoutMechanics, this);
+            
+            enhancedLogger.info("Combat Logout Mechanics recovered successfully");
+            return true;
+        } catch (Exception e) {
+            enhancedLogger.error("Combat Logout Mechanics recovery failed", e);
+            return false;
+        }
     }
 
-    /**
-     * Perform emergency cleanup to free memory
-     */
     private void performEmergencyCleanup() {
         try {
             enhancedLogger.warn("Performing emergency cleanup procedures...");
@@ -590,16 +604,10 @@ public class YakRealms extends JavaPlugin {
         }
     }
 
-    // ========================================
-    // INITIALIZATION PHASES (Enhanced)
-    // ========================================
+    // Initialization Phases
 
-    /**
-     * Phase 0: Pre-initialization setup with validation
-     */
     private boolean preInitialization() {
         try {
-            enhancedLogger.info("Phase 0: Pre-initialization");
 
             // Validate server version
             if (!validateServerVersion()) {
@@ -625,7 +633,13 @@ public class YakRealms extends JavaPlugin {
             // Check for plugin dependencies
             checkPluginDependencies();
 
-            enhancedLogger.info("✓ Pre-initialization completed");
+            // Initialize Chat Input Handler (required for moderation system)
+            safeInitialize("Chat Input Handler", () -> {
+                ChatInputHandler.getInstance(); // Initialize singleton instance
+                enhancedLogger.info("✓ Chat Input Handler initialized for interactive moderation");
+                return true;
+            });
+
             return true;
         } catch (Exception e) {
             enhancedLogger.error("Pre-initialization failed", e);
@@ -633,9 +647,6 @@ public class YakRealms extends JavaPlugin {
         }
     }
 
-    /**
-     * Validate server version compatibility
-     */
     private boolean validateServerVersion() {
         String version = getServer().getVersion();
         enhancedLogger.debug("Server version: " + version);
@@ -650,9 +661,6 @@ public class YakRealms extends JavaPlugin {
         }
     }
 
-    /**
-     * Validate and load configuration with backup
-     */
     private boolean validateAndLoadConfig() {
         try {
             // Create backup of existing config
@@ -681,9 +689,6 @@ public class YakRealms extends JavaPlugin {
         }
     }
 
-    /**
-     * Check for plugin dependencies
-     */
     private void checkPluginDependencies() {
         Map<String, Boolean> dependencies = new HashMap<>();
 
@@ -692,28 +697,31 @@ public class YakRealms extends JavaPlugin {
         dependencies.put("PlaceholderAPI", Bukkit.getPluginManager().isPluginEnabled("PlaceholderAPI"));
         dependencies.put("Vault", Bukkit.getPluginManager().isPluginEnabled("Vault"));
 
-        enhancedLogger.info("Plugin dependencies:");
+        // Only log missing critical dependencies
         dependencies.forEach((plugin, enabled) -> {
-            if (enabled) {
-                enhancedLogger.info("  ✓ " + plugin + " - Available");
-            } else {
-                enhancedLogger.debug("  ✗ " + plugin + " - Not found (optional)");
+            if (!enabled) {
+                enhancedLogger.debug(plugin + " not found (optional)");
             }
         });
     }
 
-    /**
-     * Phase 1: Core Systems with enhanced error handling
-     */
     private boolean initializeCorePhase() {
         try {
-            enhancedLogger.info("Phase 1: Core Systems");
 
             // Database first with retry logic
             safeInitializeWithRetry("Database", () -> {
                 mongoDBManager = MongoDBManager.initialize(getConfig(), this);
                 return mongoDBManager.connect();
             }, 3, 5000);
+
+            // Player limbo system - initialize early to freeze players during data loading
+            safeInitialize("Player Limbo System", () -> {
+                playerLimboSystem = PlayerLimboSystem.getInstance();
+                playerLimboSystem.initialize();
+                getServer().getPluginManager().registerEvents(playerLimboSystem, this);
+                enhancedLogger.info("✓ Player Limbo System initialized - players will be frozen during data loading");
+                return true;
+            });
 
             // Player management systems
             safeInitialize("Player Manager", () -> {
@@ -729,12 +737,24 @@ public class YakRealms extends JavaPlugin {
                 return true;
             });
 
+            // Legacy moderation mechanics (keep for compatibility)
             safeInitialize("Moderation Mechanics", () -> {
                 moderationMechanics = ModerationMechanics.getInstance();
                 return true;
             });
 
-            enhancedLogger.info("✓ Core systems initialized");
+            // Modern moderation system - initialize after core systems are ready
+            safeInitialize("Modern Moderation System", () -> {
+                moderationSystemManager = ModerationSystemManager.getInstance();
+                moderationSystemManager.initialize();
+                moderationSystemManager.enable();
+                enhancedLogger.info("✓ Modern Moderation System initialized successfully");
+                enhancedLogger.info("  - Automatic escalation enabled");
+                enhancedLogger.info("  - Real-time dashboard ready");
+                enhancedLogger.info("  - Appeal system operational");
+                return true;
+            });
+
             return true;
         } catch (Exception e) {
             enhancedLogger.error("Core phase failed", e);
@@ -742,12 +762,8 @@ public class YakRealms extends JavaPlugin {
         }
     }
 
-    /**
-     * Phase 2: Combat Systems with proper ordering
-     */
     private boolean initializeCombatPhase() {
         try {
-            enhancedLogger.info("Phase 2: Combat Systems");
 
             // CRITICAL: Initialize CombatLogoutMechanics FIRST!
             safeInitialize("Combat Logout Mechanics", () -> {
@@ -765,7 +781,7 @@ public class YakRealms extends JavaPlugin {
             });
 
             safeInitialize("Death Mechanics", () -> {
-                deathMechanics = new DeathMechanics();
+                deathMechanics = DeathMechanics.getInstance();
                 deathMechanics.onEnable();
                 return true;
             });
@@ -774,8 +790,10 @@ public class YakRealms extends JavaPlugin {
                 combatMechanics = new CombatMechanics();
                 combatMechanics.onEnable();
                 CombatTestCommand combatTestCommand = new CombatTestCommand();
-                this.getCommand("combattest").setExecutor(combatTestCommand);
-                this.getCommand("combattest").setTabCompleter(combatTestCommand);
+                // Move combattest registration to standard registration system for consistency
+                // this.getCommand("combattest").setExecutor(combatTestCommand);
+                // this.getCommand("combattest").setTabCompleter(combatTestCommand);
+                // Will be registered in registerStaffCommands() method instead
 
                 return true;
             });
@@ -791,7 +809,6 @@ public class YakRealms extends JavaPlugin {
                 return true;
             });
 
-            enhancedLogger.info("✓ Combat systems initialized");
             return true;
         } catch (Exception e) {
             enhancedLogger.error("Combat phase failed", e);
@@ -799,12 +816,8 @@ public class YakRealms extends JavaPlugin {
         }
     }
 
-    /**
-     * Phase 3: Social Systems
-     */
     private boolean initializeSocialPhase() {
         try {
-            enhancedLogger.info("Phase 3: Social Systems");
 
             safeInitialize("Chat Mechanics", () -> {
                 chatMechanics = ChatMechanics.getInstance();
@@ -833,7 +846,6 @@ public class YakRealms extends JavaPlugin {
                 return true;
             });
 
-            enhancedLogger.info("✓ Social systems initialized");
             return true;
         } catch (Exception e) {
             enhancedLogger.error("Social phase failed", e);
@@ -841,12 +853,8 @@ public class YakRealms extends JavaPlugin {
         }
     }
 
-    /**
-     * Phase 4: Movement Systems
-     */
     private boolean initializeMovementPhase() {
         try {
-            enhancedLogger.info("Phase 4: Movement Systems");
 
             safeInitialize("Dash Mechanics", () -> {
                 dashMechanics = new DashMechanics();
@@ -866,7 +874,6 @@ public class YakRealms extends JavaPlugin {
                 return true;
             });
 
-            enhancedLogger.info("✓ Movement systems initialized");
             return true;
         } catch (Exception e) {
             enhancedLogger.error("Movement phase failed", e);
@@ -874,12 +881,8 @@ public class YakRealms extends JavaPlugin {
         }
     }
 
-    /**
-     * Phase 5: Item Systems
-     */
     private boolean initializeItemPhase() {
         try {
-            enhancedLogger.info("Phase 5: Item Systems");
 
             // Basic item systems
             safeInitialize("Scroll Manager", () -> {
@@ -917,7 +920,6 @@ public class YakRealms extends JavaPlugin {
                 return true;
             });
 
-            enhancedLogger.info("✓ Item systems initialized");
             return true;
         } catch (Exception e) {
             enhancedLogger.error("Item phase failed", e);
@@ -925,12 +927,8 @@ public class YakRealms extends JavaPlugin {
         }
     }
 
-    /**
-     * Phase 6: Economy Systems
-     */
     private boolean initializeEconomyPhase() {
         try {
-            enhancedLogger.info("Phase 6: Economy Systems");
 
             safeInitialize("Economy Manager", () -> {
                 economyManager = EconomyManager.getInstance();
@@ -951,9 +949,14 @@ public class YakRealms extends JavaPlugin {
             });
 
             safeInitialize("Vendor System", () -> {
+                // Legacy vendor manager for backward compatibility
                 VendorManager.initialize(this);
                 vendorManager = VendorManager.getInstance();
-                VendorSystemInitializer.initialize(this);
+                
+                // New enhanced vendor system
+                VendorSystemManager.initialize(this, economyManager, playerManager);
+                
+                enhancedLogger.info("✓ Enhanced Vendor System initialized with registry support");
                 return true;
             });
 
@@ -974,7 +977,6 @@ public class YakRealms extends JavaPlugin {
                 }
             });
 
-            enhancedLogger.info("✓ Economy systems initialized");
             return true;
         } catch (Exception e) {
             enhancedLogger.error("Economy phase failed", e);
@@ -982,12 +984,8 @@ public class YakRealms extends JavaPlugin {
         }
     }
 
-    /**
-     * Phase 7: World Systems
-     */
     private boolean initializeWorldPhase() {
         try {
-            enhancedLogger.info("Phase 7: World Systems");
 
             safeInitialize("Mob Manager", () -> {
                 mobManager = MobManager.getInstance();
@@ -1052,7 +1050,13 @@ public class YakRealms extends JavaPlugin {
                 return true;
             });
 
-            enhancedLogger.info("✓ World systems initialized");
+            // TODO: Implement Dungeon System
+            // safeInitialize("Dungeon System", () -> {
+            //     DungeonManager dungeonManager = DungeonManager.getInstance();
+            //     dungeonManager.initialize();
+            //     return true;
+            // });
+
             return true;
         } catch (Exception e) {
             enhancedLogger.error("World phase failed", e);
@@ -1060,12 +1064,8 @@ public class YakRealms extends JavaPlugin {
         }
     }
 
-    /**
-     * Phase 8: Integration Systems
-     */
     private boolean initializeIntegrationPhase() {
         try {
-            enhancedLogger.info("Phase 8: Integration Systems");
 
             // TAB Plugin Integration (optional)
             Bukkit.getScheduler().runTaskLater(this, () -> {
@@ -1092,12 +1092,8 @@ public class YakRealms extends JavaPlugin {
         }
     }
 
-    /**
-     * Phase 9: Finalization
-     */
     private void finalizationPhase() {
         try {
-            enhancedLogger.info("Phase 9: Finalization");
 
             // Start background tasks
             if (spawnerCommand != null) {
@@ -1110,15 +1106,11 @@ public class YakRealms extends JavaPlugin {
             // Start configuration hot-reload watcher
             startConfigWatcher();
 
-            enhancedLogger.info("✓ Finalization completed");
         } catch (Exception e) {
             enhancedLogger.error("Finalization phase had issues", e);
         }
     }
 
-    /**
-     * Start configuration file watcher for hot-reload
-     */
     private void startConfigWatcher() {
         new BukkitRunnable() {
             private long lastModified = new File(getDataFolder(), "config.yml").lastModified();
@@ -1145,13 +1137,8 @@ public class YakRealms extends JavaPlugin {
         }.runTaskTimerAsynchronously(this, 200L, 200L); // Check every 10 seconds
     }
 
-    // ========================================
-    // ENHANCED INITIALIZATION UTILITIES
-    // ========================================
+    // Initialization Utilities
 
-    /**
-     * Safe initialization with retry logic
-     */
     private void safeInitializeWithRetry(String systemName, InitializationTask task, int maxRetries, long retryDelay) {
         int attempts = 0;
         Exception lastException = null;
@@ -1168,8 +1155,12 @@ public class YakRealms extends JavaPlugin {
                     systemStatuses.put(systemName, SystemStatus.INITIALIZED);
                     systemsInitialized.incrementAndGet();
 
-                    enhancedLogger.info("✓ " + systemName + " (" + initTime + "ms)" +
-                            (attempts > 1 ? " [attempt " + attempts + "]" : ""));
+                    // Only log if slow or required multiple attempts
+                    if (initTime > 2000 || attempts > 1) {
+                        String message = systemName + " initialized (" + initTime + "ms)";
+                        if (attempts > 1) message += " [attempt " + attempts + "]";
+                        enhancedLogger.info(message);
+                    }
                     return;
                 } else {
                     throw new RuntimeException("Initialization returned false");
@@ -1195,9 +1186,6 @@ public class YakRealms extends JavaPlugin {
         enhancedLogger.error("✗ " + systemName + " failed after " + maxRetries + " attempts", lastException);
     }
 
-    /**
-     * safe initialization with better logging
-     */
     private void safeInitialize(String systemName, InitializationTask task) {
         try {
             systemStatuses.put(systemName, SystemStatus.INITIALIZING);
@@ -1209,10 +1197,9 @@ public class YakRealms extends JavaPlugin {
                 systemStatuses.put(systemName, SystemStatus.INITIALIZED);
                 systemsInitialized.incrementAndGet();
 
-                if (initTime > 1000) {
-                    enhancedLogger.warn("✓ " + systemName + " (" + initTime + "ms) - SLOW");
-                } else {
-                    enhancedLogger.info("✓ " + systemName + " (" + initTime + "ms)");
+                // Only log slow systems and failures to reduce startup spam
+                if (initTime > 2000) {
+                    enhancedLogger.warn(systemName + " took " + initTime + "ms to initialize");
                 }
             } else {
                 systemStatuses.put(systemName, SystemStatus.FAILED);
@@ -1226,9 +1213,6 @@ public class YakRealms extends JavaPlugin {
         }
     }
 
-    /**
-     * Log comprehensive system status summary
-     */
     private void logSystemStatusSummary() {
         enhancedLogger.info("System Status Summary:");
 
@@ -1261,139 +1245,197 @@ public class YakRealms extends JavaPlugin {
         }
     }
 
-    // ========================================
-    // ENHANCED COMMAND REGISTRATION
-    // ========================================
+    // Command Registration
 
     private boolean initializeCommands() {
         try {
-            enhancedLogger.info("Registering commands...");
-            int commandCount = 0;
-            int failedCount = 0;
             Map<String, Boolean> commandResults = new HashMap<>();
 
-            // Player commands
-            commandResults.put("logout", registerCommand("logout", new com.rednetty.server.commands.player.LogoutCommand(),
-                    new com.rednetty.server.commands.player.LogoutCommand()));
-            commandResults.put("toggles", registerCommand("toggles", new TogglesCommand()));
-            commandResults.put("alignment", registerCommand("alignment", new AlignmentCommand(alignmentMechanics)));
-            commandResults.put("invsee", registerCommand("invsee", new InvseeCommand()));
+            registerPlayerCommands(commandResults);
+            registerEconomyCommands(commandResults);
+            registerSystemCommands(commandResults);
+            registerMobCommands(commandResults);
+            registerChatCommands(commandResults);
+            registerModerationCommands(commandResults);
+            registerAdminCommands(commandResults);
+            registerNavigationCommands(commandResults);
+            registerPartyCommands(commandResults);
 
-            // Economy commands
-            commandResults.put("balance", registerCommand("balance", new BalanceCommand(economyManager)));
-            commandResults.put("pay", registerCommand("pay", new PayCommand(economyManager)));
-            commandResults.put("inventorydiag", registerCommand("inventorydiag", getPlayerManager()));
-            commandResults.put("playerstate", registerCommand("playerstate", getPlayerManager()));
-            commandResults.put("coordinationdiag", registerCommand("coordinationdiag", getPlayerManager()));
-            commandResults.put("bank", registerCommand("bank", new BankCommand(bankManager)));
-            commandResults.put("gems", registerCommand("gems", new GemsCommand(economyManager)));
-            commandResults.put("gempouch", registerCommand("gempouch", new GemPouchCommand(gemPouchManager)));
-            commandResults.put("eco", registerCommand("eco", new EcoCommand(economyManager)));
-            commandResults.put("vendor", registerCommand("vendor", new VendorCommand(this)));
-
-            // Market command
-            if (marketManager != null) {
-                MarketCommand marketCommand = new MarketCommand();
-                commandResults.put("market", registerCommand("market", marketCommand, marketCommand));
-            }
-
-            // System commands (with null checks)
-            if (menuItemManager != null) {
-                MenuCommand menuCommand = new MenuCommand();
-                commandResults.put("menu", registerCommand("menu", menuCommand, menuCommand));
-            }
-
-            if (crateManager != null) {
-                CrateCommand crateCommand = new CrateCommand();
-                commandResults.put("crate", registerCommand("crate", crateCommand, crateCommand));
-            }
-
-            // Vault command (replaces old loot chest command)
-            if (lootChestManager != null) {
-                VaultCommand vaultCommand = new VaultCommand(this);
-                commandResults.put("vault", registerCommand("vault", vaultCommand, vaultCommand));
-            }
-
-            // Mob commands
-            if (mobManager != null) {
-                spawnerCommand = new SpawnerCommand(mobManager);
-                commandResults.put("spawner", registerCommand("spawner", spawnerCommand, spawnerCommand));
-                commandResults.put("spawnmob", registerCommand("spawnmob", new SpawnMobCommand(mobManager)));
-                commandResults.put("mobinfo", registerCommand("mobinfo", new MobInfoCommand(mobManager)));
-                commandResults.put("togglespawners", registerCommand("togglespawners", new ToggleSpawnersCommand(mobManager)));
-                commandResults.put("boss", registerCommand("boss", new BossCommand(mobManager)));
-            }
-
-            // Drop commands
-            if (dropsManager != null) {
-                commandResults.put("droprate", registerCommand("droprate", new DropRateCommand(dropsManager)));
-                commandResults.put("lootbuff", registerCommand("lootbuff", new LootBuffCommand(lootBuffManager)));
-                commandResults.put("elitedrop", registerCommand("elitedrop", new EliteDropsCommand()));
-            }
-
-            // Other commands
-            commandResults.put("teleportbook", registerCommand("teleportbook", new TeleportBookCommand()));
-            commandResults.put("teleport", registerCommand("teleport", new TeleportCommand()));
-            commandResults.put("mount", registerCommand("mount", new MountCommand()));
-            commandResults.put("item", registerCommand("item", new ItemCommand(this)));
-            commandResults.put("journal", registerCommand("journal", new JournalCommand()));
-            commandResults.put("scroll", registerCommand("scroll", new ScrollCommand(scrollManager)));
-            commandResults.put("speedfish", registerCommand("speedfish", new SpeedfishCommand(speedfishMechanics)));
-            commandResults.put("orb", registerCommand("orb", new OrbCommand(orbManager)));
-
-            // Chat commands
-            commandResults.put("buddy", registerCommand("buddy", new BuddiesCommand()));
-            commandResults.put("msg", registerCommand("msg", new MessageCommand()));
-            commandResults.put("r", registerCommand("r", new ReplyCommand()));
-            commandResults.put("global", registerCommand("global", new GlobalChatCommand()));
-            commandResults.put("staffchat", registerCommand("staffchat", new StaffChatCommand()));
-            commandResults.put("chattag", registerCommand("chattag", new ChatTagCommand()));
-
-            // Moderation commands
-            commandResults.put("kick", registerCommand("kick", new KickCommand()));
-            commandResults.put("ban", registerCommand("ban", new BanCommand(moderationMechanics)));
-            commandResults.put("unban", registerCommand("unban", new UnbanCommand(moderationMechanics)));
-            commandResults.put("mute", registerCommand("mute", new MuteCommand(moderationMechanics)));
-            commandResults.put("unmute", registerCommand("unmute", new UnmuteCommand(moderationMechanics)));
-            commandResults.put("vanish", registerCommand("vanish", new VanishCommand(this)));
-            commandResults.put("setrank", registerCommand("setrank", new SetRankCommand(moderationMechanics)));
-
-            // Admin commands
-            commandResults.put("shutdown", registerCommand("shutdown", new com.rednetty.server.commands.staff.admin.ShutdownCommand(),
-                    new com.rednetty.server.commands.staff.admin.ShutdownCommand()));
-
-            // Navigation commands
-            if (pathManager != null) {
-                commandResults.put("trail", registerCommand("trail", new TrailCommand(this, pathManager)));
-            }
-            commandResults.put("nodemap", registerCommand("nodemap", new NodeMapCommand(this)));
-
-            // Party commands
-            commandResults.put("p", registerCommand("p", new PartyCommand()));
-            commandResults.put("paccept", registerCommand("paccept", new PAcceptCommand()));
-            commandResults.put("pdecline", registerCommand("pdecline", new PDeclineCommand()));
-            commandResults.put("pinvite", registerCommand("pinvite", new PInviteCommand()));
-            commandResults.put("pkick", registerCommand("pkick", new PKickCommand()));
-            commandResults.put("pquit", registerCommand("pquit", new PQuitCommand()));
-
-            // Count results
-            for (Map.Entry<String, Boolean> entry : commandResults.entrySet()) {
-                if (entry.getValue()) {
-                    commandCount++;
-                } else {
-                    failedCount++;
-                    enhancedLogger.warn("Failed to register command: " + entry.getKey());
-                }
-            }
-
-            enhancedLogger.info("✓ Commands registered: " + commandCount + " successful" +
-                    (failedCount > 0 ? ", " + failedCount + " failed" : ""));
-            return failedCount == 0;
-
+            return evaluateCommandResults(commandResults);
         } catch (Exception e) {
             enhancedLogger.error("Command registration failed", e);
             return false;
         }
+    }
+
+    private void registerPlayerCommands(Map<String, Boolean> results) {
+        results.put("logout", registerCommand("logout", new com.rednetty.server.core.commands.player.LogoutCommand(),
+                new com.rednetty.server.core.commands.player.LogoutCommand()));
+        results.put("toggles", registerCommand("toggles", new TogglesCommand()));
+        results.put("alignment", registerCommand("alignment", new AlignmentCommand(alignmentMechanics)));
+        results.put("invsee", registerCommand("invsee", new InvseeCommand()));
+        results.put("mount", registerCommand("mount", new MountCommand()));
+        results.put("journal", registerCommand("journal", new JournalCommand()));
+        results.put("speedfish", registerCommand("speedfish", new SpeedfishCommand(speedfishMechanics)));
+    }
+
+    private void registerEconomyCommands(Map<String, Boolean> results) {
+        results.put("balance", registerCommand("balance", new BalanceCommand(economyManager)));
+        results.put("pay", registerCommand("pay", new PayCommand(economyManager)));
+        results.put("bank", registerCommand("bank", new BankCommand(bankManager)));
+        results.put("gems", registerCommand("gems", new GemsCommand(economyManager)));
+        results.put("gempouch", registerCommand("gempouch", new GemPouchCommand(gemPouchManager)));
+        results.put("eco", registerCommand("eco", new EcoCommand(economyManager)));
+        results.put("vendor", registerCommand("vendor", new VendorCommand(this)));
+        
+        if (marketManager != null) {
+            MarketCommand marketCommand = new MarketCommand();
+            results.put("market", registerCommand("market", marketCommand, marketCommand));
+        }
+    }
+
+    private void registerSystemCommands(Map<String, Boolean> results) {
+        results.put("inventorydiag", registerCommand("inventorydiag", getPlayerManager()));
+        results.put("playerstate", registerCommand("playerstate", getPlayerManager()));
+        results.put("coordinationdiag", registerCommand("coordinationdiag", getPlayerManager()));
+        results.put("teleport", registerCommand("teleport", new TeleportCommand()));
+        results.put("teleportbook", registerCommand("teleportbook", new TeleportBookCommand()));
+        results.put("item", registerCommand("item", new ItemCommand(this)));
+        results.put("scroll", registerCommand("scroll", new ScrollCommand(scrollManager)));
+        results.put("orb", registerCommand("orb", new OrbCommand(orbManager)));
+
+        if (menuItemManager != null) {
+            MenuCommand menuCommand = new MenuCommand();
+            results.put("menu", registerCommand("menu", menuCommand, menuCommand));
+        }
+
+        if (crateManager != null) {
+            CrateCommand crateCommand = new CrateCommand();
+            results.put("crate", registerCommand("crate", crateCommand, crateCommand));
+        }
+
+        if (lootChestManager != null) {
+            VaultCommand vaultCommand = new VaultCommand(this);
+            results.put("vault", registerCommand("vault", vaultCommand, vaultCommand));
+            results.put("lootchest", registerCommand("lootchest", vaultCommand, vaultCommand));
+        }
+    }
+
+    private void registerMobCommands(Map<String, Boolean> results) {
+        if (mobManager != null) {
+            spawnerCommand = new SpawnerCommand(mobManager);
+            results.put("spawner", registerCommand("spawner", spawnerCommand, spawnerCommand));
+            results.put("spawnmob", registerCommand("spawnmob", new SpawnMobCommand(mobManager)));
+            results.put("mobinfo", registerCommand("mobinfo", new MobInfoCommand(mobManager)));
+            results.put("togglespawners", registerCommand("togglespawners", new ToggleSpawnersCommand(mobManager)));
+            results.put("boss", registerCommand("boss", new BossCommand(mobManager)));
+            
+            com.rednetty.server.core.commands.staff.admin.EliteBehaviorTestCommand eliteTestCommand = 
+                    new com.rednetty.server.core.commands.staff.admin.EliteBehaviorTestCommand();
+            results.put("elitetest", registerCommand("elitetest", eliteTestCommand, eliteTestCommand));
+        }
+
+        if (dropsManager != null) {
+            results.put("droprate", registerCommand("droprate", new DropRateCommand(dropsManager)));
+            results.put("lootbuff", registerCommand("lootbuff", new LootBuffCommand(lootBuffManager)));
+            results.put("elitedrop", registerCommand("elitedrop", new EliteDropsCommand()));
+        }
+    }
+
+    private void registerChatCommands(Map<String, Boolean> results) {
+        results.put("buddy", registerCommand("buddy", new BuddiesCommand()));
+        results.put("msg", registerCommand("msg", new MessageCommand()));
+        results.put("r", registerCommand("r", new ReplyCommand()));
+        results.put("global", registerCommand("global", new GlobalChatCommand()));
+        results.put("staffchat", registerCommand("staffchat", new StaffChatCommand()));
+        results.put("chattag", registerCommand("chattag", new ChatTagCommand()));
+    }
+
+    private void registerModerationCommands(Map<String, Boolean> results) {
+        results.put("kick", registerCommand("kick", new KickCommand()));
+        results.put("ban", registerCommand("ban", new BanCommand(moderationMechanics)));
+        results.put("unban", registerCommand("unban", new UnbanCommand(moderationMechanics)));
+        results.put("mute", registerCommand("mute", new MuteCommand(moderationMechanics)));
+        results.put("unmute", registerCommand("unmute", new UnmuteCommand(moderationMechanics)));
+        results.put("vanish", registerCommand("vanish", new VanishCommand(this)));
+        results.put("setrank", registerCommand("setrank", new SetRankCommand(moderationMechanics)));
+        
+        // Register combattest command properly in moderation section
+        CombatTestCommand combatTestCommand = new CombatTestCommand();
+        results.put("combattest", registerCommand("combattest", combatTestCommand, combatTestCommand));
+        
+        WarnCommand warnCommand = new WarnCommand();
+        results.put("warn", registerCommand("warn", warnCommand, warnCommand));
+        
+        ModerationDashboardCommand dashboardCommand = new ModerationDashboardCommand();
+        results.put("moderationdashboard", registerCommand("moderationdashboard", dashboardCommand, dashboardCommand));
+        results.put("moddash", registerCommand("moddash", dashboardCommand, dashboardCommand));
+        
+        ModerationHistoryCommand historyCommand = new ModerationHistoryCommand();
+        results.put("moderationhistory", registerCommand("moderationhistory", historyCommand, historyCommand));
+        
+        PlayerWipeCommand wipeCommand = new PlayerWipeCommand();
+        results.put("wipe", registerCommand("wipe", wipeCommand, wipeCommand));
+        
+        ModerationMenuCommand menuCommand = new ModerationMenuCommand();
+        results.put("modmenu", registerCommand("modmenu", menuCommand, menuCommand));
+    }
+
+    private void registerAdminCommands(Map<String, Boolean> results) {
+        results.put("shutdown", registerCommand("shutdown", new com.rednetty.server.core.commands.staff.admin.ShutdownCommand(),
+                new com.rednetty.server.core.commands.staff.admin.ShutdownCommand()));
+        
+        com.rednetty.server.core.commands.staff.admin.SystemReportCommand systemReportCommand = 
+            new com.rednetty.server.core.commands.staff.admin.SystemReportCommand();
+        results.put("systemreport", registerCommand("systemreport", systemReportCommand, systemReportCommand));
+
+        // Register missing commands identified in audit
+        TabMenuCommand tabMenuCommand = new TabMenuCommand();
+        results.put("tabmenu", registerCommand("tabmenu", tabMenuCommand, tabMenuCommand));
+        
+        // Register GlowingDropCommand (already has getInstance() and initialize())
+        GlowingDropCommand glowingCommand = GlowingDropCommand.getInstance();
+        glowingCommand.initialize();
+        results.put("glowingdrops", registerCommand("glowingdrops", glowingCommand, glowingCommand));
+        
+        // Register ChestAnimationCommand (chest command from plugin.yml)
+        ChestAnimationCommand chestCommand = new ChestAnimationCommand();
+        results.put("chest", registerCommand("chest", chestCommand, chestCommand));
+    }
+
+    private void registerNavigationCommands(Map<String, Boolean> results) {
+        if (pathManager != null) {
+            results.put("trail", registerCommand("trail", new TrailCommand(this, pathManager)));
+        }
+        results.put("nodemap", registerCommand("nodemap", new NodeMapCommand(this)));
+    }
+
+    private void registerPartyCommands(Map<String, Boolean> results) {
+        results.put("p", registerCommand("p", new PartyCommand()));
+        results.put("paccept", registerCommand("paccept", new PAcceptCommand()));
+        results.put("pdecline", registerCommand("pdecline", new PDeclineCommand()));
+        results.put("pinvite", registerCommand("pinvite", new PInviteCommand()));
+        results.put("pkick", registerCommand("pkick", new PKickCommand()));
+        results.put("pquit", registerCommand("pquit", new PQuitCommand()));
+    }
+
+    private boolean evaluateCommandResults(Map<String, Boolean> commandResults) {
+        int commandCount = 0;
+        int failedCount = 0;
+
+        for (Map.Entry<String, Boolean> entry : commandResults.entrySet()) {
+            if (entry.getValue()) {
+                commandCount++;
+            } else {
+                failedCount++;
+                enhancedLogger.warn("Failed to register command: " + entry.getKey());
+            }
+        }
+
+        if (failedCount > 0) {
+            enhancedLogger.warn("Commands: " + commandCount + " registered, " + failedCount + " failed");
+        }
+        return failedCount == 0;
     }
 
     private boolean registerCommand(String name, org.bukkit.command.CommandExecutor executor) {
@@ -1421,9 +1463,7 @@ public class YakRealms extends JavaPlugin {
         }
     }
 
-    // ========================================
-    // ENHANCED SHUTDOWN SYSTEM
-    // ========================================
+    // Shutdown System
 
     @Override
     public void onDisable() {
@@ -1460,9 +1500,6 @@ public class YakRealms extends JavaPlugin {
         }
     }
 
-    /**
-     * Stop all monitoring tasks
-     */
     private void stopMonitoringTasks() {
         try {
             if (healthCheckTask != null && !healthCheckTask.isCancelled()) {
@@ -1474,15 +1511,23 @@ public class YakRealms extends JavaPlugin {
             if (memoryMonitorTask != null && !memoryMonitorTask.isCancelled()) {
                 memoryMonitorTask.cancel();
             }
+            
+            // Shutdown enhanced health checker
+            if (healthChecker != null) {
+                healthChecker.shutdown();
+            }
+            
+            // Shutdown error recovery manager
+            if (errorRecoveryManager != null) {
+                errorRecoveryManager.shutdown();
+            }
+            
             enhancedLogger.info("✓ Monitoring tasks stopped");
         } catch (Exception e) {
             enhancedLogger.error("Error stopping monitoring tasks", e);
         }
     }
 
-    /**
-     * clean shutdown with proper ordering
-     */
     private void performCleanShutdown() {
         // Integration systems first
         shutdownSafely("TAB Plugin Integration", () -> {
@@ -1541,6 +1586,18 @@ public class YakRealms extends JavaPlugin {
         });
 
         // Core systems
+        shutdownSafely("Modern Moderation System", () -> {
+            if (moderationSystemManager != null) {
+                moderationSystemManager.disable();
+            }
+        });
+
+        shutdownSafely("Player Limbo System", () -> {
+            if (playerLimboSystem != null) {
+                playerLimboSystem.shutdown();
+            }
+        });
+
         shutdownSafely("Moderation Mechanics", () -> {
             if (moderationMechanics != null) {
                 moderationMechanics.onDisable();
@@ -1563,6 +1620,14 @@ public class YakRealms extends JavaPlugin {
         shutdownSafely("Teleport Book System", () -> {
             if (teleportBookSystem != null) {
                 teleportBookSystem.onDisable();
+            }
+        });
+
+        // Vendor System
+        shutdownSafely("Vendor System", () -> {
+            VendorSystemManager vendorSystemManager = VendorSystemManager.getInstance();
+            if (vendorSystemManager != null) {
+                vendorSystemManager.shutdown();
             }
         });
 
@@ -1603,9 +1668,54 @@ public class YakRealms extends JavaPlugin {
         }
     }
 
-    // ========================================
-    // ENHANCED UTILITY METHODS
-    // ========================================
+    // Utility Methods
+    
+    /**
+     * Generate comprehensive system status report for troubleshooting
+     */
+    public String generateSystemReport() {
+        StringBuilder report = new StringBuilder();
+        report.append("=== YakRealms System Status Report ===\n");
+        report.append("Plugin Version: ").append(PLUGIN_VERSION).append("\n");
+        report.append("Uptime: ").append(getUptimeString()).append("\n");
+        report.append("Systems Initialized: ").append(systemsInitialized.get()).append("\n");
+        report.append("Systems Failed: ").append(systemsFailed.get()).append("\n");
+        report.append("Fully Initialized: ").append(fullyInitialized.get()).append("\n");
+        
+        report.append("\n=== System Status ===\n");
+        for (Map.Entry<String, SystemStatus> entry : systemStatuses.entrySet()) {
+            String status = entry.getValue().name();
+            String time = systemInitTimes.get(entry.getKey()) != null ? 
+                "(" + systemInitTimes.get(entry.getKey()) + "ms)" : "";
+            report.append(String.format("%-25s: %s %s\n", entry.getKey(), status, time));
+        }
+        
+        report.append("\n=== Memory Status ===\n");
+        Runtime runtime = Runtime.getRuntime();
+        long totalMemory = runtime.totalMemory();
+        long freeMemory = runtime.freeMemory();
+        long usedMemory = totalMemory - freeMemory;
+        long maxMemory = runtime.maxMemory();
+        
+        report.append(String.format("Used: %.1f MB / %.1f MB (%.1f%%)\n", 
+            usedMemory / 1024.0 / 1024.0,
+            totalMemory / 1024.0 / 1024.0,
+            (double) usedMemory / totalMemory * 100));
+        report.append(String.format("Max Available: %.1f MB\n", maxMemory / 1024.0 / 1024.0));
+        
+        report.append("\n=== Database Status ===\n");
+        if (mongoDBManager != null) {
+            report.append("MongoDB: CONNECTED\n");
+            report.append("Connection Pool: Active\n");
+        } else {
+            report.append("MongoDB: DISCONNECTED\n");
+        }
+        
+        report.append("\n=== Player Status ===\n");
+        report.append("Online Players: ").append(getServer().getOnlinePlayers().size()).append("\n");
+        
+        return report.toString();
+    }
 
     private void loadGameSettings() {
         FileConfiguration config = getConfig();
@@ -1652,9 +1762,7 @@ public class YakRealms extends JavaPlugin {
         }
     }
 
-    // ========================================
-    // ENHANCED STATIC UTILITY METHODS
-    // ========================================
+    // Static Utility Methods
 
     public static void log(String message) {
         if (instance != null && instance.enhancedLogger != null) {
@@ -1688,9 +1796,7 @@ public class YakRealms extends JavaPlugin {
         }
     }
 
-    // ========================================
-    // ENHANCED GETTERS AND SYSTEM ACCESS
-    // ========================================
+    // System Access Methods
 
     // Static getters for safe system access
     public static boolean isPatchLockdown() { return patchLockdown; }
@@ -1775,6 +1881,8 @@ public class YakRealms extends JavaPlugin {
     public YakPlayerManager getPlayerManager() { return playerManager; }
     public PlayerMechanics getPlayerMechanics() { return playerMechanics; }
     public ModerationMechanics getModerationMechanics() { return moderationMechanics; }
+    public ModerationSystemManager getModerationSystemManager() { return moderationSystemManager; }
+    public PlayerLimboSystem getPlayerLimboSystem() { return playerLimboSystem; }
     public PartyMechanics getPartyMechanics() { return partyMechanics; }
     public DashMechanics getDashMechanics() { return dashMechanics; }
     public SpeedfishMechanics getSpeedfishMechanics() { return speedfishMechanics; }
@@ -1809,6 +1917,11 @@ public class YakRealms extends JavaPlugin {
     public PathManager getPathManager() { return pathManager; }
     public CrateManager getCrateManager() { return crateManager; }
     public LootChestManager getLootChestManager() { return lootChestManager; }
+    public PerformanceMonitor getPerformanceMonitor() { return performanceMonitor; }
+    public SystemHealthChecker getSystemHealthChecker() { return healthChecker; }
+    public ErrorRecoveryManager getErrorRecoveryManager() { return errorRecoveryManager; }
+    
+    public long getStartupTime() { return startupTime.get(); }
 
     public boolean isDebugMode() {
         return getConfig().getBoolean("debug", false);
@@ -1830,18 +1943,13 @@ public class YakRealms extends JavaPlugin {
         return enhancedLogger;
     }
 
-    public PerformanceMonitor getPerformanceMonitor() {
-        return performanceMonitor;
-    }
 
     @FunctionalInterface
     private interface InitializationTask {
         boolean initialize() throws Exception;
     }
 
-    // ========================================
-    // ENHANCED LOGGER CLASS
-    // ========================================
+    // Enhanced Logger Implementation
 
     public static class EnhancedLogger {
         private final JavaPlugin plugin;
@@ -1974,99 +2082,4 @@ public class YakRealms extends JavaPlugin {
         }
     }
 
-    // ========================================
-    // PERFORMANCE MONITOR CLASS
-    // ========================================
-
-    public static class PerformanceMonitor {
-        private final Map<String, Long> timingData = new ConcurrentHashMap<>();
-        private final Map<String, Integer> callCounts = new ConcurrentHashMap<>();
-        private final AtomicLong totalMemoryAllocated = new AtomicLong(0);
-
-        public void recordTiming(String operation, long timeMs) {
-            timingData.merge(operation, timeMs, Long::sum);
-            callCounts.merge(operation, 1, Integer::sum);
-        }
-
-        public void collectMetrics() {
-            Runtime runtime = Runtime.getRuntime();
-            long totalMemory = runtime.totalMemory();
-            long freeMemory = runtime.freeMemory();
-            long usedMemory = totalMemory - freeMemory;
-
-            totalMemoryAllocated.set(usedMemory);
-
-            // Log performance summary if debug mode
-            if (instance != null && instance.isDebugMode()) {
-                StringBuilder summary = new StringBuilder("Performance Summary:\n");
-                summary.append("Memory: ").append(usedMemory / 1024 / 1024).append("MB\n");
-                summary.append("Operations:\n");
-
-                timingData.forEach((op, totalTime) -> {
-                    int calls = callCounts.getOrDefault(op, 1);
-                    double avgTime = (double) totalTime / calls;
-                    summary.append("  ").append(op).append(": ")
-                            .append(calls).append(" calls, avg ")
-                            .append(String.format("%.2f", avgTime)).append("ms\n");
-                });
-
-                instance.enhancedLogger.debug(summary.toString());
-            }
-        }
-
-        public Map<String, Double> getAverageTimings() {
-            Map<String, Double> averages = new HashMap<>();
-            timingData.forEach((operation, totalTime) -> {
-                int calls = callCounts.getOrDefault(operation, 1);
-                averages.put(operation, (double) totalTime / calls);
-            });
-            return averages;
-        }
-
-        public long getTotalMemoryUsage() {
-            return totalMemoryAllocated.get();
-        }
-    }
-
-    // ========================================
-    // SYSTEM HEALTH CHECKER CLASS
-    // ========================================
-
-    public static class SystemHealthChecker {
-
-        public void performHealthCheck() {
-            if (instance == null) return;
-
-            // Check critical systems
-            boolean allCriticalSystemsHealthy = true;
-            for (String criticalSystem : instance.criticalSystems) {
-                SystemStatus status = instance.systemStatuses.get(criticalSystem);
-                if (status != SystemStatus.INITIALIZED) {
-                    allCriticalSystemsHealthy = false;
-                    instance.enhancedLogger.warn("Critical system unhealthy: " + criticalSystem + " (" + status + ")");
-                }
-            }
-
-            if (allCriticalSystemsHealthy) {
-                instance.enhancedLogger.debug("All critical systems healthy");
-            }
-
-            // Check memory usage
-            Runtime runtime = Runtime.getRuntime();
-            long totalMemory = runtime.totalMemory();
-            long freeMemory = runtime.freeMemory();
-            double memoryUsage = (double) (totalMemory - freeMemory) / totalMemory;
-
-            if (memoryUsage > 0.90) {
-                instance.enhancedLogger.warn("High memory usage detected: " +
-                        String.format("%.1f%%", memoryUsage * 100));
-            }
-
-            // Check for stuck threads (basic check)
-            int activeThreads = Thread.activeCount();
-            if (activeThreads > 100) {
-                instance.enhancedLogger.warn("High thread count detected: " + activeThreads);
-            }
-        }
-    }
 }

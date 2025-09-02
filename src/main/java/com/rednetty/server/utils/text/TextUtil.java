@@ -547,8 +547,8 @@ public class TextUtil {
     public static boolean isToggled(Player player, String toggle) {
         // First try to get the toggle from the player's YakPlayer data
         try {
-            com.rednetty.server.mechanics.player.YakPlayer yakPlayer =
-                    com.rednetty.server.mechanics.player.YakPlayerManager.getInstance().getPlayer(player);
+            com.rednetty.server.core.mechanics.player.YakPlayer yakPlayer =
+                    com.rednetty.server.core.mechanics.player.YakPlayerManager.getInstance().getPlayer(player);
 
             if (yakPlayer != null) {
                 return yakPlayer.isToggled(toggle);

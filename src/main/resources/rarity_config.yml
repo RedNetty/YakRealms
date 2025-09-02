@@ -40,7 +40,8 @@
 
 4:
   name: Unique
-  color: YELLOW
+  color: YELLOW # Fallback color - actual display uses gradient
+  gradient: true # Special flag to indicate this rarity uses gradient colors
   dropChance: 2
   statMultipliers:
     damage: 2.0

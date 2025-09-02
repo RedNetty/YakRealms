@@ -1,6 +1,8 @@
 package com.rednetty.server.utils.menu;
 
 import com.rednetty.server.YakRealms;
+import com.rednetty.server.utils.messaging.MessageUtils;
+import net.kyori.adventure.text.Component;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.Material;
@@ -70,7 +72,16 @@ public abstract class Menu {
         // Validate and normalize size
         size = validateAndNormalizeSize(size);
 
-        this.inventory = Bukkit.createInventory(null, size, ChatColor.translateAlternateColorCodes('&', this.originalTitle));
+        // Create inventory with proper Adventure API support - parse MiniMessage directly
+        Component titleComponent;
+        if (this.originalTitle.contains("<") && this.originalTitle.contains(">")) {
+            // Already using MiniMessage format
+            titleComponent = MessageUtils.parse(this.originalTitle);
+        } else {
+            // Legacy format with & codes
+            titleComponent = MessageUtils.fromLegacy(ChatColor.translateAlternateColorCodes('&', this.originalTitle));
+        }
+        this.inventory = Bukkit.createInventory(null, size, titleComponent);
 
         // Initialize event handlers if needed
         initializeEventHandlers();

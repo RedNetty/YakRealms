@@ -1,15 +1,14 @@
-package com.rednetty.server.mechanics.dungeons.bosses;
+package com.rednetty.server.core.mechanics.dungeons.bosses;
 
 import com.rednetty.server.YakRealms;
-import com.rednetty.server.mechanics.dungeons.config.DungeonTemplate;
-import com.rednetty.server.mechanics.dungeons.instance.DungeonInstance;
-import com.rednetty.server.mechanics.world.mobs.MobManager;
-import com.rednetty.server.mechanics.world.mobs.core.EliteMob;
-import com.rednetty.server.mechanics.world.mobs.core.MobType;
+import com.rednetty.server.core.mechanics.dungeons.config.DungeonTemplate;
+import com.rednetty.server.core.mechanics.dungeons.instance.DungeonInstance;
+import com.rednetty.server.core.mechanics.world.mobs.MobManager;
+import com.rednetty.server.core.mechanics.world.mobs.core.EliteMob;
+import com.rednetty.server.core.mechanics.world.mobs.core.MobType;
 import org.bukkit.*;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
-import org.bukkit.metadata.MetadataValue;
 import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.scheduler.BukkitTask;
 import org.bukkit.util.Vector;

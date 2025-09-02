@@ -17,21 +17,11 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 /**
- * COMPLETE  InventoryUtils for Spigot 1.20.4
- *
- * CRITICAL FIXES APPLIED:
- * 1. ARMOR DUPLICATION FIX: getAllPlayerItems() now properly separates worn vs inventory armor
- * 2.  VALIDATION: Comprehensive item validation prevents corruption
- * 3. SAFE COPYING: Improved item cloning with error handling
- * 4. ALL EXISTING METHODS: Maintains full backward compatibility
- *
- * This class consolidates inventory utility methods to prevent inconsistencies
- * between DeathMechanics and CombatLogoutMechanics while preserving all
- * existing functionality and adding critical fixes.
+ * Inventory utilities for Spigot 1.20.4 with item validation and alignment-based retention logic.
  */
 public class InventoryUtils {
 
-    // ==================== MATERIAL CONSTANTS ====================
+    // Material Constants
 
     // Armor materials for Spigot 1.20.4
     private static final Set<Material> ARMOR_MATERIALS = EnumSet.of(
@@ -100,44 +90,33 @@ public class InventoryUtils {
             Material.MAP, Material.FILLED_MAP
     );
 
-    // ==================== CORE INVENTORY COLLECTION METHODS ====================
+    // Neutral alignment constants
+    private static final int NEUTRAL_WEAPON_DROP_PERCENTAGE = 50;
+    private static final int NEUTRAL_ARMOR_PIECE_DROP_PERCENTAGE = 25;
 
-    /**
-     * CRITICAL FIX: Get all items from player with deduplication and validation
-     *
-     * THIS WAS THE ROOT CAUSE OF ARMOR DUPLICATION - NOW COMPLETELY
-     *
-     * The original version was capturing armor from BOTH:
-     * - Worn armor slots (36-39)
-     * - Random armor sitting in inventory slots (0-35)
-     *
-     * This caused the system to think inventory armor was "equipped" gear.
-     *  to only capture each item once from its proper location.
-     */
+    // Core Inventory Methods
+
     public static List<ItemStack> getAllPlayerItems(Player player) {
         if (player == null) {
             return new ArrayList<>();
         }
 
-        YakRealms.log("=== COLLECTING ALL PLAYER ITEMS (FIXED) ===");
         List<ItemStack> allItems = new ArrayList<>();
         PlayerInventory inventory = player.getInventory();
 
         try {
-            // CRITICAL FIX: Only collect from main inventory slots (0-35)
-            // This excludes armor slots (36-39) which are handled separately
+            // Collect from main inventory slots (excludes armor slots)
             ItemStack[] contents = inventory.getStorageContents(); // Gets only storage, not armor
             if (contents != null) {
                 for (int i = 0; i < contents.length; i++) {
                     ItemStack item = contents[i];
                     if (isValidItem(item)) {
                         allItems.add(item.clone());
-                        YakRealms.log("Collected from storage slot " + i + ": " + getItemDisplayName(item));
                     }
                 }
             }
 
-            // CRITICAL FIX: Armor collected separately with explicit armor slot checking
+            // Collect worn armor separately
             ItemStack[] armorContents = inventory.getArmorContents();
             if (armorContents != null) {
                 String[] armorSlots = {"boots", "leggings", "chestplate", "helmet"};
@@ -145,127 +124,26 @@ public class InventoryUtils {
                     ItemStack armor = armorContents[i];
                     if (isValidItem(armor)) {
                         allItems.add(armor.clone());
-                        YakRealms.log("Collected from " + armorSlots[i] + " slot: " + getItemDisplayName(armor));
                     }
                 }
             }
 
-            // CRITICAL FIX: Offhand handled separately
+            // Collect offhand item
             ItemStack offhand = inventory.getItemInOffHand();
             if (isValidItem(offhand)) {
                 allItems.add(offhand.clone());
-                YakRealms.log("Collected from offhand: " + getItemDisplayName(offhand));
             }
 
-            YakRealms.log(": Total items collected: " + allItems.size());
             return allItems;
 
         } catch (Exception e) {
-            YakRealms.error(": Error collecting player items", e);
+            YakRealms.error("Error collecting player items", e);
             return allItems; // Return what we managed to collect
         }
     }
 
-    /**
-     * Get equipped armor specifically (prevents confusion with inventory armor)
-     */
-    public static List<ItemStack> getEquippedArmor(Player player) {
-        List<ItemStack> equippedArmor = new ArrayList<>();
-        if (player == null) {
-            return equippedArmor;
-        }
+    // Item Validation
 
-        try {
-            ItemStack[] armorContents = player.getInventory().getArmorContents();
-            for (ItemStack armor : armorContents) {
-                if (armor != null && armor.getType() != Material.AIR) {
-                    equippedArmor.add(armor.clone());
-                }
-            }
-            YakRealms.log("Found " + equippedArmor.size() + " equipped armor pieces for " + player.getName());
-        } catch (Exception e) {
-            YakRealms.error("Error getting equipped armor", e);
-        }
-
-        return equippedArmor;
-    }
-
-    /**
-     * Check if an item is currently equipped as armor
-     */
-    public static boolean isEquippedArmor(ItemStack item, Player player) {
-        if (item == null || !isArmorItem(item) || player == null) {
-            return false;
-        }
-
-        try {
-            ItemStack[] armorContents = player.getInventory().getArmorContents();
-            for (ItemStack equipped : armorContents) {
-                if (equipped != null && equipped.isSimilar(item)) {
-                    return true;
-                }
-            }
-        } catch (Exception e) {
-            YakRealms.error("Error checking if armor is equipped", e);
-        }
-
-        return false;
-    }
-
-    /**
-     * Separate items into equipped armor and other items
-     */
-    public static void separateEquippedArmor(List<ItemStack> allItems, Player player,
-                                             List<ItemStack> equippedArmor,
-                                             List<ItemStack> otherItems) {
-        if (allItems == null || player == null || equippedArmor == null || otherItems == null) {
-            return;
-        }
-
-        try {
-            // Get currently equipped armor
-            ItemStack[] armorContents = player.getInventory().getArmorContents();
-            Set<ItemStack> equippedSet = new HashSet<>();
-
-            for (ItemStack armor : armorContents) {
-                if (armor != null && armor.getType() != Material.AIR) {
-                    equippedSet.add(armor);
-                }
-            }
-
-            // Separate items
-            for (ItemStack item : allItems) {
-                if (item == null || item.getType() == Material.AIR) {
-                    continue;
-                }
-
-                boolean isEquipped = false;
-                Iterator<ItemStack> iterator = equippedSet.iterator();
-                while (iterator.hasNext()) {
-                    ItemStack equipped = iterator.next();
-                    if (equipped.isSimilar(item)) {
-                        isEquipped = true;
-                        iterator.remove(); // Remove to handle duplicates correctly
-                        break;
-                    }
-                }
-
-                if (isEquipped) {
-                    equippedArmor.add(item.clone());
-                } else {
-                    otherItems.add(item.clone());
-                }
-            }
-        } catch (Exception e) {
-            YakRealms.error("Error separating equipped armor", e);
-        }
-    }
-
-    // ====================  ITEM VALIDATION ====================
-
-    /**
-     * Comprehensive item validation
-     */
     public static boolean isValidItem(ItemStack item) {
         return item != null &&
                 item.getType() != null &&
@@ -273,9 +151,6 @@ public class InventoryUtils {
                 item.getAmount() > 0;
     }
 
-    /**
-     * Create safe item copy to prevent reference issues
-     */
     public static ItemStack createSafeCopy(ItemStack original) {
         if (!isValidItem(original)) {
             return null;
@@ -284,13 +159,13 @@ public class InventoryUtils {
         try {
             ItemStack copy = original.clone();
 
-            // : Validate the copy
+            // Validate the copy
             if (!isValidItem(copy)) {
                 YakRealms.warn("Item became invalid after cloning: " + original.getType());
                 return null;
             }
 
-            // : Additional safety checks
+            // Additional safety checks
             if (copy.getType() != original.getType()) {
                 YakRealms.warn("Item type changed during cloning: " + original.getType() + " -> " + copy.getType());
                 return null;
@@ -309,11 +184,8 @@ public class InventoryUtils {
         }
     }
 
-    // ==================== ITEM TYPE DETECTION ====================
+    // Item Type Detection
 
-    /**
-     * armor item detection for Spigot 1.20.4
-     */
     public static boolean isArmorItem(ItemStack item) {
         if (!isValidItem(item)) {
             return false;
@@ -321,9 +193,6 @@ public class InventoryUtils {
         return ARMOR_MATERIALS.contains(item.getType());
     }
 
-    /**
-     * weapon item detection for Spigot 1.20.4
-     */
     public static boolean isWeaponItem(ItemStack item) {
         if (!isValidItem(item)) {
             return false;
@@ -331,9 +200,6 @@ public class InventoryUtils {
         return WEAPON_MATERIALS.contains(item.getType());
     }
 
-    /**
-     * Tool item detection for Spigot 1.20.4
-     */
     public static boolean isToolItem(ItemStack item) {
         if (!isValidItem(item)) {
             return false;
@@ -367,11 +233,8 @@ public class InventoryUtils {
         return -1;
     }
 
-    // ==================== SPECIAL ITEM DETECTION ====================
+    // Special Item Detection
 
-    /**
-     * Check if item is permanent untradeable (always kept)
-     */
     public static boolean isPermanentUntradeable(ItemStack item) {
         if (!isValidItem(item)) {
             return false;
@@ -414,9 +277,6 @@ public class InventoryUtils {
         }
     }
 
-    /**
-     * Check if item is a quest item (gem containers, quest books, etc.)
-     */
     public static boolean isQuestItem(ItemStack item) {
         if (!isValidItem(item)) {
             return false;
@@ -459,9 +319,6 @@ public class InventoryUtils {
         }
     }
 
-    /**
-     * Check if item is a gem container (always quest item)
-     */
     public static boolean isGemContainer(ItemStack item) {
         if (!isValidItem(item) || item.getType() != Material.INK_SAC) {
             return false;
@@ -482,113 +339,126 @@ public class InventoryUtils {
         }
     }
 
-    /**
-     * Check if an item is untradeable (broader than permanent)
-     */
-    public static boolean isUntradeableItem(ItemStack item) {
+    // Alignment-Based Item Retention
+
+    public static boolean determineIfItemShouldBeKept(ItemStack item, String alignment, Player player,
+                                                      ItemStack firstHotbarItem, boolean neutralShouldDropArmor,
+                                                      boolean neutralShouldDropWeapon) {
         if (!isValidItem(item)) {
             return false;
         }
 
-        try {
-            if (!item.hasItemMeta() || !item.getItemMeta().hasLore()) {
+        // ALWAYS keep permanent untradeable items regardless of alignment
+        if (isPermanentUntradeable(item)) {
+            YakRealms.log("ALWAYS KEEPING: Permanent untradeable - " + getItemDisplayName(item));
+            return true;
+        }
+
+        // ALWAYS keep quest items regardless of alignment
+        if (isQuestItem(item)) {
+            YakRealms.log("ALWAYS KEEPING: Quest item - " + getItemDisplayName(item));
+            return true;
+        }
+
+        switch (alignment) {
+            case "LAWFUL":
+                return shouldKeepItemLawful(item, firstHotbarItem);
+
+            case "NEUTRAL":
+                // FIXED: For neutral, this method should NOT be used for per-armor-piece rolls
+                // This is only for compatibility with legacy calls
+                return shouldKeepItemNeutralLegacy(item, firstHotbarItem, neutralShouldDropArmor, neutralShouldDropWeapon);
+
+            case "CHAOTIC":
+                // Chaotic players lose everything except permanent/quest items (already handled above)
+                YakRealms.log("CHAOTIC: Dropping - " + getItemDisplayName(item));
                 return false;
-            }
 
-            List<String> lore = item.getItemMeta().getLore();
-            if (lore == null) return false;
-
-            for (String line : lore) {
-                String cleanLine = ChatColor.stripColor(line).toLowerCase();
-                if (cleanLine.contains("untradeable") || cleanLine.contains("bound")) {
-                    return true;
-                }
-            }
-            return false;
-
-        } catch (Exception e) {
-            YakRealms.error("Error checking if item is untradeable", e);
-            return false;
+            default:
+                YakRealms.warn("Unknown alignment: " + alignment + ", defaulting to lawful rules");
+                return shouldKeepItemLawful(item, firstHotbarItem);
         }
     }
 
-    /**
-     * Check if this item is the first hotbar item
-     */
-    public static boolean isFirstHotbarItem(ItemStack item, ItemStack firstHotbarItem) {
-        if (firstHotbarItem == null || item == null) {
-            return false;
-        }
-
-        return isSameItem(item, firstHotbarItem);
-    }
-
-    /**
-     * Check if item is a weapon or valid first slot item
-     */
-    public static boolean isWeaponOrValidFirstSlotItem(ItemStack item) {
+    public static boolean determineIfNeutralItemShouldBeKept(ItemStack item, ItemStack firstHotbarItem) {
         if (!isValidItem(item)) {
             return false;
         }
 
-        return isWeaponItem(item) || isToolItem(item) || isArmorItem(item);
-    }
-
-    /**
-     * Get item rarity or tier for special handling
-     */
-    public static String getItemRarity(ItemStack item) {
-        if (!isValidItem(item)) {
-            return "COMMON";
+        // ALWAYS keep permanent untradeable items
+        if (isPermanentUntradeable(item)) {
+            YakRealms.log("NEUTRAL: Keeping permanent untradeable - " + getItemDisplayName(item));
+            return true;
         }
 
-        try {
-            if (item.hasItemMeta() && item.getItemMeta().hasLore()) {
-                List<String> lore = item.getItemMeta().getLore();
-                for (String line : lore) {
-                    String cleanLine = ChatColor.stripColor(line).toLowerCase();
-                    if (cleanLine.contains("legendary")) return "LEGENDARY";
-                    if (cleanLine.contains("epic")) return "EPIC";
-                    if (cleanLine.contains("rare")) return "RARE";
-                    if (cleanLine.contains("uncommon")) return "UNCOMMON";
-                }
-            }
-
-            // Check by material type
-            String typeName = item.getType().name();
-            if (typeName.contains("NETHERITE")) return "LEGENDARY";
-            if (typeName.contains("DIAMOND")) return "EPIC";
-            if (typeName.contains("IRON") || typeName.contains("GOLDEN")) return "RARE";
-            if (typeName.contains("STONE") || typeName.contains("CHAINMAIL")) return "UNCOMMON";
-
-            return "COMMON";
-
-        } catch (Exception e) {
-            YakRealms.error("Error getting item rarity", e);
-            return "COMMON";
-        }
-    }
-
-    /**
-     * Check if item should be prioritized in restoration
-     */
-    public static boolean isHighPriorityItem(ItemStack item) {
-        if (!isValidItem(item)) {
-            return false;
+        // ALWAYS keep quest items
+        if (isQuestItem(item)) {
+            YakRealms.log("NEUTRAL: Keeping quest item - " + getItemDisplayName(item));
+            return true;
         }
 
-        // Prioritize permanent items, quest items, and high-tier equipment
-        return isPermanentUntradeable(item) ||
-                isQuestItem(item) ||
-                "LEGENDARY".equals(getItemRarity(item)) ||
-                "EPIC".equals(getItemRarity(item));
+        // Handle primary weapon: 50% chance to keep
+        if (firstHotbarItem != null && isSameItem(item, firstHotbarItem)) {
+            Random random = new Random();
+            boolean shouldKeep = random.nextInt(100) >= NEUTRAL_WEAPON_DROP_PERCENTAGE;
+            YakRealms.log("NEUTRAL: Weapon " + (shouldKeep ? "kept" : "dropped") + " - " + getItemDisplayName(item));
+            return shouldKeep;
+        }
+
+        // Handle armor: Each piece gets its own 25% drop chance (75% keep chance)
+        if (isArmorItem(item)) {
+            Random random = new Random();
+            boolean shouldKeep = random.nextInt(100) >= NEUTRAL_ARMOR_PIECE_DROP_PERCENTAGE;
+            YakRealms.log("NEUTRAL: Armor " + (shouldKeep ? "kept" : "dropped") + " - " + getItemDisplayName(item));
+            return shouldKeep;
+        }
+
+        // All other items are dropped for neutral players
+        YakRealms.log("NEUTRAL: Dropping other item - " + getItemDisplayName(item));
+        return false;
     }
 
-    // ==================== ITEM COMPARISON ====================
+    private static boolean shouldKeepItemLawful(ItemStack item, ItemStack firstHotbarItem) {
+        // Keep all armor
+        if (isArmorItem(item)) {
+            YakRealms.log("LAWFUL: Keeping armor - " + getItemDisplayName(item));
+            return true;
+        }
 
-    /**
-     * item comparison for first hotbar item detection
-     */
+        // Keep first hotbar item (weapon)
+        if (firstHotbarItem != null && isSameItem(item, firstHotbarItem)) {
+            YakRealms.log("LAWFUL: Keeping first hotbar item - " + getItemDisplayName(item));
+            return true;
+        }
+
+        YakRealms.log("LAWFUL: Dropping - " + getItemDisplayName(item));
+        return false;
+    }
+
+    private static boolean shouldKeepItemNeutralLegacy(ItemStack item, ItemStack firstHotbarItem,
+                                                       boolean neutralShouldDropArmor, boolean neutralShouldDropWeapon) {
+
+        // Armor logic: Use pre-calculated result (NOT recommended - use per-piece instead)
+        if (isArmorItem(item)) {
+            boolean keep = !neutralShouldDropArmor;
+            YakRealms.log("NEUTRAL (LEGACY): Armor " + (keep ? "kept" : "dropped") + " - " + getItemDisplayName(item));
+            return keep;
+        }
+
+        // First hotbar item (weapon) logic: Use pre-calculated result
+        if (firstHotbarItem != null && isSameItem(item, firstHotbarItem)) {
+            boolean keep = !neutralShouldDropWeapon;
+            YakRealms.log("NEUTRAL (LEGACY): Weapon " + (keep ? "kept" : "dropped") + " - " + getItemDisplayName(item));
+            return keep;
+        }
+
+        // All other items are dropped for neutral players
+        YakRealms.log("NEUTRAL (LEGACY): Dropping other item - " + getItemDisplayName(item));
+        return false;
+    }
+
+    // Item Comparison
+
     public static boolean isSameItem(ItemStack item1, ItemStack item2) {
         if (item1 == null || item2 == null) {
             return false;
@@ -618,11 +488,8 @@ public class InventoryUtils {
         return Objects.equals(item1.getEnchantments(), item2.getEnchantments());
     }
 
-    // ==================== DISPLAY AND FORMATTING ====================
+    // Display and Formatting
 
-    /**
-     * item display name extraction
-     */
     public static String getItemDisplayName(ItemStack item) {
         if (!isValidItem(item)) {
             return "Invalid Item";
@@ -646,9 +513,6 @@ public class InventoryUtils {
         }
     }
 
-    /**
-     * Format material name for display
-     */
     private static String formatMaterialName(String materialName) {
         if (materialName == null || materialName.isEmpty()) {
             return "Unknown";
@@ -660,177 +524,8 @@ public class InventoryUtils {
                 .collect(Collectors.joining(" "));
     }
 
-    /**
-     * Get comprehensive item information for admin commands
-     */
-    public static String getItemInfo(ItemStack item) {
-        if (!isValidItem(item)) {
-            return "Invalid Item";
-        }
+    // Utility Methods
 
-        StringBuilder info = new StringBuilder();
-        info.append("Item: ").append(getItemDisplayName(item)).append(" x").append(item.getAmount()).append("\n");
-        info.append("Type: ").append(item.getType().name()).append("\n");
-        info.append("Durability: ").append(item.getDurability()).append("/").append(item.getType().getMaxDurability()).append("\n");
-        info.append("Rarity: ").append(getItemRarity(item)).append("\n");
-        info.append("Armor: ").append(isArmorItem(item)).append("\n");
-        info.append("Weapon: ").append(isWeaponItem(item)).append("\n");
-        info.append("Tool: ").append(isToolItem(item)).append("\n");
-        info.append("Permanent: ").append(isPermanentUntradeable(item)).append("\n");
-        info.append("Quest Item: ").append(isQuestItem(item)).append("\n");
-        info.append("Untradeable: ").append(isUntradeableItem(item)).append("\n");
-
-        if (item.hasItemMeta()) {
-            ItemMeta meta = item.getItemMeta();
-            if (meta.hasLore()) {
-                info.append("Lore: ").append(meta.getLore()).append("\n");
-            }
-            if (!item.getEnchantments().isEmpty()) {
-                info.append("Enchantments: ").append(item.getEnchantments()).append("\n");
-            }
-        }
-
-        return info.toString();
-    }
-
-    // ==================== ALIGNMENT-BASED ITEM RETENTION ====================
-
-    /**
-     * Determine if item should be kept based on alignment with comprehensive logic
-     */
-    public static boolean determineIfItemShouldBeKept(ItemStack item, String alignment, Player player,
-                                                      ItemStack firstHotbarItem, boolean neutralShouldDropArmor,
-                                                      boolean neutralShouldDropWeapon) {
-        if (!isValidItem(item)) {
-            return false;
-        }
-
-        // ALWAYS keep permanent untradeable items regardless of alignment
-        if (isPermanentUntradeable(item)) {
-            YakRealms.log("ALWAYS KEEPING: Permanent untradeable - " + getItemDisplayName(item));
-            return true;
-        }
-
-        // ALWAYS keep quest items regardless of alignment
-        if (isQuestItem(item)) {
-            YakRealms.log("ALWAYS KEEPING: Quest item - " + getItemDisplayName(item));
-            return true;
-        }
-
-        switch (alignment) {
-            case "LAWFUL":
-                return shouldKeepItemLawful(item, firstHotbarItem);
-
-            case "NEUTRAL":
-                return shouldKeepItemNeutral(item, firstHotbarItem, neutralShouldDropArmor, neutralShouldDropWeapon);
-
-            case "CHAOTIC":
-                // Chaotic players lose everything except permanent/quest items (already handled above)
-                YakRealms.log("CHAOTIC: Dropping - " + getItemDisplayName(item));
-                return false;
-
-            default:
-                YakRealms.warn("Unknown alignment: " + alignment + ", defaulting to lawful rules");
-                return shouldKeepItemLawful(item, firstHotbarItem);
-        }
-    }
-
-    /**
-     * Lawful item retention logic: Keep armor and first hotbar item
-     */
-    private static boolean shouldKeepItemLawful(ItemStack item, ItemStack firstHotbarItem) {
-        // Keep all armor
-        if (isArmorItem(item)) {
-            YakRealms.log("LAWFUL: Keeping armor - " + getItemDisplayName(item));
-            return true;
-        }
-
-        // Keep first hotbar item (weapon)
-        if (firstHotbarItem != null && isSameItem(item, firstHotbarItem)) {
-            YakRealms.log("LAWFUL: Keeping first hotbar item - " + getItemDisplayName(item));
-            return true;
-        }
-
-        YakRealms.log("LAWFUL: Dropping - " + getItemDisplayName(item));
-        return false;
-    }
-
-    /**
-     * Neutral item retention logic: Random chances for armor and weapons
-     */
-    private static boolean shouldKeepItemNeutral(ItemStack item, ItemStack firstHotbarItem,
-                                                 boolean neutralShouldDropArmor, boolean neutralShouldDropWeapon) {
-
-        // Armor logic: 75% chance to keep (25% chance to drop)
-        if (isArmorItem(item)) {
-            boolean keep = !neutralShouldDropArmor;
-            YakRealms.log("NEUTRAL: Armor " + (keep ? "kept" : "dropped") + " - " + getItemDisplayName(item));
-            return keep;
-        }
-
-        // First hotbar item (weapon) logic: 50% chance to keep
-        if (firstHotbarItem != null && isSameItem(item, firstHotbarItem)) {
-            boolean keep = !neutralShouldDropWeapon;
-            YakRealms.log("NEUTRAL: Weapon " + (keep ? "kept" : "dropped") + " - " + getItemDisplayName(item));
-            return keep;
-        }
-
-        // All other items are dropped for neutral players
-        YakRealms.log("NEUTRAL: Dropping other item - " + getItemDisplayName(item));
-        return false;
-    }
-
-    // ==================== UTILITY METHODS ====================
-
-    /**
-     * Create unique item key for deduplication
-     */
-    private static String createItemKey(ItemStack item, String location) {
-        if (item == null) return "null_" + location;
-
-        StringBuilder key = new StringBuilder();
-        key.append(location).append("_");
-        key.append(item.getType().name()).append("_");
-        key.append(item.getAmount()).append("_");
-        key.append(item.getDurability()).append("_");
-
-        if (item.hasItemMeta()) {
-            ItemMeta meta = item.getItemMeta();
-            if (meta.hasDisplayName()) {
-                key.append(meta.getDisplayName().hashCode()).append("_");
-            }
-            if (meta.hasLore()) {
-                key.append(meta.getLore().hashCode()).append("_");
-            }
-        }
-
-        if (item.getEnchantments() != null && !item.getEnchantments().isEmpty()) {
-            key.append(item.getEnchantments().hashCode());
-        }
-
-        return key.toString();
-    }
-
-    /**
-     * Count valid items in array
-     */
-    private static int countValidItems(ItemStack[] items) {
-        if (items == null) {
-            return 0;
-        }
-
-        int count = 0;
-        for (ItemStack item : items) {
-            if (isValidItem(item)) {
-                count++;
-            }
-        }
-        return count;
-    }
-
-    /**
-     * Safely clear all player items
-     */
     public static void clearPlayerInventory(Player player) {
         if (player == null) {
             return;
@@ -847,200 +542,5 @@ public class InventoryUtils {
         } catch (Exception e) {
             YakRealms.error("Error clearing player items", e);
         }
-    }
-
-    /**
-     * Place armor in array slot for serialization
-     */
-    public static void placeArmorInSlot(ItemStack[] armorArray, ItemStack armor) {
-        if (!isValidItem(armor) || !isArmorItem(armor) || armorArray == null || armorArray.length < 4) {
-            return;
-        }
-
-        try {
-            String typeName = armor.getType().name().toLowerCase();
-
-            if (typeName.contains("helmet")) {
-                armorArray[3] = armor;
-            } else if (typeName.contains("chestplate") || armor.getType() == Material.ELYTRA) {
-                armorArray[2] = armor;
-            } else if (typeName.contains("leggings")) {
-                armorArray[1] = armor;
-            } else if (typeName.contains("boots")) {
-                armorArray[0] = armor;
-            }
-        } catch (Exception e) {
-            YakRealms.error("Error placing armor in slot", e);
-        }
-    }
-
-    /**
-     * Create empty inventory arrays
-     */
-    public static ItemStack[] createEmptyInventory() {
-        return new ItemStack[36]; // Main inventory only
-    }
-
-    /**
-     * Create empty armor array
-     */
-    public static ItemStack[] createEmptyArmor() {
-        return new ItemStack[4];
-    }
-
-    /**
-     * Batch process items safely with error handling
-     */
-    public static List<ItemStack> processBatchItems(List<ItemStack> items, ItemProcessor processor) {
-        List<ItemStack> results = new ArrayList<>();
-
-        if (items == null || processor == null) {
-            return results;
-        }
-
-        for (ItemStack item : items) {
-            try {
-                ItemStack result = processor.process(item);
-                if (result != null) {
-                    results.add(result);
-                }
-            } catch (Exception e) {
-                YakRealms.error("Error processing item in batch: " + getItemDisplayName(item), e);
-            }
-        }
-
-        return results;
-    }
-
-    // ==================== SERIALIZATION METHODS ====================
-
-    /**
-     * Serialize item stack array to Base64 string for database storage
-     */
-    public static String serializeItemStacks(ItemStack[] items) {
-        if (items == null || items.length == 0) {
-            return null;
-        }
-
-        try (ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
-             BukkitObjectOutputStream dataOutput = new BukkitObjectOutputStream(outputStream)) {
-
-            dataOutput.writeInt(items.length);
-            for (ItemStack item : items) {
-                dataOutput.writeObject(item);
-            }
-
-            return Base64.getEncoder().encodeToString(outputStream.toByteArray());
-
-        } catch (IOException e) {
-            YakRealms.log("Error serializing item stacks");
-            return null;
-        }
-    }
-
-    /**
-     * Deserialize Base64 string to item stack array from database
-     */
-    public static ItemStack[] deserializeItemStacks(String data) {
-        if (data == null || data.isEmpty()) {
-            return new ItemStack[0];
-        }
-
-        try (ByteArrayInputStream inputStream = new ByteArrayInputStream(Base64.getDecoder().decode(data));
-             BukkitObjectInputStream dataInput = new BukkitObjectInputStream(inputStream)) {
-
-            int length = dataInput.readInt();
-            ItemStack[] items = new ItemStack[length];
-
-            for (int i = 0; i < length; i++) {
-                items[i] = (ItemStack) dataInput.readObject();
-            }
-
-            return items;
-
-        } catch (Exception e) {
-            YakRealms.log("Error deserializing item stacks");
-            return new ItemStack[0];
-        }
-    }
-
-    /**
-     * Serialize single item stack to Base64 string
-     */
-    public static String serializeItemStack(ItemStack item) {
-        if (!isValidItem(item)) {
-            return null;
-        }
-
-        try (ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
-             BukkitObjectOutputStream dataOutput = new BukkitObjectOutputStream(outputStream)) {
-
-            dataOutput.writeObject(item);
-            return Base64.getEncoder().encodeToString(outputStream.toByteArray());
-
-        } catch (IOException e) {
-            YakRealms.log("Error serializing item stack");
-            return null;
-        }
-    }
-
-    /**
-     * Deserialize Base64 string to single item stack
-     */
-    public static ItemStack deserializeItemStack(String data) {
-        if (data == null || data.isEmpty()) {
-            return null;
-        }
-
-        try (ByteArrayInputStream inputStream = new ByteArrayInputStream(Base64.getDecoder().decode(data));
-             BukkitObjectInputStream dataInput = new BukkitObjectInputStream(inputStream)) {
-
-            return (ItemStack) dataInput.readObject();
-
-        } catch (Exception e) {
-            YakRealms.log("Error deserializing item stack");
-            return null;
-        }
-    }
-
-    // ==================== DEBUGGING AND VALIDATION ====================
-
-    /**
-     * Validate inventory state for debugging
-     */
-    public static void validateInventoryState(Player player, String context) {
-        if (player == null) {
-            return;
-        }
-
-        try {
-            YakRealms.log("=== INVENTORY VALIDATION: " + context + " ===");
-
-            // Count items in each section
-            int mainCount = countValidItems(player.getInventory().getContents());
-            int armorCount = countValidItems(player.getInventory().getArmorContents());
-            int enderCount = countValidItems(player.getEnderChest().getContents());
-            int offhandCount = isValidItem(player.getInventory().getItemInOffHand()) ? 1 : 0;
-
-            YakRealms.log("Main inventory: " + mainCount + " items");
-            YakRealms.log("Armor slots: " + armorCount + " items");
-            YakRealms.log("Ender chest: " + enderCount + " items");
-            YakRealms.log("Offhand: " + offhandCount + " items");
-            YakRealms.log("Total: " + (mainCount + armorCount + enderCount + offhandCount) + " items");
-            YakRealms.log("=== VALIDATION COMPLETE ===");
-
-        } catch (Exception e) {
-            YakRealms.error("Error validating inventory state", e);
-        }
-    }
-
-    // ==================== FUNCTIONAL INTERFACE ====================
-
-    /**
-     * Functional interface for item processing
-     */
-    @FunctionalInterface
-    public interface ItemProcessor {
-        ItemStack process(ItemStack item);
     }
 }

@@ -1,6 +1,9 @@
 package com.rednetty.server.utils.menu;
 
-import com.rednetty.server.mechanics.item.enchants.Enchants;
+import com.rednetty.server.core.mechanics.item.enchants.Enchants;
+import com.rednetty.server.utils.messaging.MessageUtils;
+import net.kyori.adventure.text.Component;
+import org.bukkit.ChatColor;
 import org.bukkit.Material;
 import org.bukkit.inventory.ItemFlag;
 import org.bukkit.inventory.ItemStack;
@@ -138,11 +141,18 @@ public class MenuItem {
 
         if (meta != null) {
             if (displayName != null) {
-                meta.setDisplayName(displayName);
+                // Properly format display name
+                Component nameComponent = formatText(displayName);
+                meta.displayName(nameComponent);
             }
 
             if (!lore.isEmpty()) {
-                meta.setLore(lore);
+                // Properly format lore lines
+                List<Component> formattedLore = new ArrayList<>();
+                for (String line : lore) {
+                    formattedLore.add(formatText(line));
+                }
+                meta.lore(formattedLore);
             }
 
             // Hide enchantments to prevent showing "Glow I" in the lore
@@ -160,4 +170,29 @@ public class MenuItem {
 
         return result;
     }
+    
+    /**
+     * Formats text with proper color code handling
+     * Supports both MiniMessage format (<color>) and legacy codes (&x, §x mixed with &x)
+     */
+    private Component formatText(String text) {
+        if (text == null || text.isEmpty()) {
+            return Component.empty();
+        }
+        
+        // Check if it's MiniMessage format
+        if (text.contains("<") && text.contains(">")) {
+            return MessageUtils.parse(text);
+        } else {
+            // Handle legacy format - this covers:
+            // 1. Pure & codes: &aHello &lBold
+            // 2. Mixed § and & codes: §e&lAppeal Management (from ChatColor.YELLOW + "&l...")
+            // 3. Pure § codes: §aHello§lBold
+            
+            // First translate & codes to § codes, then use legacy serializer
+            String processedText = ChatColor.translateAlternateColorCodes('&', text);
+            return MessageUtils.fromLegacy(processedText);
+        }
+    }
+    
 }

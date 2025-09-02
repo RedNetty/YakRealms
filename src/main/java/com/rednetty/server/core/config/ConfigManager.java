@@ -1,9 +1,9 @@
 package com.rednetty.server.core.config;
 
 import com.rednetty.server.YakRealms;
-import com.rednetty.server.mechanics.item.drops.DropConfig;
-import com.rednetty.server.mechanics.item.drops.types.EliteDropConfig;
-import com.rednetty.server.mechanics.item.drops.types.TierConfig;
+import com.rednetty.server.core.mechanics.item.drops.DropConfig;
+import com.rednetty.server.core.mechanics.item.drops.types.EliteDropConfig;
+import com.rednetty.server.core.mechanics.item.drops.types.TierConfig;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.configuration.file.YamlConfiguration;
@@ -15,8 +15,8 @@ import java.util.Map;
 import java.util.logging.Logger;
 
 /**
- *  configuration manager for the drop system
- *  Now properly works with the updated DropConfig system and correctly handles YAML loading
+ * Configuration manager for the drop system.
+ * Manages drop rates, elite configurations, and system modifiers.
  */
 public class ConfigManager {
     private static ConfigManager instance;
@@ -31,19 +31,11 @@ public class ConfigManager {
     private FileConfiguration eliteDropsConfig;
     private FileConfiguration dropRatesConfig;
 
-    /**
-     * Private constructor for singleton pattern
-     */
     private ConfigManager() {
         this.plugin = YakRealms.getInstance();
         this.logger = plugin.getLogger();
     }
 
-    /**
-     * Gets the singleton instance
-     *
-     * @return The ConfigManager instance
-     */
     public static ConfigManager getInstance() {
         if (instance == null) {
             instance = new ConfigManager();
@@ -51,9 +43,6 @@ public class ConfigManager {
         return instance;
     }
 
-    /**
-     * Initializes the configuration manager
-     */
     public void initialize() {
         // Ensure config directory exists
         if (!plugin.getDataFolder().exists()) {
@@ -66,18 +55,15 @@ public class ConfigManager {
         // Load additional configurations that aren't handled by DropConfig
         loadDropRatesConfig();
 
-        logger.info("§a[ConfigManager] §7Configuration manager initialized successfully");
+        logger.info("Configuration manager initialized successfully");
     }
 
-    /**
-     * Initialize configuration files
-     */
     private void initializeConfigFiles() {
         // Elite drops file (handled by DropConfig, but we track it for reloading)
         eliteDropsFile = new File(plugin.getDataFolder(), "elite_drops.yml");
         if (!eliteDropsFile.exists()) {
             plugin.saveResource("elite_drops.yml", false);
-            logger.info("§6[ConfigManager] §7Created default elite_drops.yml file");
+            logger.info("Created default elite_drops.yml file");
         }
 
         // Drop rates configuration file
@@ -87,9 +73,6 @@ public class ConfigManager {
         }
     }
 
-    /**
-     * Create default drop rates configuration
-     */
     private void createDefaultDropRatesConfig() {
         try {
             dropRatesConfig = new YamlConfiguration();
@@ -115,16 +98,13 @@ public class ConfigManager {
             dropRatesConfig.set("buffs.stackableBuffs", false);
 
             dropRatesConfig.save(dropRatesFile);
-            logger.info("§6[ConfigManager] §7Created default drop_rates.yml file");
+            logger.info("Created default drop_rates.yml file");
 
         } catch (IOException e) {
-            logger.severe("§c[ConfigManager] Failed to create default drop rates config: " + e.getMessage());
+            logger.severe("Failed to create default drop rates config: " + e.getMessage());
         }
     }
 
-    /**
-     * Load drop rates configuration
-     */
     private void loadDropRatesConfig() {
         try {
             dropRatesConfig = YamlConfiguration.loadConfiguration(dropRatesFile);
@@ -142,36 +122,30 @@ public class ConfigManager {
                             // This preserves the carefully balanced rates in DropConfig
                             if (tierSection.contains("dropRate")) {
                                 int dropRate = tierSection.getInt("dropRate");
-                                logger.fine("§6[ConfigManager] §7Tier " + tier + " drop rate override: " + dropRate + "%");
+                                logger.fine("Tier " + tier + " drop rate override: " + dropRate + "%");
                             }
                         }
                     } catch (NumberFormatException e) {
-                        logger.warning("§c[ConfigManager] Invalid tier key in drop_rates.yml: " + tierKey);
+                        logger.warning("Invalid tier key in drop_rates.yml: " + tierKey);
                     }
                 }
             }
 
-            logger.info("§a[ConfigManager] §7Drop rates configuration loaded successfully");
+            // Drop rates configuration loaded
 
         } catch (Exception e) {
-            logger.severe("§c[ConfigManager] Failed to load drop rates configuration: " + e.getMessage());
+            logger.severe("Failed to load drop rates configuration: " + e.getMessage());
         }
     }
 
-    /**
-     * Updates drop rate for a specific tier
-     *
-     * @param tier The tier level (1-6)
-     * @param rate The new drop rate percentage
-     */
     public void updateDropRate(int tier, int rate) {
         if (tier < 1 || tier > 6) {
-            logger.warning("§c[ConfigManager] Invalid tier for drop rate update: " + tier);
+            logger.warning("Invalid tier for drop rate update: " + tier);
             return;
         }
 
         if (rate < 0 || rate > 100) {
-            logger.warning("§c[ConfigManager] Invalid drop rate: " + rate + "% (must be 0-100)");
+            logger.warning("Invalid drop rate: " + rate + "% (must be 0-100)");
             return;
         }
 
@@ -181,35 +155,29 @@ public class ConfigManager {
             if (tierConfig != null) {
                 // Note: This would require updating TierConfig to have setters
                 // For now, we'll just update the config file
-                logger.info("§6[ConfigManager] §7Updated tier " + tier + " drop rate to " + rate + "%");
+                logger.info("Updated tier " + tier + " drop rate to " + rate + "%");
             }
 
             // Update configuration file
             if (dropRatesConfig != null) {
                 dropRatesConfig.set("tiers." + tier + ".dropRate", rate);
                 dropRatesConfig.save(dropRatesFile);
-                logger.fine("§6[ConfigManager] §7Saved drop rate update to configuration file");
+                logger.fine("Saved drop rate update to configuration file");
             }
 
         } catch (IOException e) {
-            logger.severe("§c[ConfigManager] Could not save drop rate update: " + e.getMessage());
+            logger.severe("Could not save drop rate update: " + e.getMessage());
         }
     }
 
-    /**
-     * Updates elite drop rate for a specific tier
-     *
-     * @param tier The tier level (1-6)
-     * @param rate The new elite drop rate percentage
-     */
     public void updateEliteDropRate(int tier, int rate) {
         if (tier < 1 || tier > 6) {
-            logger.warning("§c[ConfigManager] Invalid tier for elite drop rate update: " + tier);
+            logger.warning("Invalid tier for elite drop rate update: " + tier);
             return;
         }
 
         if (rate < 0 || rate > 100) {
-            logger.warning("§c[ConfigManager] Invalid elite drop rate: " + rate + "% (must be 0-100)");
+            logger.warning("Invalid elite drop rate: " + rate + "% (must be 0-100)");
             return;
         }
 
@@ -218,56 +186,44 @@ public class ConfigManager {
             if (dropRatesConfig != null) {
                 dropRatesConfig.set("tiers." + tier + ".eliteDropRate", rate);
                 dropRatesConfig.save(dropRatesFile);
-                logger.info("§6[ConfigManager] §7Updated tier " + tier + " elite drop rate to " + rate + "%");
+                logger.info("Updated tier " + tier + " elite drop rate to " + rate + "%");
             }
 
         } catch (IOException e) {
-            logger.severe("§c[ConfigManager] Could not save elite drop rate update: " + e.getMessage());
+            logger.severe("Could not save elite drop rate update: " + e.getMessage());
         }
     }
 
-    /**
-     * Reload elite drop configurations by delegating to DropConfig
-     */
     public boolean reloadEliteDrops() {
         try {
-            logger.info("§6[ConfigManager] §7Reloading elite drop configurations...");
+            logger.info("Reloading elite drop configurations...");
 
             // Delegate to DropConfig which handles the actual YAML loading
             DropConfig.reloadEliteDrops();
 
             Map<String, EliteDropConfig> eliteConfigs = DropConfig.getEliteDropConfigs();
-            logger.info("§a[ConfigManager] §7Successfully reloaded " + eliteConfigs.size() + " elite configurations");
+            logger.info("Successfully reloaded " + eliteConfigs.size() + " elite configurations");
 
             return true;
 
         } catch (Exception e) {
-            logger.severe("§c[ConfigManager] Failed to reload elite drop configurations: " + e.getMessage());
+            logger.severe("Failed to reload elite drop configurations: " + e.getMessage());
             return false;
         }
     }
 
-    /**
-     * Save elite drop configurations by delegating to DropConfig
-     */
     public boolean saveEliteDrops() {
         try {
             DropConfig.saveEliteDrops();
-            logger.info("§a[ConfigManager] §7Elite drop configurations saved successfully");
+            logger.info("Elite drop configurations saved successfully");
             return true;
 
         } catch (Exception e) {
-            logger.severe("§c[ConfigManager] Failed to save elite drop configurations: " + e.getMessage());
+            logger.severe("Failed to save elite drop configurations: " + e.getMessage());
             return false;
         }
     }
 
-    /**
-     * Get drop rate modifier from configuration
-     *
-     * @param modifierType The type of modifier (global, elite, crate)
-     * @return The modifier value (default 1.0)
-     */
     public double getDropRateModifier(String modifierType) {
         if (dropRatesConfig == null) {
             return 1.0;
@@ -276,12 +232,6 @@ public class ConfigManager {
         return dropRatesConfig.getDouble("modifiers." + modifierType + "DropMultiplier", 1.0);
     }
 
-    /**
-     * Set drop rate modifier in configuration
-     *
-     * @param modifierType The type of modifier
-     * @param value        The modifier value
-     */
     public void setDropRateModifier(String modifierType, double value) {
         if (dropRatesConfig == null) {
             return;
@@ -290,18 +240,13 @@ public class ConfigManager {
         try {
             dropRatesConfig.set("modifiers." + modifierType + "DropMultiplier", value);
             dropRatesConfig.save(dropRatesFile);
-            logger.info("§6[ConfigManager] §7Updated " + modifierType + " drop multiplier to " + value);
+            logger.info("Updated " + modifierType + " drop multiplier to " + value);
 
         } catch (IOException e) {
-            logger.severe("§c[ConfigManager] Failed to save drop rate modifier: " + e.getMessage());
+            logger.severe("Failed to save drop rate modifier: " + e.getMessage());
         }
     }
 
-    /**
-     * Get configuration statistics for debugging
-     *
-     * @return A map of configuration statistics
-     */
     public Map<String, Object> getConfigurationStats() {
         Map<String, Object> stats = new HashMap<>();
 
@@ -324,38 +269,33 @@ public class ConfigManager {
         return stats;
     }
 
-    /**
-     * Validate all configuration files
-     *
-     * @return true if all configurations are valid
-     */
     public boolean validateConfigurations() {
         boolean valid = true;
 
         // Check elite drops file
         if (!eliteDropsFile.exists()) {
-            logger.warning("§c[ConfigManager] Elite drops file does not exist");
+            logger.warning("Elite drops file does not exist");
             valid = false;
         } else {
             try {
                 YamlConfiguration.loadConfiguration(eliteDropsFile);
-                logger.fine("§a[ConfigManager] Elite drops configuration is valid");
+                logger.fine("Elite drops configuration is valid");
             } catch (Exception e) {
-                logger.warning("§c[ConfigManager] Elite drops configuration is invalid: " + e.getMessage());
+                logger.warning("Elite drops configuration is invalid: " + e.getMessage());
                 valid = false;
             }
         }
 
         // Check drop rates file
         if (!dropRatesFile.exists()) {
-            logger.warning("§c[ConfigManager] Drop rates file does not exist");
+            logger.warning("Drop rates file does not exist");
             valid = false;
         } else {
             try {
                 YamlConfiguration.loadConfiguration(dropRatesFile);
-                logger.fine("§a[ConfigManager] Drop rates configuration is valid");
+                logger.fine("Drop rates configuration is valid");
             } catch (Exception e) {
-                logger.warning("§c[ConfigManager] Drop rates configuration is invalid: " + e.getMessage());
+                logger.warning("Drop rates configuration is invalid: " + e.getMessage());
                 valid = false;
             }
         }
@@ -365,24 +305,19 @@ public class ConfigManager {
         int invalidElites = 0;
         for (Map.Entry<String, EliteDropConfig> entry : eliteConfigs.entrySet()) {
             if (!entry.getValue().isValid()) {
-                logger.warning("§c[ConfigManager] Invalid elite configuration: " + entry.getKey());
+                logger.warning("Invalid elite configuration: " + entry.getKey());
                 invalidElites++;
                 valid = false;
             }
         }
 
         if (invalidElites > 0) {
-            logger.warning("§c[ConfigManager] Found " + invalidElites + " invalid elite configurations");
+            logger.warning("Found " + invalidElites + " invalid elite configurations");
         }
 
         return valid;
     }
 
-    /**
-     * Backup configuration files
-     *
-     * @return true if backup was successful
-     */
     public boolean backupConfigurations() {
         try {
             File backupDir = new File(plugin.getDataFolder(), "backups");
@@ -406,21 +341,15 @@ public class ConfigManager {
                 ratesConfig.save(ratesBackup);
             }
 
-            logger.info("§a[ConfigManager] §7Configuration backup created successfully");
+            logger.info("Configuration backup created successfully");
             return true;
 
         } catch (Exception e) {
-            logger.severe("§c[ConfigManager] Failed to backup configurations: " + e.getMessage());
+            logger.severe("Failed to backup configurations: " + e.getMessage());
             return false;
         }
     }
 
-    /**
-     * Reset configurations to defaults
-     *
-     * @param createBackup Whether to create a backup before resetting
-     * @return true if reset was successful
-     */
     public boolean resetToDefaults(boolean createBackup) {
         try {
             if (createBackup) {
@@ -438,18 +367,15 @@ public class ConfigManager {
             // Reload DropConfig to reinitialize elite drops
             DropConfig.initialize();
 
-            logger.info("§a[ConfigManager] §7Configurations reset to defaults successfully");
+            logger.info("Configurations reset to defaults successfully");
             return true;
 
         } catch (Exception e) {
-            logger.severe("§c[ConfigManager] Failed to reset configurations: " + e.getMessage());
+            logger.severe("Failed to reset configurations: " + e.getMessage());
             return false;
         }
     }
 
-    /**
-     * Clean up when plugin is disabled
-     */
     public void shutdown() {
         // Save any pending changes
         try {
@@ -457,35 +383,20 @@ public class ConfigManager {
                 dropRatesConfig.save(dropRatesFile);
             }
         } catch (IOException e) {
-            logger.warning("§c[ConfigManager] Failed to save configuration on shutdown: " + e.getMessage());
+            logger.warning("Failed to save configuration on shutdown: " + e.getMessage());
         }
 
-        logger.info("§a[ConfigManager] §7Configuration manager has been shut down");
+        logger.info("Configuration manager has been shut down");
     }
 
-    /**
-     * Get the elite drops file for external access
-     *
-     * @return The elite drops file
-     */
     public File getEliteDropsFile() {
         return eliteDropsFile;
     }
 
-    /**
-     * Get the drop rates file for external access
-     *
-     * @return The drop rates file
-     */
     public File getDropRatesFile() {
         return dropRatesFile;
     }
 
-    /**
-     * Get elite drops configuration for external access
-     *
-     * @return The elite drops configuration
-     */
     public FileConfiguration getEliteDropsConfig() {
         if (eliteDropsConfig == null && eliteDropsFile.exists()) {
             eliteDropsConfig = YamlConfiguration.loadConfiguration(eliteDropsFile);
@@ -493,11 +404,6 @@ public class ConfigManager {
         return eliteDropsConfig;
     }
 
-    /**
-     * Get drop rates configuration for external access
-     *
-     * @return The drop rates configuration
-     */
     public FileConfiguration getDropRatesConfig() {
         return dropRatesConfig;
     }

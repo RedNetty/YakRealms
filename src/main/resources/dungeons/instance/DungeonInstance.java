@@ -1,11 +1,11 @@
-package com.rednetty.server.mechanics.dungeons.instance;
+package com.rednetty.server.core.mechanics.dungeons.instance;
 
 import com.rednetty.server.YakRealms;
-import com.rednetty.server.mechanics.dungeons.bosses.DungeonBoss;
-import com.rednetty.server.mechanics.dungeons.config.DungeonTemplate;
-import com.rednetty.server.mechanics.dungeons.progress.DungeonProgress;
-import com.rednetty.server.mechanics.dungeons.rewards.DungeonRewards;
-import com.rednetty.server.mechanics.dungeons.rooms.DungeonRoom;
+import com.rednetty.server.core.mechanics.dungeons.bosses.DungeonBoss;
+import com.rednetty.server.core.mechanics.dungeons.config.DungeonTemplate;
+import com.rednetty.server.core.mechanics.dungeons.progress.DungeonProgress;
+import com.rednetty.server.core.mechanics.dungeons.rewards.DungeonRewards;
+import com.rednetty.server.core.mechanics.dungeons.rooms.DungeonRoom;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.Location;

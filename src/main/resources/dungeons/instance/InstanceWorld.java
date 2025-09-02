@@ -1,4 +1,4 @@
-package com.rednetty.server.mechanics.dungeons.instance;
+package com.rednetty.server.core.mechanics.dungeons.instance;
 
 import org.bukkit.World;
 

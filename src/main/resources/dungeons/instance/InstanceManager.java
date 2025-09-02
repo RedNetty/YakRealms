@@ -1,7 +1,7 @@
-package com.rednetty.server.mechanics.dungeons.instance;
+package com.rednetty.server.core.mechanics.dungeons.instance;
 
 import com.rednetty.server.YakRealms;
-import com.rednetty.server.mechanics.dungeons.config.DungeonTemplate;
+import com.rednetty.server.core.mechanics.dungeons.config.DungeonTemplate;
 import org.bukkit.*;
 import org.bukkit.generator.ChunkGenerator;
 import org.bukkit.scheduler.BukkitRunnable;

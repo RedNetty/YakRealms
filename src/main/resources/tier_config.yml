@@ -52,7 +52,8 @@
     armor: GOLDEN
 
 6:
-  color: GOLD
+  color: GOLD # Fallback color - actual display uses gradient
+  gradient: true # Special flag to indicate this tier uses gradient colors
   dropRate: 15
   eliteDropRate: 18
   crateDropRate: 1

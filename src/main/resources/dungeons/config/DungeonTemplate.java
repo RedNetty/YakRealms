@@ -1,4 +1,4 @@
-package com.rednetty.server.mechanics.dungeons.config;
+package com.rednetty.server.core.mechanics.dungeons.config;
 
 import org.bukkit.Location;
 

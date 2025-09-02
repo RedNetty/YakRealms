@@ -6,15 +6,11 @@ import org.bukkit.Sound;
 import org.bukkit.entity.Player;
 
 /**
- * Unified Message Utility System for YakRealms
- * Provides consistent messaging patterns across all systems
- * Replaces scattered messaging implementations with standardized approach
+ * Unified messaging utility providing consistent messaging patterns across all systems.
  */
 public class MessageUtil {
 
-    // ========================================
-    // MESSAGE PREFIXES - Consistent across all systems
-    // ========================================
+    // Message Prefixes
 
     public static final String ERROR_PREFIX = ChatColor.RED + "❌ ";
     public static final String SUCCESS_PREFIX = ChatColor.GREEN + "✓ ";
@@ -25,9 +21,7 @@ public class MessageUtil {
     public static final String STAFF_PREFIX = ChatColor.RED + "[STAFF] " + ChatColor.RESET;
     public static final String COMBAT_PREFIX = ChatColor.DARK_RED + "[COMBAT] " + ChatColor.RESET;
 
-    // ========================================
-    // BASIC MESSAGE TYPES
-    // ========================================
+    // Utility Methods
     public static String formatDuration(long seconds) {
         long days = seconds / 86400;
         long hours = (seconds % 86400) / 3600;
